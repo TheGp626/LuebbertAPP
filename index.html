@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <title>LÜBBERT APP</title>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+  <!-- ── AUTH OVERLAY ── -->
+  <div id="auth-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg); z-index: 10000; flex-direction: column; align-items: center; justify-content: center; padding: 20px;">
+    <div class="card" style="width: 100%; max-width: 400px; text-align: center;">
+      <h2 id="auth-title" style="margin-bottom: 20px;">Login</h2>
+      <p id="auth-sub" style="margin-bottom: 20px; color: var(--text2); font-size: 14px;">Wähle deinen Namen aus.</p>
+
+      <div id="auth-error" style="color: var(--danger); font-size: 13px; margin-bottom: 12px; display: none;"></div>
+
+      <div class="field" style="margin-bottom: 12px;">
+        <select id="auth-name-select" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 16px; background: var(--bg2); color: var(--text);">
+          <option value="" disabled selected>Name auswählen...</option>
+          <!-- Option list populated via JS -->
+        </select>
+      </div>
+
+      <div id="auth-password-wrapper" class="field" style="margin-bottom: 20px; display: none;">
+        <input type="password" id="auth-password" placeholder="Admin-Passwort" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 16px; background: var(--bg2); color: var(--text);" />
+        <p style="font-size: 12px; color: var(--text3); margin-top: 6px; text-align: left;">Nur für AL / PL / Admin erforderlich</p>
+      </div>
+      
+      <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="btn primary" style="width: 100%; padding: 14px; font-size: 16px; margin-bottom: 12px;">Anmelden</button>
+
+      <div style="font-size: 12px; color: var(--text3);">Powered by Supabase</div>
+    </div>
+  </div>
+
+  <div class="app">
+    <!-- ── GLOBAL TOP BAR ── -->
+    <div class="top-bar">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <button class="icon-btn" id="back-to-menu-btn" style="display: none;" onclick="exitToMenu()"
+          title="Zum Hauptmenü">Menu</button>
+        <div>
+          <div class="app-title" id="app-title" onclick="titleTap()">LÜBBERT APP</div>
+          <div class="app-sub" id="top-bar-sub">Event Interiors & Logistics</div>
+        </div>
+      </div>
+      <div>
+        <button class="settings-btn" id="settings-btn" onclick="openSettingsModal()">Optionen</button>
+      </div>
+    </div>
+
+    <!-- ── TOP NAVIGATION TABS (Stundenzettel) ── -->
+    <div class="top-tabs" id="main-nav" style="display: none;">
+      <button class="top-tab active" id="nav-home" onclick="navigate('home')">
+        <span class="tab-icon"></span>Erfassen
+      </button>
+      <button class="top-tab" id="nav-history" onclick="navigate('history')">
+        <span class="tab-icon"></span>Verlauf
+      </button>
+    </div>
+
+    <!-- ── TOP NAVIGATION TABS (Protokoll) ── -->
+    <div class="top-tabs" id="prot-nav" style="display: none;">
+      <button class="top-tab active" id="nav-protokoll" onclick="navigateProt('protokoll')">
+        <span class="tab-icon"></span>Erfassen
+      </button>
+      <button class="top-tab" id="nav-protokoll-history" onclick="navigateProt('protokoll-history')">
+        <span class="tab-icon"></span>Verlauf
+      </button>
+    </div>
+
+    <!-- ══════════ STARTUP PAGE ══════════ -->
+    <div class="page active" id="page-startup">
+      <div
+        style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; text-align: center;">
+        <img src="icons/logo.png" id="app-logo" alt="Lübbert Logo"
+          style="width: 180px; height: auto; margin-bottom: 40px; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.1));">
+        <h1 style="font-size: 24px; font-weight: 700; margin-bottom: 8px;">Willkommen</h1>
+        <p style="color: var(--text2); font-size: 14px; margin-bottom: 48px;">Bitte wählen Sie ein Modul aus</p>
+
+        <div style="width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 16px;">
+          <button class="btn primary" style="padding: 18px; font-size: 16px; font-weight: 600;"
+            onclick="selectMode('stunden')">
+            Stundenzettel
+          </button>
+          <button id="btn-select-protokoll" class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px;"
+            onclick="selectMode('protokoll')">
+            Protokoll
+          </button>
+          <button id="btn-select-dashboard" class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px; display: none;"
+            onclick="selectMode('dashboard')">
+            Office Dashboard
+          </button>
+        </div>
+      </div>
+      <div style="padding: 24px; text-align: center; color: var(--text3); font-size: 11px;">
+        Lübbert App v2.0
+      </div>
+    </div>
+
+    <!-- ══════════ ERFASSEN PAGE ══════════ -->
+    <div class="page" id="page-home">
+      <div class="meta-section">
+        <div class="meta-fields">
+          <div class="meta-field">
+            <span class="meta-label">Name</span>
+            <input type="text" id="inp-name" class="meta-input" placeholder="Vorname Nachname" />
+          </div>
+          <div class="meta-field">
+            <span class="meta-label">Woche auswählen</span>
+            <input type="week" id="inp-week" class="meta-input" />
+          </div>
+        </div>
+        <div class="dept-label">Abteilung</div>
+        <div class="chips" id="chips-abt">
+          <!-- Chips generated via JS -->
+        </div>
+      </div>
+
+      <div class="week-strip-section">
+        <div class="week-strip-header" id="week-strip-label">—</div>
+        <div class="week-strip" id="week-strip">
+          <!-- Bubbles generated via JS -->
+        </div>
+      </div>
+
+      <div class="week-total-chip">
+        <div class="wtc-label">Gesamtstunden dieser Woche</div>
+        <div style="text-align: right;">
+          <div class="wtc-val"><span id="total-hours">0</span><span class="wtc-unit">h</span></div>
+          <div id="total-earnings" class="wtc-earnings"></div>
+        </div>
+      </div>
+
+      <div class="day-editor-area" id="day-editor-area">
+        <!-- Day editor generated via JS -->
+      </div>
+
+      <div class="fab-area">
+        <button class="btn primary" onclick="saveWeek()">Speichern</button>
+        <button class="btn send" onclick="sendToBuchhaltung()">PDF senden</button>
+      </div>
+    </div>
+
+    <!-- ══════════ VERLAUF PAGE ══════════ -->
+    <div class="page" id="page-history">
+      <div class="history-scroll">
+        <div class="history-page-header">
+          <div class="history-page-title">Verlauf</div>
+        </div>
+        <div class="chart-container">
+          <canvas id="historyChart"></canvas>
+        </div>
+        <div id="history-list"></div>
+      </div>
+    </div>
+
+    <!-- ══════════ PROTOKOLL PAGE ══════════ -->
+    <div class="page" id="page-protokoll">
+      <div class="day-editor-area" style="padding-top: 16px;">
+        <!-- Section: Basis-Details -->
+        <div class="meta-section" style="padding: 0 0 16px 0;">
+          <div class="field">
+            <label>Veranstaltung / Projekt</label>
+            <input type="text" id="prot-event" class="meta-input" placeholder="Name des Projekts"
+              oninput="saveProtDraft()" />
+          </div>
+          <div class="field">
+            <label>Einsatzort / Location</label>
+            <input type="text" id="prot-location" class="meta-input" placeholder="Ort" oninput="saveProtDraft()" />
+          </div>
+          <div class="meta-fields">
+            <div class="meta-field">
+              <span class="meta-label">Datum</span>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="date" id="prot-date" class="meta-input" style="flex:1; margin-bottom: 0;" onchange="saveProtDraft()" />
+                <label style="display: flex; align-items: center; gap: 4px; margin: 0; font-size: 13px; font-weight: normal; color: var(--text2); white-space: nowrap; cursor: pointer;">
+                  <input type="checkbox" id="prot-isholiday" style="width: 16px; height: 16px; margin: 0; accent-color: var(--accent);" onchange="saveProtDraft()" />
+                  Feiertag
+                </label>
+              </div>
+            </div>
+            <div class="meta-field">
+              <span class="meta-label">Aktion</span>
+              <select id="prot-action" class="meta-input" onchange="saveProtDraft()">
+                <option value="Aufbau">Aufbau</option>
+                <option value="Teilaufbau">Teilaufbau</option>
+                <option value="Umbau">Umbau</option>
+                <option value="Teilabbau">Teilabbau</option>
+                <option value="Abbau">Abbau</option>
+              </select>
+            </div>
+          </div>
+          <div class="meta-fields">
+            <div class="meta-field">
+              <span class="meta-label">Aufbauleitung (AL)</span>
+              <input type="text" id="prot-al" class="meta-input" placeholder="Name AL" oninput="saveProtDraft()" />
+            </div>
+            <div class="meta-field">
+              <span class="meta-label">Projektleitung (PL)</span>
+              <input type="text" id="prot-pl" class="meta-input" placeholder="Name PL" oninput="saveProtDraft()" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Section: Transport & Logistik -->
+        <div class="day-editor-head" style="padding-top: 0;">
+          <div class="day-editor-title">Transport & Logistik</div>
+        </div>
+        <div id="prot-transport-list">
+          <!-- Transport slots generated via JS -->
+        </div>
+        <button class="add-shift-btn" onclick="addProtTransport()">＋ Transport hinzufügen</button>
+
+        <!-- Section: Equipment Status -->
+        <div class="day-editor-head" style="margin-top: 24px;">
+          <div class="day-editor-title">Infos zum Equipment für Anlieferung & Rücklauf</div>
+          <div class="day-editor-date">Kategorien abwählen, falls nicht vorhanden</div>
+        </div>
+        <div id="prot-categories-list">
+          <!-- Category blocks generated via JS -->
+        </div>
+
+        <!-- Section: Personal -->
+        <div class="day-editor-head" style="margin-top: 24px;">
+          <div class="day-editor-title">Personal-Erfassung</div>
+        </div>
+        <div id="prot-personnel-list">
+          <!-- Personnel slots generated via JS -->
+        </div>
+        <button class="add-shift-btn" onclick="addProtPersonnel()">＋ Personal hinzufügen</button>
+
+        <!-- Section: Vorkommnisse -->
+        <div class="day-editor-head" style="margin-top: 24px;">
+          <div class="day-editor-title">Vorkommnisse & Feedback</div>
+        </div>
+        <div class="shift-block">
+          <div class="field">
+            <label>Beschädigungen / Mängel</label>
+            <textarea id="prot-damages" class="meta-input" style="height: 60px; font-family: inherit;"
+              placeholder="Falls vorhanden, bitte beschreiben..." oninput="saveProtDraft()"></textarea>
+          </div>
+          <div class="field">
+            <label>Besondere Vorkommnisse</label>
+            <textarea id="prot-incidents" class="meta-input" style="height: 60px; font-family: inherit;"
+              placeholder="z. B. Verzögerungen, Probleme vor Ort" oninput="saveProtDraft()"></textarea>
+          </div>
+          <div class="field">
+            <label>Feedback zur Location / Sonstiges</label>
+            <textarea id="prot-feedback" class="meta-input" style="height: 60px; font-family: inherit;"
+              placeholder="Lob, Kritik, Verbesserungsvorschläge" oninput="saveProtDraft()"></textarea>
+          </div>
+        </div>
+
+        <!-- Section: Signature -->
+        <div class="day-editor-head" style="margin-top: 24px;">
+          <div class="day-editor-title">Unterschrift AL</div>
+        </div>
+        <div class="shift-block">
+          <div class="field">
+            <button class="sig-full-btn" type="button" onclick="openProtSig()">🖊️ Vollbild-Unterschrift öffnen</button>
+            <div class="sig-wrap" style="margin-top:8px;" onclick="openProtSig()">
+              <canvas id="sigc-prot"></canvas>
+              <div class="sig-placeholder" id="sigph-prot">Tippen für Unterschrift</div>
+              <button class="sig-clear" type="button" onclick="event.stopPropagation();clearProtSig()">löschen</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section: Costs -->
+        <div class="week-total-chip" style="margin: 24px 0 0 0;">
+          <div class="wtc-label">Voraussichtliche Nachkalkulation</div>
+          <div style="text-align: right;">
+            <div class="wtc-val"><span id="prot-total-cost">0,00</span><span class="wtc-unit">€</span></div>
+            <div style="font-size: 11px; color: var(--accent-text); opacity: 0.8;">Logistik + Personal</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="fab-area">
+        <button class="btn" onclick="clearProtForm()">Löschen</button>
+        <button class="btn primary" onclick="saveProtokoll()">Senden</button>
+      </div>
+    </div>
+
+    <!-- ══════════ PROTOKOLL VERLAUF PAGE ══════════ -->
+    <div class="page" id="page-protokoll-history">
+      <div class="history-scroll">
+        <div class="history-page-header">
+          <div class="history-page-title">Protokoll-Verlauf</div>
+        </div>
+        <div id="prot-history-list"></div>
+      </div>
+    </div>
+
+    <!-- ══════════ OFFICE DASHBOARD PAGE ══════════ -->
+    <div class="page" id="page-dashboard">
+      <div class="dash-container">
+        
+        <!-- DASHBOARD NAVIGATION TABS -->
+        <div class="dash-tab-row" style="display: flex; gap: 10px; margin-bottom: 24px;">
+          <button id="dash-tab-prot" class="btn primary" style="flex: 0 0 auto; width: auto; padding: 10px 20px;" onclick="switchDashTab('prot')">Protokolle</button>
+          <button id="dash-tab-work" class="btn" style="flex: 0 0 auto; width: auto; padding: 10px 20px;" onclick="switchDashTab('work')">Buchhaltung (Personal)</button>
+        </div>
+
+        <!-- TAB: PROTOKOLLE -->
+        <div id="dash-view-prot" class="table-card" style="display: block;">
+          <div class="table-header">
+            <h3 style="margin:0; font-size: 16px;">Verschickte Protokolle</h3>
+            <input type="text" id="dash-search" placeholder="Suchen..." class="meta-input" 
+              style="width: 180px; margin: 0; padding: 8px 12px; font-size: 13px;" oninput="renderDashboardTable()">
+          </div>
+          <div style="overflow-x: auto;">
+            <table id="protocol-table">
+              <thead>
+                <tr>
+                  <th>Datum</th>
+                  <th>Projekt</th>
+                  <th>Aktion</th>
+                  <th>AL/PL</th>
+                  <th>Kosten</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="protocol-body">
+                <!-- Rows via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB: PERSONAL/BUCHHALTUNG -->
+        <div id="dash-view-work" class="table-card" style="display: none;">
+          <div class="table-header">
+            <h3 style="margin:0; font-size: 16px;">Schichten & Abrechnung</h3>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button class="btn primary" style="width: auto; padding: 8px 12px; font-size: 13px;" onclick="toggleAddUserForm()">Mitarbeiter hinzufügen</button>
+              <select id="dash-worker-select" class="meta-input" style="width: 250px; margin: 0; padding: 8px 12px; font-size: 13px;" onchange="renderWorkerShifts()">
+                <option value="">-- Mitarbeiter wählen --</option>
+              </select>
+            </div>
+          </div>
+          
+          <!-- ADD USER FORM (HIDDEN) -->
+          <div id="add-user-form" style="display: none; padding: 20px; background: var(--bg2); border-bottom: 1px solid var(--border);">
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <input type="text" id="new-user-name" placeholder="Name" class="meta-input" style="flex: 2; min-width: 150px;">
+              <select id="new-user-role" class="meta-input" style="flex: 1; min-width: 100px;">
+                <option value="MA">MA (Mitarbeiter)</option>
+                <option value="AL">AL (Aufbauleitung)</option>
+                <option value="PL">PL (Projektleitung)</option>
+                <option value="Buchhaltung">Buchhaltung</option>
+                <option value="Admin">Admin</option>
+              </select>
+              <input type="text" id="new-user-dept" placeholder="Abteilung" class="meta-input" style="flex: 2; min-width: 150px;">
+              <button class="btn primary" style="width: auto; padding: 0 20px;" onclick="addDashboardUser()">Speichern</button>
+              <button class="btn" style="width: auto; padding: 0 20px;" onclick="toggleAddUserForm()">Abbrechen</button>
+            </div>
+          </div>
+          <div id="worker-shifts-container" style="padding: 24px;">
+            <div class="empty-state">
+              <div class="empty-icon">👥</div>
+              <div>Bitte wählen Sie einen Mitarbeiter aus, um die Schichten zu sehen.</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- DASHBOARD DETAIL MODAL -->
+  <div id="dash-detail-modal" class="sig-modal">
+    <div class="sig-modal-inner" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+      <div class="sig-modal-head">
+        <div>
+          <div class="sig-modal-title" id="det-title">Protokoll-Details</div>
+          <div class="sig-modal-sub" id="det-subtitle">—</div>
+        </div>
+        <button class="icon-btn" onclick="closeDashDetail()">✕</button>
+      </div>
+      
+      <div id="det-meta" class="detail-meta-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px; padding:15px; background:var(--bg2); border-radius:12px;"></div>
+
+      <h3 style="font-size: 14px; margin-bottom: 10px; color: var(--text3); text-transform: uppercase;">Logistik & Transport</h3>
+      <div id="det-transports" style="margin-bottom:20px;"></div>
+
+      <h3 style="font-size: 14px; margin-bottom: 10px; color: var(--text3); text-transform: uppercase;">Gewerke & Ausrüstung</h3>
+      <div id="det-equipment" style="margin-bottom:20px;"></div>
+
+      <h3 style="font-size: 14px; margin-bottom: 10px; color: var(--text3); text-transform: uppercase;">Personal & Schichten</h3>
+      <div id="det-shifts" style="margin-bottom:20px;"></div>
+
+      <h3 style="font-size: 14px; margin-bottom: 10px; color: var(--text3); text-transform: uppercase;">Vorkommnisse / Feedback</h3>
+      <div id="det-notes" style="font-size:14px; color:var(--text2); background:var(--bg2); padding:15px; border-radius:12px;"></div>
+      
+      <div style="margin-top: 20px;">
+        <button class="btn primary" onclick="closeDashDetail()">Schließen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SIGNATURE MODAL ── -->
+  <div class="sig-modal" id="sig-modal">
+    <div class="sig-modal-inner">
+      <div class="sig-modal-head">
+        <div>
+          <div class="sig-modal-title">Unterschrift erfassen</div>
+          <div class="sig-modal-sub" id="sig-modal-sub">Querformat empfohlen</div>
+        </div>
+        <button class="icon-btn" onclick="closeSigModal()" title="Schließen">✕</button>
+      </div>
+      <div class="sig-pad-wrap">
+        <canvas id="sig-modal-canvas"></canvas>
+      </div>
+      <div style="display: flex; gap: 12px; margin-top: 14px;">
+        <button class="btn" onclick="clearSigModal()">Bereinigen</button>
+        <button class="btn primary" onclick="saveSigModal()">Fertig</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SETTINGS MODAL ── -->
+  <div class="sig-modal" id="settings-modal">
+    <div class="sig-modal-inner" style="max-height: 90vh; overflow-y: auto;">
+      <div class="sig-modal-head">
+        <div class="sig-modal-title">Einstellungen</div>
+        <button class="icon-btn" onclick="closeSettingsModal()">✕</button>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Stundenlohn (€)</label>
+        <input type="number" id="inp-wage" step="0.50" class="meta-input" placeholder="z. B. 15.00" />
+      </div>
+
+      <div class="field" style="margin-top: 16px;">
+        <label>Abrechnungsschluss (Tag)</label>
+        <input type="number" id="inp-cutoff" min="1" max="31" class="meta-input" placeholder="Standard: 20" />
+      </div>
+
+      <div class="field" style="margin-top: 16px;">
+        <label>Abteilungen verwalten</label>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Stundenl. (€/h) direkt neben jeder Abteilung
+          einstellen</div>
+        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+          <input type="text" id="inp-new-dept" class="meta-input" placeholder="Neue Abteilung" style="flex:1" />
+          <button class="btn primary" style="flex:0 0 auto; width: auto; padding: 0 16px;"
+            onclick="addDepartment()">+</button>
+        </div>
+        <div id="settings-dept-list"
+          style="max-height: 150px; overflow-y: auto; background: var(--bg2); border-radius: var(--radius); padding: 4px 10px;">
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 16px;">
+        <label>Datensicherung</label>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <button class="btn" onclick="exportBackup()">Export</button>
+          <button class="btn" onclick="document.getElementById('import-file').click()">Import</button>
+          <input type="file" id="import-file" style="display:none" onchange="importBackup(event)" />
+        </div>
+      </div>
+
+      <div class="sig-actions" style="margin-top: 24px;">
+        <button class="btn" onclick="handleLogout()" style="color:var(--danger)">Abmelden</button>
+        <button class="btn primary" onclick="saveSettingsModal()">Schließen</button>
+      </div>
+    </div>
+
+
+  <!-- Scripts -->
+  <script src="js/supabase-config.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/logo.js"></script>
+  <script src="js/formulas.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/stundenzettel.js"></script>
+  <script src="js/protokoll.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/app.js"></script>
+</body>
+
+</html>
