@@ -62,9 +62,21 @@ async function addDashboardUser() {
   }
 }
 
+// Delegate clicks for PDF/Details buttons in protocol table (avoids inline onclick with IDs)
+(function() {
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    if (!id) return;
+    if (btn.dataset.action === 'pdf') exportDashProtPDF(id);
+    if (btn.dataset.action === 'detail') openDashDetail(id);
+  });
+})();
+
 async function refreshDashboard() {
   if (typeof supabaseClient === 'undefined') return;
-  
+
   try {
     const { data: protocols, error: protError } = await supabaseClient
       .from('protocols')
@@ -114,21 +126,21 @@ function renderDashboardTable() {
       ? ' <span style="font-size:10px;background:#f59e0b;color:#fff;padding:1px 5px;border-radius:8px;vertical-align:middle;margin-left:4px;">Feiertag</span>'
       : '';
     const plLine = plName
-      ? `<div style="font-size:11px; color:var(--text3);">PL: ${plName}</div>`
+      ? `<div style="font-size:11px; color:var(--text3);">PL: ${escapeHtml(plName)}</div>`
       : '';
 
     tr.innerHTML = `
       <td data-label="Datum">${new Date(p.date).toLocaleDateString('de-DE')}</td>
-      <td data-label="Projekt" style="font-weight:600;">${projName}</td>
-      <td data-label="Aktion"><span class="badge ${p.action === 'Abbau' ? 'badge-al' : 'badge-pl'}">${p.action}</span>${holidayTag}</td>
+      <td data-label="Projekt" style="font-weight:600;">${escapeHtml(projName)}</td>
+      <td data-label="Aktion"><span class="badge ${p.action === 'Abbau' ? 'badge-al' : 'badge-pl'}">${escapeHtml(p.action)}</span>${holidayTag}</td>
       <td data-label="AL/PL" style="font-size: 13px; color: var(--text2);">
-        <div>${alName}</div>
+        <div>${escapeHtml(alName)}</div>
         ${plLine}
       </td>
-      <td data-label="Kosten" style="font-weight:700; color: var(--accent);">${costStr}</td>
+      <td data-label="Kosten" style="font-weight:700; color: var(--accent);">${escapeHtml(costStr)}</td>
       <td data-label="" style="text-align:right; display:flex; gap:8px; justify-content:flex-end;">
-        <button class="view-btn" onclick="exportDashProtPDF('${p.id}')">PDF</button>
-        <button class="view-btn" onclick="openDashDetail('${p.id}')">Details</button>
+        <button class="view-btn" data-action="pdf" data-id="${escapeHtml(p.id)}">PDF</button>
+        <button class="view-btn" data-action="detail" data-id="${escapeHtml(p.id)}">Details</button>
       </td>
     `;
     body.appendChild(tr);
@@ -153,12 +165,15 @@ async function loadDashboardWorkers() {
     
     const pendingIds = new Set((pendingShifts || []).map(s => s.user_id));
     dashboardWorkers = users || [];
-    
+
     const sel = document.getElementById('dash-worker-select');
     sel.innerHTML = '<option value="">-- Mitarbeiter wählen --</option>';
     dashboardWorkers.forEach(w => {
       const indicator = pendingIds.has(w.id) ? ' 🔴' : '';
-      sel.innerHTML += `<option value="${w.id}">${w.full_name || 'Unbekannt'} (${w.role})${indicator}</option>`;
+      const opt = document.createElement('option');
+      opt.value = w.id;
+      opt.textContent = (w.full_name || 'Unbekannt') + ' (' + (w.role || '') + ')' + indicator;
+      sel.appendChild(opt);
     });
   } catch (err) {
     console.error("Worker fetch err:", err);
@@ -250,16 +265,16 @@ async function renderWorkerShifts() {
       
       const isBooked = s.status === 'eingetragen';
       const checkedAttr = isBooked ? 'checked' : '';
-      const checkboxHtml = `<input type="checkbox" ${checkedAttr} onchange="toggleShiftBooked('${s.id}', this.checked)" style="width:18px;height:18px;cursor:pointer;">`;
+      const checkboxHtml = `<input type="checkbox" ${checkedAttr} data-shift-id="${escapeHtml(s.id)}" class="shift-booked-cb" style="width:18px;height:18px;cursor:pointer;">`;
 
       html += `<tr>
         <td data-label="Datum/Projekt">
-          <div style="font-weight:600;">${dateLabel}</div>
-          <div style="font-size:11px; color:var(--text3);">${projLabel}</div>
+          <div style="font-weight:600;">${escapeHtml(dateLabel)}</div>
+          <div style="font-size:11px; color:var(--text3);">${escapeHtml(projLabel)}</div>
         </td>
-        <td data-label="Rolle" style="font-size:12px;">${s.position_role || '—'}</td>
-        <td data-label="Zeiten" style="font-size:13px;">${timeStr}</td>
-        <td data-label="Netto" style="font-weight:600; color:var(--accent); font-size:13px;">${netStr}</td>
+        <td data-label="Rolle" style="font-size:12px;">${escapeHtml(s.position_role || '—')}</td>
+        <td data-label="Zeiten" style="font-size:13px;">${escapeHtml(timeStr)}</td>
+        <td data-label="Netto" style="font-weight:600; color:var(--accent); font-size:13px;">${escapeHtml(netStr)}</td>
         <td data-label="" style="text-align:center;">${checkboxHtml}</td>
       </tr>`;
     });
@@ -296,12 +311,25 @@ async function renderWorkerShifts() {
     const pendingCount = dashboardCurrentShifts.filter(s => s.status !== 'eingetragen').length;
     if (pendingCount > 0) {
       html += `<div style="margin-top: 20px; text-align: right;">
-        <button class="btn primary" style="width:auto; padding: 10px 20px;" onclick="markAllShiftsBooked('${userId}')">Alle offenen Schichten (${pendingCount}) verbuchen</button>
+        <button class="btn primary" style="width:auto; padding: 10px 20px;" data-action="mark-all" data-user-id="${escapeHtml(userId)}">Alle offenen Schichten (${escapeHtml(String(pendingCount))}) verbuchen</button>
       </div>`;
     }
 
-    
     cont.innerHTML = html;
+
+    // Delegate change events for shift booking checkboxes
+    cont.querySelectorAll('.shift-booked-cb').forEach(function(cb) {
+      cb.addEventListener('change', function() {
+        toggleShiftBooked(this.dataset.shiftId, this.checked);
+      });
+    });
+    // Delegate click for mark-all button
+    const markAllBtn = cont.querySelector('[data-action="mark-all"]');
+    if (markAllBtn) {
+      markAllBtn.addEventListener('click', function() {
+        markAllShiftsBooked(this.dataset.userId);
+      });
+    }
   } catch (err) {
     console.error("Shift load err:", err);
     cont.innerHTML = `<div class="empty-state" style="color:var(--danger)">Fehler beim Laden der Schichten.</div>`;
@@ -363,7 +391,7 @@ function openDashDetail(id) {
     ? ' <span style="display:inline-block;font-size:11px;background:#f59e0b;color:#fff;padding:2px 7px;border-radius:10px;vertical-align:middle;margin-left:6px;">Feiertag</span>'
     : '';
   document.getElementById('det-subtitle').innerHTML =
-    new Date(p.date).toLocaleDateString('de-DE') + ' · ' + p.action + holidayBadge;
+    escapeHtml(new Date(p.date).toLocaleDateString('de-DE')) + ' · ' + escapeHtml(p.action) + holidayBadge;
 
   // ── Meta grid ──
   const alName = p.al ? p.al.full_name : (p.al_name_fallback || '—');
@@ -371,23 +399,23 @@ function openDashDetail(id) {
   document.getElementById('det-meta').innerHTML = `
     <div>
       <div class="stat-label">Ort</div>
-      <div style="font-weight:600;">${p.location || p.projects?.location || '—'}</div>
+      <div style="font-weight:600;">${escapeHtml(p.location || p.projects?.location || '—')}</div>
     </div>
     <div>
       <div class="stat-label">Leitung (AL)</div>
-      <div style="font-weight:600;">${alName}</div>
+      <div style="font-weight:600;">${escapeHtml(alName)}</div>
     </div>
     <div>
       <div class="stat-label">Projektleiter (PL)</div>
-      <div style="font-weight:600;">${plName}</div>
+      <div style="font-weight:600;">${escapeHtml(plName)}</div>
     </div>
     <div>
       <div class="stat-label">Gesamtkosten (Schätzung)</div>
-      <div style="font-weight:600; color:var(--accent);">${(p.total_cost || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })} €</div>
+      <div style="font-weight:600; color:var(--accent);">${escapeHtml((p.total_cost || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 }))} €</div>
     </div>
     <div>
       <div class="stat-label">Interne ID</div>
-      <div style="font-family:monospace; font-size:11px; opacity:0.6;">${p.id.substring(0,8)}</div>
+      <div style="font-family:monospace; font-size:11px; opacity:0.6;">${escapeHtml(p.id.substring(0,8))}</div>
     </div>
   `;
 
@@ -399,14 +427,14 @@ function openDashDetail(id) {
   } else {
     transHtml = '<table class="compact-table"><thead><tr><th>Fahrzeug</th><th>Fahrer</th><th>Pünktlichkeit</th><th>Verspätung</th></tr></thead><tbody>';
     transports.forEach(t => {
-      const delay = t.delay_mins ? `${t.delay_mins} Min` : '—';
+      const delay = t.delay_mins ? `${escapeHtml(String(t.delay_mins))} Min` : '—';
       const punctStyle = t.punctuality === 'verspätet'
         ? 'color:#ef4444;font-weight:600;'
         : 'color:#22c55e;font-weight:600;';
       transHtml += `<tr>
-        <td>${t.vehicle_type || '—'}</td>
-        <td>${t.driver_name || '—'}</td>
-        <td style="${punctStyle}">${t.punctuality || '—'}</td>
+        <td>${escapeHtml(t.vehicle_type || '—')}</td>
+        <td>${escapeHtml(t.driver_name || '—')}</td>
+        <td style="${punctStyle}">${escapeHtml(t.punctuality || '—')}</td>
         <td>${delay}</td>
       </tr>`;
     });
@@ -425,18 +453,18 @@ function openDashDetail(id) {
     equipHtml = '<div style="display:flex; flex-direction:column; gap:8px;">';
     equipments.forEach(eq => {
       const label = GEWERKE_LABELS[eq.category_id] || eq.category_id;
-      const color = STATUS_COLORS[eq.status] || '#888';
+      const color = STATUS_COLORS[eq.status] || '#888'; // color comes from safe lookup dict
       let extra = '';
       if (eq.category_id === 'stoffe' && (eq.hussen_delivered != null || eq.hussen_returned != null)) {
-        extra = `<div style="font-size:11px; color:var(--text3); margin-top:3px;">Estrel-Hussen: geliefert ${eq.hussen_delivered ?? '—'} / zurück ${eq.hussen_returned ?? '—'}</div>`;
+        extra = `<div style="font-size:11px; color:var(--text3); margin-top:3px;">Estrel-Hussen: geliefert ${escapeHtml(String(eq.hussen_delivered ?? '—'))} / zurück ${escapeHtml(String(eq.hussen_returned ?? '—'))}</div>`;
       }
-      const note = eq.note ? `<div style="font-size:12px; color:var(--text2); margin-top:2px;">${eq.note}</div>` : '';
+      const note = eq.note ? `<div style="font-size:12px; color:var(--text2); margin-top:2px;">${escapeHtml(eq.note)}</div>` : '';
       equipHtml += `<div style="display:flex; align-items:flex-start; gap:12px; padding:10px 12px; background:var(--bg2); border-radius:10px;">
         <div style="flex:1;">
-          <div style="font-weight:600; font-size:13px;">${label}</div>
+          <div style="font-weight:600; font-size:13px;">${escapeHtml(label)}</div>
           ${note}${extra}
         </div>
-        <span style="display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700; background:${color}20; color:${color}; border:1px solid ${color}40; white-space:nowrap;">${eq.status || 'okay'}</span>
+        <span style="display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700; background:${color}20; color:${color}; border:1px solid ${color}40; white-space:nowrap;">${escapeHtml(eq.status || 'okay')}</span>
       </div>`;
     });
     equipHtml += '</div>';
@@ -470,9 +498,9 @@ function openDashDetail(id) {
       }
 
       shiftsHtml += `<tr>
-        <td><div style="font-weight:600;">${name}</div><div style="font-size:10px; opacity:0.6;">${role}</div></td>
-        <td>${von} – ${bis}</td>
-        <td style="font-weight:600; color:var(--accent);">${netStr}</td>
+        <td><div style="font-weight:600;">${escapeHtml(name)}</div><div style="font-size:10px; opacity:0.6;">${escapeHtml(role)}</div></td>
+        <td>${escapeHtml(von)} – ${escapeHtml(bis)}</td>
+        <td style="font-weight:600; color:var(--accent);">${escapeHtml(netStr)}</td>
       </tr>`;
     });
   } else {
@@ -483,9 +511,9 @@ function openDashDetail(id) {
 
   // ── Notes ──
   document.getElementById('det-notes').innerHTML = `
-    <div style="margin-bottom:12px;"><strong>Mängel / Schäden:</strong><br/>${p.notes_damages || 'Keine Angaben'}</div>
-    <div style="margin-bottom:12px;"><strong>Besondere Vorkommnisse:</strong><br/>${p.notes_incidents || 'Keine Angaben'}</div>
-    <div><strong>Feedback Location:</strong><br/>${p.notes_feedback || 'Keine Angaben'}</div>
+    <div style="margin-bottom:12px;"><strong>Mängel / Schäden:</strong><br/>${safeNote(p.notes_damages)}</div>
+    <div style="margin-bottom:12px;"><strong>Besondere Vorkommnisse:</strong><br/>${safeNote(p.notes_incidents)}</div>
+    <div><strong>Feedback Location:</strong><br/>${safeNote(p.notes_feedback)}</div>
   `;
 
   modal.classList.add('open');

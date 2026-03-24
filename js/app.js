@@ -10,10 +10,20 @@ var currentTheme = localStorage.getItem('theme') || 'auto';
 var sigModalState = { key: null, drawing: false, last: null, hasInk: false };
 var hourlyWage = parseFloat(localStorage.getItem('stundenzettel_wage')) || 0;
 var billingCutoff = parseInt(localStorage.getItem('stundenzettel_cutoff')) || 20;
-var departments = JSON.parse(localStorage.getItem('stundenzettel_depts') || '["AL (Aufbauleitung)", "MA für Auf-/ Abbau", "Floristik", "Lager", "Stoffe", "Tischlerei"]');
+var departments;
+try {
+  departments = JSON.parse(localStorage.getItem('stundenzettel_depts') || 'null') || ["AL (Aufbauleitung)", "MA für Auf-/ Abbau", "Floristik", "Lager", "Stoffe", "Tischlerei"];
+} catch(e) {
+  departments = ["AL (Aufbauleitung)", "MA für Auf-/ Abbau", "Floristik", "Lager", "Stoffe", "Tischlerei"];
+}
 var selectedAbt = localStorage.getItem('stundenzettel_active_dept') || departments[0];
 var monsterMode = localStorage.getItem('stundenzettel_monster') === 'true';
-var deptWages = JSON.parse(localStorage.getItem('stundenzettel_dept_wages') || 'null') || Object.assign({}, STUNDEN_DEPT_WAGES_DEFAULT);
+var deptWages;
+try {
+  deptWages = JSON.parse(localStorage.getItem('stundenzettel_dept_wages') || 'null') || Object.assign({}, STUNDEN_DEPT_WAGES_DEFAULT);
+} catch(e) {
+  deptWages = Object.assign({}, STUNDEN_DEPT_WAGES_DEFAULT);
+}
 
 // ── MODE SELECTION & NAVIGATION ──
 function selectMode(m) {

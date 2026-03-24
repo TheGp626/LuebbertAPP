@@ -33,7 +33,9 @@ self.addEventListener('fetch', e => {
     caches.match(e.request).then(cached => {
       if (cached) return cached;
       return fetch(e.request).then(res => {
-        if (res.ok && e.request.url.startsWith(self.location.origin)) {
+        const url = e.request.url;
+        const isStaticAsset = /\.(js|css|png|jpg|jpeg|svg|ico|woff2?|json)(\?|$)/.test(url);
+        if (res.ok && url.startsWith(self.location.origin) && isStaticAsset) {
           const clone = res.clone();
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }

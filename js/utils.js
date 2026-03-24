@@ -97,7 +97,21 @@ function compressSignature(base64, callback) {
 function showToast(msg) {
   var t = document.getElementById('toast');
   if (!t) return;
-  t.textContent = msg; 
+  t.textContent = msg;
   t.classList.add('show');
   setTimeout(function () { t.classList.remove('show'); }, 2200);
+}
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function safeNote(text) {
+  return escapeHtml(text || 'Keine Angaben').replace(/\n/g, '<br>');
 }
