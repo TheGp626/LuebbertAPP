@@ -765,7 +765,7 @@ async function exportProtPDF() {
       var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
       var netStr = '—';
       if (v !== null && b !== null && effB > v) {
-        var n = (effB - v - pa) / 60; netStr = n.toFixed(2) + ' h';
+        var n = Math.max(3, (effB - v - pa) / 60); netStr = n.toFixed(2) + ' h';
       }
       var posLabel = p.pos;
       if (['AL', 'MA', 'Fahrer'].includes(p.pos)) posLabel += (p.fest ? ' fest' : ' frei');
@@ -1100,7 +1100,7 @@ async function reExportProtPDF(id) {
       if (i%2===1){doc.setFillColor(248,248,246);doc.rect(ml,y,cw,8,'F');}
       var v=timeToMins(p.start),b=timeToMins(p.end),pa=parseInt(p.pause)||0;
       var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
-      var netStr='—'; if(v!==null&&b!==null&&effB>v){var n=(effB-v-pa)/60;netStr=n.toFixed(2)+' h';}
+      var netStr='—'; if(v!==null&&b!==null&&effB>v){var n=Math.max(3,(effB-v-pa)/60);netStr=n.toFixed(2)+' h';}
       var posLabel = p.pos;
       if (['AL', 'MA', 'Fahrer'].includes(p.pos)) posLabel += (p.fest ? ' fest' : ' frei');
       doc.text(posLabel,ml+2,y+5.5); doc.text(p.name||'—',ml+25,y+5.5); doc.text(p.start+' - '+p.end,ml+80,y+5.5); doc.text(pa+' Min',ml+120,y+5.5); doc.text(netStr,ml+150,y+5.5);
