@@ -6,6 +6,18 @@ let dashboardProtocols = [];
 let dashboardWorkers = [];
 let dashboardCurrentWorker = null;
 let dashboardCurrentShifts = [];
+let _dashboardRealtimeChannel = null;
+
+function initDashboardRealtime() {
+  if (_dashboardRealtimeChannel) return; // already subscribed
+  if (typeof supabaseClient === 'undefined') return;
+  _dashboardRealtimeChannel = supabaseClient
+    .channel('dashboard-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'protocols' }, function () {
+      if (typeof refreshDashboard === 'function') refreshDashboard();
+    })
+    .subscribe();
+}
 
 // ── BUCHHALTUNG CONFIG ──
 const BUCHHALTUNG_MIN_HOURS = 3;         // Minimum booking floor in hours

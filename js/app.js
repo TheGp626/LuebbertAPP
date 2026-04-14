@@ -58,6 +58,7 @@ function selectMode(m) {
     var pn = document.getElementById('prot-nav');
     if (pn) pn.style.display = 'none';
     navigate('dashboard');
+    if (typeof initDashboardRealtime === 'function') initDashboardRealtime();
     if (typeof refreshDashboard === 'function') refreshDashboard();
   }
 }
