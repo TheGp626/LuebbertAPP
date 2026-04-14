@@ -490,8 +490,9 @@ function openDashDetail(id) {
           if (endMins < startMins) endMins += 1440;
           const netMins = endMins - startMins - (s.pause_mins || 0);
           if (netMins > 0) {
-            const h = Math.floor(netMins / 60);
-            const m = netMins % 60;
+            const effectiveMins = Math.max(180, netMins);
+            const h = Math.floor(effectiveMins / 60);
+            const m = effectiveMins % 60;
             netStr = m > 0 ? `${h}h ${m}m` : `${h}h`;
           }
         }

@@ -72,7 +72,7 @@ function calcSplitShiftCosts(basePos, dateStr, isHoliday, startMins, endMins, pa
   if (basePos !== 'Zenjob' && basePos !== 'Rockit') {
     var desc = basePos;
     var rate = PROT_PERSONNEL_RATES[desc] || 0;
-    var hrs = (totalWorkMins * netFactor) / 60;
+    var hrs = Math.max(3, (totalWorkMins * netFactor) / 60);
     return [{ desc: desc, hrs: hrs, rate: rate }];
   }
   
@@ -115,6 +115,12 @@ function calcSplitShiftCosts(basePos, dateStr, isHoliday, startMins, endMins, pa
   addBucket('night', 'Nacht');
   addBucket('sun', 'Sonntag');
   addBucket('holiday', 'Feiertag');
-  
+
+  var totalHrs = results.reduce(function(s, r) { return s + r.hrs; }, 0);
+  if (totalHrs > 0 && totalHrs < 3) {
+    var scale = 3 / totalHrs;
+    results.forEach(function(r) { r.hrs *= scale; });
+  }
+
   return results;
 }
