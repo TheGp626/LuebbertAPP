@@ -31,14 +31,28 @@ async function fetchAppUsers() {
   if (data) {
     appUsers = data;
     renderProtPersonnel();
+    populateAlPlSelects();
   }
+}
+
+function populateAlPlSelects() {
+  ['prot-al', 'prot-pl'].forEach(function(id) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    var cur = sel.value;
+    sel.innerHTML = '<option value="">— auswählen —</option>' +
+      appUsers.map(function(u) {
+        return '<option value="' + u.id + '">' + (u.full_name || u.email) + '</option>';
+      }).join('');
+    if (cur) sel.value = cur;
+  });
 }
 
 function initProtokoll() {
   loadProtDraft();
-  var alInput = document.getElementById('prot-al');
-  if (alInput && !alInput.value) {
-    alInput.value = localStorage.getItem('stundenzettel_name') || '';
+  var alSel = document.getElementById('prot-al');
+  if (alSel && !alSel.value && typeof currentUser !== 'undefined' && currentUser) {
+    alSel.value = currentUser.id;
     saveProtDraft();
   }
   if (protState.transports.length === 0) addProtTransport();
@@ -458,8 +472,10 @@ async function saveProtokoll() {
     location: (document.getElementById('prot-location') || {}).value || '—',
     date: (document.getElementById('prot-date') || {}).value || '—',
     action: (document.getElementById('prot-action') || {}).value || '—',
-    al: (document.getElementById('prot-al') || {}).value || '—',
-    pl: (document.getElementById('prot-pl') || {}).value || '—',
+    alId: (document.getElementById('prot-al') || {}).value || null,
+    plId: (document.getElementById('prot-pl') || {}).value || null,
+    al: (function() { var id = (document.getElementById('prot-al') || {}).value; var u = appUsers.find(function(u) { return u.id === id; }); return u ? u.full_name : (id || '—'); })(),
+    pl: (function() { var id = (document.getElementById('prot-pl') || {}).value; var u = appUsers.find(function(u) { return u.id === id; }); return u ? u.full_name : (id || '—'); })(),
     damages: (document.getElementById('prot-damages') || {}).value || 'nein',
     incidents: (document.getElementById('prot-incidents') || {}).value || 'nein',
     feedback: (document.getElementById('prot-feedback') || {}).value || '—',
@@ -552,6 +568,8 @@ async function syncProtokollToSupabase(data) {
       date: parsedDate,
       action: data.action === '—' ? null : data.action,
       is_holiday: protState.holiday || false,
+      al_id: data.alId || null,
+      pl_id: data.plId || null,
       al_name_fallback: data.al === '—' ? null : data.al,
       pl_name_fallback: data.pl === '—' ? null : data.pl,
       signature_text: protState.signature,
@@ -901,9 +919,72 @@ async function retrySyncAllProtocols() {
 
 
 // ── PROTOKOLL HISTORY ──
-function renderProtHistory() {
+async function renderProtHistory() {
   var list = document.getElementById('prot-history-list');
   if (!list) return;
+
+  // Show loading state while fetching
+  list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;">Lädt...</div>';
+
+  // Fetch from Supabase and seed any missing entries into localStorage
+  if (typeof supabaseClient !== 'undefined') {
+    try {
+      var { data: rows } = await supabaseClient
+        .from('protocols')
+        .select('*, projects(name,location), al:app_users!protocols_al_id_fkey(full_name), pl:app_users!protocols_pl_id_fkey(full_name), shifts(*,app_users(full_name)), protocol_transports(*), protocol_equipments(*)')
+        .order('date', { ascending: false });
+
+      if (rows && rows.length) {
+        var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
+        var changed = false;
+        rows.forEach(function(r) {
+          if (archive.some(function(e) { return e.supabaseId === r.id; })) return;
+          changed = true;
+          var catMap = {};
+          (r.protocol_equipments || []).forEach(function(eq) {
+            catMap[eq.category_id] = { active: true, status: eq.status || 'okay', note: eq.note || '' };
+          });
+          archive.push({
+            id: r.id,
+            supabaseId: r.id,
+            savedAt: r.created_at || r.date,
+            event: (r.projects && r.projects.name) || '—',
+            location: (r.projects && r.projects.location) || '—',
+            date: r.date || '—',
+            action: r.action || '—',
+            al: (r.al && r.al.full_name) || r.al_name_fallback || '—',
+            pl: (r.pl && r.pl.full_name) || r.pl_name_fallback || '—',
+            totalCost: (r.total_cost || 0).toFixed(2).replace('.', ',') + ' €',
+            transports: (r.protocol_transports || []).map(function(t) {
+              return { type: t.vehicle_type, driver: t.driver_name, punctuality: t.punctuality, delay: t.delay_mins };
+            }),
+            personnel: (r.shifts || []).map(function(s) {
+              return {
+                name: (s.app_users && s.app_users.full_name) || s.temp_worker_name || '—',
+                userId: s.user_id || null,
+                pos: (s.position_role || '').replace(/ (fest|frei)$/, ''),
+                fest: / fest$/.test(s.position_role || ''),
+                start: (s.start_time || '').substring(0, 5),
+                end: (s.end_time || '').substring(0, 5),
+                pause: s.pause_mins || 0
+              };
+            }),
+            categories: catMap,
+            damages: r.notes_damages || 'nein',
+            incidents: r.notes_incidents || 'nein',
+            feedback: r.notes_feedback || '—',
+            synced: true
+          });
+        });
+        if (changed) {
+          archive.sort(function(a, b) { return new Date(b.savedAt) - new Date(a.savedAt); });
+          if (archive.length > 100) archive = archive.slice(0, 100);
+          localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
+        }
+      }
+    } catch(e) { console.warn('Verlauf Supabase fetch failed:', e); }
+  }
+
   var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
 
   if (!archive.length) {

@@ -4,6 +4,7 @@ let allUsers = [];
 
 // ── SESSION & PIN SECURITY ──
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
+const REMEMBER_ME_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const PIN_MAX_ATTEMPTS = 5;
 const PIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -84,7 +85,9 @@ async function initAuth() {
   // Check if we have an active local session (with expiry)
   const activeUserId = localStorage.getItem('local_app_user_id');
   const sessionTs = parseInt(localStorage.getItem('local_app_session_ts') || '0');
-  if (activeUserId && (Date.now() - sessionTs) < SESSION_TTL_MS) {
+  const rememberMe = localStorage.getItem('local_app_remember_me') === '1';
+  const activeTTL = rememberMe ? REMEMBER_ME_TTL_MS : SESSION_TTL_MS;
+  if (activeUserId && (Date.now() - sessionTs) < activeTTL) {
     const user = allUsers.find(u => u.id === activeUserId);
     if (user) {
       handleSession(user);
@@ -94,6 +97,7 @@ async function initAuth() {
     // Expired session — clear it
     localStorage.removeItem('local_app_user_id');
     localStorage.removeItem('local_app_session_ts');
+    localStorage.removeItem('local_app_remember_me');
   }
 
   handleSession(null);
@@ -200,6 +204,12 @@ async function handleAuthSubmit() {
 
   // Clear password input and set local session with timestamp
   passInput.value = '';
+  const rememberChecked = document.getElementById('auth-remember')?.checked || false;
+  if (rememberChecked) {
+    localStorage.setItem('local_app_remember_me', '1');
+  } else {
+    localStorage.removeItem('local_app_remember_me');
+  }
   localStorage.setItem('local_app_user_id', user.id);
   localStorage.setItem('local_app_session_ts', String(Date.now()));
   handleSession(user);
@@ -213,6 +223,7 @@ async function handleLogout() {
   
   localStorage.removeItem('local_app_user_id');
   localStorage.removeItem('local_app_session_ts');
+  localStorage.removeItem('local_app_remember_me');
   handleSession(null);
   
   if (typeof closeSettingsModal === 'function') {
