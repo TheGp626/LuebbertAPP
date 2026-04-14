@@ -1,4 +1,4 @@
-const CACHE = 'stundenzettel-v13';
+const CACHE = 'stundenzettel-v14';
 const ASSETS = ['./index.html', './manifest.json'];
 
 self.addEventListener('install', e => {
@@ -18,7 +18,7 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.mode === 'navigate') {
     e.respondWith(
-      fetch(e.request)
+      fetch(new Request(e.request, { cache: 'no-cache' }))
         .then(res => {
           const clone = res.clone();
           caches.open(CACHE).then(c => c.put('./index.html', clone));
@@ -32,7 +32,8 @@ self.addEventListener('fetch', e => {
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;
-      return fetch(e.request).then(res => {
+      // Use no-cache to bypass browser HTTP cache — SW cache is our offline layer
+      return fetch(new Request(e.request, { cache: 'no-cache' })).then(res => {
         const url = e.request.url;
         const isStaticAsset = /\.(js|css|png|jpg|jpeg|svg|ico|woff2?|json)(\?|$)/.test(url);
         if (res.ok && url.startsWith(self.location.origin) && isStaticAsset) {

@@ -7,16 +7,38 @@ let dashboardWorkers = [];
 let dashboardCurrentWorker = null;
 let dashboardCurrentShifts = [];
 let _dashboardRealtimeChannel = null;
+let _dashboardPollInterval = null;
 
 function initDashboardRealtime() {
-  if (_dashboardRealtimeChannel) return; // already subscribed
   if (typeof supabaseClient === 'undefined') return;
-  _dashboardRealtimeChannel = supabaseClient
-    .channel('dashboard-realtime')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'protocols' }, function () {
+
+  // ── WebSocket real-time (requires Replication enabled in Supabase project) ──
+  if (!_dashboardRealtimeChannel) {
+    _dashboardRealtimeChannel = supabaseClient
+      .channel('dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'protocols' }, function () {
+        if (typeof refreshDashboard === 'function') refreshDashboard();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shifts' }, function () {
+        if (typeof refreshDashboard === 'function') refreshDashboard();
+      })
+      .subscribe(function(status) {
+        // If real-time is unavailable, polling fallback kicks in anyway
+        console.log('[Realtime]', status);
+      });
+  }
+
+  // ── Polling fallback — refreshes every 30s regardless ──
+  if (!_dashboardPollInterval) {
+    _dashboardPollInterval = setInterval(function () {
       if (typeof refreshDashboard === 'function') refreshDashboard();
-    })
-    .subscribe();
+    }, 30000);
+  }
+}
+
+function stopDashboardRealtime() {
+  if (_dashboardPollInterval) { clearInterval(_dashboardPollInterval); _dashboardPollInterval = null; }
+  if (_dashboardRealtimeChannel) { supabaseClient.removeChannel(_dashboardRealtimeChannel); _dashboardRealtimeChannel = null; }
 }
 
 // ── BUCHHALTUNG CONFIG ──

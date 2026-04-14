@@ -896,6 +896,7 @@ canvas#historyChart {
 .badge-al { background: rgba(0, 122, 255, 0.1); color: #0a84ff; padding: 4px 10px; border-radius: 12px; font-weight: 600; text-transform: uppercase; }
 .badge-pl { background: rgba(48, 209, 88, 0.1); color: #32d74b; padding: 4px 10px; border-radius: 12px; font-weight: 600; text-transform: uppercase; }
 
+#page-dashboard { overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .dash-container { max-width: 1200px; margin: 0 auto; padding: 24px; animation: fadeIn 0.4s ease-out; }
 
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; margin-bottom: 32px; }
@@ -994,6 +995,9 @@ canvas#historyChart {
    ═══════════════════════════════════════════════════════ */
 @media (max-width: 640px) {
 
+  /* ── Dashboard scroll fix ── */
+  #page-dashboard { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
   /* ── Dashboard container ── */
   .dash-container { padding: 12px; }
 
@@ -1035,6 +1039,7 @@ canvas#historyChart {
     flex-shrink: 0;
   }
   #protocol-table tbody td[data-label=""]::before { display: none; }
+  #protocol-table tbody td[data-label=""] { justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding: 10px 14px; }
 
   /* ── Worker shifts table (Buchhaltung) → card rows ── */
   .compact-table thead { display: none; }
