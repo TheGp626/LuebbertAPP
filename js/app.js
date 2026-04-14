@@ -66,6 +66,7 @@ function selectMode(m) {
 function exitToMenu() {
   activeModule = null;
   localStorage.removeItem('luebbert_mode');
+  if (typeof stopDashboardRealtime === 'function') stopDashboardRealtime();
   
   // Reset UI
   document.querySelectorAll('.page').forEach(function (p) { p.classList.remove('active'); });
