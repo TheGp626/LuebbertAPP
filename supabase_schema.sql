@@ -109,3 +109,76 @@ create policy "Allow all operations for authenticated users" on public.protocols
 create policy "Allow all operations for authenticated users" on public.protocol_transports for all to authenticated using (true);
 create policy "Allow all operations for authenticated users" on public.protocol_equipments for all to authenticated using (true);
 create policy "Allow all operations for authenticated users" on public.shifts for all to authenticated using (true);
+
+-- 8. WORKER RATINGS TABLE (Bewertungen für Zenjob/Rockit Mitarbeiter)
+-- AL/PL können Zenjob/Rockit-Kräfte mit 👍👎⭐ bewerten.
+create table public.worker_ratings (
+  id uuid default uuid_generate_v4() primary key,
+  temp_worker_name text not null,
+  protocol_id uuid references public.protocols(id) on delete cascade,
+  shift_id uuid references public.shifts(id) on delete set null,
+  rating text check (rating in ('up', 'down')) not null,
+  is_star boolean default false,
+  rated_by uuid references public.app_users(id),
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table public.worker_ratings enable row level security;
+create policy "Allow all operations for authenticated users" on public.worker_ratings for all to authenticated using (true);
+
+-- 9. PRODUCTS TABLE (Produktdatenbank mit PDF-Aufbauanleitungen + Bilder)
+-- AL/PL/Admin können Produkte anlegen. Alle können lesen.
+-- PDFs werden in Supabase Storage Bucket "product-pdfs" (public) gespeichert.
+-- Bilder werden in Supabase Storage Bucket "product-images" (public) gespeichert.
+create table public.products (
+  id uuid default uuid_generate_v4() primary key,
+  name text not null,
+  description text,
+  pdf_url text,
+  content_text text,  -- Aufbauanleitung als Freitext
+  created_by uuid references public.app_users(id),
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table public.products enable row level security;
+create policy "Allow all operations for authenticated users" on public.products for all to authenticated using (true);
+
+-- 10. PRODUCT IMAGES TABLE (mehrere Bilder pro Produkt)
+create table public.product_images (
+  id uuid default uuid_generate_v4() primary key,
+  product_id uuid references public.products(id) on delete cascade not null,
+  image_url text not null,
+  sort_order integer default 0,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+alter table public.product_images enable row level security;
+create policy "Allow all" on public.product_images for all using (true) with check (true);
+grant select, insert, update, delete on public.product_images to anon;
+
+-- 11. PROJECT FOLDERS TABLE (Dateiablage / Google Drive Ersatz)
+create table public.project_folders (
+  id uuid default uuid_generate_v4() primary key,
+  name text not null,
+  description text,
+  created_by uuid references public.app_users(id),
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+alter table public.project_folders enable row level security;
+create policy "Allow all" on public.project_folders for all using (true) with check (true);
+grant select, insert, update, delete on public.project_folders to anon;
+
+-- 12. FOLDER FILES TABLE (Dateien innerhalb eines Ordners)
+-- Dateien werden in Supabase Storage Bucket "project-files" (public) gespeichert.
+create table public.folder_files (
+  id uuid default uuid_generate_v4() primary key,
+  folder_id uuid references public.project_folders(id) on delete cascade not null,
+  name text not null,
+  file_url text not null,
+  file_type text,
+  file_size_bytes bigint,
+  created_by uuid references public.app_users(id),
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+alter table public.folder_files enable row level security;
+create policy "Allow all" on public.folder_files for all using (true) with check (true);
+grant select, insert, update, delete on public.folder_files to anon;

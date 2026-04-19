@@ -77,28 +77,38 @@ async function fetchSupabaseShifts() {
     var { data, error } = await supabaseClient
       .from('shifts')
       .select(`
-        id, start_time, end_time, pause_mins, position_role, status,
-        protocols ( date, al_name_fallback, pl_name_fallback, projects ( name, location ) )
+        id, start_time, end_time, pause_mins, position_role, status, shift_date, protocol_id,
+        protocols ( date, al_name_fallback, pl_name_fallback, signature_text, projects ( name, location ) )
       `)
       .eq('user_id', currentUser.id)
-      .eq('status', 'approved');
+      .in('status', ['approved', 'pending']);
 
     if (error) throw error;
     if (!data || data.length === 0) return;
 
+    // Deduplicate: same protocol + same start + same end = one shift
+    var seen = {};
+    data = data.filter(function(sh) {
+      var key = (sh.protocol_id || 'manual') + '|' + sh.start_time + '|' + sh.end_time + '|' + (sh.shift_date || (sh.protocols && sh.protocols.date) || '');
+      if (seen[key]) return false;
+      seen[key] = true;
+      return true;
+    });
+
     // Group shifts by week string (e.g. "2026-W12")
     var userWeeks = {};
-    
+
     data.forEach(function(sh) {
-      if (!sh.protocols || !sh.protocols.date) return;
-      var dStr = sh.protocols.date; // "2026-03-12"
+      // Resolve the actual date: protocol date takes priority, fallback to shift_date
+      var dStr = (sh.protocols && sh.protocols.date) ? sh.protocols.date : sh.shift_date;
+      if (!dStr) return;
       var dObj = new Date(dStr);
       var wStr = getWeekString(dObj); // Need helper to convert Date to "YYYY-Www" format
 
       if (!userWeeks[wStr]) {
         userWeeks[wStr] = {
-          name: currentUser.user_metadata?.full_name || currentUser.email || 'Mitarbeiter',
-          abt: 'Generiert via Protokoll',
+          name: localStorage.getItem('stundenzettel_name') || 'Mitarbeiter',
+          abt: sh.position_role || 'MA',
           weekStart: wStr,
           weekLabel: 'Woche ' + wStr.split('-W')[1],
           days: [],
@@ -121,14 +131,15 @@ async function fetchSupabaseShifts() {
 
       var dayMatch = userWeeks[wStr].days.find(function(day) { return day.isoDate === dStr; });
       if (dayMatch) {
-         dayMatch.shifts.push({
-           von: (sh.start_time || '').substring(0,5), // "18:00:00" -> "18:00"
+        var prot = sh.protocols || {};
+        dayMatch.shifts.push({
+           von: (sh.start_time || '').substring(0,5),
            bis: (sh.end_time || '').substring(0,5),
            pause: sh.pause_mins ? sh.pause_mins.toString() : '0',
-           ort: sh.protocols.projects ? sh.protocols.projects.name : '',
-           al: sh.protocols.al_name_fallback || sh.protocols.pl_name_fallback || 'AL (via App)',
+           ort: (prot.projects && prot.projects.name) ? prot.projects.name : (sh.protocol_id ? '' : 'Manuell erfasst'),
+           al: prot.al_name_fallback || prot.pl_name_fallback || '',
            dept: sh.position_role || 'MA',
-           sig: null,
+           sig: prot.signature_text || null,
            isSynced: true
          });
       }

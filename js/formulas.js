@@ -1,31 +1,29 @@
-/**
- * Formula & Rate Configuration for LÜBBERT APP
- * Centralized for easy modification of costs and rates.
- */
+// ── RATEN & FORMELN ──
 
 // ── PROTOKOLL RATES ──
 
 var PROT_VEHICLE_RATES = {
-  'Hängerzug': 120,
-  'Solo-LKW': 100,
-  'Sprinter': 60,
+  'Hängerzug': 80,
+  'Solo-LKW': 70,
+  'Sprinter': 40,
   'PKW': 30
 };
 
 var PROT_PERSONNEL_RATES = {
-  'AL fest': 20,
+  'AL fest': 0,
   'AL frei': 25,
-  'MA fest': 17,
-  'MA frei': 20,
-  'Fahrer fest': 15,
-  'Fahrer frei': 18,
-  'Zenjob Tag': 25,
-  'Zenjob Nacht': 30,
-  'Zenjob Sonntag': 35,
-  'Rockit Tag': 25,
-  'Rockit Nacht': 30,
-  'Rockit Sonntag': 35,
-  'Rockit Feiertag': 40
+  'MA fest': 0,
+  'MA frei': 21.50,
+  'Fahrer fest': 0,
+  'Fahrer frei': 30,
+  'Zenjob Tag': 23.50,
+  'Zenjob Nacht': 29.38,
+  'Zenjob Sonntag': 35.25,
+  'Zenjob Feiertag': 35.25,
+  'Rockit Tag': 30,
+  'Rockit Nacht': 45,
+  'Rockit Sonntag': 60,
+  'Rockit Feiertag': 60
 };
 
 // ── STUNDENZETTEL CONSTANTS ──
@@ -40,13 +38,7 @@ var STUNDEN_DEPT_WAGES_DEFAULT = {
 
 // ── HELPER FUNCTIONS ──
 
-/**
- * Calculates the net working time in hours.
- * @param {number} startMins - Start time in minutes from midnight
- * @param {number} endMins - End time in minutes from midnight
- * @param {number} pauseMins - Pause in minutes
- * @returns {number} Hours
- */
+// netto-arbeitsstunden aus start/end/pause
 function calcNetHours(startMins, endMins, pauseMins) {
   if (startMins === null || endMins === null) return 0;
   var effEnd = (endMins < startMins) ? endMins + 1440 : endMins;
@@ -55,10 +47,7 @@ function calcNetHours(startMins, endMins, pauseMins) {
   return Math.max(0, netMins / 60);
 }
 
-/**
- * Splits shift hours into buckets (Day, Night, Sunday, Holiday) for dynamic pricing.
- * Night is 23:00 to 06:00.
- */
+// schicht in tag/nacht/sonntag/feiertag aufteilen (für zenjob/rockit)
 function calcSplitShiftCosts(basePos, dateStr, isHoliday, startMins, endMins, pauseMins) {
   var effEnd = (endMins < startMins) ? endMins + 1440 : endMins;
   var totalWorkMins = effEnd - startMins;
@@ -92,8 +81,8 @@ function calcSplitShiftCosts(basePos, dateStr, isHoliday, startMins, endMins, pa
       counts.holiday++;
     } else if (isSun) {
       counts.sun++;
-    } else if (minOfDay >= 1380 || minOfDay < 360) {
-      // 23:00 to 06:00
+    } else if (minOfDay >= 1320 || minOfDay < 360) {
+      // 22:00 to 06:00
       counts.night++;
     } else {
       counts.day++;
@@ -117,8 +106,8 @@ function calcSplitShiftCosts(basePos, dateStr, isHoliday, startMins, endMins, pa
   addBucket('holiday', 'Feiertag');
 
   var totalHrs = results.reduce(function(s, r) { return s + r.hrs; }, 0);
-  if (totalHrs > 0 && totalHrs < 3) {
-    var scale = 3 / totalHrs;
+  if (totalHrs > 0 && totalHrs < 4) {
+    var scale = 4 / totalHrs;
     results.forEach(function(r) { r.hrs *= scale; });
   }
 

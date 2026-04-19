@@ -195,7 +195,13 @@ function updateProtTransport(idx, field, val) {
 
 // ── PERSONNEL ──
 function addProtPersonnel() {
-  protState.personnel.push({ pos: 'MA', fest: true, isTemp: false, userId: '', tempName: '', name: '', start: '', end: '', pause: '0' });
+  protState.personnel.push({ pos: 'MA', fest: true, isTemp: false, userId: '', tempName: '', name: '', start: '', end: '', pause: '0', rating: null, isStar: false });
+  renderProtPersonnel();
+  saveProtDraft();
+}
+
+function updateProtRating(idx, field, val) {
+  protState.personnel[idx][field] = val;
   renderProtPersonnel();
   saveProtDraft();
 }
@@ -231,8 +237,20 @@ function renderProtPersonnel() {
     var tempCheck = '<label style="display:flex; align-items:center; gap:4px; font-size:12px; margin-top:4px; cursor:pointer;">' +
       '<input type="checkbox" onchange="updateProtPersonnel(' + i + ',\'isTemp\',this.checked)" ' + (p.isTemp ? 'checked' : '') + ' /> Externe(r) / Aushilfe</label>';
 
+    var isAgency = (p.pos === 'Zenjob' || p.pos === 'Rockit');
+    var ratingBlock = isAgency
+      ? '<div class="rating-block">' +
+          '<span class="meta-label" style="display:block;margin-bottom:4px;">Bewertung</span>' +
+          '<div class="rating-btns">' +
+          '<button class="rating-btn' + (p.rating === 'up' ? ' active-up' : '') + '" onclick="updateProtRating(' + i + ',\'rating\',' + (p.rating === 'up' ? 'null' : '\'up\'') + ')" title="Daumen hoch">👍</button>' +
+          '<button class="rating-btn' + (p.rating === 'down' ? ' active-down' : '') + '" onclick="updateProtRating(' + i + ',\'rating\',' + (p.rating === 'down' ? 'null' : '\'down\'') + ')" title="Daumen runter">👎</button>' +
+          '<button class="rating-btn' + (p.isStar ? ' active-star' : '') + '" onclick="updateProtRating(' + i + ',\'isStar\',' + (!p.isStar) + ')" title="Besonders gut">⭐</button>' +
+          '</div>' +
+        '</div>'
+      : '';
+
     return '<div class="shift-block">' +
-           '  <div class="shift-label">Personal ' + (i + 1) + 
+           '  <div class="shift-label">Personal ' + (i + 1) +
            '    <button class="shift-remove" onclick="removeProtPersonnel(' + i + ')">×</button>' +
            '  </div>' +
            '  <div class="meta-fields">' +
@@ -258,6 +276,7 @@ function renderProtPersonnel() {
            '      <input type="number" class="meta-input" placeholder="Min" value="' + (p.pause || '0') + '" oninput="updateProtPersonnel(' + i + ', \'pause\', this.value)"/>' +
            '    </div>' +
            '  </div>' +
+           (ratingBlock ? '  <div class="meta-fields" style="margin-top: 8px;">' + ratingBlock + '</div>' : '') +
            '</div>';
   }).join('');
 }
@@ -409,6 +428,8 @@ function saveProtDraft() {
     personnel: protState.personnel,
     categories: protState.categories,
     signature: protState.signature,
+    editingId: protState.editingId || null,
+    editingLocalId: protState.editingLocalId || null,
     savedAt: new Date().toISOString()
   };
   localStorage.setItem('luebbert_protokoll_draft', JSON.stringify(data));
@@ -435,6 +456,8 @@ function loadProtDraft() {
     protState.personnel = data.personnel || [];
     protState.categories = data.categories || {};
     protState.signature = data.signature || null;
+    protState.editingId = data.editingId || null;
+    protState.editingLocalId = data.editingLocalId || null;
   } catch(e) { console.error("Error loading draft", e); }
 }
 
@@ -656,6 +679,28 @@ async function syncProtokollToSupabase(data) {
         if (shErr) console.error("Shifts Insert Error:", shErr);
       }
     }
+
+    // 6. Save Ratings for Zenjob/Rockit workers
+    var ratingInserts = [];
+    data.personnel.forEach(function(p) {
+      if ((p.pos !== 'Zenjob' && p.pos !== 'Rockit') || !p.rating) return;
+      var workerName = p.isTemp ? (p.tempName || p.name || null) : (p.name || p.tempName || null);
+      if (!workerName) return;
+      ratingInserts.push({
+        protocol_id: protId,
+        temp_worker_name: workerName,
+        rating: p.rating,
+        is_star: p.isStar || false,
+        rated_by: typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null
+      });
+    });
+    if (ratingInserts.length > 0) {
+      // Delete old ratings for this protocol before re-inserting (handles edits)
+      await supabaseClient.from('worker_ratings').delete().eq('protocol_id', protId);
+      var { error: ratErr } = await supabaseClient.from('worker_ratings').insert(ratingInserts);
+      if (ratErr) console.error("Ratings Insert Error:", ratErr);
+    }
+
     showToast('✅ Protokoll erfolgreich synchronisiert und gespeichert!');
     return protId;
   } catch(e) {

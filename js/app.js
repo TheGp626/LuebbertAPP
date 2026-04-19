@@ -60,6 +60,18 @@ function selectMode(m) {
     navigate('dashboard');
     if (typeof initDashboardRealtime === 'function') initDashboardRealtime();
     if (typeof refreshDashboard === 'function') refreshDashboard();
+  } else if (m === 'produkte') {
+    document.getElementById('main-nav').style.display = 'none';
+    var pn2 = document.getElementById('prot-nav');
+    if (pn2) pn2.style.display = 'none';
+    navigate('produkte');
+    if (typeof initProdukte === 'function') initProdukte();
+  } else if (m === 'ordner') {
+    document.getElementById('main-nav').style.display = 'none';
+    var pn3 = document.getElementById('prot-nav');
+    if (pn3) pn3.style.display = 'none';
+    navigate('ordner');
+    if (typeof initOrdner === 'function') initOrdner();
   }
 }
 
