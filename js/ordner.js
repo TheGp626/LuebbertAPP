@@ -293,7 +293,8 @@ function openFileViewer(url, name, mimeType) {
     if (isImage) {
       body.innerHTML = '<img src="' + url + '" style="max-width:100%;max-height:100%;object-fit:contain;display:block;" />';
     } else if (isPdf) {
-      body.innerHTML = '<iframe src="' + url + '" style="width:100%;height:100%;border:none;min-height:70vh;" allowfullscreen>' +
+      var viewerUrl = 'https://docs.google.com/viewer?url=' + encodeURIComponent(url) + '&embedded=true';
+      body.innerHTML = '<iframe src="' + viewerUrl + '" style="width:100%;height:100%;border:none;min-height:70vh;" allowfullscreen>' +
         '<p style="color:#fff;padding:20px;">PDF kann nicht angezeigt werden. <a href="' + url + '" target="_blank" style="color:#60a5fa;">Herunterladen</a></p>' +
         '</iframe>';
     } else {
