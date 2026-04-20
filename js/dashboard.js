@@ -549,6 +549,86 @@ function openDashDetail(id) {
   shiftsHtml += '</tbody></table>';
   document.getElementById('det-shifts').innerHTML = shiftsHtml;
 
+  // ── Nebenkalkulation (itemisiert) ──
+  (function() {
+    var rows = [];
+    var logTotal = 0, persTotal = 0;
+
+    // Transport costs
+    (p.protocol_transports || []).forEach(function(t) {
+      var r = (typeof PROT_VEHICLE_RATES !== 'undefined' && PROT_VEHICLE_RATES[t.vehicle_type]) || 0;
+      if (r > 0) {
+        logTotal += r;
+        rows.push({ section: 'transport', label: escapeHtml(t.vehicle_type || '—'), detail: escapeHtml(t.driver_name || ''), cost: r });
+      }
+    });
+
+    // Personnel costs
+    (p.shifts || []).forEach(function(s) {
+      var name = s.temp_worker_name || (s.app_users ? s.app_users.full_name : 'Mitarbeiter');
+      var von = (s.start_time || '').substring(0, 5);
+      var bis = (s.end_time || '').substring(0, 5);
+      var pa = parseInt(s.pause_mins) || 0;
+      var v = null, b = null;
+      if (von && bis) {
+        var sp = von.split(':'), ep = bis.split(':');
+        if (sp.length === 2 && ep.length === 2) {
+          v = parseInt(sp[0]) * 60 + parseInt(sp[1]);
+          b = parseInt(ep[0]) * 60 + parseInt(ep[1]);
+        }
+      }
+      var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
+      if (v !== null && b !== null && effB > v && typeof calcSplitShiftCosts === 'function') {
+        var basePos = s.position_role || 'MA frei';
+        var costs = calcSplitShiftCosts(basePos, p.date, p.is_holiday || false, v, effB, pa);
+        costs.forEach(function(c) {
+          var sub = c.hrs * c.rate;
+          persTotal += sub;
+          rows.push({ section: 'personal', label: escapeHtml(name), detail: escapeHtml(c.desc), hrs: c.hrs, rate: c.rate, cost: sub });
+        });
+      }
+    });
+
+    var grandTotal = logTotal + persTotal;
+
+    if (rows.length === 0) {
+      document.getElementById('det-nebenkalkulation').innerHTML =
+        '<div style="font-size:13px; color:var(--text3); padding:8px 0;">Keine Kostendaten verfügbar</div>';
+      return;
+    }
+
+    var html = '<table class="compact-table"><thead><tr><th>Position</th><th>Detail</th><th style="text-align:right;">Kosten</th></tr></thead><tbody>';
+
+    var lastSection = null;
+    rows.forEach(function(row) {
+      if (row.section !== lastSection) {
+        var sectionLabel = row.section === 'transport' ? '🚚 Logistik / Transport' : '👤 Personal';
+        html += '<tr><td colspan="3" style="padding:6px 8px; font-size:11px; font-weight:700; text-transform:uppercase; color:var(--text3); background:var(--bg2);">' + sectionLabel + '</td></tr>';
+        lastSection = row.section;
+      }
+      if (row.section === 'transport') {
+        html += '<tr><td style="font-weight:600;">' + row.label + '</td><td style="color:var(--text2); font-size:12px;">' + row.detail + '</td><td style="text-align:right; font-weight:600; color:var(--accent);">' + row.cost.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+      } else {
+        html += '<tr><td style="font-weight:600;">' + row.label + '<div style="font-size:10px; opacity:0.6;">' + row.detail + '</div></td>'
+          + '<td style="font-size:12px; color:var(--text2);">' + row.hrs.toFixed(2) + 'h × ' + row.rate.toFixed(2) + ' €</td>'
+          + '<td style="text-align:right; font-weight:600; color:var(--accent);">' + row.cost.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+      }
+    });
+
+    // Subtotals + grand total
+    html += '<tr><td colspan="3" style="padding:0;"></td></tr>';
+    if (logTotal > 0) {
+      html += '<tr style="background:var(--bg2);"><td colspan="2" style="font-size:12px; color:var(--text2);">Logistik gesamt</td><td style="text-align:right; font-size:12px; color:var(--text2);">' + logTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+    }
+    if (persTotal > 0) {
+      html += '<tr style="background:var(--bg2);"><td colspan="2" style="font-size:12px; color:var(--text2);">Personal gesamt</td><td style="text-align:right; font-size:12px; color:var(--text2);">' + persTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+    }
+    html += '<tr style="border-top:2px solid var(--accent);"><td colspan="2" style="font-weight:700;">Gesamtkosten (geschätzt)</td><td style="text-align:right; font-weight:700; font-size:15px; color:var(--accent);">' + grandTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+    html += '</tbody></table>';
+
+    document.getElementById('det-nebenkalkulation').innerHTML = html;
+  })();
+
   // ── Notes ──
   document.getElementById('det-notes').innerHTML = `
     <div style="margin-bottom:12px;"><strong>Mängel / Schäden:</strong><br/>${safeNote(p.notes_damages)}</div>
