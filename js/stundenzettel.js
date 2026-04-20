@@ -81,7 +81,7 @@ async function fetchSupabaseShifts() {
         protocols ( date, al_name_fallback, pl_name_fallback, signature_text, projects ( name, location ) )
       `)
       .eq('user_id', currentUser.id)
-      .in('status', ['approved', 'pending']);
+      .in('status', ['approved', 'pending', 'eingetragen']);
 
     if (error) throw error;
     if (!data || data.length === 0) return;
@@ -500,8 +500,17 @@ function renderHistory() {
 
 function renderHistoryChart() {
   var ctx = document.getElementById('historyChart'); if (!ctx) return;
-  var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}'), keys = Object.keys(all).sort().slice(-10);
-  var labels = keys.map(function(k) { return 'KW ' + k.split('-W')[1]; }), data = keys.map(function(k) { return parseFloat((all[k].total || '0').replace(',', '.')); });
+  var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+  // Aggregate hours per base week key (merges "2026-W12:AL" + "2026-W12:MA" into "2026-W12")
+  var weekTotals = {};
+  Object.keys(all).forEach(function(k) {
+    var baseKey = k.split(':')[0]; // "2026-W12:AL" → "2026-W12"
+    var hrs = parseFloat((all[k].total || '0').replace(',', '.'));
+    weekTotals[baseKey] = (weekTotals[baseKey] || 0) + hrs;
+  });
+  var keys = Object.keys(weekTotals).sort().slice(-10);
+  var labels = keys.map(function(k) { return 'KW ' + parseInt(k.split('-W')[1]); });
+  var data = keys.map(function(k) { return weekTotals[k]; });
   if (historyChart) historyChart.destroy();
   historyChart = new Chart(ctx, {
     type: 'bar', data: { labels: labels, datasets: [{ label: 'Wochenstunden', data: data, backgroundColor: 'rgba(24, 95, 165, 0.4)', borderColor: 'rgba(24, 95, 165, 1)', borderWidth: 1, borderRadius: 6 }] },
@@ -609,12 +618,16 @@ async function syncWeekToSupabase(data) {
       if (error) throw error;
       showToast('✅ Stundenzettel mit Server synchronisiert!');
       
-      // Mark as synced locally
+      // Mark as synced locally — covers both plain ("2026-W12") and compound ("2026-W12:AL") keys
       var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
-      if (all[data.weekStart]) {
-        all[data.weekStart].days.forEach(dd => dd.shifts.forEach(sh => sh.isSynced = true));
-        localStorage.setItem('stundenzettel', JSON.stringify(all));
-      }
+      var changed = false;
+      Object.keys(all).forEach(function(k) {
+        if (k === data.weekStart || k.startsWith(data.weekStart + ':')) {
+          all[k].days.forEach(function(dd) { dd.shifts.forEach(function(sh) { sh.isSynced = true; }); });
+          changed = true;
+        }
+      });
+      if (changed) localStorage.setItem('stundenzettel', JSON.stringify(all));
     }
   } catch(e) {
     console.error("Week Sync Error:", e);
@@ -719,6 +732,18 @@ async function exportMonthlyPDF(mKey) {
   });
   y += 10; doc.setFontSize(14); doc.text('Gesamtstunden:', ml, y);
   doc.setTextColor(24, 95, 165); doc.text((mTot % 1 === 0 ? mTot.toFixed(0) : mTot.toFixed(2)) + ' h', ml + 50, y); doc.setTextColor(0);
+  // Compress signatures from localStorage before embedding (same as exportPDF does)
+  var sigComprP = [];
+  monthW.forEach(function(w) {
+    w.days.forEach(function(dd) {
+      (dd.shifts || []).forEach(function(sh) {
+        if (sh.sig) sigComprP.push(new Promise(function(res) {
+          compressSignature(sh.sig, function(c) { sh.sig = c; res(); });
+        }));
+      });
+    });
+  });
+  await Promise.all(sigComprP);
   monthW.forEach(function (data) { doc.addPage(); drawPDFContent(doc, data, ml, cw); });
   var fN = 'stundennachweis_' + mKey.replace('-', '_') + '_' + (name || 'Mitarbeiter').replace(/\s+/g, '_') + '.pdf';
   if (navigator.canShare) {

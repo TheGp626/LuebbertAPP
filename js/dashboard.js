@@ -8,6 +8,7 @@ let dashboardCurrentWorker = null;
 let dashboardCurrentShifts = [];
 let _dashboardRealtimeChannel = null;
 let _dashboardPollInterval = null;
+let _dashboardRefreshing = false;
 
 function initDashboardRealtime() {
   if (typeof supabaseClient === 'undefined') return;
@@ -110,6 +111,8 @@ async function addDashboardUser() {
 
 async function refreshDashboard() {
   if (typeof supabaseClient === 'undefined') return;
+  if (_dashboardRefreshing) return;
+  _dashboardRefreshing = true;
 
   try {
     const { data: protocols, error: protError } = await supabaseClient
@@ -132,6 +135,8 @@ async function refreshDashboard() {
   } catch (err) {
     console.error('Dash Load Error:', err);
     if (typeof showToast === 'function') showToast('Fehler beim Laden der Dashboard-Daten', 'danger');
+  } finally {
+    _dashboardRefreshing = false;
   }
 }
 
