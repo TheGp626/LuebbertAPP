@@ -415,6 +415,69 @@ async function markAllShiftsBooked(userId) {
   }
 }
 
+// ── PROTOCOL COST RECALCULATION ──
+
+async function recalcAllProtocolCosts() {
+  if (!dashboardProtocols || dashboardProtocols.length === 0) {
+    if (typeof showToast === 'function') showToast('Keine Protokolle geladen.', 'danger');
+    return;
+  }
+  const btn = document.getElementById('btn-recalc-costs');
+  if (btn) { btn.disabled = true; btn.textContent = '↻ Berechne...'; }
+
+  let updated = 0, errors = 0;
+
+  for (const p of dashboardProtocols) {
+    let total = 0;
+
+    // Transport costs
+    (p.protocol_transports || []).forEach(function(t) {
+      total += (typeof PROT_VEHICLE_RATES !== 'undefined' && PROT_VEHICLE_RATES[t.vehicle_type]) || 0;
+    });
+
+    // Personnel costs
+    (p.shifts || []).forEach(function(s) {
+      const von = (s.start_time || '').substring(0, 5);
+      const bis = (s.end_time  || '').substring(0, 5);
+      const pa  = parseInt(s.pause_mins) || 0;
+      if (!von || !bis) return;
+      const [sh, sm] = von.split(':').map(Number);
+      const [eh, em] = bis.split(':').map(Number);
+      if (isNaN(sh) || isNaN(eh)) return;
+      let v = sh * 60 + sm;
+      let b = eh * 60 + em;
+      if (b < v) b += 1440;
+      if (b <= v) return;
+      const basePos = s.position_role || 'MA frei';
+      if (typeof calcSplitShiftCosts === 'function') {
+        const costs = calcSplitShiftCosts(basePos, p.date, p.is_holiday || false, v, b, pa);
+        costs.forEach(c => { total += c.hrs * c.rate; });
+      }
+    });
+
+    const rounded = Math.round(total * 100) / 100;
+    if (rounded === p.total_cost) continue; // nothing changed
+
+    try {
+      const { error } = await supabaseClient
+        .from('protocols')
+        .update({ total_cost: rounded })
+        .eq('id', p.id);
+      if (error) throw error;
+      p.total_cost = rounded; // update local copy
+      updated++;
+    } catch (e) {
+      console.error('recalc error for', p.id, e);
+      errors++;
+    }
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = '↻ Kosten neu berechnen'; }
+  renderDashboardTable();
+  const msg = `${updated} Protokoll${updated !== 1 ? 'e' : ''} aktualisiert` + (errors ? `, ${errors} Fehler` : '');
+  if (typeof showToast === 'function') showToast(msg, errors ? 'danger' : 'success');
+}
+
 // ── PROTOCOL DETAILS & EXPORT ──
 
 function openDashDetail(id) {

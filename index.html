@@ -198,9 +198,9 @@
             <div class="meta-field">
               <span class="meta-label">Datum</span>
               <div style="display: flex; gap: 8px; align-items: center;">
-                <input type="date" id="prot-date" class="meta-input" style="flex:1; margin-bottom: 0;" onchange="saveProtDraft()" />
+                <input type="date" id="prot-date" class="meta-input" style="flex:1; margin-bottom: 0;" onchange="saveProtDraft(); calcProtCosts()" />
                 <label style="display: flex; align-items: center; gap: 4px; margin: 0; font-size: 13px; font-weight: normal; color: var(--text2); white-space: nowrap; cursor: pointer;">
-                  <input type="checkbox" id="prot-isholiday" style="width: 16px; height: 16px; margin: 0; accent-color: var(--accent);" onchange="saveProtDraft()" />
+                  <input type="checkbox" id="prot-isholiday" style="width: 16px; height: 16px; margin: 0; accent-color: var(--accent);" onchange="saveProtDraft(); calcProtCosts()" />
                   Feiertag
                 </label>
               </div>
@@ -336,8 +336,11 @@
         <div id="dash-view-prot" class="table-card" style="display: block;">
           <div class="table-header">
             <h3 style="margin:0; font-size: 16px;">Verschickte Protokolle</h3>
-            <input type="text" id="dash-search" placeholder="Suchen..." class="meta-input" 
-              style="width: 180px; margin: 0; padding: 8px 12px; font-size: 13px;" oninput="renderDashboardTable()">
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="text" id="dash-search" placeholder="Suchen..." class="meta-input"
+                style="width: 180px; margin: 0; padding: 8px 12px; font-size: 13px;" oninput="renderDashboardTable()">
+              <button class="btn" id="btn-recalc-costs" style="width:auto; padding:8px 14px; font-size:13px; white-space:nowrap;" onclick="recalcAllProtocolCosts()" title="Gesamtkosten aller Protokolle neu berechnen">↻ Kosten neu berechnen</button>
+            </div>
           </div>
           <div style="overflow-x: auto;">
             <table id="protocol-table">

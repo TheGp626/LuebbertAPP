@@ -195,7 +195,7 @@ function updateProtTransport(idx, field, val) {
 
 // ── PERSONNEL ──
 function addProtPersonnel() {
-  protState.personnel.push({ pos: 'MA', fest: true, isTemp: false, userId: '', tempName: '', name: '', start: '', end: '', pause: '0', rating: null, isStar: false });
+  protState.personnel.push({ pos: 'MA', fest: false, isTemp: false, userId: '', tempName: '', name: '', start: '', end: '', pause: '0', rating: null, isStar: false });
   renderProtPersonnel();
   saveProtDraft();
 }
@@ -385,7 +385,13 @@ function updateProtCategory(id, field, val) {
 // ── CALCULATIONS ──
 function calcProtCosts() {
   var total = 0;
-  
+
+  // Read date and holiday directly from the DOM so live edits are reflected
+  var dateEl    = document.getElementById('prot-date');
+  var holidayEl = document.getElementById('prot-isholiday');
+  var currentDate    = (dateEl && dateEl.value)       ? dateEl.value    : (protState.date    || new Date().toISOString().split('T')[0]);
+  var currentHoliday = (holidayEl)                    ? holidayEl.checked : (protState.holiday || false);
+
   // Logistics
   protState.transports.forEach(function(t) {
     total += PROT_VEHICLE_RATES[t.type] || 0;
@@ -400,7 +406,7 @@ function calcProtCosts() {
       if (['AL', 'MA', 'Fahrer'].includes(p.pos)) {
         basePos += (p.fest ? ' fest' : ' frei');
       }
-      var costs = calcSplitShiftCosts(basePos, protState.date || new Date().toISOString().split('T')[0], protState.holiday, v, effB, pa);
+      var costs = calcSplitShiftCosts(basePos, currentDate, currentHoliday, v, effB, pa);
       costs.forEach(function(c) {
         total += c.hrs * c.rate;
       });
