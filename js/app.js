@@ -236,10 +236,34 @@ window.addEventListener('DOMContentLoaded', function() {
 
   // PWAs & Service Workers
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').then(function (reg) {
-      reg.update();
+    // Track whether a controller already existed when the page loaded.
+    // controllerchange fires on first install too (null → new SW), so we
+    // only want to reload if an *existing* controller was replaced.
+    var _swHadController = !!navigator.serviceWorker.controller;
+    var _swReloadPending  = false;
+
+    function _onSwUpdate() {
+      if (_swReloadPending) return;
+      _swReloadPending = true;
+      if (typeof showToast === 'function') showToast('🔄 App wird aktualisiert…');
+      setTimeout(function() { window.location.reload(); }, 1200);
+    }
+
+    // Fires when a new SW takes control of this page
+    navigator.serviceWorker.addEventListener('controllerchange', function() {
+      if (_swHadController) _onSwUpdate();
+      _swHadController = true;
+    });
+
+    // Belt-and-suspenders: SW also broadcasts SW_UPDATED after activating
+    navigator.serviceWorker.addEventListener('message', function(e) {
+      if (e.data && e.data.type === 'SW_UPDATED') _onSwUpdate();
+    });
+
+    navigator.serviceWorker.register('sw.js').then(function(reg) {
+      reg.update(); // proactively check for a new sw.js on every page load
       if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-    }).catch(function () { });
+    }).catch(function() {});
   }
 });
 

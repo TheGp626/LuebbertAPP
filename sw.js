@@ -9,9 +9,20 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys().then(keys => {
+      const oldCaches = keys.filter(k => k !== CACHE);
+      return Promise.all(oldCaches.map(k => caches.delete(k)))
+        .then(() => self.clients.claim())
+        .then(() => {
+          // Only notify open tabs when this is a real update (old caches existed),
+          // not on a fresh first-time install.
+          if (oldCaches.length > 0) {
+            return self.clients.matchAll({ type: 'window' }).then(clients =>
+              clients.forEach(c => c.postMessage({ type: 'SW_UPDATED' }))
+            );
+          }
+        });
+    })
   );
 });
 
