@@ -115,3 +115,19 @@ function escapeHtml(str) {
 function safeNote(text) {
   return escapeHtml(text || 'Keine Angaben').replace(/\n/g, '<br>');
 }
+
+function truncatePdf(doc, text, maxWidth) {
+  var full = (text || '');
+  if (doc.getTextWidth(full) <= maxWidth) return full;
+  while (full.length > 1 && doc.getTextWidth(full + '…') > maxWidth) {
+    full = full.slice(0, -1);
+  }
+  return full + '…';
+}
+
+function getBillingPeriodLabel(mKey, cutoff) {
+  var parts = mKey.split('-'), y = +parts[0], m = +parts[1];
+  var prevM = m === 1 ? 12 : m - 1;
+  var prevY = m === 1 ? y - 1 : y;
+  return pad(cutoff) + '.' + pad(prevM) + '.' + prevY + ' – ' + pad(cutoff - 1) + '.' + pad(m) + '.' + y;
+}

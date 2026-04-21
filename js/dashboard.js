@@ -64,27 +64,35 @@ function toggleAddUserForm() {
 }
 
 async function addDashboardUser() {
-  const name = document.getElementById('new-user-name').value.trim();
+  const firstName = (document.getElementById('new-user-firstname') || {}).value?.trim() || '';
+  const lastName  = (document.getElementById('new-user-lastname')  || {}).value?.trim() || '';
+  const fullName  = (firstName + ' ' + lastName).trim();
   const role = document.getElementById('new-user-role').value;
   const dept = document.getElementById('new-user-dept').value.trim();
 
-  if (!name || !dept) {
-    if (typeof showToast === 'function') showToast('Bitte Name und Abteilung ausfüllen.', 'danger');
+  if (!fullName || !dept) {
+    if (typeof showToast === 'function') showToast('Bitte Vor- und Nachname sowie Abteilung ausfüllen.', 'danger');
     return;
   }
 
   try {
+    const rateConni    = parseFloat(document.getElementById('new-user-rate-conni')?.value)    || null;
+    const rateInternal = parseFloat(document.getElementById('new-user-rate-internal')?.value) || null;
+
     const { error } = await supabaseClient
       .from('app_users')
-      .insert({ full_name: name, role: role, default_dept: dept });
+      .insert({ full_name: fullName, role: role, default_dept: dept, hourly_rate_conni: rateConni, hourly_rate_internal: rateInternal });
 
     if (error) throw error;
 
     if (typeof showToast === 'function') showToast('Mitarbeiter erfolgreich hinzugefügt!');
-    
+
     // Clear form and reload
-    document.getElementById('new-user-name').value = '';
+    if (document.getElementById('new-user-firstname')) document.getElementById('new-user-firstname').value = '';
+    if (document.getElementById('new-user-lastname'))  document.getElementById('new-user-lastname').value  = '';
     document.getElementById('new-user-dept').value = '';
+    if (document.getElementById('new-user-rate-conni'))    document.getElementById('new-user-rate-conni').value    = '';
+    if (document.getElementById('new-user-rate-internal')) document.getElementById('new-user-rate-internal').value = '';
     toggleAddUserForm();
     loadDashboardWorkers();
     
@@ -192,7 +200,7 @@ async function loadDashboardWorkers() {
   try {
     const { data: users, error: uErr } = await supabaseClient
       .from('app_users')
-      .select('id, full_name, role')
+      .select('id, full_name, role, hourly_rate_conni, hourly_rate_internal')
       .order('full_name');
     if (uErr) throw uErr;
     
@@ -225,6 +233,7 @@ async function renderWorkerShifts() {
   
   if (!userId) {
     cont.innerHTML = `<div class="empty-state"><div class="empty-icon">👥</div><div>Bitte wählen Sie einen Mitarbeiter aus.</div></div>`;
+    populateDashboardMonthFilter([]);
     return;
   }
   
@@ -252,11 +261,14 @@ async function renderWorkerShifts() {
     if (error) throw error;
     dashboardCurrentShifts = shifts || [];
     
+    const canEdit = (typeof userRole !== 'undefined') && (userRole === 'Buchhaltung' || userRole === 'Admin');
+
     if (dashboardCurrentShifts.length === 0) {
-      cont.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><div>Keine Schichten für diesen Mitarbeiter gefunden.</div></div>`;
+      cont.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><div>Keine Schichten für diesen Mitarbeiter gefunden.</div></div>` +
+        (canEdit ? `<div style="margin-top:16px; text-align:right;"><button class="btn" style="width:auto; padding:10px 16px;" onclick="openAddShift()">+ Schicht hinzufügen</button></div>` : '');
+      populateDashboardMonthFilter([]);
       return;
     }
-    
     let html = `<table class="compact-table" style="width:100%; margin-top: 10px;">
       <thead>
         <tr>
@@ -265,6 +277,7 @@ async function renderWorkerShifts() {
           <th>Zeiten</th>
           <th>Netto</th>
           <th style="text-align:center;">Verbucht</th>
+          ${canEdit ? '<th style="text-align:center;"></th>' : ''}
         </tr>
       </thead>
       <tbody>`;
@@ -315,6 +328,7 @@ async function renderWorkerShifts() {
         <td data-label="Zeiten" style="font-size:13px;">${escapeHtml(timeStr)}</td>
         <td data-label="Netto" style="font-weight:600; color:var(--accent); font-size:13px;">${escapeHtml(netStr)}</td>
         <td data-label="" style="text-align:center;">${checkboxHtml}</td>
+        ${canEdit ? `<td style="text-align:center;"><button onclick="openShiftEdit('${escapeHtml(s.id)}')" style="background:none;border:none;cursor:pointer;font-size:15px;color:var(--text3);" title="Bearbeiten">✏️</button></td>` : ''}
       </tr>`;
     });
     
@@ -341,20 +355,40 @@ async function renderWorkerShifts() {
     const totalH = Math.floor(totalNetMins / 60);
     const totalM = totalNetMins % 60;
     const totalNetStr = totalNetMins > 0 ? (totalM > 0 ? `${totalH}h ${totalM}m` : `${totalH}h`) : '—';
-    html += `<div style="display:flex; justify-content:flex-end; align-items:center; gap:12px; padding:12px 4px; border-top:1px solid var(--border); margin-top:4px;">
-      <span style="font-size:13px; color:var(--text3);">Gesamtstunden (netto):</span>
-      <span style="font-size:16px; font-weight:700; color:var(--accent);">${totalNetStr}</span>
+    const worker = dashboardCurrentWorker;
+    const rateConni = worker && worker.hourly_rate_conni ? parseFloat(worker.hourly_rate_conni) : null;
+    const rateInternal = worker && worker.hourly_rate_internal ? parseFloat(worker.hourly_rate_internal) : null;
+    const totalNetHrs = totalNetMins / 60;
+    const earningsConni = rateConni && totalNetHrs > 0 ? (totalNetHrs * rateConni).toFixed(2).replace('.', ',') + ' €' : null;
+    const earningsInternal = rateInternal && totalNetHrs > 0 ? (totalNetHrs * rateInternal).toFixed(2).replace('.', ',') + ' €' : null;
+    html += `<div style="display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:16px; padding:12px 4px; border-top:1px solid var(--border); margin-top:4px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:13px; color:var(--text3);">Gesamtstunden (netto):</span>
+        <span style="font-size:16px; font-weight:700; color:var(--accent);">${totalNetStr}</span>
+      </div>
+      ${rateConni ? `<div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:13px; color:var(--text3);">Lohn (${rateConni.toFixed(2).replace('.',',')} €/h):</span>
+        <span style="font-size:16px; font-weight:700; color:var(--accent);">${earningsConni}</span>
+      </div>` : ''}
+      ${rateInternal ? `<div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:13px; color:var(--text3);">Intern (${rateInternal.toFixed(2).replace('.',',')} €/h):</span>
+        <span style="font-size:14px; font-weight:600; color:var(--text2);">${earningsInternal}</span>
+      </div>` : ''}
     </div>`;
 
-    // Quick action: Mark all as booked
+    // Quick actions row
     const pendingCount = dashboardCurrentShifts.filter(s => s.status !== 'eingetragen').length;
-    if (pendingCount > 0) {
-      html += `<div style="margin-top: 20px; text-align: right;">
-        <button class="btn primary" style="width:auto; padding: 10px 20px;" data-action="mark-all" data-user-id="${escapeHtml(userId)}">Alle offenen Schichten (${escapeHtml(String(pendingCount))}) verbuchen</button>
-      </div>`;
+    html += `<div style="margin-top: 16px; display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;">`;
+    if (canEdit) {
+      html += `<button class="btn" style="width:auto; padding: 10px 16px;" onclick="openAddShift()">+ Schicht hinzufügen</button>`;
     }
+    if (pendingCount > 0) {
+      html += `<button class="btn primary" style="width:auto; padding: 10px 20px;" data-action="mark-all" data-user-id="${escapeHtml(userId)}">Alle offenen (${escapeHtml(String(pendingCount))}) verbuchen</button>`;
+    }
+    html += `</div>`;
 
     cont.innerHTML = html;
+    populateDashboardMonthFilter(dashboardCurrentShifts);
 
     // Delegate change events for shift booking checkboxes
     cont.querySelectorAll('.shift-booked-cb').forEach(function(cb) {
@@ -412,6 +446,105 @@ async function markAllShiftsBooked(userId) {
   } catch(e) {
     console.error("Update All Err:", e);
     if (typeof showToast === 'function') showToast("Fehler: " + (e.message || "Speichern fehlgeschlagen"), "danger");
+  }
+}
+
+// ── SCHICHT BEARBEITEN / HINZUFÜGEN ──
+
+let _shiftEditId = null; // null = neuer Eintrag, sonst Supabase-ID
+
+function openShiftEdit(shiftId) {
+  const shift = dashboardCurrentShifts.find(s => s.id === shiftId);
+  if (!shift) return;
+  _shiftEditId = shiftId;
+  document.getElementById('shift-edit-title').textContent = 'Schicht bearbeiten';
+  const dateVal = shift.protocols?.date || shift.shift_date || '';
+  document.getElementById('shift-edit-date').value = dateVal;
+  document.getElementById('shift-edit-role').value = shift.position_role || 'MA fest';
+  document.getElementById('shift-edit-start').value = (shift.start_time || '').substring(0, 5);
+  document.getElementById('shift-edit-end').value   = (shift.end_time   || '').substring(0, 5);
+  document.getElementById('shift-edit-pause').value  = shift.pause_mins || 0;
+  document.getElementById('shift-edit-note').value   = shift.note || '';
+  document.getElementById('shift-edit-delete-row').style.display = 'block';
+  document.getElementById('shift-edit-modal').classList.add('open');
+}
+
+function openAddShift() {
+  _shiftEditId = null;
+  document.getElementById('shift-edit-title').textContent = 'Schicht hinzufügen';
+  document.getElementById('shift-edit-date').value  = new Date().toISOString().slice(0, 10);
+  document.getElementById('shift-edit-role').value  = 'MA fest';
+  document.getElementById('shift-edit-start').value = '';
+  document.getElementById('shift-edit-end').value   = '';
+  document.getElementById('shift-edit-pause').value  = 0;
+  document.getElementById('shift-edit-note').value   = '';
+  document.getElementById('shift-edit-delete-row').style.display = 'none';
+  document.getElementById('shift-edit-modal').classList.add('open');
+}
+
+function closeShiftEditModal() {
+  document.getElementById('shift-edit-modal').classList.remove('open');
+  _shiftEditId = null;
+}
+
+async function saveShiftEdit() {
+  const dateVal  = document.getElementById('shift-edit-date').value;
+  const role     = document.getElementById('shift-edit-role').value;
+  const startVal = document.getElementById('shift-edit-start').value;
+  const endVal   = document.getElementById('shift-edit-end').value;
+  const pause    = parseInt(document.getElementById('shift-edit-pause').value) || 0;
+
+  if (!dateVal || !startVal || !endVal) {
+    if (typeof showToast === 'function') showToast('Bitte Datum, Von und Bis ausfüllen.', 'danger');
+    return;
+  }
+
+  try {
+    if (_shiftEditId) {
+      const { error } = await supabaseClient.from('shifts').update({
+        shift_date:    dateVal,
+        position_role: role,
+        start_time:    startVal,
+        end_time:      endVal,
+        pause_mins:    pause
+      }).eq('id', _shiftEditId);
+      if (error) throw error;
+      if (typeof showToast === 'function') showToast('Schicht gespeichert!');
+    } else {
+      const userId = document.getElementById('dash-worker-select').value;
+      if (!userId) { if (typeof showToast === 'function') showToast('Kein Mitarbeiter ausgewählt.', 'danger'); return; }
+      const { error } = await supabaseClient.from('shifts').insert({
+        user_id:       userId,
+        shift_date:    dateVal,
+        position_role: role,
+        start_time:    startVal,
+        end_time:      endVal,
+        pause_mins:    pause,
+        status:        'approved'
+      });
+      if (error) throw error;
+      if (typeof showToast === 'function') showToast('Schicht hinzugefügt!');
+    }
+    closeShiftEditModal();
+    renderWorkerShifts();
+  } catch (err) {
+    console.error('saveShiftEdit error:', err);
+    if (typeof showToast === 'function') showToast('Fehler: ' + (err.message || 'Speichern fehlgeschlagen'), 'danger');
+  }
+}
+
+async function deleteShiftFromModal() {
+  if (!_shiftEditId) return;
+  if (!confirm('Schicht wirklich löschen?')) return;
+  try {
+    const { error } = await supabaseClient.from('shifts').delete().eq('id', _shiftEditId);
+    if (error) throw error;
+    if (typeof showToast === 'function') showToast('Schicht gelöscht.');
+    closeShiftEditModal();
+    renderWorkerShifts();
+  } catch (err) {
+    console.error('deleteShift error:', err);
+    if (typeof showToast === 'function') showToast('Fehler beim Löschen.', 'danger');
   }
 }
 
@@ -885,7 +1018,197 @@ async function exportDashProtPDF(pId) {
 
   var fName = 'protokoll_' + data.date + '_' + data.event.replace(/\s+/g,'_') + '.pdf';
   doc.save(fName);
-  
+
   // Revert temporary protState injection
   window.protState = savedProtState;
+}
+
+// Expose shift-edit functions globally (belt-and-suspenders for inline onclick handlers)
+window.openShiftEdit = openShiftEdit;
+window.openAddShift  = openAddShift;
+window.closeShiftEditModal = closeShiftEditModal;
+window.saveShiftEdit = saveShiftEdit;
+window.deleteShiftFromModal = deleteShiftFromModal;
+
+// ── PERSONAL MONTHLY PDF EXPORT ──
+
+function populateDashboardMonthFilter(shifts) {
+  const sel = document.getElementById('dash-month-filter');
+  const btn = document.getElementById('dash-export-month-btn');
+  if (!sel || !btn) return;
+
+  const months = {};
+  (shifts || []).forEach(function(s) {
+    const dStr = (s.protocols && s.protocols.date) || s.shift_date;
+    if (!dStr) return;
+    const dObj = new Date(dStr + 'T12:00:00');
+    const wStr = getWeekString(dObj);
+    const m = getMonthKeyFromWeek(wStr, billingCutoff);
+    months[m.key] = m.label;
+  });
+
+  const sortedKeys = Object.keys(months).sort().reverse();
+  sel.innerHTML = '<option value="">-- Monat --</option>' +
+    sortedKeys.map(function(k) { return '<option value="' + k + '">' + months[k] + '</option>'; }).join('');
+
+  if (sortedKeys.length > 0) {
+    sel.value = sortedKeys[0];
+    sel.style.display = '';
+    btn.style.display = '';
+  } else {
+    sel.style.display = 'none';
+    btn.style.display = 'none';
+  }
+}
+
+async function exportDashboardMonthlyPDF() {
+  const mKey = (document.getElementById('dash-month-filter') || {}).value;
+  if (!mKey || !dashboardCurrentWorker) return;
+
+  const workerName = dashboardCurrentWorker.full_name || 'Mitarbeiter';
+  showToast('PDF wird erstellt…');
+
+  const { data: shifts, error } = await supabaseClient
+    .from('shifts')
+    .select(`
+      id, start_time, end_time, pause_mins, position_role, status, shift_date,
+      protocols(date, al_name_fallback, pl_name_fallback, signature_text, projects(name, location))
+    `)
+    .eq('user_id', dashboardCurrentWorker.id);
+
+  if (error || !shifts || !shifts.length) { showToast('Keine Daten gefunden.'); return; }
+
+  // Group shifts into week buckets, keeping only the selected month
+  const userWeeks = {};
+  shifts.forEach(function(s) {
+    const dStr = (s.protocols && s.protocols.date) || s.shift_date;
+    if (!dStr) return;
+    const dObj = new Date(dStr + 'T12:00:00');
+    const wStr = getWeekString(dObj);
+    if (getMonthKeyFromWeek(wStr, billingCutoff).key !== mKey) return;
+
+    if (!userWeeks[wStr]) {
+      userWeeks[wStr] = {
+        name: workerName,
+        abt: s.position_role || 'MA',
+        weekStart: wStr,
+        weekLabel: weekLabelFromVal(wStr),
+        days: [],
+        total: '0'
+      };
+      const mon = getMondayFromWeekVal(wStr);
+      for (var i = 0; i < 7; i++) {
+        const iterD = new Date(mon.getTime() + i * 86400000);
+        userWeeks[wStr].days.push({
+          day: DAYS[i],
+          date: fmtDateFull(iterD),
+          isoDate: iterD.getFullYear() + '-' + pad(iterD.getMonth() + 1) + '-' + pad(iterD.getDate()),
+          shifts: []
+        });
+      }
+    }
+
+    const dayMatch = userWeeks[wStr].days.find(function(d) { return d.isoDate === dStr; });
+    if (dayMatch) {
+      const prot = s.protocols || {};
+      const ortParts = prot.projects ? [prot.projects.location, prot.projects.name].filter(Boolean) : [];
+      dayMatch.shifts.push({
+        von: (s.start_time || '').substring(0, 5),
+        bis: (s.end_time || '').substring(0, 5),
+        pause: s.pause_mins ? String(s.pause_mins) : '0',
+        ort: ortParts.join(', '),
+        al: prot.al_name_fallback || prot.pl_name_fallback || '',
+        dept: s.position_role || 'MA',
+        sig: prot.signature_text || null
+      });
+    }
+  });
+
+  // Calculate weekly and monthly totals
+  var mTot = 0, mLab = '';
+  const monthW = Object.keys(userWeeks).sort().map(function(wStr) {
+    const w = userWeeks[wStr];
+    var wMins = 0;
+    w.days.forEach(function(dd) {
+      dd.shifts.forEach(function(sh) {
+        const v = timeToMins(sh.von), b = timeToMins(sh.bis), p = parseInt(sh.pause) || 0;
+        if (v !== null && b !== null) {
+          const effB = b < v ? b + 1440 : b;
+          if (effB > v) wMins += (BUCHHALTUNG_MIN_HOURS_ENABLED ? Math.max(BUCHHALTUNG_MIN_HOURS * 60, effB - v - p) : effB - v - p);
+        }
+      });
+    });
+    const wTot = wMins / 60;
+    w.total = wTot % 1 === 0 ? wTot.toFixed(0) : wTot.toFixed(2);
+    mTot += wTot;
+    if (!mLab) mLab = getMonthKeyFromWeek(wStr, billingCutoff).label;
+    return w;
+  });
+
+  if (!monthW.length) { showToast('Keine Schichten in diesem Monat.'); return; }
+
+  // Compress signatures before embedding
+  const sigComprP = [];
+  monthW.forEach(function(w) {
+    w.days.forEach(function(dd) {
+      (dd.shifts || []).forEach(function(sh) {
+        if (sh.sig) sigComprP.push(new Promise(function(res) {
+          compressSignature(sh.sig, function(c) { sh.sig = c; res(); });
+        }));
+      });
+    });
+  });
+  await Promise.all(sigComprP);
+
+  // Build PDF — same layout as exportMonthlyPDF
+  const doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+  const ml = 20, cw = 170;
+
+  if (typeof LOGO_BASE64 !== 'undefined') {
+    try { const lw = 30, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100; doc.addImage(LOGO_BASE64, 'PNG', 160, 10, lw, lh); } catch(e) {}
+  }
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text('Monatsübersicht', ml, 25);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(120); doc.text('Lübbert Event Interiors', ml, 32); doc.setTextColor(0);
+  doc.setFontSize(11);
+  doc.text('Monat:', ml, 48); doc.setFont('helvetica', 'bold'); doc.text(mLab, ml + 25, 48);
+  doc.setFont('helvetica', 'normal'); doc.text('Zeitraum:', ml, 56); doc.setFont('helvetica', 'bold'); doc.text(getBillingPeriodLabel(mKey, billingCutoff), ml + 25, 56);
+  doc.setFont('helvetica', 'normal'); doc.text('Name:', ml, 64); doc.setFont('helvetica', 'bold'); doc.text(workerName, ml + 25, 64);
+
+  const colKW = ml, colZR = ml + 37, colAbt = ml + 105, colSt = ml + 155;
+  var y = 80;
+  doc.setFillColor(30, 30, 28); doc.rect(ml, y, cw, 10, 'F'); doc.setTextColor(255); doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+  doc.text('Kalenderwoche', colKW + 3, y + 6.5);
+  doc.text('Zeitraum', colZR, y + 6.5);
+  doc.text('Abteilung', colAbt, y + 6.5);
+  doc.text('Stunden', colSt, y + 6.5);
+  doc.setTextColor(0); y += 10;
+
+  monthW.forEach(function(w, i) {
+    if (i % 2 === 0) { doc.setFillColor(248, 248, 246); doc.rect(ml, y, cw, 10, 'F'); }
+    doc.setFont('helvetica', 'bold'); doc.text('KW ' + parseInt(w.weekStart.split('-W')[1]), colKW + 3, y + 6.5);
+    doc.setFont('helvetica', 'normal');
+    const rangeLabel = (w.weekLabel || '').split('·');
+    doc.text((rangeLabel[1] || rangeLabel[0] || '').trim(), colZR, y + 6.5);
+    doc.text(w.abt || '—', colAbt, y + 6.5);
+    doc.setFont('helvetica', 'bold'); doc.text(w.total + ' h', colSt, y + 6.5);
+    doc.setDrawColor(220); doc.line(ml, y + 10, ml + cw, y + 10); y += 10;
+  });
+
+  y += 10; doc.setFontSize(14); doc.text('Gesamtstunden:', ml, y);
+  doc.setTextColor(24, 95, 165); doc.text((mTot % 1 === 0 ? mTot.toFixed(0) : mTot.toFixed(2)) + ' h', ml + 50, y); doc.setTextColor(0);
+
+  // Set rate for drawPDFContent earnings line, then restore
+  const prevRate = window.currentUserRateConni;
+  window.currentUserRateConni = dashboardCurrentWorker.hourly_rate_conni ? parseFloat(dashboardCurrentWorker.hourly_rate_conni) : 0;
+  monthW.forEach(function(data) { doc.addPage(); drawPDFContent(doc, data, ml, cw); });
+  window.currentUserRateConni = prevRate;
+
+  const fN = 'stundennachweis_' + mKey.replace('-', '_') + '_' + workerName.replace(/\s+/g, '_') + '.pdf';
+  if (navigator.canShare) {
+    try {
+      const file = new File([doc.output('blob')], fN, { type: 'application/pdf' });
+      if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Monatsübersicht ' + mLab, text: 'Stundennachweise für ' + mLab }); showToast('✅ geteilt!'); return; }
+    } catch(e) {}
+  }
+  doc.save(fN); showToast('📄 Monats-PDF gespeichert!');
 }

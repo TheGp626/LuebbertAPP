@@ -123,7 +123,7 @@ async function fetchSupabaseShifts() {
           userWeeks[wStr].days.push({
             day: DAYS[i],
             date: fmtDateFull(iterD),
-            isoDate: iterD.toISOString().split('T')[0],
+            isoDate: iterD.getFullYear() + '-' + pad(iterD.getMonth()+1) + '-' + pad(iterD.getDate()),
             shifts: []
           });
         }
@@ -136,7 +136,7 @@ async function fetchSupabaseShifts() {
            von: (sh.start_time || '').substring(0,5),
            bis: (sh.end_time || '').substring(0,5),
            pause: sh.pause_mins ? sh.pause_mins.toString() : '0',
-           ort: (prot.projects && prot.projects.name) ? prot.projects.name : (sh.protocol_id ? '' : 'Manuell erfasst'),
+           ort: (prot.projects && (prot.projects.location || prot.projects.name)) ? [prot.projects.location, prot.projects.name].filter(Boolean).join(', ') : (sh.protocol_id ? '' : 'Manuell erfasst'),
            al: prot.al_name_fallback || prot.pl_name_fallback || '',
            dept: sh.position_role || 'MA',
            sig: prot.signature_text || null,
@@ -435,7 +435,7 @@ function initShiftSig(dayIdx, shiftIdx) {
   canvas.width = pw * dpr; canvas.height = ph * dpr;
   canvas.style.width = pw + 'px'; canvas.style.height = ph + 'px';
   var ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr); ctx.strokeStyle = '#1a1a18'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.scale(dpr, dpr); ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, pw, ph); ctx.strokeStyle = '#1a1a18'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   shiftSigCanvases[key] = { canvas: canvas, ctx: ctx, w: pw, h: ph, _ready: true };
   redrawShiftSig(key);
 }
@@ -481,7 +481,8 @@ function renderHistory() {
   Object.keys(months).sort().reverse().forEach(function (mKey) {
     var m = months[mKey];
     var hrs = m.totalHours % 1 === 0 ? m.totalHours.toFixed(0) : m.totalHours.toFixed(2);
-    html += '<div class="month-group"><div class="month-header"><div><div class="month-title">' + m.label + '</div><div class="month-stats">' + hrs + ' h gesamt</div></div><button class="month-export-btn" onclick="exportMonthlyPDF(\'' + mKey + '\')">⤵ Monat exportieren</button></div>';
+    var bilRange = getBillingPeriodLabel(mKey, billingCutoff);
+    html += '<div class="month-group"><div class="month-header"><div><div class="month-title">' + m.label + '</div><div class="month-stats">' + bilRange + ' · ' + hrs + ' h</div></div><button class="month-export-btn" onclick="exportMonthlyPDF(\'' + mKey + '\')">⤵ Monat exportieren</button></div>';
     html += m.weeks.map(function (w) {
       var hKey = w.histKey || w.weekStart;
       var earnW = formatEarnings(parseFloat((w.total || '0').replace(',', '.')), w.abt);
@@ -594,21 +595,34 @@ async function syncWeekToSupabase(data) {
   if (typeof supabaseClient === 'undefined' || !currentUser) return;
 
   try {
-    // This is a simplified sync: it pushes shifts that aren't already linked to a protocol
-    // primarily to ensure MA-entered shifts are backed up.
+    // Calculate the date range for this week (Mon–Sun)
+    var weekStart = isoWeekToDate(data.weekStart, 0);
+    var weekEnd   = isoWeekToDate(data.weekStart, 6);
+
+    // Delete existing pending shifts for this user+week that are NOT linked to a protocol
+    // This prevents duplicates when saving the same week multiple times
+    await supabaseClient
+      .from('shifts')
+      .delete()
+      .eq('user_id', currentUser.id)
+      .is('protocol_id', null)
+      .gte('shift_date', weekStart)
+      .lte('shift_date', weekEnd);
+
+    // Build the fresh shift list
     var shiftsToSync = [];
     data.days.forEach(function(dd, dayIdx) {
       dd.shifts.forEach(function(sh) {
-        if (!sh.von || !sh.bis || sh.isSynced) return;
+        if (!sh.von || !sh.bis) return;
         shiftsToSync.push({
-          user_id: currentUser.id,
-          start_time: sh.von,
-          end_time: sh.bis,
-          pause_mins: parseInt(sh.pause) || 0,
+          user_id:       currentUser.id,
+          start_time:    sh.von,
+          end_time:      sh.bis,
+          pause_mins:    parseInt(sh.pause) || 0,
           position_role: sh.dept || data.abt,
-          status: 'pending', // Weeks saved by MA are pending until approved/linked
+          status:        'pending',
           temp_worker_name: null,
-          shift_date: isoWeekToDate(data.weekStart, dayIdx)
+          shift_date:    isoWeekToDate(data.weekStart, dayIdx)
         });
       });
     });
@@ -616,19 +630,20 @@ async function syncWeekToSupabase(data) {
     if (shiftsToSync.length > 0) {
       const { error } = await supabaseClient.from('shifts').insert(shiftsToSync);
       if (error) throw error;
-      showToast('✅ Stundenzettel mit Server synchronisiert!');
-      
-      // Mark as synced locally — covers both plain ("2026-W12") and compound ("2026-W12:AL") keys
-      var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
-      var changed = false;
-      Object.keys(all).forEach(function(k) {
-        if (k === data.weekStart || k.startsWith(data.weekStart + ':')) {
-          all[k].days.forEach(function(dd) { dd.shifts.forEach(function(sh) { sh.isSynced = true; }); });
-          changed = true;
-        }
-      });
-      if (changed) localStorage.setItem('stundenzettel', JSON.stringify(all));
     }
+
+    showToast('✅ Stundenzettel mit Server synchronisiert!');
+
+    // Mark all shifts as synced in localStorage
+    var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+    var changed = false;
+    Object.keys(all).forEach(function(k) {
+      if (k === data.weekStart || k.startsWith(data.weekStart + ':')) {
+        all[k].days.forEach(function(dd) { dd.shifts.forEach(function(sh) { sh.isSynced = true; }); });
+        changed = true;
+      }
+    });
+    if (changed) localStorage.setItem('stundenzettel', JSON.stringify(all));
   } catch(e) {
     console.error("Week Sync Error:", e);
     showToast("Server-Backup fehlgeschlagen (Offline).", "info");
@@ -710,10 +725,11 @@ async function exportMonthlyPDF(mKey) {
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(120); doc.text('Lübbert Event Interiors', ml, 32); doc.setTextColor(0);
   doc.setFontSize(11);
   doc.text('Monat:', ml, 48); doc.setFont('helvetica', 'bold'); doc.text(mLab, ml + 25, 48);
-  doc.setFont('helvetica', 'normal'); doc.text('Name:', ml, 56); doc.setFont('helvetica', 'bold'); doc.text(name || '—', ml + 25, 56);
+  doc.setFont('helvetica', 'normal'); doc.text('Zeitraum:', ml, 56); doc.setFont('helvetica', 'bold'); doc.text(getBillingPeriodLabel(mKey, billingCutoff), ml + 25, 56);
+  doc.setFont('helvetica', 'normal'); doc.text('Name:', ml, 64); doc.setFont('helvetica', 'bold'); doc.text(name || '—', ml + 25, 64);
   // Table with Abteilung column (cols: KW=35 | Zeitraum=65 | Abteilung=50 | Stunden=20)
   var colKW = ml, colZR = ml + 37, colAbt = ml + 105, colSt = ml + 155;
-  var y = 72;
+  var y = 80;
   doc.setFillColor(30, 30, 28); doc.rect(ml, y, cw, 10, 'F'); doc.setTextColor(255); doc.setFontSize(9); doc.setFont('helvetica', 'bold');
   doc.text('Kalenderwoche', colKW + 3, y + 6.5);
   doc.text('Zeitraum', colZR, y + 6.5);
@@ -767,7 +783,9 @@ function drawPDFContent(doc, data, ml, cw) {
   doc.setFontSize(10); doc.text('Name:', ml, 38); doc.setFont('helvetica', 'bold'); doc.text(data.name || '—', ml + 18, 38);
   doc.setFont('helvetica', 'normal'); doc.text('Abteilung:', ml + 80, 38); doc.setFont('helvetica', 'bold'); doc.text(data.abt, ml + 103, 38);
   doc.setFont('helvetica', 'normal'); doc.text('Woche:', ml, 46); doc.setFont('helvetica', 'bold'); doc.text(data.weekLabel, ml + 18, 46);
-  var y = 56, cols = [36, 18, 14, 14, 16, 10, 24, 38], hd = ['Tag / Datum', 'Einsatzort', 'Von', 'Bis', 'Pause', 'Std', 'Name AL', 'Unterschrift AL'];
+  // cols: Tag/Datum | Einsatzort | Abteilung | Von–Bis | Pause | Std | Name AL | Unterschrift AL
+  var y = 56, cols = [32, 28, 18, 22, 11, 9, 14, 36], hd = ['Tag / Datum', 'Einsatzort', 'Abteilung', 'Von–Bis', 'Pause', 'Std', 'Name AL', 'Unterschrift AL'];
+  var DAY_ABBR = {'Montag':'Mo','Dienstag':'Di','Mittwoch':'Mi','Donnerstag':'Do','Freitag':'Fr','Samstag':'Sa','Sonntag':'So'};
   doc.setFillColor(30, 30, 28); doc.rect(ml, y, cw, 8, 'F'); doc.setTextColor(255); doc.setFontSize(8); doc.setFont('helvetica', 'bold');
   var cx = ml + 2; hd.forEach(function (h, i) { doc.text(h, cx, y + 5.5); cx += cols[i]; });
   doc.setTextColor(0); y += 8;
@@ -777,12 +795,32 @@ function drawPDFContent(doc, data, ml, cw) {
     var hStr = dNet % 1 === 0 ? dNet.toFixed(0) : dNet.toFixed(2), dRows = actS.length;
     if (y + dRows * 10 > 268) { doc.addPage(); y = 20; doc.setFillColor(30, 30, 28); doc.rect(ml, y, cw, 8, 'F'); doc.setTextColor(255); doc.setFontSize(8); doc.setFont('helvetica', 'bold'); var hcx = ml + 2; hd.forEach(function (h, i) { doc.text(h, hcx, y + 5.5); hcx += cols[i]; }); doc.setTextColor(0); y += 8; }
     for (var r = 0; r < dRows; r++) {
-      if (idx % 2 === 0) { doc.setFillColor(248, 248, 246); doc.rect(ml, y, cw, 10, 'F'); } cx = ml + 2;
-      if (r === 0) { doc.setFont('helvetica', 'bold'); doc.text(dd.day + ' ' + dd.date, cx, y + 5.5); } cx += cols[0]; doc.setFont('helvetica', 'normal'); doc.text((actS[r].ort || ''), cx, y + 5.5); cx += cols[1]; doc.text(actS[r].von + ' – ' + actS[r].bis, cx, y + 5.5); cx += cols[2] + cols[3]; doc.text(parseInt(actS[r].pause) > 0 ? actS[r].pause + ' min' : '—', cx, y + 5.5); cx += cols[4]; if (r === 0) { doc.setFont('helvetica', 'bold'); doc.text(hStr + 'h', cx, y + 5.5); } cx += cols[5]; doc.setFont('helvetica', 'normal'); doc.text((actS[r].al || ''), cx, y + 5.5); cx += cols[6]; if (actS[r].sig) { try { doc.addImage(actS[r].sig, 'JPEG', cx, y + 1, 28, 8); } catch (e) { } } doc.setDrawColor(220); doc.line(ml, y + 10, ml + cw, y + 10); y += 10;
+      if (idx % 2 === 0) { doc.setFillColor(248, 248, 246); doc.rect(ml, y, cw, 10, 'F'); }
+      cx = ml + 2;
+      if (r === 0) { doc.setFont('helvetica', 'bold'); doc.text((DAY_ABBR[dd.day] || dd.day.substring(0,2)) + ' ' + dd.date, cx, y + 5.5); }
+      cx += cols[0]; doc.setFont('helvetica', 'normal');
+      doc.text(truncatePdf(doc, actS[r].ort || '', cols[1] - 2), cx, y + 5.5); cx += cols[1];
+      var deptShort = (actS[r].dept || '').split('(')[0].trim();
+      doc.text(truncatePdf(doc, deptShort, cols[2] - 2), cx, y + 5.5); cx += cols[2];
+      doc.text(actS[r].von + '–' + actS[r].bis, cx, y + 5.5); cx += cols[3];
+      doc.text(parseInt(actS[r].pause) > 0 ? actS[r].pause + 'm' : '—', cx, y + 5.5); cx += cols[4];
+      if (r === 0) { doc.setFont('helvetica', 'bold'); doc.text(hStr + 'h', cx, y + 5.5); }
+      cx += cols[5]; doc.setFont('helvetica', 'normal');
+      doc.text(truncatePdf(doc, actS[r].al || '', cols[6] - 2), cx, y + 5.5); cx += cols[6];
+      if (actS[r].sig) { try { doc.addImage(actS[r].sig, 'JPEG', cx, y + 1, cols[7] - 2, 8); } catch (e) { } }
+      doc.setDrawColor(220); doc.line(ml, y + 10, ml + cw, y + 10); y += 10;
     }
   });
   y += 8; doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Gesamtstunden:', ml, y); doc.setTextColor(24, 95, 165); doc.text(data.total + ' h', ml + 38, y);
-  doc.setTextColor(0); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(150);
+  doc.setTextColor(0);
+  var rateC = window.currentUserRateConni || 0;
+  if (rateC > 0 && parseFloat(data.total) > 0) {
+    var earnings = (parseFloat(data.total) * rateC).toFixed(2).replace('.', ',');
+    y += 7; doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    doc.text('Stundensatz:', ml, y); doc.setFont('helvetica', 'bold'); doc.text(rateC.toFixed(2).replace('.', ',') + ' €/h', ml + 28, y);
+    doc.text('Verdienst:', ml + 70, y); doc.setTextColor(24, 95, 165); doc.text(earnings + ' €', ml + 93, y); doc.setTextColor(0);
+  }
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(150);
   doc.text('Es werden nur Stunden angerechnet, die auf diesem Nachweis eingetragen und vom AL abgezeichnet sind.', ml, 285);
   doc.text('Einzureichen bis zum 20. Tag eines Monats.', ml, 290);
 }

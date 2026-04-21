@@ -237,6 +237,7 @@ function initSigModalCanvas() {
   var rect = c.parentElement.getBoundingClientRect(), w = Math.max(1, Math.round(rect.width)), h = Math.max(1, Math.round(rect.height));
   c.width = w * dpr; c.height = h * dpr; c.style.width = '100%'; c.style.height = '100%';
   var ctx = c.getContext('2d'); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
   ctx.strokeStyle = '#1a1a18'; ctx.lineWidth = 2.8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   return { canvas: c, ctx: ctx, w: w, h: h };
 }

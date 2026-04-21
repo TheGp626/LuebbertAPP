@@ -36,16 +36,24 @@ async function fetchAppUsers() {
 }
 
 function populateAlPlSelects() {
-  ['prot-al', 'prot-pl'].forEach(function(id) {
-    var sel = document.getElementById(id);
-    if (!sel) return;
-    var cur = sel.value;
-    sel.innerHTML = '<option value="">— auswählen —</option>' +
-      appUsers.map(function(u) {
-        return '<option value="' + u.id + '">' + (u.full_name || u.email) + '</option>';
-      }).join('');
-    if (cur) sel.value = cur;
-  });
+  var alSel = document.getElementById('prot-al');
+  var plSel = document.getElementById('prot-pl');
+
+  if (alSel) {
+    var curAl = alSel.value;
+    var alUsers = appUsers.filter(function(u) { return u.role === 'AL' || u.role === 'Admin'; });
+    alSel.innerHTML = '<option value="">— AL auswählen —</option>' +
+      alUsers.map(function(u) { return '<option value="' + u.id + '">' + (u.full_name || u.email) + '</option>'; }).join('');
+    if (curAl) alSel.value = curAl;
+  }
+
+  if (plSel) {
+    var curPl = plSel.value;
+    var plUsers = appUsers.filter(function(u) { return u.role === 'PL' || u.role === 'Admin'; });
+    plSel.innerHTML = '<option value="">— PL auswählen —</option>' +
+      plUsers.map(function(u) { return '<option value="' + u.id + '">' + (u.full_name || u.email) + '</option>'; }).join('');
+    if (curPl) plSel.value = curPl;
+  }
 }
 
 function initProtokoll() {
@@ -79,7 +87,7 @@ function initProtSig() {
   canvas.width = pw * dpr; canvas.height = ph * dpr;
   canvas.style.width = pw + 'px'; canvas.style.height = ph + 'px';
   var ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr); ctx.strokeStyle = '#1a1a18'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.scale(dpr, dpr); ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, pw, ph); ctx.strokeStyle = '#1a1a18'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 }
 
 function redrawProtSig() {

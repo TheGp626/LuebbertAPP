@@ -370,13 +370,18 @@
               <select id="dash-worker-select" class="meta-input" style="width: 250px; margin: 0; padding: 8px 12px; font-size: 13px;" onchange="renderWorkerShifts()">
                 <option value="">-- Mitarbeiter wählen --</option>
               </select>
+              <select id="dash-month-filter" class="meta-input" style="width: 160px; margin: 0; padding: 8px 12px; font-size: 13px; display: none;">
+                <option value="">-- Monat --</option>
+              </select>
+              <button id="dash-export-month-btn" class="btn" style="width: auto; padding: 8px 14px; font-size: 13px; display: none;" onclick="exportDashboardMonthlyPDF()">📄 Monat als PDF</button>
             </div>
           </div>
           
           <!-- ADD USER FORM (HIDDEN) -->
           <div id="add-user-form" style="display: none; padding: 20px; background: var(--bg2); border-bottom: 1px solid var(--border);">
             <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-              <input type="text" id="new-user-name" placeholder="Name" class="meta-input" style="flex: 2; min-width: 150px;">
+              <input type="text" id="new-user-firstname" placeholder="Vorname" class="meta-input" style="flex: 1; min-width: 120px;">
+              <input type="text" id="new-user-lastname" placeholder="Nachname" class="meta-input" style="flex: 1; min-width: 120px;">
               <select id="new-user-role" class="meta-input" style="flex: 1; min-width: 100px;">
                 <option value="MA">MA (Mitarbeiter)</option>
                 <option value="AL">AL (Aufbauleitung)</option>
@@ -385,6 +390,8 @@
                 <option value="Admin">Admin</option>
               </select>
               <input type="text" id="new-user-dept" placeholder="Abteilung" class="meta-input" style="flex: 2; min-width: 150px;">
+              <input type="number" id="new-user-rate-conni" step="0.50" min="0" placeholder="Lohn Conni (€/h)" class="meta-input" style="flex: 1; min-width: 130px;">
+              <input type="number" id="new-user-rate-internal" step="0.50" min="0" placeholder="Satz intern (€/h)" class="meta-input" style="flex: 1; min-width: 130px;">
               <button class="btn primary" style="width: auto; padding: 0 20px;" onclick="addDashboardUser()">Speichern</button>
               <button class="btn" style="width: auto; padding: 0 20px;" onclick="toggleAddUserForm()">Abbrechen</button>
             </div>
@@ -658,19 +665,74 @@
         <button class="btn primary" onclick="saveSettingsModal()">Schließen</button>
       </div>
     </div>
+  </div>
+
+  <!-- ══════════ SCHICHT BEARBEITEN MODAL ══════════ -->
+  <div id="shift-edit-modal" class="sig-modal">
+    <div class="sig-modal-inner" style="max-width:420px; width:90%; padding:24px; max-height:90vh; overflow-y:auto;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h3 id="shift-edit-title" style="margin:0; font-size:17px;">Schicht bearbeiten</h3>
+        <button onclick="closeShiftEditModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2);">✕</button>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:14px;">
+        <div class="field">
+          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Datum</label>
+          <input type="date" id="shift-edit-date" class="meta-input">
+        </div>
+        <div class="field">
+          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Rolle / Position</label>
+          <select id="shift-edit-role" class="meta-input">
+            <option value="MA fest">MA fest</option>
+            <option value="MA frei">MA frei</option>
+            <option value="AL fest">AL fest</option>
+            <option value="AL frei">AL frei</option>
+            <option value="Fahrer fest">Fahrer fest</option>
+            <option value="Fahrer frei">Fahrer frei</option>
+            <option value="Zenjob">Zenjob</option>
+            <option value="Rockit">Rockit</option>
+          </select>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <div class="field" style="flex:1;">
+            <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Von</label>
+            <input type="time" id="shift-edit-start" class="meta-input">
+          </div>
+          <div class="field" style="flex:1;">
+            <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Bis</label>
+            <input type="time" id="shift-edit-end" class="meta-input">
+          </div>
+        </div>
+        <div class="field">
+          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Pause (Minuten)</label>
+          <input type="number" id="shift-edit-pause" class="meta-input" min="0" step="5" placeholder="z.B. 30">
+        </div>
+        <div class="field">
+          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Hinweis (z.B. Urlaub, Sonderauszahlung)</label>
+          <input type="text" id="shift-edit-note" class="meta-input" placeholder="Optional">
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:20px;">
+        <button class="btn primary" style="flex:1;" onclick="saveShiftEdit()">Speichern</button>
+        <button class="btn" style="flex:1;" onclick="closeShiftEditModal()">Abbrechen</button>
+      </div>
+      <div id="shift-edit-delete-row" style="margin-top:12px; text-align:center; display:none;">
+        <button onclick="deleteShiftFromModal()" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:13px;">Schicht löschen</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Scripts -->
-  <script src="js/supabase-config.js?v=2"></script>
-  <script src="js/auth.js?v=2"></script>
-  <script src="js/logo.js?v=2"></script>
-  <script src="js/formulas.js?v=2"></script>
-  <script src="js/utils.js?v=2"></script>
-  <script src="js/stundenzettel.js?v=2"></script>
-  <script src="js/protokoll.js?v=2"></script>
-  <script src="js/dashboard.js?v=2"></script>
-  <script src="js/produkte.js?v=1"></script>
-  <script src="js/ordner.js?v=1"></script>
-  <script src="js/app.js?v=2"></script>
+  <script src="js/supabase-config.js?v=3"></script>
+  <script src="js/auth.js?v=3"></script>
+  <script src="js/logo.js?v=3"></script>
+  <script src="js/formulas.js?v=3"></script>
+  <script src="js/utils.js?v=3"></script>
+  <script src="js/stundenzettel.js?v=3"></script>
+  <script src="js/protokoll.js?v=3"></script>
+  <script src="js/dashboard.js?v=3"></script>
+  <script src="js/produkte.js?v=3"></script>
+  <script src="js/ordner.js?v=3"></script>
+  <script src="js/app.js?v=3"></script>
 </body>
 
 </html>

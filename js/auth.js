@@ -117,7 +117,9 @@ function handleSession(user) {
       snInput.value = user.full_name;
     }
     localStorage.setItem('stundenzettel_name', user.full_name);
-    
+    window.currentUserRateConni    = parseFloat(user.hourly_rate_conni)    || 0;
+    window.currentUserRateInternal = parseFloat(user.hourly_rate_internal) || 0;
+
     overlay.style.display = 'none';
 
     console.log('User logged in locally:', user.full_name, 'Role:', userRole);
