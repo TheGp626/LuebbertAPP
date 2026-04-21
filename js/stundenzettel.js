@@ -24,7 +24,8 @@ function saveCurrentDayToCache() {
       pause: (document.getElementById('pause-' + key) || { value: '0' }).value || '0',
       ort: (document.getElementById('ort-' + key) || {}).value || '',
       al: (document.getElementById('al-' + key) || {}).value || '',
-      dept: deptEl ? deptEl.value : (shiftValues[i][s] && shiftValues[i][s].dept) || selectedAbt
+      dept: deptEl ? deptEl.value : (shiftValues[i][s] && shiftValues[i][s].dept) || selectedAbt,
+      isProtocol: shiftValues[i][s] ? (shiftValues[i][s].isProtocol || false) : false
     };
   }
 }
@@ -34,6 +35,7 @@ function getShiftData(dayIdx, shiftIdx) {
   if (activeDayIdx === dayIdx) {
     var vonEl = document.getElementById('von-' + key);
     if (vonEl) {
+      var sv0 = (shiftValues[dayIdx] || [])[shiftIdx] || {};
       var deptEl = document.getElementById('dept-' + key);
       return {
         von: vonEl.value || '',
@@ -42,12 +44,13 @@ function getShiftData(dayIdx, shiftIdx) {
         ort: (document.getElementById('ort-' + key) || {}).value || '',
         al: (document.getElementById('al-' + key) || {}).value || '',
         dept: deptEl ? deptEl.value : selectedAbt,
-        sig: shiftSigData[key] || null
+        sig: shiftSigData[key] || null,
+        isProtocol: sv0.isProtocol || false
       };
     }
   }
   var sv = (shiftValues[dayIdx] || [])[shiftIdx] || {};
-  return { von: sv.von || '', bis: sv.bis || '', pause: sv.pause || '0', ort: sv.ort || '', al: sv.al || '', dept: sv.dept || selectedAbt, sig: shiftSigData[key] || null, isSynced: sv.isSynced || false };
+  return { von: sv.von || '', bis: sv.bis || '', pause: sv.pause || '0', ort: sv.ort || '', al: sv.al || '', dept: sv.dept || selectedAbt, sig: shiftSigData[key] || null, isProtocol: sv.isProtocol || false };
 }
 
 function buildDays() {
@@ -78,7 +81,7 @@ async function fetchSupabaseShifts() {
       .from('shifts')
       .select(`
         id, start_time, end_time, pause_mins, position_role, status, shift_date, protocol_id,
-        protocols ( date, al_name_fallback, pl_name_fallback, signature_text, projects ( name, location ) )
+        protocols ( date, al_name_fallback, pl_name_fallback, projects ( name, location ) )
       `)
       .eq('user_id', currentUser.id)
       .in('status', ['approved', 'pending', 'eingetragen']);
@@ -139,8 +142,9 @@ async function fetchSupabaseShifts() {
            ort: (prot.projects && (prot.projects.location || prot.projects.name)) ? [prot.projects.location, prot.projects.name].filter(Boolean).join(', ') : (sh.protocol_id ? '' : 'Manuell erfasst'),
            al: prot.al_name_fallback || prot.pl_name_fallback || '',
            dept: sh.position_role || 'MA',
-           sig: prot.signature_text || null,
-           isSynced: true
+           sig: null,
+           protocolId: sh.protocol_id || null,
+           isProtocol: !!sh.protocol_id
          });
       }
     });
@@ -617,7 +621,7 @@ async function syncWeekToSupabase(data) {
     data.days.forEach(function(dd, dayIdx) {
       dd.shifts.forEach(function(sh) {
         if (!sh.von || !sh.bis) return;
-        if (sh.isSynced) return; // already exists as a protocol shift — do not duplicate
+        if (sh.isProtocol) return; // already exists as a protocol-linked shift — do not duplicate
         shiftsToSync.push({
           user_id:       currentUser.id,
           start_time:    sh.von,
@@ -637,17 +641,6 @@ async function syncWeekToSupabase(data) {
     }
 
     showToast('✅ Stundenzettel mit Server synchronisiert!');
-
-    // Mark all shifts as synced in localStorage
-    var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
-    var changed = false;
-    Object.keys(all).forEach(function(k) {
-      if (k === data.weekStart || k.startsWith(data.weekStart + ':')) {
-        all[k].days.forEach(function(dd) { dd.shifts.forEach(function(sh) { sh.isSynced = true; }); });
-        changed = true;
-      }
-    });
-    if (changed) localStorage.setItem('stundenzettel', JSON.stringify(all));
   } catch(e) {
     console.error("Week Sync Error:", e);
     showToast("Server-Backup fehlgeschlagen (Offline).", "info");
@@ -665,7 +658,7 @@ function loadWeek(key) {
     shiftCounts[i] = shs.length;
     shiftValues[i] = shs.map(function (sh, s) {
       if (sh.sig) shiftSigData[i + '-' + s] = sh.sig;
-      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: sh.pause || '0', dept: sh.dept || w.abt || selectedAbt, isSynced: sh.isSynced || false };
+      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: sh.pause || '0', dept: sh.dept || w.abt || selectedAbt, protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
     });
   });
   renderWeekStrip();
@@ -676,9 +669,38 @@ function loadWeek(key) {
 
 function deleteWeek(e, k) { e.stopPropagation(); if (!confirm('Woche löschen?')) return; var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}'); delete all[k]; localStorage.setItem('stundenzettel', JSON.stringify(all)); renderHistory(); showToast('Gelöscht'); }
 
+// ── SIGNATURE LAZY-LOADER ──
+// Fetches signature_text only for the protocol IDs present in the given week data array.
+// Populates sh.sig on each shift in-place. Call this before compressing/rendering PDFs.
+async function fetchSignaturesForWeeks(weekDataArray) {
+  if (typeof supabaseClient === 'undefined' || !currentUser) return;
+  try {
+    var ids = [];
+    weekDataArray.forEach(function(w) {
+      w.days.forEach(function(dd) {
+        dd.shifts.forEach(function(sh) {
+          if (sh.protocolId && ids.indexOf(sh.protocolId) === -1) ids.push(sh.protocolId);
+        });
+      });
+    });
+    if (!ids.length) return;
+    var { data } = await supabaseClient.from('protocols').select('id, signature_text').in('id', ids);
+    if (!data) return;
+    var sigMap = {};
+    data.forEach(function(r) { if (r.signature_text) sigMap[r.id] = r.signature_text; });
+    weekDataArray.forEach(function(w) {
+      w.days.forEach(function(dd) {
+        dd.shifts.forEach(function(sh) { if (sh.protocolId && sigMap[sh.protocolId]) sh.sig = sigMap[sh.protocolId]; });
+      });
+    });
+  } catch(e) { console.warn('fetchSignaturesForWeeks failed:', e); }
+}
+
 // ── PDF ──
 async function exportPDF() {
-  var data = collectData(), sigP = [];
+  var data = collectData();
+  await fetchSignaturesForWeeks([data]);
+  var sigP = [];
   data.days.forEach(function (dd) { dd.shifts.forEach(function (sh) { if (sh.sig) sigP.push(new Promise(function (res) { compressSignature(sh.sig, function (c) { sh.sig = c; res(); }); })); }); });
   await Promise.all(sigP);
   var doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
@@ -752,7 +774,8 @@ async function exportMonthlyPDF(mKey) {
   });
   y += 10; doc.setFontSize(14); doc.text('Gesamtstunden:', ml, y);
   doc.setTextColor(24, 95, 165); doc.text((mTot % 1 === 0 ? mTot.toFixed(0) : mTot.toFixed(2)) + ' h', ml + 50, y); doc.setTextColor(0);
-  // Compress signatures from localStorage before embedding (same as exportPDF does)
+  // Lazy-fetch signatures (removed from regular shift query to save egress), then compress
+  await fetchSignaturesForWeeks(monthW);
   var sigComprP = [];
   monthW.forEach(function(w) {
     w.days.forEach(function(dd) {

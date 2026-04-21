@@ -24,16 +24,17 @@ function initDashboardRealtime() {
         if (typeof refreshDashboard === 'function') refreshDashboard();
       })
       .subscribe(function(status) {
-        // If real-time is unavailable, polling fallback kicks in anyway
         console.log('[Realtime]', status);
+        if (status === 'SUBSCRIBED') {
+          // Realtime is live — cancel the polling fallback to save egress
+          if (_dashboardPollInterval) { clearInterval(_dashboardPollInterval); _dashboardPollInterval = null; }
+        } else if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && !_dashboardPollInterval) {
+          // Realtime unavailable — fall back to polling every 5 minutes (not 30 s)
+          _dashboardPollInterval = setInterval(function() {
+            if (typeof refreshDashboard === 'function') refreshDashboard();
+          }, 300000);
+        }
       });
-  }
-
-  // ── Polling fallback — refreshes every 30s regardless ──
-  if (!_dashboardPollInterval) {
-    _dashboardPollInterval = setInterval(function () {
-      if (typeof refreshDashboard === 'function') refreshDashboard();
-    }, 30000);
   }
 }
 
@@ -126,13 +127,14 @@ async function refreshDashboard() {
     const { data: protocols, error: protError } = await supabaseClient
       .from('protocols')
       .select(`
-        *,
+        id, date, action, is_holiday, total_cost,
+        notes_damages, notes_incidents, notes_feedback,
+        al_name_fallback, pl_name_fallback, created_at,
         projects(name, location),
         al:app_users!protocols_al_id_fkey(full_name),
         pl:app_users!protocols_pl_id_fkey(full_name),
-        shifts(*, app_users(full_name)),
-        protocol_transports(*),
-        protocol_equipments(*)
+        shifts(id, user_id, position_role, start_time, end_time, pause_mins, status, shift_date,
+               app_users(full_name))
       `)
       .order('date', { ascending: false });
 

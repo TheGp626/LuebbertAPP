@@ -991,7 +991,8 @@ async function renderProtHistory() {
       var { data: rows } = await supabaseClient
         .from('protocols')
         .select('*, projects(name,location), al:app_users!protocols_al_id_fkey(full_name), pl:app_users!protocols_pl_id_fkey(full_name), shifts(*,app_users(full_name)), protocol_transports(*), protocol_equipments(*)')
-        .order('date', { ascending: false });
+        .order('date', { ascending: false })
+        .limit(60);
 
       if (rows && rows.length) {
         var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
