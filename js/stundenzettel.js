@@ -47,7 +47,7 @@ function getShiftData(dayIdx, shiftIdx) {
     }
   }
   var sv = (shiftValues[dayIdx] || [])[shiftIdx] || {};
-  return { von: sv.von || '', bis: sv.bis || '', pause: sv.pause || '0', ort: sv.ort || '', al: sv.al || '', dept: sv.dept || selectedAbt, sig: shiftSigData[key] || null };
+  return { von: sv.von || '', bis: sv.bis || '', pause: sv.pause || '0', ort: sv.ort || '', al: sv.al || '', dept: sv.dept || selectedAbt, sig: shiftSigData[key] || null, isSynced: sv.isSynced || false };
 }
 
 function buildDays() {
@@ -581,39 +581,43 @@ function saveWeek() {
 
 function isoWeekToDate(weekStr, dayIdx) {
   // weekStr = "YYYY-Www", dayIdx 0=Mon ... 6=Sun
-  var parts = weekStr.split('-W');
-  var year = parseInt(parts[0]), week = parseInt(parts[1]);
-  var jan4 = new Date(year, 0, 4);
-  var monday = new Date(jan4);
-  monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (week - 1) * 7);
-  var d = new Date(monday);
-  d.setDate(monday.getDate() + dayIdx);
-  return d.toISOString().slice(0, 10);
+  // Uses getMondayFromWeekVal (local time) to avoid UTC timezone offset shifting dates by 1 day
+  var mon = getMondayFromWeekVal(weekStr);
+  var d = new Date(mon.getTime() + dayIdx * 86400000);
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 }
 
 async function syncWeekToSupabase(data) {
   if (typeof supabaseClient === 'undefined' || !currentUser) return;
 
   try {
-    // Calculate the date range for this week (Mon–Sun)
+    // Calculate the date range for this week (Mon–Sun), using local dates
     var weekStart = isoWeekToDate(data.weekStart, 0);
     var weekEnd   = isoWeekToDate(data.weekStart, 6);
 
-    // Delete existing pending shifts for this user+week that are NOT linked to a protocol
+    // Extend the delete range one day earlier to clean up any shifts stored with the old
+    // UTC-offset date bug (which saved Monday as the previous Sunday in UTC+2 timezones)
+    var mon = getMondayFromWeekVal(data.weekStart);
+    var dayBefore = new Date(mon.getTime() - 86400000);
+    var deleteFrom = dayBefore.getFullYear() + '-' + pad(dayBefore.getMonth() + 1) + '-' + pad(dayBefore.getDate());
+
+    // Delete existing manual (non-protocol) shifts for this user+week
     // This prevents duplicates when saving the same week multiple times
     await supabaseClient
       .from('shifts')
       .delete()
       .eq('user_id', currentUser.id)
       .is('protocol_id', null)
-      .gte('shift_date', weekStart)
+      .gte('shift_date', deleteFrom)
       .lte('shift_date', weekEnd);
 
-    // Build the fresh shift list
+    // Build the fresh shift list — skip shifts that came from a protocol (isSynced)
+    // Those already live in Supabase under their protocol_id; re-inserting them causes duplicates
     var shiftsToSync = [];
     data.days.forEach(function(dd, dayIdx) {
       dd.shifts.forEach(function(sh) {
         if (!sh.von || !sh.bis) return;
+        if (sh.isSynced) return; // already exists as a protocol shift — do not duplicate
         shiftsToSync.push({
           user_id:       currentUser.id,
           start_time:    sh.von,
@@ -661,7 +665,7 @@ function loadWeek(key) {
     shiftCounts[i] = shs.length;
     shiftValues[i] = shs.map(function (sh, s) {
       if (sh.sig) shiftSigData[i + '-' + s] = sh.sig;
-      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: sh.pause || '0', dept: sh.dept || w.abt || selectedAbt };
+      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: sh.pause || '0', dept: sh.dept || w.abt || selectedAbt, isSynced: sh.isSynced || false };
     });
   });
   renderWeekStrip();

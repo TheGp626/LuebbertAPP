@@ -10,13 +10,25 @@ var currentTheme = localStorage.getItem('theme') || 'auto';
 var sigModalState = { key: null, drawing: false, last: null, hasInk: false };
 var hourlyWage = parseFloat(localStorage.getItem('stundenzettel_wage')) || 0;
 var billingCutoff = parseInt(localStorage.getItem('stundenzettel_cutoff')) || 20;
+var DEPT_DEFAULTS = ["AL fest", "AL frei", "MA fest", "MA frei", "Fahrer fest", "Fahrer frei"];
+var DEPT_OLD_STYLE = ["AL (Aufbauleitung)", "MA für Auf-/ Abbau", "Floristik", "Lager", "Stoffe", "Tischlerei"];
 var departments;
 try {
-  departments = JSON.parse(localStorage.getItem('stundenzettel_depts') || 'null') || ["AL (Aufbauleitung)", "MA für Auf-/ Abbau", "Floristik", "Lager", "Stoffe", "Tischlerei"];
+  departments = JSON.parse(localStorage.getItem('stundenzettel_depts') || 'null') || DEPT_DEFAULTS;
 } catch(e) {
-  departments = ["AL (Aufbauleitung)", "MA für Auf-/ Abbau", "Floristik", "Lager", "Stoffe", "Tischlerei"];
+  departments = DEPT_DEFAULTS;
+}
+// Migrate old verbose department names → protocol-style roles
+if (departments.some(function(d) { return DEPT_OLD_STYLE.indexOf(d) !== -1; })) {
+  departments = DEPT_DEFAULTS;
+  localStorage.setItem('stundenzettel_depts', JSON.stringify(DEPT_DEFAULTS));
 }
 var selectedAbt = localStorage.getItem('stundenzettel_active_dept') || departments[0];
+// Migrate old selectedAbt if it no longer exists in the list
+if (departments.indexOf(selectedAbt) === -1) {
+  selectedAbt = departments[0];
+  localStorage.setItem('stundenzettel_active_dept', selectedAbt);
+}
 var monsterMode = localStorage.getItem('stundenzettel_monster') === 'true';
 var deptWages;
 try {
