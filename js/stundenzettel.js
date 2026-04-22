@@ -84,7 +84,7 @@ async function fetchSupabaseShifts() {
         protocols ( date, al_name_fallback, pl_name_fallback, projects ( name, location ) )
       `)
       .eq('user_id', currentUser.id)
-      .in('status', ['approved', 'pending', 'eingetragen']);
+      .in('status', ['offen', 'eingetragen']);
 
     if (error) throw error;
     if (!data || data.length === 0) return;
@@ -138,7 +138,7 @@ async function fetchSupabaseShifts() {
         dayMatch.shifts.push({
            von: (sh.start_time || '').substring(0,5),
            bis: (sh.end_time || '').substring(0,5),
-           pause: sh.pause_mins ? sh.pause_mins.toString() : '0',
+           pause: (function() { var v = timeToMins((sh.start_time||'').substring(0,5)), b = timeToMins((sh.end_time||'').substring(0,5)); if (v===null||b===null) return '0'; var r = b<v ? b+1440-v : b-v; return autoPause(r).toString(); })(),
            ort: (prot.projects && (prot.projects.location || prot.projects.name)) ? [prot.projects.location, prot.projects.name].filter(Boolean).join(', ') : (sh.protocol_id ? '' : 'Manuell erfasst'),
            al: prot.al_name_fallback || prot.pl_name_fallback || '',
            dept: sh.position_role || 'MA',
@@ -628,7 +628,7 @@ async function syncWeekToSupabase(data) {
           end_time:      sh.bis,
           pause_mins:    parseInt(sh.pause) || 0,
           position_role: sh.dept || data.abt,
-          status:        'pending',
+          status:        'offen',
           temp_worker_name: null,
           shift_date:    isoWeekToDate(data.weekStart, dayIdx)
         });
@@ -658,7 +658,9 @@ function loadWeek(key) {
     shiftCounts[i] = shs.length;
     shiftValues[i] = shs.map(function (sh, s) {
       if (sh.sig) shiftSigData[i + '-' + s] = sh.sig;
-      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: sh.pause || '0', dept: sh.dept || w.abt || selectedAbt, protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
+      var _v = timeToMins(sh.von||''), _b = timeToMins(sh.bis||'');
+      var _p = (_v!==null&&_b!==null) ? autoPause(_b<_v ? _b+1440-_v : _b-_v) : 0;
+      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: _p.toString(), dept: sh.dept || w.abt || selectedAbt, protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
     });
   });
   renderWeekStrip();

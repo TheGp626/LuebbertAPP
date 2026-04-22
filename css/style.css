@@ -1211,6 +1211,11 @@ canvas#historyChart {
 .ordner-card:hover {
   box-shadow: 0 4px 16px rgba(0,0,0,0.12);
 }
+#ordner-detail-view.drag-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+}
 .ordner-file-row {
   display: flex;
   align-items: center;

@@ -367,9 +367,10 @@
             <h3 style="margin:0; font-size: 16px;">Schichten & Abrechnung</h3>
             <div style="display: flex; gap: 8px; align-items: center;">
               <button class="btn primary" style="width: auto; padding: 8px 12px; font-size: 13px;" onclick="toggleAddUserForm()">Mitarbeiter hinzufügen</button>
-              <select id="dash-worker-select" class="meta-input" style="width: 250px; margin: 0; padding: 8px 12px; font-size: 13px;" onchange="renderWorkerShifts()">
+              <select id="dash-worker-select" class="meta-input" style="width: 250px; margin: 0; padding: 8px 12px; font-size: 13px;" onchange="renderWorkerShifts(); updateEditWorkerBtn();">
                 <option value="">-- Mitarbeiter wählen --</option>
               </select>
+              <button id="edit-worker-btn" class="btn" style="width:auto; padding:8px 12px; font-size:13px; display:none;" onclick="openEditWorker()">✏️ Bearbeiten</button>
               <select id="dash-month-filter" class="meta-input" style="width: 160px; margin: 0; padding: 8px 12px; font-size: 13px; display: none;">
                 <option value="">-- Monat --</option>
               </select>
@@ -392,10 +393,17 @@
               <input type="text" id="new-user-dept" placeholder="Abteilung" class="meta-input" style="flex: 2; min-width: 150px;">
               <input type="number" id="new-user-rate-conni" step="0.50" min="0" placeholder="Lohn Conni (€/h)" class="meta-input" style="flex: 1; min-width: 130px;">
               <input type="number" id="new-user-rate-internal" step="0.50" min="0" placeholder="Satz intern (€/h)" class="meta-input" style="flex: 1; min-width: 130px;">
+              <input type="number" id="new-user-income-limit" step="1" min="0" placeholder="Einkommensgrenze (€)" class="meta-input" style="flex: 1; min-width: 150px;">
               <button class="btn primary" style="width: auto; padding: 0 20px;" onclick="addDashboardUser()">Speichern</button>
               <button class="btn" style="width: auto; padding: 0 20px;" onclick="toggleAddUserForm()">Abbrechen</button>
             </div>
           </div>
+          <!-- PENDING PANEL: Mitarbeiter mit neuen Stunden -->
+          <div id="pending-workers-panel" style="display:none; padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--bg2);">
+            <div style="font-size:13px; font-weight:600; color:var(--text2); margin-bottom:10px;">Neue Stunden eingereicht</div>
+            <div id="pending-workers-chips" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+          </div>
+
           <div id="worker-shifts-container" style="padding: 24px;">
             <div class="empty-state">
               <div class="empty-icon">👥</div>
@@ -703,10 +711,6 @@
           </div>
         </div>
         <div class="field">
-          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Pause (Minuten)</label>
-          <input type="number" id="shift-edit-pause" class="meta-input" min="0" step="5" placeholder="z.B. 30">
-        </div>
-        <div class="field">
           <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Hinweis (z.B. Urlaub, Sonderauszahlung)</label>
           <input type="text" id="shift-edit-note" class="meta-input" placeholder="Optional">
         </div>
@@ -717,6 +721,60 @@
       </div>
       <div id="shift-edit-delete-row" style="margin-top:12px; text-align:center; display:none;">
         <button onclick="deleteShiftFromModal()" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:13px;">Schicht löschen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ MITARBEITER BEARBEITEN MODAL ══════════ -->
+  <div id="edit-worker-modal" class="sig-modal">
+    <div class="sig-modal-inner" style="max-width:460px; width:90%; padding:24px; max-height:90vh; overflow-y:auto;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h3 style="margin:0; font-size:17px;">Mitarbeiter bearbeiten</h3>
+        <button onclick="closeEditWorker()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2);">✕</button>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:14px;">
+        <div style="display:flex; gap:10px;">
+          <div class="field" style="flex:1;">
+            <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Vorname</label>
+            <input type="text" id="edit-worker-firstname" class="meta-input" placeholder="Vorname">
+          </div>
+          <div class="field" style="flex:1;">
+            <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Nachname</label>
+            <input type="text" id="edit-worker-lastname" class="meta-input" placeholder="Nachname">
+          </div>
+        </div>
+        <div class="field">
+          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Rolle</label>
+          <select id="edit-worker-role" class="meta-input">
+            <option value="MA">MA (Mitarbeiter)</option>
+            <option value="AL">AL (Aufbauleitung)</option>
+            <option value="PL">PL (Projektleitung)</option>
+            <option value="Buchhaltung">Buchhaltung</option>
+            <option value="Admin">Admin</option>
+          </select>
+        </div>
+        <div class="field">
+          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Abteilung (Standard)</label>
+          <input type="text" id="edit-worker-dept" class="meta-input" placeholder="z.B. MA frei">
+        </div>
+        <div style="display:flex; gap:10px;">
+          <div class="field" style="flex:1;">
+            <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Lohn Conni (€/h)</label>
+            <input type="number" id="edit-worker-rate-conni" class="meta-input" step="0.50" min="0" placeholder="z.B. 21.50">
+          </div>
+          <div class="field" style="flex:1;">
+            <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Satz intern (€/h)</label>
+            <input type="number" id="edit-worker-rate-internal" class="meta-input" step="0.50" min="0" placeholder="z.B. 25.00">
+          </div>
+        </div>
+        <div class="field">
+          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Einkommensgrenze (€)</label>
+          <input type="number" id="edit-worker-income-limit" class="meta-input" step="1" min="0" placeholder="z.B. 520">
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:20px;">
+        <button class="btn primary" style="flex:1;" onclick="saveEditWorker()">Speichern</button>
+        <button class="btn" style="flex:1;" onclick="closeEditWorker()">Abbrechen</button>
       </div>
     </div>
   </div>

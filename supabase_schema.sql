@@ -9,6 +9,9 @@ create table public.app_users (
   full_name text,
   role text check (role in ('AL', 'MA', 'PL', 'Buchhaltung', 'Admin')) default 'MA',
   default_dept text default 'MA für Auf-/ Abbau',
+  hourly_rate_conni numeric default 0,
+  hourly_rate_internal numeric default 0,
+  income_limit numeric default null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -88,7 +91,7 @@ create table public.shifts (
   start_time time, -- Store as 'HH:MM' string or Time
   end_time time,
   pause_mins integer,
-  status text check (status in ('pending', 'approved')) default 'approved',
+  status text check (status in ('offen', 'eingetragen')) default 'offen',
   shift_date date, -- Actual work date (protocol date for Protokoll shifts, computed from week for Stundenzettel)
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -182,3 +185,18 @@ create table public.folder_files (
 alter table public.folder_files enable row level security;
 create policy "Allow all" on public.folder_files for all using (true) with check (true);
 grant select, insert, update, delete on public.folder_files to anon;
+
+-- ══════════════════════════════════════════════════════════
+-- MIGRATION: Run these in Supabase SQL Editor on existing DB
+-- ══════════════════════════════════════════════════════════
+
+-- Add employee rate columns
+ALTER TABLE public.app_users
+  ADD COLUMN IF NOT EXISTS hourly_rate_conni numeric DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS hourly_rate_internal numeric DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS income_limit numeric DEFAULT NULL;
+
+-- Consolidate shift statuses: pending + approved → offen
+UPDATE public.shifts SET status = 'offen' WHERE status IN ('pending', 'approved');
+ALTER TABLE public.shifts DROP CONSTRAINT IF EXISTS shifts_status_check;
+ALTER TABLE public.shifts ADD CONSTRAINT shifts_status_check CHECK (status IN ('offen', 'eingetragen'));

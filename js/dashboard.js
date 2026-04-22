@@ -64,6 +64,67 @@ function toggleAddUserForm() {
   form.style.display = form.style.display === 'none' ? 'block' : 'none';
 }
 
+function updateEditWorkerBtn() {
+  const btn = document.getElementById('edit-worker-btn');
+  if (!btn) return;
+  const selected = document.getElementById('dash-worker-select').value;
+  btn.style.display = selected ? 'inline-flex' : 'none';
+}
+
+function openEditWorker() {
+  const worker = dashboardCurrentWorker;
+  if (!worker) return;
+  const nameParts = (worker.full_name || '').trim().split(' ');
+  const lastName  = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+  const firstName = nameParts[0] || '';
+  document.getElementById('edit-worker-firstname').value     = firstName;
+  document.getElementById('edit-worker-lastname').value      = lastName;
+  document.getElementById('edit-worker-role').value          = worker.role || 'MA';
+  document.getElementById('edit-worker-dept').value          = worker.default_dept || '';
+  document.getElementById('edit-worker-rate-conni').value    = worker.hourly_rate_conni || '';
+  document.getElementById('edit-worker-rate-internal').value = worker.hourly_rate_internal || '';
+  document.getElementById('edit-worker-income-limit').value  = worker.income_limit || '';
+  document.getElementById('edit-worker-modal').classList.add('open');
+}
+
+function closeEditWorker() {
+  document.getElementById('edit-worker-modal').classList.remove('open');
+}
+
+async function saveEditWorker() {
+  const worker = dashboardCurrentWorker;
+  if (!worker) return;
+
+  const firstName = (document.getElementById('edit-worker-firstname').value || '').trim();
+  const lastName  = (document.getElementById('edit-worker-lastname').value  || '').trim();
+  const fullName  = (firstName + ' ' + lastName).trim();
+  if (!fullName) { showToast('Bitte Namen eingeben.', 'danger'); return; }
+
+  const payload = {
+    full_name:          fullName,
+    role:               document.getElementById('edit-worker-role').value,
+    default_dept:       document.getElementById('edit-worker-dept').value.trim() || null,
+    hourly_rate_conni:    parseFloat(document.getElementById('edit-worker-rate-conni').value)    || null,
+    hourly_rate_internal: parseFloat(document.getElementById('edit-worker-rate-internal').value) || null,
+    income_limit:         parseFloat(document.getElementById('edit-worker-income-limit').value)  || null,
+  };
+
+  try {
+    const { error } = await supabaseClient.from('app_users').update(payload).eq('id', worker.id);
+    if (error) throw error;
+    showToast('Mitarbeiter gespeichert!');
+    closeEditWorker();
+    await loadDashboardWorkers();
+    // Re-select the same worker after reload
+    const sel = document.getElementById('dash-worker-select');
+    if (sel) { sel.value = worker.id; renderWorkerShifts(); }
+    if (typeof fetchEmployees === 'function') fetchEmployees();
+  } catch (err) {
+    console.error('saveEditWorker error:', err);
+    showToast('Fehler: ' + (err.message || 'Speichern fehlgeschlagen'), 'danger');
+  }
+}
+
 async function addDashboardUser() {
   const firstName = (document.getElementById('new-user-firstname') || {}).value?.trim() || '';
   const lastName  = (document.getElementById('new-user-lastname')  || {}).value?.trim() || '';
@@ -79,10 +140,11 @@ async function addDashboardUser() {
   try {
     const rateConni    = parseFloat(document.getElementById('new-user-rate-conni')?.value)    || null;
     const rateInternal = parseFloat(document.getElementById('new-user-rate-internal')?.value) || null;
+    const incomeLimit  = parseFloat(document.getElementById('new-user-income-limit')?.value)  || null;
 
     const { error } = await supabaseClient
       .from('app_users')
-      .insert({ full_name: fullName, role: role, default_dept: dept, hourly_rate_conni: rateConni, hourly_rate_internal: rateInternal });
+      .insert({ full_name: fullName, role: role, default_dept: dept, hourly_rate_conni: rateConni, hourly_rate_internal: rateInternal, income_limit: incomeLimit });
 
     if (error) throw error;
 
@@ -94,6 +156,7 @@ async function addDashboardUser() {
     document.getElementById('new-user-dept').value = '';
     if (document.getElementById('new-user-rate-conni'))    document.getElementById('new-user-rate-conni').value    = '';
     if (document.getElementById('new-user-rate-internal')) document.getElementById('new-user-rate-internal').value = '';
+    if (document.getElementById('new-user-income-limit'))  document.getElementById('new-user-income-limit').value  = '';
     toggleAddUserForm();
     loadDashboardWorkers();
     
@@ -202,23 +265,43 @@ async function loadDashboardWorkers() {
   try {
     const { data: users, error: uErr } = await supabaseClient
       .from('app_users')
-      .select('id, full_name, role, hourly_rate_conni, hourly_rate_internal')
+      .select('id, full_name, role, default_dept, hourly_rate_conni, hourly_rate_internal, income_limit')
       .order('full_name');
     if (uErr) throw uErr;
     
-    // Fetch all pending shifts to highlight workers
-    const { data: pendingShifts, error: pErr } = await supabaseClient
+    // Fetch all open shifts to highlight workers
+    const { data: pendingShifts } = await supabaseClient
       .from('shifts')
       .select('user_id')
-      .neq('status', 'eingetragen');
-    
-    const pendingIds = new Set((pendingShifts || []).map(s => s.user_id));
+      .eq('status', 'offen');
+
+    const pendingMap = {};
+    (pendingShifts || []).forEach(s => {
+      if (s.user_id) pendingMap[s.user_id] = (pendingMap[s.user_id] || 0) + 1;
+    });
     dashboardWorkers = users || [];
+
+    // Render pending-workers panel
+    const panel = document.getElementById('pending-workers-panel');
+    const chips = document.getElementById('pending-workers-chips');
+    const pendingWorkers = dashboardWorkers.filter(w => pendingMap[w.id]);
+    if (panel && chips) {
+      if (pendingWorkers.length > 0) {
+        chips.innerHTML = pendingWorkers.map(w =>
+          `<button class="btn" style="width:auto;padding:6px 14px;font-size:13px;border:2px solid var(--accent);" onclick="document.getElementById('dash-worker-select').value='${escapeHtml(w.id)}';renderWorkerShifts();">` +
+          `${escapeHtml(w.full_name || 'Unbekannt')} <span style="background:var(--accent);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:6px;">${pendingMap[w.id]}</span>` +
+          `</button>`
+        ).join('');
+        panel.style.display = 'block';
+      } else {
+        panel.style.display = 'none';
+      }
+    }
 
     const sel = document.getElementById('dash-worker-select');
     sel.innerHTML = '<option value="">-- Mitarbeiter wählen --</option>';
     dashboardWorkers.forEach(w => {
-      const indicator = pendingIds.has(w.id) ? ' 🔴' : '';
+      const indicator = pendingMap[w.id] ? ' 🔴' : '';
       const opt = document.createElement('option');
       opt.value = w.id;
       opt.textContent = (w.full_name || 'Unbekannt') + ' (' + (w.role || '') + ')' + indicator;
@@ -412,7 +495,7 @@ async function renderWorkerShifts() {
 }
 
 async function toggleShiftBooked(shiftId, checked) {
-  const newStat = checked ? 'eingetragen' : 'approved';
+  const newStat = checked ? 'eingetragen' : 'offen';
   try {
     const { error } = await supabaseClient
       .from('shifts')
@@ -465,7 +548,6 @@ function openShiftEdit(shiftId) {
   document.getElementById('shift-edit-role').value = shift.position_role || 'MA fest';
   document.getElementById('shift-edit-start').value = (shift.start_time || '').substring(0, 5);
   document.getElementById('shift-edit-end').value   = (shift.end_time   || '').substring(0, 5);
-  document.getElementById('shift-edit-pause').value  = shift.pause_mins || 0;
   document.getElementById('shift-edit-note').value   = shift.note || '';
   document.getElementById('shift-edit-delete-row').style.display = 'block';
   document.getElementById('shift-edit-modal').classList.add('open');
@@ -478,7 +560,6 @@ function openAddShift() {
   document.getElementById('shift-edit-role').value  = 'MA fest';
   document.getElementById('shift-edit-start').value = '';
   document.getElementById('shift-edit-end').value   = '';
-  document.getElementById('shift-edit-pause').value  = 0;
   document.getElementById('shift-edit-note').value   = '';
   document.getElementById('shift-edit-delete-row').style.display = 'none';
   document.getElementById('shift-edit-modal').classList.add('open');
@@ -494,7 +575,8 @@ async function saveShiftEdit() {
   const role     = document.getElementById('shift-edit-role').value;
   const startVal = document.getElementById('shift-edit-start').value;
   const endVal   = document.getElementById('shift-edit-end').value;
-  const pause    = parseInt(document.getElementById('shift-edit-pause').value) || 0;
+  const rawMins  = (timeToMins(endVal) || 0) - (timeToMins(startVal) || 0);
+  const pause    = autoPause(rawMins < 0 ? rawMins + 1440 : rawMins);
 
   if (!dateVal || !startVal || !endVal) {
     if (typeof showToast === 'function') showToast('Bitte Datum, Von und Bis ausfüllen.', 'danger');
@@ -522,7 +604,7 @@ async function saveShiftEdit() {
         start_time:    startVal,
         end_time:      endVal,
         pause_mins:    pause,
-        status:        'approved'
+        status:        'offen'
       });
       if (error) throw error;
       if (typeof showToast === 'function') showToast('Schicht hinzugefügt!');

@@ -684,7 +684,7 @@ async function syncProtokollToSupabase(data) {
           start_time: p.start,
           end_time: p.end,
           pause_mins: parseInt(p.pause) || 0,
-          status: 'approved',
+          status: 'offen',
           shift_date: protState.date || null
         });
       });

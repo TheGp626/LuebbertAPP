@@ -81,6 +81,7 @@ async function openOrdnerDetail(id) {
 
   var titleEl = document.getElementById('ordner-detail-title');
   if (titleEl) titleEl.textContent = '📁 ' + folder.name;
+  initOrdnerDragDrop();
 
   var uploadBtn = document.getElementById('ordner-upload-btn');
   if (uploadBtn) uploadBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
@@ -98,6 +99,36 @@ function closeOrdnerDetail() {
   var detailView = document.getElementById('ordner-detail-view');
   if (listView) listView.style.display = 'block';
   if (detailView) detailView.style.display = 'none';
+}
+
+function initOrdnerDragDrop() {
+  var zone = document.getElementById('ordner-detail-view');
+  if (!zone || zone._dragInited) return;
+  zone._dragInited = true;
+
+  zone.addEventListener('dragover', function(e) {
+    if (!canManageOrdner || !aktuellerOrdner) return;
+    e.preventDefault();
+    zone.classList.add('drag-over');
+  });
+  zone.addEventListener('dragleave', function(e) {
+    if (!e.relatedTarget || !zone.contains(e.relatedTarget)) zone.classList.remove('drag-over');
+  });
+  zone.addEventListener('drop', async function(e) {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    if (!canManageOrdner || !aktuellerOrdner) return;
+    var files = Array.from(e.dataTransfer.files);
+    if (!files.length) return;
+    var uploadBtn = document.getElementById('ordner-upload-btn');
+    if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.textContent = 'Lädt hoch...'; }
+    for (var i = 0; i < files.length; i++) {
+      await uploadOrdnerFile(aktuellerOrdner.id, files[i]);
+    }
+    if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.textContent = '+ Datei hochladen'; }
+    await fetchOrdnerFiles(aktuellerOrdner.id);
+    showToast('✅ ' + files.length + ' Datei(en) hochgeladen!');
+  });
 }
 
 async function fetchOrdnerFiles(folderId) {
@@ -166,7 +197,8 @@ async function handleOrdnerFileInput(input) {
 
 async function uploadOrdnerFile(folderId, file) {
   var safeName = file.name.replace(/[^a-zA-Z0-9\-_.\u00C0-\u024F]/g, '_');
-  var filePath = folderId + '/' + Date.now() + '_' + safeName;
+  var rand = Math.random().toString(36).slice(2, 7);
+  var filePath = folderId + '/' + Date.now() + '_' + rand + '_' + safeName;
 
   var { error: upErr } = await supabaseClient.storage
     .from('project-files')
