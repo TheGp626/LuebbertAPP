@@ -197,6 +197,11 @@ ALTER TABLE public.app_users
   ADD COLUMN IF NOT EXISTS hourly_rate_internal numeric DEFAULT 0,
   ADD COLUMN IF NOT EXISTS income_limit numeric DEFAULT NULL;
 
+-- Add role_rates (multiple position/rate pairs) and is_active (soft delete)
+ALTER TABLE public.app_users
+  ADD COLUMN IF NOT EXISTS role_rates jsonb DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+
 -- Consolidate shift statuses: pending + approved → offen
 UPDATE public.shifts SET status = 'offen' WHERE status IN ('pending', 'approved');
 ALTER TABLE public.shifts DROP CONSTRAINT IF EXISTS shifts_status_check;

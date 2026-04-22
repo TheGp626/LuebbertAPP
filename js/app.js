@@ -10,8 +10,21 @@ var currentTheme = localStorage.getItem('theme') || 'auto';
 var sigModalState = { key: null, drawing: false, last: null, hasInk: false };
 var hourlyWage = parseFloat(localStorage.getItem('stundenzettel_wage')) || 0;
 var billingCutoff = parseInt(localStorage.getItem('stundenzettel_cutoff')) || 20;
-var DEPT_DEFAULTS = ["AL fest", "AL frei", "MA fest", "MA frei", "Fahrer fest", "Fahrer frei"];
-var DEPT_OLD_STYLE = ["AL (Aufbauleitung)", "MA für Auf-/ Abbau", "Floristik", "Lager", "Stoffe", "Tischlerei"];
+var DEPT_DEFAULTS = ["AL frei", "MA frei", "Fahrer frei", "Floristik", "Lager", "Stoffe", "Tischlerei"];
+var DEPT_OLD_STYLE = ["AL (Aufbauleitung)", "MA für Auf-/ Abbau"];
+var DEPT_LABELS = {
+  "AL fest": "Aufbauleitung",
+  "AL frei": "Aufbauleitung",
+  "MA fest": "Mitarbeiter für Auf-/ Abbau",
+  "MA frei": "Mitarbeiter für Auf-/ Abbau",
+  "Fahrer fest": "Fahrer",
+  "Fahrer frei": "Fahrer",
+  "Floristik": "Floristik",
+  "Lager": "Lager",
+  "Stoffe": "Stoffe",
+  "Tischlerei": "Tischlerei"
+};
+function deptLabel(d) { return DEPT_LABELS[d] || d; }
 var departments;
 try {
   departments = JSON.parse(localStorage.getItem('stundenzettel_depts') || 'null') || DEPT_DEFAULTS;
@@ -378,7 +391,7 @@ function renderSettingsDepts() {
     return '<div class="dept-item" style="cursor:pointer;' + (act ? 'background:var(--accent-bg);border-radius:var(--radius);padding:8px 10px;margin:0 -10px;' : '') + '">' +
            '<div style="display:flex;align-items:center;gap:8px;flex:1;" onclick="selectDepartment(\'' + d.replace(/'/g, "\\'") + '\')">' +
            '<span>' + (act ? '✓' : '') + '</span>' +
-           '<span style="' + (act ? 'font-weight:600;color:var(--accent-text);' : '') + '">' + d + '</span>' +
+           '<span style="' + (act ? 'font-weight:600;color:var(--accent-text);' : '') + '">' + deptLabel(d) + '</span>' +
            '</div>' +
            '<div style="display:flex;align-items:center;gap:6px;">' +
            '<input type="number" id="' + safeId + '" step="0.50" min="0" value="' + wage + '" placeholder="€/h" ' +

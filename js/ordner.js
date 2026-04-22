@@ -120,14 +120,7 @@ function initOrdnerDragDrop() {
     if (!canManageOrdner || !aktuellerOrdner) return;
     var files = Array.from(e.dataTransfer.files);
     if (!files.length) return;
-    var uploadBtn = document.getElementById('ordner-upload-btn');
-    if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.textContent = 'Lädt hoch...'; }
-    for (var i = 0; i < files.length; i++) {
-      await uploadOrdnerFile(aktuellerOrdner.id, files[i]);
-    }
-    if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.textContent = '+ Datei hochladen'; }
-    await fetchOrdnerFiles(aktuellerOrdner.id);
-    showToast('✅ ' + files.length + ' Datei(en) hochgeladen!');
+    await runOrdnerUploads(aktuellerOrdner.id, files);
   });
 }
 
@@ -160,7 +153,7 @@ function renderOrdnerFiles(list) {
     var size = f.file_size_bytes ? formatBytes(f.file_size_bytes) : '';
     var date = f.created_at ? new Date(f.created_at).toLocaleDateString('de-DE') : '';
     var delBtn = canManageOrdner
-      ? '<button class="btn" style="width:auto;padding:4px 10px;font-size:12px;color:var(--danger);flex-shrink:0;" onclick="deleteOrdnerFile(\'' + f.id + '\',\'' + f.file_url + '\')">✕</button>'
+      ? '<button class="btn" style="width:auto;padding:4px 10px;font-size:12px;color:var(--danger);flex-shrink:0;" onclick="event.stopPropagation();deleteOrdnerFile(\'' + f.id + '\',\'' + f.file_url + '\')">✕</button>'
       : '';
     return '<div class="ordner-file-row" onclick="openFileViewer(\'' + f.file_url + '\',\'' + escOrdner(f.name) + '\',\'' + (f.file_type || '') + '\')">' +
       '<span class="ordner-file-icon">' + icon + '</span>' +
@@ -182,17 +175,26 @@ async function handleOrdnerFileInput(input) {
   if (!aktuellerOrdner || !input.files || input.files.length === 0) return;
   var files = Array.from(input.files);
   input.value = '';
+  await runOrdnerUploads(aktuellerOrdner.id, files);
+}
 
+async function runOrdnerUploads(folderId, files) {
   var uploadBtn = document.getElementById('ordner-upload-btn');
   if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.textContent = 'Lädt hoch...'; }
 
+  var ok = 0, fail = 0;
   for (var i = 0; i < files.length; i++) {
-    await uploadOrdnerFile(aktuellerOrdner.id, files[i]);
+    var success = await uploadOrdnerFile(folderId, files[i]);
+    if (success) ok++; else fail++;
   }
 
   if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.textContent = '+ Datei hochladen'; }
-  await fetchOrdnerFiles(aktuellerOrdner.id);
-  showToast('✅ ' + files.length + ' Datei(en) hochgeladen!');
+  await fetchOrdnerFiles(folderId);
+  if (fail === 0) {
+    showToast('✅ ' + ok + ' Datei(en) hochgeladen!');
+  } else {
+    showToast(ok + ' hochgeladen, ' + fail + ' fehlgeschlagen – Details in der Browser-Konsole.', 'danger');
+  }
 }
 
 async function uploadOrdnerFile(folderId, file) {
@@ -202,9 +204,12 @@ async function uploadOrdnerFile(folderId, file) {
 
   var { error: upErr } = await supabaseClient.storage
     .from('project-files')
-    .upload(filePath, file, { upsert: false, contentType: file.type || 'application/octet-stream' });
+    .upload(filePath, file, { upsert: true, contentType: file.type || 'application/octet-stream' });
 
-  if (upErr) { console.error('Upload error:', upErr); showToast('Upload fehlgeschlagen: ' + file.name, 'danger'); return; }
+  if (upErr) {
+    console.error('Storage upload error for "' + file.name + '":', upErr.message || upErr);
+    return false;
+  }
 
   var { data: urlData } = supabaseClient.storage.from('project-files').getPublicUrl(filePath);
   var publicUrl = urlData && urlData.publicUrl ? urlData.publicUrl : null;
@@ -217,7 +222,12 @@ async function uploadOrdnerFile(folderId, file) {
     file_size_bytes: file.size || null,
     created_by: typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null
   });
-  if (dbErr) console.error('DB insert error:', dbErr);
+
+  if (dbErr) {
+    console.error('DB insert error for "' + file.name + '":', dbErr.message || dbErr);
+    return false;
+  }
+  return true;
 }
 
 async function deleteOrdnerFile(id, url) {

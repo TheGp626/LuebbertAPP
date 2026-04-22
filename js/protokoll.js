@@ -171,6 +171,7 @@ function renderProtTransport() {
                       return '<option value="' + v + '" ' + (t.type === v ? 'selected' : '') + '>' + v + '</option>';
                     }).join('') +
            '      </select>' +
+           (t.type === 'Spedition' ? '      <div style="font-size:11px;color:var(--text3);margin-top:3px;">→ Kosten separat per Rechnung erfassen</div>' : '') +
            '    </div>' +
            '    <div class="meta-field">' +
            '      <span class="meta-label">Fahrer</span>' +
@@ -402,7 +403,7 @@ function calcProtCosts() {
 
   // Logistics
   protState.transports.forEach(function(t) {
-    total += PROT_VEHICLE_RATES[t.type] || 0;
+    total += calcTransportCost(t.type, currentDate);
   });
 
   // Personnel
@@ -998,13 +999,13 @@ async function renderProtHistory() {
         var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
         var changed = false;
         rows.forEach(function(r) {
-          if (archive.some(function(e) { return e.supabaseId === r.id; })) return;
           changed = true;
           var catMap = {};
           (r.protocol_equipments || []).forEach(function(eq) {
-            catMap[eq.category_id] = { active: true, status: eq.status || 'okay', note: eq.note || '' };
+            catMap[eq.category_id] = { active: true, status: eq.status || 'okay', note: eq.note || '',
+              hussenDelivered: eq.hussen_delivered || null, hussenReturned: eq.hussen_returned || null };
           });
-          archive.push({
+          var fresh = {
             id: r.id,
             supabaseId: r.id,
             savedAt: r.created_at || r.date,
@@ -1034,7 +1035,15 @@ async function renderProtHistory() {
             incidents: r.notes_incidents || 'nein',
             feedback: r.notes_feedback || '—',
             synced: true
-          });
+          };
+          var existingIdx = archive.findIndex(function(e) { return e.supabaseId === r.id; });
+          if (existingIdx !== -1) {
+            // Preserve local-only fields (signature, editingLocalId) but refresh Supabase data
+            fresh.signature = archive[existingIdx].signature || null;
+            archive[existingIdx] = fresh;
+          } else {
+            archive.push(fresh);
+          }
         });
         if (changed) {
           archive.sort(function(a, b) { return new Date(b.savedAt) - new Date(a.savedAt); });

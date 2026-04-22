@@ -71,6 +71,8 @@ function updateEditWorkerBtn() {
   btn.style.display = selected ? 'inline-flex' : 'none';
 }
 
+var _editWorkerRoleRates = [];
+
 function openEditWorker() {
   const worker = dashboardCurrentWorker;
   if (!worker) return;
@@ -84,7 +86,57 @@ function openEditWorker() {
   document.getElementById('edit-worker-rate-conni').value    = worker.hourly_rate_conni || '';
   document.getElementById('edit-worker-rate-internal').value = worker.hourly_rate_internal || '';
   document.getElementById('edit-worker-income-limit').value  = worker.income_limit || '';
+  _editWorkerRoleRates = Array.isArray(worker.role_rates) ? JSON.parse(JSON.stringify(worker.role_rates)) : [];
+  renderRoleRatesList();
   document.getElementById('edit-worker-modal').classList.add('open');
+}
+
+var _ROLE_RATE_OPTIONS = ['AL frei', 'MA frei', 'Fahrer frei', 'Floristik', 'Lager', 'Stoffe', 'Tischlerei', 'AL fest', 'MA fest', 'Fahrer fest'];
+
+function renderRoleRatesList() {
+  var c = document.getElementById('edit-worker-role-rates');
+  if (!c) return;
+  c.innerHTML = _editWorkerRoleRates.map(function(r, i) {
+    var opts = _ROLE_RATE_OPTIONS.map(function(o) {
+      return '<option value="' + o + '"' + (r.role === o ? ' selected' : '') + '>' + o + '</option>';
+    }).join('');
+    return '<div style="display:flex;gap:5px;align-items:center;margin-bottom:4px;">' +
+      '<select onchange="updateRoleRateRow(' + i + ',\'role\',this.value)" class="meta-input" style="flex:2;padding:5px 6px;font-size:12px;">' + opts + '</select>' +
+      '<input type="number" step="0.5" min="0" placeholder="Conni €/h" value="' + (r.rate_conni || '') + '" oninput="updateRoleRateRow(' + i + ',\'rate_conni\',this.value)" class="meta-input" style="flex:1;padding:5px 6px;font-size:12px;">' +
+      '<input type="number" step="0.5" min="0" placeholder="Intern €/h" value="' + (r.rate_internal || '') + '" oninput="updateRoleRateRow(' + i + ',\'rate_internal\',this.value)" class="meta-input" style="flex:1;padding:5px 6px;font-size:12px;">' +
+      '<button onclick="removeRoleRateRow(' + i + ')" style="color:var(--danger);background:none;border:none;cursor:pointer;font-size:16px;padding:0 4px;">✕</button>' +
+    '</div>';
+  }).join('');
+}
+
+function addRoleRateRow() {
+  _editWorkerRoleRates.push({ role: 'MA frei', rate_conni: null, rate_internal: null });
+  renderRoleRatesList();
+}
+
+function removeRoleRateRow(i) {
+  _editWorkerRoleRates.splice(i, 1);
+  renderRoleRatesList();
+}
+
+function updateRoleRateRow(i, field, val) {
+  if (!_editWorkerRoleRates[i]) return;
+  _editWorkerRoleRates[i][field] = (field === 'role') ? val : (parseFloat(val) || null);
+}
+
+async function deactivateWorker() {
+  const worker = dashboardCurrentWorker;
+  if (!worker) return;
+  if (!confirm('Mitarbeiter "' + (worker.full_name || '') + '" wirklich deaktivieren?\nDie Person verschwindet aus allen Dropdowns.')) return;
+  try {
+    const { error } = await supabaseClient.from('app_users').update({ is_active: false }).eq('id', worker.id);
+    if (error) throw error;
+    closeEditWorker();
+    showToast('Mitarbeiter deaktiviert.');
+    await loadDashboardWorkers();
+  } catch (err) {
+    showToast('Fehler: ' + (err.message || 'Deaktivierung fehlgeschlagen'), 'danger');
+  }
 }
 
 function closeEditWorker() {
@@ -107,6 +159,7 @@ async function saveEditWorker() {
     hourly_rate_conni:    parseFloat(document.getElementById('edit-worker-rate-conni').value)    || null,
     hourly_rate_internal: parseFloat(document.getElementById('edit-worker-rate-internal').value) || null,
     income_limit:         parseFloat(document.getElementById('edit-worker-income-limit').value)  || null,
+    role_rates:           _editWorkerRoleRates.filter(function(r) { return r.role; }),
   };
 
   try {
@@ -197,7 +250,9 @@ async function refreshDashboard() {
         al:app_users!protocols_al_id_fkey(full_name),
         pl:app_users!protocols_pl_id_fkey(full_name),
         shifts(id, user_id, position_role, start_time, end_time, pause_mins, status, shift_date, ort,
-               app_users(full_name))
+               app_users(full_name)),
+        protocol_transports(*),
+        protocol_equipments(*)
       `)
       .order('date', { ascending: false });
 
@@ -265,7 +320,8 @@ async function loadDashboardWorkers() {
   try {
     const { data: users, error: uErr } = await supabaseClient
       .from('app_users')
-      .select('id, full_name, role, default_dept, hourly_rate_conni, hourly_rate_internal, income_limit')
+      .select('id, full_name, role, default_dept, hourly_rate_conni, hourly_rate_internal, income_limit, role_rates, is_active')
+      .eq('is_active', true)
       .order('full_name');
     if (uErr) throw uErr;
     
@@ -649,7 +705,7 @@ async function recalcAllProtocolCosts() {
 
     // Transport costs
     (p.protocol_transports || []).forEach(function(t) {
-      total += (typeof PROT_VEHICLE_RATES !== 'undefined' && PROT_VEHICLE_RATES[t.vehicle_type]) || 0;
+      total += (typeof calcTransportCost !== 'undefined') ? calcTransportCost(t.vehicle_type, p.date) : 0;
     });
 
     // Personnel costs
@@ -836,10 +892,13 @@ function openDashDetail(id) {
 
     // Transport costs
     (p.protocol_transports || []).forEach(function(t) {
-      var r = (typeof PROT_VEHICLE_RATES !== 'undefined' && PROT_VEHICLE_RATES[t.vehicle_type]) || 0;
-      if (r > 0) {
+      var r = (typeof calcTransportCost !== 'undefined') ? calcTransportCost(t.vehicle_type, p.date) : 0;
+      var label = escapeHtml(t.vehicle_type || '—');
+      if (t.vehicle_type === 'Spedition') {
+        rows.push({ section: 'transport', label: label, detail: escapeHtml(t.driver_name || '') + ' (siehe Rechnung)', cost: 0 });
+      } else if (r > 0) {
         logTotal += r;
-        rows.push({ section: 'transport', label: escapeHtml(t.vehicle_type || '—'), detail: escapeHtml(t.driver_name || ''), cost: r });
+        rows.push({ section: 'transport', label: label, detail: escapeHtml(t.driver_name || ''), cost: r });
       }
     });
 

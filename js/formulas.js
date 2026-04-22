@@ -3,11 +3,31 @@
 // ── PROTOKOLL RATES ──
 
 var PROT_VEHICLE_RATES = {
-  'Hängerzug': 80,
-  'Solo-LKW': 70,
-  'Sprinter': 40,
-  'PKW': 30
+  'Hängerzug':      80,
+  'Solo':           70,
+  'Sprinter':       40,
+  'PKW':            20,
+  'Spedition':       0,
+  'Bischoff':      750,
+  'Rainer':        700,
+  'Hansetrans Solo': 250
 };
+
+// Day-of-week overrides for named providers (0=Sun, 6=Sat)
+var PROT_VEHICLE_DATE_RATES = {
+  'Bischoff': { sunday: 837.50 },   // Mo–Sa: 750, So: 837,50
+  'Rainer':   { weekend: 750 }      // Mo–Fr: 700, Sa+So: 750
+};
+
+function calcTransportCost(type, dateStr) {
+  var base = PROT_VEHICLE_RATES[type] || 0;
+  var rules = PROT_VEHICLE_DATE_RATES[type];
+  if (!dateStr || !rules) return base;
+  var day = new Date(dateStr).getDay();
+  if (rules.sunday  && day === 0)              return rules.sunday;
+  if (rules.weekend && (day === 0 || day === 6)) return rules.weekend;
+  return base;
+}
 
 var PROT_PERSONNEL_RATES = {
   'AL fest': 0,

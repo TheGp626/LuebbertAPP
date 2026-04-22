@@ -690,12 +690,16 @@
         <div class="field">
           <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Rolle / Position</label>
           <select id="shift-edit-role" class="meta-input">
-            <option value="MA fest">MA fest</option>
-            <option value="MA frei">MA frei</option>
-            <option value="AL fest">AL fest</option>
-            <option value="AL frei">AL frei</option>
-            <option value="Fahrer fest">Fahrer fest</option>
-            <option value="Fahrer frei">Fahrer frei</option>
+            <option value="MA frei">Mitarbeiter für Auf-/ Abbau</option>
+            <option value="AL frei">Aufbauleitung</option>
+            <option value="Fahrer frei">Fahrer</option>
+            <option value="MA fest">Mitarbeiter für Auf-/ Abbau (fest)</option>
+            <option value="AL fest">Aufbauleitung (fest)</option>
+            <option value="Fahrer fest">Fahrer (fest)</option>
+            <option value="Floristik">Floristik</option>
+            <option value="Lager">Lager</option>
+            <option value="Stoffe">Stoffe</option>
+            <option value="Tischlerei">Tischlerei</option>
             <option value="Zenjob">Zenjob</option>
             <option value="Rockit">Rockit</option>
           </select>
@@ -771,10 +775,18 @@
           <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Einkommensgrenze (€)</label>
           <input type="number" id="edit-worker-income-limit" class="meta-input" step="1" min="0" placeholder="z.B. 520">
         </div>
+        <div class="field">
+          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Rollen &amp; Stundensätze</label>
+          <div id="edit-worker-role-rates" style="display:flex;flex-direction:column;gap:4px;"></div>
+          <button type="button" onclick="addRoleRateRow()" style="margin-top:6px;font-size:12px;padding:4px 10px;border:0.5px solid var(--accent);border-radius:var(--radius);background:var(--accent-bg);color:var(--accent-text);cursor:pointer;">+ Rolle hinzufügen</button>
+        </div>
       </div>
       <div style="display:flex; gap:10px; margin-top:20px;">
         <button class="btn primary" style="flex:1;" onclick="saveEditWorker()">Speichern</button>
         <button class="btn" style="flex:1;" onclick="closeEditWorker()">Abbrechen</button>
+      </div>
+      <div style="margin-top:12px; text-align:center; border-top:0.5px solid var(--border2); padding-top:12px;">
+        <button onclick="deactivateWorker()" style="font-size:12px;padding:5px 14px;border:0.5px solid var(--danger);border-radius:var(--radius);background:none;color:var(--danger);cursor:pointer;">Mitarbeiter deaktivieren</button>
       </div>
     </div>
   </div>

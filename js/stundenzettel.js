@@ -314,7 +314,7 @@ function renderShift(dayIdx, shiftIdx) {
   var removeBtn = shiftIdx > 0 ? '<button class="shift-remove" onclick="removeShift(' + dayIdx + ',' + shiftIdx + ')">×</button>' : '';
   // Build dept options
   var deptOpts = (typeof departments !== 'undefined' ? departments : []).map(function(d) {
-    return '<option value="' + d.replace(/"/g,'&quot;') + '">' + d + '</option>';
+    return '<option value="' + d.replace(/"/g,'&quot;') + '">' + (typeof deptLabel === 'function' ? deptLabel(d) : d) + '</option>';
   }).join('');
   block.innerHTML =
     '<div class="shift-label">Schicht ' + (shiftIdx + 1) + removeBtn + '</div>' +
@@ -878,7 +878,8 @@ function drawPDFContent(doc, data, ml, cw) {
       cx += cols[0]; doc.setFont('helvetica', 'normal');
       doc.text(truncatePdf(doc, actS[r].ort || '', cols[1] - 2), cx, y + 5.5); cx += cols[1];
       var deptShort = (actS[r].dept || '').split('(')[0].trim();
-      doc.text(truncatePdf(doc, deptShort, cols[2] - 2), cx, y + 5.5); cx += cols[2];
+      var deptDisp = typeof deptLabel === 'function' ? deptLabel(deptShort) : deptShort;
+      doc.text(truncatePdf(doc, deptDisp, cols[2] - 2), cx, y + 5.5); cx += cols[2];
       doc.text(actS[r].von + '–' + actS[r].bis, cx, y + 5.5); cx += cols[3];
       doc.text(parseInt(actS[r].pause) > 0 ? actS[r].pause + 'm' : '—', cx, y + 5.5); cx += cols[4];
       var sv = timeToMins(actS[r].von), sb = timeToMins(actS[r].bis), sp = parseInt(actS[r].pause) || 0;
