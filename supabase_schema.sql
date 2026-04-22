@@ -91,6 +91,7 @@ create table public.shifts (
   start_time time, -- Store as 'HH:MM' string or Time
   end_time time,
   pause_mins integer,
+  ort text,
   status text check (status in ('offen', 'eingetragen')) default 'offen',
   shift_date date, -- Actual work date (protocol date for Protokoll shifts, computed from week for Stundenzettel)
   created_at timestamp with time zone default timezone('utc'::text, now()) not null

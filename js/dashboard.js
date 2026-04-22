@@ -196,7 +196,7 @@ async function refreshDashboard() {
         projects(name, location),
         al:app_users!protocols_al_id_fkey(full_name),
         pl:app_users!protocols_pl_id_fkey(full_name),
-        shifts(id, user_id, position_role, start_time, end_time, pause_mins, status, shift_date,
+        shifts(id, user_id, position_role, start_time, end_time, pause_mins, status, shift_date, ort,
                app_users(full_name))
       `)
       .order('date', { ascending: false });
@@ -1155,7 +1155,7 @@ async function exportDashboardMonthlyPDF() {
   const { data: shifts, error } = await supabaseClient
     .from('shifts')
     .select(`
-      id, start_time, end_time, pause_mins, position_role, status, shift_date,
+      id, start_time, end_time, pause_mins, position_role, status, shift_date, ort,
       protocols(date, al_name_fallback, pl_name_fallback, signature_text, projects(name, location))
     `)
     .eq('user_id', dashboardCurrentWorker.id);
@@ -1200,7 +1200,7 @@ async function exportDashboardMonthlyPDF() {
         von: (s.start_time || '').substring(0, 5),
         bis: (s.end_time || '').substring(0, 5),
         pause: s.pause_mins ? String(s.pause_mins) : '0',
-        ort: ortParts.join(', '),
+        ort: ortParts.length ? ortParts.join(', ') : (s.ort || ''),
         al: prot.al_name_fallback || prot.pl_name_fallback || '',
         dept: s.position_role || 'MA',
         sig: prot.signature_text || null
@@ -1267,15 +1267,21 @@ async function exportDashboardMonthlyPDF() {
   doc.text('Stunden', colSt, y + 6.5);
   doc.setTextColor(0); y += 10;
 
-  monthW.forEach(function(w, i) {
-    if (i % 2 === 0) { doc.setFillColor(248, 248, 246); doc.rect(ml, y, cw, 10, 'F'); }
-    doc.setFont('helvetica', 'bold'); doc.text('KW ' + parseInt(w.weekStart.split('-W')[1]), colKW + 3, y + 6.5);
-    doc.setFont('helvetica', 'normal');
-    const rangeLabel = (w.weekLabel || '').split('·');
-    doc.text((rangeLabel[1] || rangeLabel[0] || '').trim(), colZR, y + 6.5);
-    doc.text(w.abt || '—', colAbt, y + 6.5);
-    doc.setFont('helvetica', 'bold'); doc.text(w.total + ' h', colSt, y + 6.5);
-    doc.setDrawColor(220); doc.line(ml, y + 10, ml + cw, y + 10); y += 10;
+  var rowIdx = 0;
+  monthW.forEach(function(w) {
+    var pages = splitWeekByDepts(w);
+    pages.forEach(function(pw, pi) {
+      if (rowIdx % 2 === 0) { doc.setFillColor(248, 248, 246); doc.rect(ml, y, cw, 10, 'F'); }
+      doc.setFont('helvetica', 'bold');
+      doc.text(pi === 0 ? 'KW ' + parseInt(pw.weekStart.split('-W')[1]) : '', colKW + 3, y + 6.5);
+      doc.setFont('helvetica', 'normal');
+      const rangeLabel = (pw.weekLabel || '').split('·');
+      doc.text(pi === 0 ? (rangeLabel[1] || rangeLabel[0] || '').trim() : '', colZR, y + 6.5);
+      doc.text(pw.abt || '—', colAbt, y + 6.5);
+      doc.setFont('helvetica', 'bold'); doc.text(pw.total + ' h', colSt, y + 6.5);
+      doc.setDrawColor(220); doc.line(ml, y + 10, ml + cw, y + 10);
+      y += 10; rowIdx++;
+    });
   });
 
   y += 10; doc.setFontSize(14); doc.text('Gesamtstunden:', ml, y);
@@ -1284,7 +1290,9 @@ async function exportDashboardMonthlyPDF() {
   // Set rate for drawPDFContent earnings line, then restore
   const prevRate = window.currentUserRateConni;
   window.currentUserRateConni = dashboardCurrentWorker.hourly_rate_conni ? parseFloat(dashboardCurrentWorker.hourly_rate_conni) : 0;
-  monthW.forEach(function(data) { doc.addPage(); drawPDFContent(doc, data, ml, cw); });
+  monthW.forEach(function(w) {
+    splitWeekByDepts(w).forEach(function(pageData) { doc.addPage(); drawPDFContent(doc, pageData, ml, cw); });
+  });
   window.currentUserRateConni = prevRate;
 
   const fN = 'stundennachweis_' + mKey.replace('-', '_') + '_' + workerName.replace(/\s+/g, '_') + '.pdf';

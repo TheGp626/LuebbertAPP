@@ -80,7 +80,7 @@ async function fetchSupabaseShifts() {
     var { data, error } = await supabaseClient
       .from('shifts')
       .select(`
-        id, start_time, end_time, pause_mins, position_role, status, shift_date, protocol_id,
+        id, start_time, end_time, pause_mins, position_role, status, shift_date, protocol_id, ort,
         protocols ( date, al_name_fallback, pl_name_fallback, projects ( name, location ) )
       `)
       .eq('user_id', currentUser.id)
@@ -139,7 +139,7 @@ async function fetchSupabaseShifts() {
            von: (sh.start_time || '').substring(0,5),
            bis: (sh.end_time || '').substring(0,5),
            pause: (function() { var v = timeToMins((sh.start_time||'').substring(0,5)), b = timeToMins((sh.end_time||'').substring(0,5)); if (v===null||b===null) return '0'; var r = b<v ? b+1440-v : b-v; return autoPause(r).toString(); })(),
-           ort: (prot.projects && (prot.projects.location || prot.projects.name)) ? [prot.projects.location, prot.projects.name].filter(Boolean).join(', ') : (sh.protocol_id ? '' : 'Manuell erfasst'),
+           ort: (prot.projects && (prot.projects.location || prot.projects.name)) ? [prot.projects.location, prot.projects.name].filter(Boolean).join(', ') : (sh.ort || ''),
            al: prot.al_name_fallback || prot.pl_name_fallback || '',
            dept: sh.position_role || 'MA',
            sig: null,
@@ -155,6 +155,10 @@ async function fetchSupabaseShifts() {
 
     Object.keys(userWeeks).forEach(function(wKey) {
       var weekObj = userWeeks[wKey];
+
+      // Use proper week label matching the Stundenzettel format
+      weekObj.weekLabel = weekLabelFromVal(wKey);
+
       var wTotal = 0;
       weekObj.days.forEach(function(dd) {
         dd.shifts.forEach(function(sh) {
@@ -166,7 +170,14 @@ async function fetchSupabaseShifts() {
         });
       });
       weekObj.total = wTotal % 1 === 0 ? wTotal.toFixed(0) : wTotal.toFixed(2);
-      
+
+      // Remove any stale dept-split keys for this week (e.g. '2026-W17:AL', '2026-W17:MA')
+      Object.keys(allLocal).forEach(function(k) {
+        if (k !== wKey && k.indexOf(wKey + ':') === 0) {
+          delete allLocal[k];
+        }
+      });
+
       // Override local history for this week with DB truth
       allLocal[wKey] = weekObj;
       changed = true;
@@ -630,7 +641,8 @@ async function syncWeekToSupabase(data) {
           position_role: sh.dept || data.abt,
           status:        'offen',
           temp_worker_name: null,
-          shift_date:    isoWeekToDate(data.weekStart, dayIdx)
+          shift_date:    isoWeekToDate(data.weekStart, dayIdx),
+          ort:           sh.ort || null
         });
       });
     });
@@ -698,6 +710,38 @@ async function fetchSignaturesForWeeks(weekDataArray) {
   } catch(e) { console.warn('fetchSignaturesForWeeks failed:', e); }
 }
 
+// ── PDF HELPERS ──
+
+// Returns array of dept-filtered week copies. If only one dept, returns [w] unchanged.
+function splitWeekByDepts(w) {
+  var depts = [];
+  (w.days || []).forEach(function(dd) {
+    (dd.shifts || []).forEach(function(sh) {
+      if (sh.von && sh.bis) {
+        var d = sh.dept || w.abt;
+        if (depts.indexOf(d) === -1) depts.push(d);
+      }
+    });
+  });
+  if (depts.length <= 1) return [w];
+  return depts.map(function(dept) {
+    var filteredDays = w.days.map(function(dd) {
+      return { day: dd.day, date: dd.date, isoDate: dd.isoDate,
+        shifts: (dd.shifts || []).filter(function(sh) { return (sh.dept || w.abt) === dept && sh.von && sh.bis; }) };
+    });
+    var deptMins = 0;
+    filteredDays.forEach(function(dd) {
+      dd.shifts.forEach(function(sh) {
+        var v = timeToMins(sh.von), b = timeToMins(sh.bis), p = parseInt(sh.pause) || 0;
+        var effB = (b < v) ? b + 1440 : b;
+        if (v !== null && b !== null && effB > v) deptMins += Math.max(180, effB - v - p);
+      });
+    });
+    var deptTotal = deptMins / 60;
+    return Object.assign({}, w, { abt: dept, days: filteredDays, total: deptTotal % 1 === 0 ? deptTotal.toFixed(0) : deptTotal.toFixed(2) });
+  });
+}
+
 // ── PDF ──
 async function exportPDF() {
   var data = collectData();
@@ -705,8 +749,13 @@ async function exportPDF() {
   var sigP = [];
   data.days.forEach(function (dd) { dd.shifts.forEach(function (sh) { if (sh.sig) sigP.push(new Promise(function (res) { compressSignature(sh.sig, function (c) { sh.sig = c; res(); }); })); }); });
   await Promise.all(sigP);
+
+  var pages = splitWeekByDepts(data);
   var doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
-  drawPDFContent(doc, data, ml, cw);
+  pages.forEach(function(pageData, i) {
+    if (i > 0) doc.addPage();
+    drawPDFContent(doc, pageData, ml, cw);
+  });
   doc.save('stundennachweis_' + data.weekStart + '.pdf');
   showToast('PDF wurde gespeichert!');
 }
@@ -820,8 +869,7 @@ function drawPDFContent(doc, data, ml, cw) {
   doc.setTextColor(0); y += 8;
   data.days.forEach(function (dd, idx) {
     var actS = dd.shifts.filter(function (sh) { return sh.von && sh.bis; }); if (!actS.length) return;
-    var dNet = 0; actS.forEach(function (sh) { var v = timeToMins(sh.von), b = timeToMins(sh.bis), p = parseInt(sh.pause) || 0; var effB = (b < v) ? b + 1440 : b; if (v !== null && b !== null && effB > v) dNet += Math.max(3, (effB - v - p) / 60); });
-    var hStr = dNet % 1 === 0 ? dNet.toFixed(0) : dNet.toFixed(2), dRows = actS.length;
+    var dRows = actS.length;
     if (y + dRows * 10 > 268) { doc.addPage(); y = 20; doc.setFillColor(30, 30, 28); doc.rect(ml, y, cw, 8, 'F'); doc.setTextColor(255); doc.setFontSize(8); doc.setFont('helvetica', 'bold'); var hcx = ml + 2; hd.forEach(function (h, i) { doc.text(h, hcx, y + 5.5); hcx += cols[i]; }); doc.setTextColor(0); y += 8; }
     for (var r = 0; r < dRows; r++) {
       if (idx % 2 === 0) { doc.setFillColor(248, 248, 246); doc.rect(ml, y, cw, 10, 'F'); }
@@ -833,7 +881,11 @@ function drawPDFContent(doc, data, ml, cw) {
       doc.text(truncatePdf(doc, deptShort, cols[2] - 2), cx, y + 5.5); cx += cols[2];
       doc.text(actS[r].von + '–' + actS[r].bis, cx, y + 5.5); cx += cols[3];
       doc.text(parseInt(actS[r].pause) > 0 ? actS[r].pause + 'm' : '—', cx, y + 5.5); cx += cols[4];
-      if (r === 0) { doc.setFont('helvetica', 'bold'); doc.text(hStr + 'h', cx, y + 5.5); }
+      var sv = timeToMins(actS[r].von), sb = timeToMins(actS[r].bis), sp = parseInt(actS[r].pause) || 0;
+      var seffB = (sb < sv) ? sb + 1440 : sb;
+      var shNet = (sv !== null && sb !== null && seffB > sv) ? Math.max(3, (seffB - sv - sp) / 60) : 0;
+      var shStr = shNet % 1 === 0 ? shNet.toFixed(0) : shNet.toFixed(2);
+      doc.setFont('helvetica', 'bold'); doc.text(shNet > 0 ? shStr + 'h' : '—', cx, y + 5.5);
       cx += cols[5]; doc.setFont('helvetica', 'normal');
       doc.text(truncatePdf(doc, actS[r].al || '', cols[6] - 2), cx, y + 5.5); cx += cols[6];
       if (actS[r].sig) { try { doc.addImage(actS[r].sig, 'JPEG', cx, y + 1, cols[7] - 2, 8); } catch (e) { } }
