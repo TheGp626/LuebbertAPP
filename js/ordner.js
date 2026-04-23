@@ -198,7 +198,11 @@ async function runOrdnerUploads(folderId, files) {
 }
 
 async function uploadOrdnerFile(folderId, file) {
-  var safeName = file.name.replace(/[^a-zA-Z0-9\-_.\u00C0-\u024F]/g, '_');
+  var safeName = file.name
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
+    .replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue')
+    .replace(/ß/g, 'ss')
+    .replace(/[^a-zA-Z0-9\-_.]/g, '_');
   var rand = Math.random().toString(36).slice(2, 7);
   var filePath = folderId + '/' + Date.now() + '_' + rand + '_' + safeName;
 

@@ -593,32 +593,138 @@ async function markAllShiftsBooked(userId) {
 // ── SCHICHT BEARBEITEN / HINZUFÜGEN ──
 
 let _shiftEditId = null; // null = neuer Eintrag, sonst Supabase-ID
+let _shiftEditContext = 'worker'; // 'worker' | 'protocol-edit' | 'protocol-add'
+
+function _shiftModalBase() {
+  document.getElementById('shift-edit-person-row').style.display = 'none';
+  document.getElementById('shift-edit-temp-name').value = '';
+  const sel = document.getElementById('shift-edit-worker-select');
+  if (sel) sel.value = '';
+}
 
 function openShiftEdit(shiftId) {
   const shift = dashboardCurrentShifts.find(s => s.id === shiftId);
   if (!shift) return;
   _shiftEditId = shiftId;
+  _shiftEditContext = 'worker';
+  _shiftModalBase();
   document.getElementById('shift-edit-title').textContent = 'Schicht bearbeiten';
   const dateVal = shift.protocols?.date || shift.shift_date || '';
-  document.getElementById('shift-edit-date').value = dateVal;
-  document.getElementById('shift-edit-role').value = shift.position_role || 'MA fest';
+  document.getElementById('shift-edit-date').value  = dateVal;
+  document.getElementById('shift-edit-ort').value   = shift.ort || '';
+  document.getElementById('shift-edit-role').value  = shift.position_role || 'MA frei';
   document.getElementById('shift-edit-start').value = (shift.start_time || '').substring(0, 5);
   document.getElementById('shift-edit-end').value   = (shift.end_time   || '').substring(0, 5);
-  document.getElementById('shift-edit-note').value   = shift.note || '';
+  document.getElementById('shift-edit-note').value  = shift.note || '';
   document.getElementById('shift-edit-delete-row').style.display = 'block';
   document.getElementById('shift-edit-modal').classList.add('open');
 }
 
 function openAddShift() {
   _shiftEditId = null;
+  _shiftEditContext = 'worker';
+  _shiftModalBase();
   document.getElementById('shift-edit-title').textContent = 'Schicht hinzufügen';
   document.getElementById('shift-edit-date').value  = new Date().toISOString().slice(0, 10);
-  document.getElementById('shift-edit-role').value  = 'MA fest';
+  document.getElementById('shift-edit-ort').value   = '';
+  document.getElementById('shift-edit-role').value  = 'MA frei';
   document.getElementById('shift-edit-start').value = '';
   document.getElementById('shift-edit-end').value   = '';
-  document.getElementById('shift-edit-note').value   = '';
+  document.getElementById('shift-edit-note').value  = '';
   document.getElementById('shift-edit-delete-row').style.display = 'none';
   document.getElementById('shift-edit-modal').classList.add('open');
+}
+
+function openProtShiftEdit(shiftId) {
+  const p = dashboardProtocols.find(x => x.id === _editProtId);
+  if (!p) return;
+  const shift = (p.shifts || []).find(s => s.id === shiftId);
+  if (!shift) return;
+  _shiftEditId = shiftId;
+  _shiftEditContext = 'protocol-edit';
+  _shiftModalBase();
+  document.getElementById('shift-edit-title').textContent = 'Schicht bearbeiten';
+  document.getElementById('shift-edit-date').value  = shift.shift_date || p.date || '';
+  document.getElementById('shift-edit-ort').value   = shift.ort || '';
+  document.getElementById('shift-edit-role').value  = shift.position_role || 'MA frei';
+  document.getElementById('shift-edit-start').value = (shift.start_time || '').substring(0, 5);
+  document.getElementById('shift-edit-end').value   = (shift.end_time   || '').substring(0, 5);
+  document.getElementById('shift-edit-note').value  = shift.note || '';
+  document.getElementById('shift-edit-delete-row').style.display = 'block';
+  document.getElementById('shift-edit-modal').classList.add('open');
+}
+
+function openAddProtShift() {
+  const p = dashboardProtocols.find(x => x.id === _editProtId);
+  if (!p) return;
+  _shiftEditId = null;
+  _shiftEditContext = 'protocol-add';
+  // Populate worker dropdown
+  const sel = document.getElementById('shift-edit-worker-select');
+  if (sel) {
+    sel.innerHTML = '<option value="">— Temp / Agentur (Name eingeben) —</option>' +
+      (dashboardWorkers || []).map(function(w) {
+        return '<option value="' + w.id + '">' + escapeHtml(w.full_name || '') + '</option>';
+      }).join('');
+  }
+  document.getElementById('shift-edit-person-row').style.display = 'block';
+  document.getElementById('shift-edit-temp-name').style.display = '';
+  document.getElementById('shift-edit-title').textContent = 'Schicht hinzufügen';
+  document.getElementById('shift-edit-date').value  = p.date || '';
+  document.getElementById('shift-edit-ort').value   = (p.projects && p.projects.location) || '';
+  document.getElementById('shift-edit-role').value  = 'MA frei';
+  document.getElementById('shift-edit-start').value = '';
+  document.getElementById('shift-edit-end').value   = '';
+  document.getElementById('shift-edit-note').value  = '';
+  document.getElementById('shift-edit-delete-row').style.display = 'none';
+  document.getElementById('shift-edit-modal').classList.add('open');
+}
+
+function onShiftWorkerSelect(val) {
+  const inp = document.getElementById('shift-edit-temp-name');
+  if (!inp) return;
+  if (val) {
+    const w = (dashboardWorkers || []).find(function(x) { return x.id === val; });
+    inp.value = w ? (w.full_name || '') : '';
+    inp.style.display = 'none';
+  } else {
+    inp.value = '';
+    inp.style.display = '';
+  }
+}
+
+async function _refreshProtocolShifts() {
+  if (!_editProtId) return;
+  const { data } = await supabaseClient
+    .from('shifts')
+    .select('id, user_id, temp_worker_name, position_role, start_time, end_time, pause_mins, status, shift_date, ort, app_users(full_name)')
+    .eq('protocol_id', _editProtId);
+  const p = dashboardProtocols.find(function(x) { return x.id === _editProtId; });
+  if (p) p.shifts = data || [];
+}
+
+function renderProtShiftsInEdit() {
+  const c = document.getElementById('pe-shifts');
+  if (!c) return;
+  const p = dashboardProtocols.find(function(x) { return x.id === _editProtId; });
+  const shifts = p ? (p.shifts || []) : [];
+  if (!shifts.length) {
+    c.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:6px 0;">Keine Schichten erfasst.</div>';
+    return;
+  }
+  c.innerHTML = shifts.map(function(s) {
+    const name = s.temp_worker_name || (s.app_users ? s.app_users.full_name : '—');
+    const von  = (s.start_time || '').substring(0, 5);
+    const bis  = (s.end_time   || '').substring(0, 5);
+    const time = von && bis ? von + '–' + bis : '—';
+    return '<div style="display:flex;gap:8px;align-items:center;background:var(--bg2);border-radius:8px;padding:8px 10px;">' +
+      '<div style="flex:1;min-width:0;">' +
+        '<div style="font-size:13px;font-weight:600;">' + escapeHtml(name) + '</div>' +
+        '<div style="font-size:11px;color:var(--text3);">' + escapeHtml(s.position_role || '—') + ' · ' + time + (s.ort ? ' · ' + escapeHtml(s.ort) : '') + '</div>' +
+      '</div>' +
+      '<button onclick="openProtShiftEdit(\'' + s.id + '\')" style="font-size:12px;padding:4px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg3);cursor:pointer;">✏️</button>' +
+    '</div>';
+  }).join('');
 }
 
 function closeShiftEditModal() {
@@ -631,6 +737,7 @@ async function saveShiftEdit() {
   const role     = document.getElementById('shift-edit-role').value;
   const startVal = document.getElementById('shift-edit-start').value;
   const endVal   = document.getElementById('shift-edit-end').value;
+  const ortVal   = (document.getElementById('shift-edit-ort') || {}).value || '';
   const rawMins  = (timeToMins(endVal) || 0) - (timeToMins(startVal) || 0);
   const pause    = autoPause(rawMins < 0 ? rawMins + 1440 : rawMins);
 
@@ -639,18 +746,45 @@ async function saveShiftEdit() {
     return;
   }
 
+  const isProtocol = _shiftEditContext === 'protocol-edit' || _shiftEditContext === 'protocol-add';
+
   try {
     if (_shiftEditId) {
+      // Edit existing shift (works for both worker and protocol context)
       const { error } = await supabaseClient.from('shifts').update({
         shift_date:    dateVal,
         position_role: role,
         start_time:    startVal,
         end_time:      endVal,
-        pause_mins:    pause
+        pause_mins:    pause,
+        ort:           ortVal || null,
       }).eq('id', _shiftEditId);
       if (error) throw error;
       if (typeof showToast === 'function') showToast('Schicht gespeichert!');
+    } else if (_shiftEditContext === 'protocol-add') {
+      // New shift linked to a protocol
+      const workerId = (document.getElementById('shift-edit-worker-select') || {}).value || '';
+      const tempName = (document.getElementById('shift-edit-temp-name') || {}).value.trim();
+      if (!workerId && !tempName) {
+        if (typeof showToast === 'function') showToast('Bitte Person angeben.', 'danger');
+        return;
+      }
+      const { error } = await supabaseClient.from('shifts').insert({
+        protocol_id:      _editProtId,
+        user_id:          workerId || null,
+        temp_worker_name: workerId ? null : (tempName || null),
+        shift_date:       dateVal,
+        position_role:    role,
+        start_time:       startVal,
+        end_time:         endVal,
+        pause_mins:       pause,
+        ort:              ortVal || null,
+        status:           'offen',
+      });
+      if (error) throw error;
+      if (typeof showToast === 'function') showToast('Schicht hinzugefügt!');
     } else {
+      // New shift linked to a worker (existing worker-dashboard flow)
       const userId = document.getElementById('dash-worker-select').value;
       if (!userId) { if (typeof showToast === 'function') showToast('Kein Mitarbeiter ausgewählt.', 'danger'); return; }
       const { error } = await supabaseClient.from('shifts').insert({
@@ -660,13 +794,20 @@ async function saveShiftEdit() {
         start_time:    startVal,
         end_time:      endVal,
         pause_mins:    pause,
-        status:        'offen'
+        ort:           ortVal || null,
+        status:        'offen',
       });
       if (error) throw error;
       if (typeof showToast === 'function') showToast('Schicht hinzugefügt!');
     }
+
     closeShiftEditModal();
-    renderWorkerShifts();
+    if (isProtocol) {
+      await _refreshProtocolShifts();
+      renderProtShiftsInEdit();
+    } else {
+      renderWorkerShifts();
+    }
   } catch (err) {
     console.error('saveShiftEdit error:', err);
     if (typeof showToast === 'function') showToast('Fehler: ' + (err.message || 'Speichern fehlgeschlagen'), 'danger');
@@ -676,12 +817,18 @@ async function saveShiftEdit() {
 async function deleteShiftFromModal() {
   if (!_shiftEditId) return;
   if (!confirm('Schicht wirklich löschen?')) return;
+  const isProtocol = _shiftEditContext === 'protocol-edit';
   try {
     const { error } = await supabaseClient.from('shifts').delete().eq('id', _shiftEditId);
     if (error) throw error;
     if (typeof showToast === 'function') showToast('Schicht gelöscht.');
     closeShiftEditModal();
-    renderWorkerShifts();
+    if (isProtocol) {
+      await _refreshProtocolShifts();
+      renderProtShiftsInEdit();
+    } else {
+      renderWorkerShifts();
+    }
   } catch (err) {
     console.error('deleteShift error:', err);
     if (typeof showToast === 'function') showToast('Fehler beim Löschen.', 'danger');
@@ -756,6 +903,7 @@ async function recalcAllProtocolCosts() {
 function openDashDetail(id) {
   const p = dashboardProtocols.find(x => x.id === id);
   if (!p) return;
+  _editProtId = id;
 
   const modal = document.getElementById('dash-detail-modal');
   if (!modal) return;
@@ -981,6 +1129,179 @@ function openDashDetail(id) {
 function closeDashDetail() {
   const modal = document.getElementById('dash-detail-modal');
   if (modal) modal.classList.remove('open');
+}
+
+// ── PROTOCOL EDIT ──
+
+var _editProtId = null;
+var _editProtTransports = [];
+
+var _PE_CATEGORIES = [
+  { id: 'mobiliar',  label: 'Mobiliar' },
+  { id: 'stoffe',    label: 'Stoffe & Hussen' },
+  { id: 'floristik', label: 'Floristik' },
+  { id: 'tischlerei',label: 'Tischlerei' },
+  { id: 'logistik',  label: 'Lager / Logistik' }
+];
+
+function openDashProtEdit() {
+  const p = dashboardProtocols.find(x => x.id === _editProtId);
+  if (!p) return;
+
+  document.getElementById('pe-date').value    = p.date || '';
+  document.getElementById('pe-action').value  = p.action || 'Aufbau';
+  document.getElementById('pe-holiday').checked = !!p.is_holiday;
+  document.getElementById('pe-al').value      = p.al ? p.al.full_name : (p.al_name_fallback || '');
+  document.getElementById('pe-pl').value      = p.pl ? p.pl.full_name : (p.pl_name_fallback || '');
+  document.getElementById('pe-damages').value  = p.notes_damages || '';
+  document.getElementById('pe-incidents').value = p.notes_incidents || '';
+  document.getElementById('pe-feedback').value  = p.notes_feedback || '';
+
+  _editProtTransports = (p.protocol_transports || []).map(t => ({
+    type: t.vehicle_type || 'Sprinter',
+    driver: t.driver_name || '',
+    punctuality: t.punctuality || 'pünktlich',
+    delay: t.delay_mins || ''
+  }));
+
+  renderDashProtTransports();
+  renderDashProtEquipment(p.protocol_equipments || []);
+  renderProtShiftsInEdit();
+
+  document.getElementById('dash-prot-edit-modal').classList.add('open');
+}
+
+function closeDashProtEdit() {
+  document.getElementById('dash-prot-edit-modal').classList.remove('open');
+}
+
+function renderDashProtTransports() {
+  var c = document.getElementById('pe-transports');
+  if (!c) return;
+  if (!_editProtTransports.length) {
+    c.innerHTML = '<div style="font-size:13px;color:var(--text3);">Kein Transport erfasst.</div>';
+    return;
+  }
+  var vehicleOpts = Object.keys(PROT_VEHICLE_RATES).map(function(v) {
+    return '<option value="' + v + '">' + v + '</option>';
+  }).join('');
+  c.innerHTML = _editProtTransports.map(function(t, i) {
+    var delayField = t.punctuality === 'verspätet'
+      ? '<input type="number" placeholder="Min" value="' + (t.delay || '') + '" oninput="_editProtTransports[' + i + '].delay=this.value" class="meta-input" style="width:70px;padding:5px 6px;font-size:12px;">'
+      : '';
+    var selOpts = Object.keys(PROT_VEHICLE_RATES).map(function(v) {
+      return '<option value="' + v + '"' + (t.type === v ? ' selected' : '') + '>' + v + '</option>';
+    }).join('');
+    return '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
+      '<select oninput="_editProtTransports[' + i + '].type=this.value" class="meta-input" style="flex:1;min-width:110px;padding:5px 6px;font-size:12px;">' + selOpts + '</select>' +
+      '<input type="text" placeholder="Fahrer" value="' + (t.driver || '') + '" oninput="_editProtTransports[' + i + '].driver=this.value" class="meta-input" style="flex:1;min-width:100px;padding:5px 6px;font-size:12px;">' +
+      '<select oninput="_editProtTransports[' + i + '].punctuality=this.value;renderDashProtTransports()" class="meta-input" style="flex:1;min-width:100px;padding:5px 6px;font-size:12px;">' +
+        '<option value="pünktlich"' + (t.punctuality === 'pünktlich' ? ' selected' : '') + '>Pünktlich</option>' +
+        '<option value="verspätet"' + (t.punctuality === 'verspätet' ? ' selected' : '') + '>Verspätet</option>' +
+      '</select>' +
+      delayField +
+      '<button onclick="_editProtTransports.splice(' + i + ',1);renderDashProtTransports()" style="color:var(--danger);background:none;border:none;cursor:pointer;font-size:16px;padding:0 4px;">✕</button>' +
+    '</div>';
+  }).join('');
+}
+
+function addDashProtTransport() {
+  _editProtTransports.push({ type: 'Sprinter', driver: '', punctuality: 'pünktlich', delay: '' });
+  renderDashProtTransports();
+}
+
+function renderDashProtEquipment(existing) {
+  var c = document.getElementById('pe-equipment');
+  if (!c) return;
+  var existMap = {};
+  existing.forEach(function(e) { existMap[e.category_id] = e; });
+
+  c.innerHTML = _PE_CATEGORIES.map(function(cat) {
+    var e = existMap[cat.id] || {};
+    var status = e.status || 'okay';
+    var note   = e.note   || '';
+    var hDel   = e.hussen_delivered || '';
+    var hRet   = e.hussen_returned  || '';
+    var hussenHtml = cat.id === 'stoffe'
+      ? '<div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap;">' +
+          '<span style="font-size:11px;color:var(--text3);">Hussen geliefert:</span>' +
+          '<input type="number" id="pe-hd-' + cat.id + '" value="' + hDel + '" class="meta-input" style="width:60px;padding:4px 6px;font-size:12px;">' +
+          '<span style="font-size:11px;color:var(--text3);">zurück:</span>' +
+          '<input type="number" id="pe-hr-' + cat.id + '" value="' + hRet + '" class="meta-input" style="width:60px;padding:4px 6px;font-size:12px;">' +
+        '</div>'
+      : '';
+    return '<div style="background:var(--bg2);border-radius:10px;padding:10px 12px;">' +
+      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">' +
+        '<span style="font-size:13px;font-weight:600;flex:1;">' + cat.label + '</span>' +
+        '<select id="pe-st-' + cat.id + '" class="meta-input" style="width:auto;padding:4px 8px;font-size:12px;">' +
+          ['okay','unsauber','beschädigt','unvollständig'].map(function(s) {
+            return '<option value="' + s + '"' + (status === s ? ' selected' : '') + '>' + s.charAt(0).toUpperCase() + s.slice(1) + '</option>';
+          }).join('') +
+        '</select>' +
+      '</div>' +
+      '<input type="text" id="pe-nt-' + cat.id + '" value="' + escapeHtml(note) + '" placeholder="Notiz (optional)" class="meta-input" style="font-size:12px;padding:5px 8px;">' +
+      hussenHtml +
+    '</div>';
+  }).join('');
+}
+
+async function saveDashProtEdit() {
+  const p = dashboardProtocols.find(x => x.id === _editProtId);
+  if (!p) return;
+
+  const alVal = document.getElementById('pe-al').value.trim();
+  const plVal = document.getElementById('pe-pl').value.trim();
+
+  const protPayload = {
+    date:            document.getElementById('pe-date').value,
+    action:          document.getElementById('pe-action').value,
+    is_holiday:      document.getElementById('pe-holiday').checked,
+    al_name_fallback: alVal || null,
+    pl_name_fallback: plVal || null,
+    notes_damages:   document.getElementById('pe-damages').value.trim()   || null,
+    notes_incidents: document.getElementById('pe-incidents').value.trim() || null,
+    notes_feedback:  document.getElementById('pe-feedback').value.trim()  || null,
+  };
+
+  try {
+    const { error: pErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', _editProtId);
+    if (pErr) throw pErr;
+
+    // Re-insert transports
+    await supabaseClient.from('protocol_transports').delete().eq('protocol_id', _editProtId);
+    if (_editProtTransports.length) {
+      const tInserts = _editProtTransports.map(function(t) {
+        return { protocol_id: _editProtId, vehicle_type: t.type, driver_name: t.driver || null,
+                 punctuality: t.punctuality, delay_mins: t.delay ? parseInt(t.delay) : 0 };
+      });
+      const { error: tErr } = await supabaseClient.from('protocol_transports').insert(tInserts);
+      if (tErr) throw tErr;
+    }
+
+    // Re-insert equipment
+    await supabaseClient.from('protocol_equipments').delete().eq('protocol_id', _editProtId);
+    const eInserts = _PE_CATEGORIES.map(function(cat) {
+      return {
+        protocol_id:      _editProtId,
+        category_id:      cat.id,
+        status:           (document.getElementById('pe-st-' + cat.id) || {}).value || 'okay',
+        note:             (document.getElementById('pe-nt-' + cat.id) || {}).value.trim() || null,
+        hussen_delivered: cat.id === 'stoffe' ? (parseInt((document.getElementById('pe-hd-stoffe') || {}).value) || null) : null,
+        hussen_returned:  cat.id === 'stoffe' ? (parseInt((document.getElementById('pe-hr-stoffe') || {}).value) || null) : null,
+      };
+    });
+    const { error: eErr } = await supabaseClient.from('protocol_equipments').insert(eInserts);
+    if (eErr) throw eErr;
+
+    showToast('✅ Protokoll gespeichert!');
+    closeDashProtEdit();
+    await refreshDashboard();
+    // Re-open detail with updated data
+    openDashDetail(_editProtId);
+  } catch (err) {
+    console.error('saveDashProtEdit error:', err);
+    showToast('Fehler: ' + (err.message || 'Speichern fehlgeschlagen'), 'danger');
+  }
 }
 
 // PDF EXPORT FROM DASHBOARD

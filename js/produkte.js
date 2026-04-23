@@ -250,7 +250,11 @@ async function saveProdukt() {
 
     // Upload PDF/file if provided
     if (pdfFile) {
-      var safeName = name.trim().replace(/[^a-zA-Z0-9\-_äöüÄÖÜß]/g, '_');
+      var safeName = name.trim()
+        .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
+        .replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue')
+        .replace(/ß/g, 'ss')
+        .replace(/[^a-zA-Z0-9\-_]/g, '_');
       var fileExt = pdfFile.name.split('.').pop() || 'pdf';
       var filePath = safeName + '_' + Date.now() + '.' + fileExt;
 
@@ -295,7 +299,11 @@ async function saveProdukt() {
       }
       for (var i = 0; i < imageFiles.length; i++) {
         var imgFile = imageFiles[i];
-        var safeImg = imgFile.name.replace(/[^a-zA-Z0-9\-_.\u00C0-\u024F]/g, '_');
+        var safeImg = imgFile.name
+          .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
+          .replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue')
+          .replace(/ß/g, 'ss')
+          .replace(/[^a-zA-Z0-9\-_.]/g, '_');
         var imgPath = productId + '/' + Date.now() + '_' + i + '_' + safeImg;
         var { error: imgUpErr } = await supabaseClient.storage
           .from('product-images')
