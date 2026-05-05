@@ -6,6 +6,8 @@
 
 var alleProdukte = [];       // Cached from Supabase
 var editingProduktId = null; // UUID of product being edited
+var lightboxMedia = [];      // [{url, type}] for current lightbox
+var lightboxIndex = 0;       // current position in lightbox
 
 // ── INIT ──
 async function initProdukte() {
@@ -35,7 +37,7 @@ async function fetchProdukte() {
 
   var { data, error } = await supabaseClient
     .from('products')
-    .select('id, name, description, pdf_url, content_text, created_at, product_images(id, image_url, sort_order)')
+    .select('id, name, description, pdf_url, content_text, created_at, product_images(id, image_url, media_type, sort_order)')
     .order('name', { ascending: true });
 
   if (loading) loading.style.display = 'none';
@@ -73,11 +75,19 @@ function renderProdukte(list) {
   }
 
   grid.innerHTML = list.map(function(p) {
-    // Thumbnail priority: 1) first product_image, 2) pdf_url image, 3) pdf canvas, 4) placeholder
+    // Thumbnail priority: 1) first product_image/video, 2) pdf_url image, 3) pdf canvas, 4) placeholder
     var images = (p.product_images || []).slice().sort(function(a, b) { return a.sort_order - b.sort_order; });
     var preview;
     if (images.length > 0) {
-      preview = '<img src="' + images[0].image_url + '" class="produkt-thumb" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')" />';
+      var first = images[0];
+      if (first.media_type === 'video') {
+        preview = '<div class="produkt-video-thumb-wrap" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')">' +
+          '<video src="' + first.image_url + '" muted preload="metadata" playsinline></video>' +
+          '<div class="produkt-video-play-icon"></div>' +
+          '</div>';
+      } else {
+        preview = '<img src="' + first.image_url + '" class="produkt-thumb" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')" />';
+      }
     } else if (p.pdf_url) {
       var isImage = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(p.pdf_url);
       if (isImage) {
@@ -177,17 +187,25 @@ function openProduktForm(id) {
       pdfCurrent.textContent = prod.pdf_url ? 'Aktuell: Datei vorhanden (neu hochladen zum Ersetzen)' : '';
     }
     if (deleteBtn) deleteBtn.style.display = 'inline-flex';
-    // Show existing images with delete buttons
+    // Show existing media with delete buttons
     if (existingImgs) {
       var imgs = (prod.product_images || []).slice().sort(function(a, b) { return a.sort_order - b.sort_order; });
       if (imgs.length > 0) {
         existingImgs.style.display = 'block';
-        existingImgs.innerHTML = '<div style="font-size:12px;color:var(--text3);margin-bottom:6px;">Vorhandene Bilder:</div>' +
+        existingImgs.innerHTML = '<div style="font-size:12px;color:var(--text3);margin-bottom:6px;">Vorhandene Medien:</div>' +
           '<div style="display:flex;flex-wrap:wrap;gap:8px;">' +
           imgs.map(function(img) {
+            var mediaType = img.media_type || 'image';
+            var thumb = mediaType === 'video'
+              ? '<div class="produkt-video-thumb-wrap" style="width:80px;height:60px;">' +
+                  '<video src="' + img.image_url + '" muted preload="metadata" playsinline style="pointer-events:none;"></video>' +
+                  '<div class="produkt-video-play-icon" style="pointer-events:none;"></div>' +
+                '</div>'
+              : '<img src="' + img.image_url + '" style="width:80px;height:60px;object-fit:cover;border-radius:6px;display:block;" />';
             return '<div style="position:relative;">' +
-              '<img src="' + img.image_url + '" style="width:80px;height:60px;object-fit:cover;border-radius:6px;display:block;" />' +
-              '<button onclick="deleteProduktImage(\'' + img.id + '\',\'' + img.image_url + '\')" style="position:absolute;top:-6px;right:-6px;background:var(--danger);color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;">✕</button>' +
+              thumb +
+              '<button onclick="deleteProduktMedia(\'' + img.id + '\',\'' + img.image_url + '\',\'' + mediaType + '\')" ' +
+              'style="position:absolute;top:-6px;right:-6px;background:var(--danger);color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;">✕</button>' +
               '</div>';
           }).join('') +
           '</div>';
@@ -290,7 +308,7 @@ async function saveProdukt() {
       productId = inserted.id;
     }
 
-    // Upload new images
+    // Upload new media files (images + videos)
     if (imageFiles.length > 0 && productId) {
       var existingCount = 0;
       if (editingProduktId) {
@@ -298,23 +316,30 @@ async function saveProdukt() {
         existingCount = ep && ep.product_images ? ep.product_images.length : 0;
       }
       for (var i = 0; i < imageFiles.length; i++) {
-        var imgFile = imageFiles[i];
-        var safeImg = imgFile.name
+        var mediaFile = imageFiles[i];
+        var isVideo = mediaFile.type.startsWith('video/');
+        var bucketName = isVideo ? 'product-videos' : 'product-images';
+        var mediaType = isVideo ? 'video' : 'image';
+
+        var safeMedia = mediaFile.name
           .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
           .replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue')
           .replace(/ß/g, 'ss')
           .replace(/[^a-zA-Z0-9\-_.]/g, '_');
-        var imgPath = productId + '/' + Date.now() + '_' + i + '_' + safeImg;
-        var { error: imgUpErr } = await supabaseClient.storage
-          .from('product-images')
-          .upload(imgPath, imgFile, { upsert: false, contentType: imgFile.type || 'image/jpeg' });
-        if (imgUpErr) { console.error('Image upload error:', imgUpErr); continue; }
-        var { data: imgUrlData } = supabaseClient.storage.from('product-images').getPublicUrl(imgPath);
-        var imgUrl = imgUrlData && imgUrlData.publicUrl ? imgUrlData.publicUrl : null;
-        if (imgUrl) {
+        var mediaPath = productId + '/' + Date.now() + '_' + i + '_' + safeMedia;
+
+        var { error: mediaUpErr } = await supabaseClient.storage
+          .from(bucketName)
+          .upload(mediaPath, mediaFile, { upsert: false, contentType: mediaFile.type || 'application/octet-stream' });
+        if (mediaUpErr) { console.error('Media upload error:', mediaUpErr); continue; }
+
+        var { data: mediaUrlData } = supabaseClient.storage.from(bucketName).getPublicUrl(mediaPath);
+        var mediaUrl = mediaUrlData && mediaUrlData.publicUrl ? mediaUrlData.publicUrl : null;
+        if (mediaUrl) {
           await supabaseClient.from('product_images').insert({
             product_id: productId,
-            image_url: imgUrl,
+            image_url: mediaUrl,
+            media_type: mediaType,
             sort_order: existingCount + i
           });
         }
@@ -332,18 +357,20 @@ async function saveProdukt() {
   }
 }
 
-// ── DELETE SINGLE IMAGE ──
-async function deleteProduktImage(imgId, imgUrl) {
-  if (!confirm('Bild löschen?')) return;
+// ── DELETE SINGLE MEDIA ──
+async function deleteProduktMedia(mediaId, mediaUrl, mediaType) {
+  var label = mediaType === 'video' ? 'Video' : 'Bild';
+  if (!confirm(label + ' löschen?')) return;
   try {
-    if (imgUrl) {
-      var parts = imgUrl.split('/product-images/');
-      if (parts.length > 1) await supabaseClient.storage.from('product-images').remove([parts[1]]);
+    var bucketName = mediaType === 'video' ? 'product-videos' : 'product-images';
+    if (mediaUrl) {
+      var marker = '/' + bucketName + '/';
+      var parts = mediaUrl.split(marker);
+      if (parts.length > 1) await supabaseClient.storage.from(bucketName).remove([parts[1]]);
     }
-    var { error } = await supabaseClient.from('product_images').delete().eq('id', imgId);
+    var { error } = await supabaseClient.from('product_images').delete().eq('id', mediaId);
     if (error) throw error;
-    showToast('Bild gelöscht.');
-    // Refresh form images display
+    showToast(label + ' gelöscht.');
     if (editingProduktId) {
       await fetchProdukte();
       openProduktForm(editingProduktId);
@@ -359,12 +386,14 @@ async function deleteProdukt() {
   var prod = alleProdukte.find(function(p) { return p.id === editingProduktId; });
 
   try {
-    // Delete product images from storage
+    // Delete product media from storage
     var imgs = prod && prod.product_images ? prod.product_images : [];
     for (var i = 0; i < imgs.length; i++) {
       if (imgs[i].image_url) {
-        var parts = imgs[i].image_url.split('/product-images/');
-        if (parts.length > 1) await supabaseClient.storage.from('product-images').remove([parts[1]]);
+        var bucketName = imgs[i].media_type === 'video' ? 'product-videos' : 'product-images';
+        var marker = '/' + bucketName + '/';
+        var parts = imgs[i].image_url.split(marker);
+        if (parts.length > 1) await supabaseClient.storage.from(bucketName).remove([parts[1]]);
       }
     }
     // Delete PDF from storage if exists
@@ -401,18 +430,35 @@ function openProduktViewer(id) {
   var images = (p.product_images || []).slice().sort(function(a, b) { return a.sort_order - b.sort_order; });
 
   if (images.length > 0) {
-    // Gallery view: images + content_text
-    if (subtitle) subtitle.textContent = images.length + ' Bild' + (images.length > 1 ? 'er' : '');
-    if (dlBtn) {
-      dlBtn.href = images[0].image_url;
-      dlBtn.style.display = 'inline-flex';
-    }
+    // Build mediaList for lightbox
+    var mediaList = images.map(function(img) {
+      return { url: img.image_url, type: img.media_type || 'image' };
+    });
+    window.currentViewerMediaList = mediaList;
+
+    var imgCount = images.filter(function(m) { return m.media_type !== 'video'; }).length;
+    var vidCount = images.length - imgCount;
+    var subtitleParts = [];
+    if (imgCount > 0) subtitleParts.push(imgCount + ' Bild' + (imgCount > 1 ? 'er' : ''));
+    if (vidCount > 0) subtitleParts.push(vidCount + ' Video' + (vidCount > 1 ? 's' : ''));
+    if (subtitle) subtitle.textContent = subtitleParts.join(', ');
+
+    if (dlBtn) { dlBtn.href = images[0].image_url; dlBtn.style.display = 'inline-flex'; }
+
     if (body) {
       var galleryHtml = '<div style="width:100%;height:100%;overflow-y:auto;padding:16px;box-sizing:border-box;">' +
         '<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-bottom:' + (p.content_text ? '16px' : '0') + ';">' +
-        images.map(function(img) {
-          return '<img src="' + img.image_url + '" style="max-width:100%;max-height:60vh;object-fit:contain;border-radius:8px;cursor:pointer;" ' +
-            'onclick="window.open(this.src,\'_blank\')" title="Klick zum Vergrößern" />';
+        images.map(function(img, idx) {
+          if (img.media_type === 'video') {
+            return '<div class="viewer-media-item" onclick="openLightbox(currentViewerMediaList,' + idx + ')">' +
+              '<video src="' + img.image_url + '" muted preload="metadata" playsinline style="max-height:200px;"></video>' +
+              '<div class="viewer-video-badge">&#x25B6; Video</div>' +
+              '</div>';
+          } else {
+            return '<div class="viewer-media-item" onclick="openLightbox(currentViewerMediaList,' + idx + ')">' +
+              '<img src="' + img.image_url + '" />' +
+              '</div>';
+          }
         }).join('') +
         '</div>' +
         (p.content_text
@@ -460,6 +506,82 @@ function closeProduktViewer() {
   var body = document.getElementById('viewer-body');
   if (body) body.innerHTML = ''; // Stop iframe/video loading
   if (modal) modal.style.display = 'none';
+  window.currentViewerMediaList = null;
+  closeLightbox();
+}
+
+// ── LIGHTBOX ──
+function openLightbox(mediaList, index) {
+  lightboxMedia = mediaList || [];
+  lightboxIndex = index || 0;
+  var lb = document.getElementById('media-lightbox');
+  if (!lb || lightboxMedia.length === 0) return;
+  lb.classList.add('open');
+  lightboxRender();
+  document.addEventListener('keydown', lightboxKeyHandler);
+}
+
+function closeLightbox() {
+  var lb = document.getElementById('media-lightbox');
+  if (lb) lb.classList.remove('open');
+  var wrap = document.getElementById('lightbox-media-wrap');
+  if (wrap) {
+    var vid = wrap.querySelector('video');
+    if (vid) { vid.pause(); vid.src = ''; }
+    wrap.innerHTML = '';
+  }
+  document.removeEventListener('keydown', lightboxKeyHandler);
+}
+
+function lightboxRender() {
+  var wrap = document.getElementById('lightbox-media-wrap');
+  var counter = document.getElementById('lightbox-counter');
+  var prevBtn = document.querySelector('.lightbox-prev');
+  var nextBtn = document.querySelector('.lightbox-next');
+  if (!wrap) return;
+
+  var item = lightboxMedia[lightboxIndex];
+  if (!item) return;
+
+  var oldVideo = wrap.querySelector('video');
+  if (oldVideo) { oldVideo.pause(); oldVideo.src = ''; }
+
+  if (item.type === 'video') {
+    wrap.innerHTML = '<video src="' + item.url + '" controls autoplay playsinline ' +
+      'style="max-width:92vw;max-height:88vh;border-radius:6px;outline:none;display:block;"></video>';
+  } else {
+    wrap.innerHTML = '<img src="' + item.url + '" alt="" />';
+  }
+
+  if (counter) {
+    counter.textContent = (lightboxIndex + 1) + ' / ' + lightboxMedia.length;
+    counter.style.display = lightboxMedia.length > 1 ? 'block' : 'none';
+  }
+
+  var single = lightboxMedia.length <= 1;
+  if (prevBtn) prevBtn.classList.toggle('hidden', single);
+  if (nextBtn) nextBtn.classList.toggle('hidden', single);
+}
+
+function lightboxNav(direction) {
+  if (lightboxMedia.length === 0) return;
+  var wrap = document.getElementById('lightbox-media-wrap');
+  var vid = wrap && wrap.querySelector('video');
+  if (vid) { vid.pause(); vid.src = ''; }
+  lightboxIndex = (lightboxIndex + direction + lightboxMedia.length) % lightboxMedia.length;
+  lightboxRender();
+}
+
+function lightboxBackdropClick(event) {
+  if (event.target === document.getElementById('media-lightbox')) {
+    closeLightbox();
+  }
+}
+
+function lightboxKeyHandler(e) {
+  if (e.key === 'Escape')      { closeLightbox(); return; }
+  if (e.key === 'ArrowLeft')   { lightboxNav(-1); return; }
+  if (e.key === 'ArrowRight')  { lightboxNav(1);  return; }
 }
 
 // ── UTIL ──

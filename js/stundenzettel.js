@@ -813,15 +813,20 @@ async function exportMonthlyPDF(mKey) {
   doc.text('Abteilung', colAbt, y + 6.5);
   doc.text('Stunden', colSt, y + 6.5);
   doc.setTextColor(0); y += 10;
-  monthW.forEach(function (w, i) {
-    if (i % 2 === 0) { doc.setFillColor(248, 248, 246); doc.rect(ml, y, cw, 10, 'F'); }
-    doc.setFont('helvetica', 'bold'); doc.text('KW ' + parseInt(w.weekStart.split('-W')[1]), colKW + 3, y + 6.5);
-    doc.setFont('helvetica', 'normal');
-    var rangeLabel = (w.weekLabel || '').split('·');
-    doc.text((rangeLabel[1] || rangeLabel[0] || '').trim(), colZR, y + 6.5);
-    doc.text(w.abt || '—', colAbt, y + 6.5);
-    doc.setFont('helvetica', 'bold'); doc.text(w.total + ' h', colSt, y + 6.5);
-    doc.setDrawColor(220); doc.line(ml, y + 10, ml + cw, y + 10); y += 10;
+  var rowIdx = 0;
+  monthW.forEach(function (w) {
+    var pages = splitWeekByDepts(w);
+    pages.forEach(function (pw, pi) {
+      if (rowIdx % 2 === 0) { doc.setFillColor(248, 248, 246); doc.rect(ml, y, cw, 10, 'F'); }
+      doc.setFont('helvetica', 'bold');
+      if (pi === 0) doc.text('KW ' + parseInt(w.weekStart.split('-W')[1]), colKW + 3, y + 6.5);
+      doc.setFont('helvetica', 'normal');
+      if (pi === 0) { var rangeLabel = (w.weekLabel || '').split('·'); doc.text((rangeLabel[1] || rangeLabel[0] || '').trim(), colZR, y + 6.5); }
+      doc.text(pw.abt || '—', colAbt, y + 6.5);
+      doc.setFont('helvetica', 'bold'); doc.text(pw.total + ' h', colSt, y + 6.5);
+      doc.setDrawColor(220); doc.line(ml, y + 10, ml + cw, y + 10);
+      y += 10; rowIdx++;
+    });
   });
   y += 10; doc.setFontSize(14); doc.text('Gesamtstunden:', ml, y);
   doc.setTextColor(24, 95, 165); doc.text((mTot % 1 === 0 ? mTot.toFixed(0) : mTot.toFixed(2)) + ' h', ml + 50, y); doc.setTextColor(0);
@@ -838,7 +843,7 @@ async function exportMonthlyPDF(mKey) {
     });
   });
   await Promise.all(sigComprP);
-  monthW.forEach(function (data) { doc.addPage(); drawPDFContent(doc, data, ml, cw); });
+  monthW.forEach(function (w) { splitWeekByDepts(w).forEach(function (data) { doc.addPage(); drawPDFContent(doc, data, ml, cw); }); });
   var fN = 'stundennachweis_' + mKey.replace('-', '_') + '_' + (name || 'Mitarbeiter').replace(/\s+/g, '_') + '.pdf';
   if (navigator.canShare) {
     try {

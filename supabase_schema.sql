@@ -152,6 +152,7 @@ create table public.product_images (
   id uuid default uuid_generate_v4() primary key,
   product_id uuid references public.products(id) on delete cascade not null,
   image_url text not null,
+  media_type text not null default 'image' check (media_type in ('image', 'video')),
   sort_order integer default 0,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );

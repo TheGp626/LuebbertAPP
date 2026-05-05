@@ -35,6 +35,10 @@ async function fetchOrdner() {
 }
 
 function renderOrdner(list) {
+  canManageOrdner = typeof userRole !== 'undefined' && ['PL', 'Admin'].includes(userRole);
+  var addBtn = document.getElementById('btn-add-ordner');
+  if (addBtn) addBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
+
   var grid = document.getElementById('ordner-grid');
   var empty = document.getElementById('ordner-empty');
   if (!grid) return;

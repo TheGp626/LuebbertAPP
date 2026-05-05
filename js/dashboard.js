@@ -174,7 +174,7 @@ async function saveEditWorker() {
     if (typeof fetchEmployees === 'function') fetchEmployees();
   } catch (err) {
     console.error('saveEditWorker error:', err);
-    showToast('Fehler: ' + (err.message || 'Speichern fehlgeschlagen'), 'danger');
+    showToast('Fehler beim Speichern: ' + (err.message || err.code || JSON.stringify(err)), 'danger');
   }
 }
 

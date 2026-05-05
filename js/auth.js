@@ -124,6 +124,14 @@ function handleSession(user) {
 
     console.log('User logged in locally:', user.full_name, 'Role:', userRole);
     enforceUI();
+    // If Projektordner is already rendered, re-render with correct permissions
+    if (typeof activeModule !== 'undefined' && activeModule === 'ordner' &&
+        typeof renderOrdner === 'function' && typeof alleOrdner !== 'undefined') {
+      canManageOrdner = ['PL', 'Admin'].includes(userRole);
+      var addBtn = document.getElementById('btn-add-ordner');
+      if (addBtn) addBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
+      if (alleOrdner.length > 0) renderOrdner(alleOrdner);
+    }
   } else {
     currentUser = null;
     userRole = 'MA';
