@@ -26,7 +26,7 @@ var protState = {
 var appUsers = [];
 async function fetchAppUsers() {
   if (typeof supabaseClient === 'undefined') return;
-  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, email, role, role_rates, hourly_rate_internal');
+  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, email, role, role_rates, hourly_rate_internal, is_fest');
   if (error) console.error("Error fetching app_users:", error);
   if (data) {
     appUsers = data;
@@ -218,7 +218,7 @@ function updateProtTransport(idx, field, val) {
 
 // ── PERSONNEL ──
 function addProtPersonnel() {
-  protState.personnel.push({ pos: 'MA', fest: false, isTemp: false, userId: '', tempName: '', name: '', start: '', end: '', pause: '0', rating: null, isStar: false });
+  protState.personnel.push({ pos: 'MA', isTemp: false, userId: '', tempName: '', name: '', start: '', end: '', pause: '0', rating: null, isStar: false });
   renderProtPersonnel();
   saveProtDraft();
 }
@@ -243,11 +243,6 @@ function renderProtPersonnel() {
     var opts = ['AL', 'MA', 'Fahrer', 'Zenjob', 'Rockit'].map(function(o) {
       return '<option value="' + o + '" ' + (p.pos === o ? 'selected' : '') + '>' + o + '</option>';
     }).join('');
-
-    var showFest = (p.pos === 'AL' || p.pos === 'MA' || p.pos === 'Fahrer');
-    var festCheck = showFest ? 
-      '<label style="display:flex; align-items:center; gap:4px; font-size:12px; margin-top:4px; cursor:pointer;">' +
-      '<input type="checkbox" onchange="updateProtPersonnel(' + i + ',\'fest\',this.checked)" ' + (p.fest !== false ? 'checked' : '') + ' /> Festangestellt</label>' : '';
 
     var userOpts = '<option value="">-- Personal wählen --</option>' + appUsers.map(function(u) {
       return '<option value="' + u.id + '" ' + (p.userId === u.id ? 'selected' : '') + '>' + (u.full_name || u.email || 'Unbenannt') + '</option>';
@@ -279,7 +274,7 @@ function renderProtPersonnel() {
            '  <div class="meta-fields">' +
            '    <div class="meta-field">' +
            '      <span class="meta-label">Position</span>' +
-           '      <select class="meta-input" style="margin-bottom:0" onchange="updateProtPersonnel(' + i + ', \'pos\', this.value)">' + opts + '</select>' + festCheck +
+           '      <select class="meta-input" style="margin-bottom:0" onchange="updateProtPersonnel(' + i + ', \'pos\', this.value)">' + opts + '</select>' +
            '    </div>' +
            '    <div class="meta-field">' +
            '      <span class="meta-label">Name</span>' + nameField + tempCheck +
@@ -315,7 +310,7 @@ function updateProtPersonnel(idx, field, val) {
   if (field === 'tempName') {
     protState.personnel[idx].name = val;
   }
-  if (field === 'pos' || field === 'fest' || field === 'isTemp') renderProtPersonnel();
+  if (field === 'pos' || field === 'isTemp') renderProtPersonnel();
 
   // Auto-pause calculation
   if (field === 'start' || field === 'end') {
@@ -427,7 +422,8 @@ function calcProtCosts() {
     if (v !== null && b !== null && effB > v) {
       var basePos = p.pos;
       if (['AL', 'MA', 'Fahrer'].includes(p.pos)) {
-        basePos += (p.fest ? ' fest' : ' frei');
+        var u = appUsers.find(function(x) { return x.id === p.userId; });
+        basePos += (u && u.is_fest ? ' fest' : ' frei');
       }
       var costs = calcSplitShiftCosts(basePos, currentDate, currentHoliday, v, effB, pa);
       costs.forEach(function(c) {
@@ -686,7 +682,10 @@ async function syncProtokollToSupabase(data) {
       data.personnel.forEach(function(p) {
         if (!p.start || !p.end) return; // Skip incomplete shifts
         var basePos = p.pos;
-        if (['AL', 'MA', 'Fahrer'].includes(p.pos)) basePos += (p.fest !== false ? ' fest' : ' frei');
+        if (['AL', 'MA', 'Fahrer'].includes(p.pos)) {
+          var su = (!p.isTemp && p.userId) ? appUsers.find(function(x) { return x.id === p.userId; }) : null;
+          basePos += (su && su.is_fest ? ' fest' : ' frei');
+        }
         
         var uId = (p.isTemp || !p.userId) ? null : p.userId;
         var tName = (p.isTemp || !p.userId) ? (p.tempName || p.name || null) : null;

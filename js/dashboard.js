@@ -88,6 +88,7 @@ function openEditWorker() {
   document.getElementById('edit-worker-income-limit').value  = worker.income_limit || '';
   _editWorkerRoleRates = Array.isArray(worker.role_rates) ? JSON.parse(JSON.stringify(worker.role_rates)) : [];
   renderRoleRatesList();
+  document.getElementById('edit-worker-fest').checked = !!worker.is_fest;
   document.getElementById('edit-worker-modal').classList.add('open');
 }
 
@@ -160,6 +161,7 @@ async function saveEditWorker() {
     hourly_rate_internal: parseFloat(document.getElementById('edit-worker-rate-internal').value) || null,
     income_limit:         parseFloat(document.getElementById('edit-worker-income-limit').value)  || null,
     role_rates:           _editWorkerRoleRates.filter(function(r) { return r.role; }),
+    is_fest:              document.getElementById('edit-worker-fest').checked,
   };
 
   try {
@@ -320,7 +322,7 @@ async function loadDashboardWorkers() {
   try {
     const { data: users, error: uErr } = await supabaseClient
       .from('app_users')
-      .select('id, full_name, role, default_dept, hourly_rate_conni, hourly_rate_internal, income_limit, role_rates, is_active')
+      .select('id, full_name, role, default_dept, hourly_rate_conni, hourly_rate_internal, income_limit, role_rates, is_active, is_fest')
       .eq('is_active', true)
       .order('full_name');
     if (uErr) throw uErr;
