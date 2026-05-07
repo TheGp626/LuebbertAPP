@@ -171,15 +171,31 @@ async function fetchSupabaseShifts() {
       });
       weekObj.total = wTotal % 1 === 0 ? wTotal.toFixed(0) : wTotal.toFixed(2);
 
-      // Remove any stale dept-split keys for this week (e.g. '2026-W17:AL', '2026-W17:MA')
+      // Remove stale entries for this week (both combined key and any old dept-split keys)
       Object.keys(allLocal).forEach(function(k) {
-        if (k !== wKey && k.indexOf(wKey + ':') === 0) {
+        if (k === wKey || k.indexOf(wKey + ':') === 0) {
           delete allLocal[k];
         }
       });
 
-      // Override local history for this week with DB truth
-      allLocal[wKey] = weekObj;
+      // Split by dept and save separate cards (matches saveWeek() behaviour)
+      // so Lager, AL, MA etc. each get their own history card
+      var syncPages = splitWeekByDepts(weekObj);
+      if (syncPages.length <= 1) {
+        allLocal[wKey] = weekObj;
+      } else {
+        syncPages.forEach(function(page) {
+          var shortKey = page.abt.split(' ')[0]; // 'AL', 'Lager', 'MA', etc.
+          var hKey = wKey + ':' + shortKey;
+          allLocal[hKey] = Object.assign({}, page, {
+            histKey: hKey,
+            weekStart: wKey,
+            weekLabel: weekObj.weekLabel,
+            name: weekObj.name,
+            isSupabaseSync: true
+          });
+        });
+      }
       changed = true;
     });
 

@@ -26,13 +26,27 @@ var protState = {
 var appUsers = [];
 async function fetchAppUsers() {
   if (typeof supabaseClient === 'undefined') return;
-  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, email, role');
+  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, email, role, role_rates, hourly_rate_internal');
   if (error) console.error("Error fetching app_users:", error);
   if (data) {
     appUsers = data;
     renderProtPersonnel();
     populateAlPlSelects();
   }
+}
+
+// Returns the effective internal hourly rate for a registered employee in a given position.
+// Priority: role-specific rate_internal → general hourly_rate_internal → undefined (use template)
+function getEffectivePersonnelRate(basePos, userId) {
+  if (!userId) return undefined;
+  var user = appUsers.find(function(u) { return u.id === userId; });
+  if (!user) return undefined;
+  if (Array.isArray(user.role_rates)) {
+    var match = user.role_rates.find(function(r) { return r.role === basePos; });
+    if (match && parseFloat(match.rate_internal) > 0) return parseFloat(match.rate_internal);
+  }
+  if (parseFloat(user.hourly_rate_internal) > 0) return parseFloat(user.hourly_rate_internal);
+  return undefined;
 }
 
 function populateAlPlSelects() {

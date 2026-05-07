@@ -68,19 +68,21 @@ function calcNetHours(startMins, endMins, pauseMins) {
 }
 
 // schicht in tag/nacht/sonntag/feiertag aufteilen (für zenjob/rockit)
-function calcSplitShiftCosts(basePos, dateStr, isHoliday, startMins, endMins, pauseMins) {
+// customRate: optional override rate (€/h) for registered employees.
+// If provided and > 0, it replaces PROT_PERSONNEL_RATES for non-Zenjob/Rockit positions.
+function calcSplitShiftCosts(basePos, dateStr, isHoliday, startMins, endMins, pauseMins, customRate) {
   var effEnd = (endMins < startMins) ? endMins + 1440 : endMins;
   var totalWorkMins = effEnd - startMins;
   if (totalWorkMins <= 0) return [];
-  
+
   // Pause deduction is applied proportionally to simplicity.
   var pauseRatio = (pauseMins || 0) / totalWorkMins;
   var netFactor = 1 - pauseRatio;
-  
+
   // If not Zenjob/Rockit, just return the base position
   if (basePos !== 'Zenjob' && basePos !== 'Rockit') {
     var desc = basePos;
-    var rate = PROT_PERSONNEL_RATES[desc] || 0;
+    var rate = (typeof customRate === 'number' && customRate > 0) ? customRate : (PROT_PERSONNEL_RATES[desc] || 0);
     var hrs = Math.max(3, (totalWorkMins * netFactor) / 60);
     return [{ desc: desc, hrs: hrs, rate: rate }];
   }
