@@ -251,7 +251,7 @@ async function refreshDashboard() {
         projects(name, location),
         al:app_users!protocols_al_id_fkey(full_name),
         pl:app_users!protocols_pl_id_fkey(full_name),
-        shifts(id, user_id, position_role, start_time, end_time, pause_mins, status, shift_date, ort,
+        shifts(id, user_id, temp_worker_name, position_role, start_time, end_time, pause_mins, status, shift_date, ort,
                app_users(full_name)),
         protocol_transports(*),
         protocol_equipments(*)
@@ -877,8 +877,7 @@ async function recalcAllProtocolCosts() {
       }
     });
 
-    const rounded = Math.round(total * 100) / 100;
-    if (rounded === p.total_cost) continue; // nothing changed
+    const rounded = isNaN(total) ? 0 : Math.round(total * 100) / 100;
 
     try {
       const { error } = await supabaseClient
@@ -886,7 +885,7 @@ async function recalcAllProtocolCosts() {
         .update({ total_cost: rounded })
         .eq('id', p.id);
       if (error) throw error;
-      p.total_cost = rounded; // update local copy
+      p.total_cost = rounded;
       updated++;
     } catch (e) {
       console.error('recalc error for', p.id, e);
@@ -895,9 +894,10 @@ async function recalcAllProtocolCosts() {
   }
 
   if (btn) { btn.disabled = false; btn.textContent = '↻ Kosten neu berechnen'; }
-  renderDashboardTable();
   const msg = `${updated} Protokoll${updated !== 1 ? 'e' : ''} aktualisiert` + (errors ? `, ${errors} Fehler` : '');
   if (typeof showToast === 'function') showToast(msg, errors ? 'danger' : 'success');
+  _dashboardRefreshing = false;
+  await refreshDashboard();
 }
 
 // ── PROTOCOL DETAILS & EXPORT ──
@@ -1269,8 +1269,9 @@ async function saveDashProtEdit() {
     const { error: pErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', _editProtId);
     if (pErr) throw pErr;
 
-    // Re-insert transports
-    await supabaseClient.from('protocol_transports').delete().eq('protocol_id', _editProtId);
+    // Re-insert transports (delete first, check error before inserting)
+    const { error: tDelErr } = await supabaseClient.from('protocol_transports').delete().eq('protocol_id', _editProtId);
+    if (tDelErr) throw tDelErr;
     if (_editProtTransports.length) {
       const tInserts = _editProtTransports.map(function(t) {
         return { protocol_id: _editProtId, vehicle_type: t.type, driver_name: t.driver || null,
@@ -1280,8 +1281,9 @@ async function saveDashProtEdit() {
       if (tErr) throw tErr;
     }
 
-    // Re-insert equipment
-    await supabaseClient.from('protocol_equipments').delete().eq('protocol_id', _editProtId);
+    // Re-insert equipment (delete first, check error before inserting)
+    const { error: eDelErr } = await supabaseClient.from('protocol_equipments').delete().eq('protocol_id', _editProtId);
+    if (eDelErr) throw eDelErr;
     const eInserts = _PE_CATEGORIES.map(function(cat) {
       return {
         protocol_id:      _editProtId,

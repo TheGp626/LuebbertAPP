@@ -19,6 +19,8 @@ var protState = {
   transports: [],
   personnel: [],
   categories: {}, // { id: { active: true, status: 'okay', note: '' } }
+  alId: null,           // UUID of selected AL user
+  plId: null,           // UUID of selected PL user
   editingId: null,      // Supabase UUID for updates
   editingLocalId: null  // History ID (timestamp string)
 };
@@ -54,27 +56,24 @@ function populateAlPlSelects() {
   var plSel = document.getElementById('prot-pl');
 
   if (alSel) {
-    var curAl = alSel.value;
     var alUsers = appUsers.filter(function(u) { return u.role === 'AL' || u.role === 'Admin'; });
     alSel.innerHTML = '<option value="">— AL auswählen —</option>' +
       alUsers.map(function(u) { return '<option value="' + u.id + '">' + (u.full_name || u.email) + '</option>'; }).join('');
-    if (curAl) alSel.value = curAl;
+    if (protState.alId) alSel.value = protState.alId;
   }
 
   if (plSel) {
-    var curPl = plSel.value;
     var plUsers = appUsers.filter(function(u) { return u.role === 'PL' || u.role === 'Admin'; });
     plSel.innerHTML = '<option value="">— PL auswählen —</option>' +
       plUsers.map(function(u) { return '<option value="' + u.id + '">' + (u.full_name || u.email) + '</option>'; }).join('');
-    if (curPl) plSel.value = curPl;
+    if (protState.plId) plSel.value = protState.plId;
   }
 }
 
 function initProtokoll() {
   loadProtDraft();
-  var alSel = document.getElementById('prot-al');
-  if (alSel && !alSel.value && typeof currentUser !== 'undefined' && currentUser) {
-    alSel.value = currentUser.id;
+  if (!protState.alId && typeof currentUser !== 'undefined' && currentUser) {
+    protState.alId = currentUser.id;
     saveProtDraft();
   }
   if (protState.transports.length === 0) addProtTransport();
@@ -230,6 +229,12 @@ function updateProtRating(idx, field, val) {
 }
 
 function removeProtPersonnel(idx) {
+  var removed = protState.personnel[idx];
+  // If this shift already exists in the DB, delete it immediately so it doesn't come back on history re-sync
+  if (removed && removed.shiftId && typeof supabaseClient !== 'undefined') {
+    supabaseClient.from('shifts').delete().eq('id', removed.shiftId)
+      .then(function(res) { if (res.error) console.error('Shift delete error:', res.error); });
+  }
   protState.personnel.splice(idx, 1);
   renderProtPersonnel();
   saveProtDraft();
@@ -446,6 +451,8 @@ function saveProtDraft() {
     action: (document.getElementById('prot-action') || {}).value || 'Aufbau',
     al: (document.getElementById('prot-al') || {}).value || '',
     pl: (document.getElementById('prot-pl') || {}).value || '',
+    alId: (document.getElementById('prot-al') || {}).value || '',
+    plId: (document.getElementById('prot-pl') || {}).value || '',
     damages: (document.getElementById('prot-damages') || {}).value || '',
     incidents: (document.getElementById('prot-incidents') || {}).value || '',
     feedback: (document.getElementById('prot-feedback') || {}).value || '',
@@ -471,8 +478,8 @@ function loadProtDraft() {
     if (document.getElementById('prot-date')) document.getElementById('prot-date').value = data.date || '';
     if (document.getElementById('prot-isholiday')) document.getElementById('prot-isholiday').checked = data.holiday || false;
     if (document.getElementById('prot-action')) document.getElementById('prot-action').value = data.action || 'Aufbau';
-    if (document.getElementById('prot-al')) document.getElementById('prot-al').value = data.al || '';
-    if (document.getElementById('prot-pl')) document.getElementById('prot-pl').value = data.pl || '';
+    protState.alId = data.alId || data.al || '';
+    protState.plId = data.plId || data.pl || '';
     if (document.getElementById('prot-damages')) document.getElementById('prot-damages').value = data.damages || '';
     if (document.getElementById('prot-incidents')) document.getElementById('prot-incidents').value = data.incidents || '';
     if (document.getElementById('prot-feedback')) document.getElementById('prot-feedback').value = data.feedback || '';
@@ -489,8 +496,8 @@ function loadProtDraft() {
 function clearProtForm(skipConfirm) {
   if (!skipConfirm && !confirm('Gesamtes Protokoll löschen?')) return;
   localStorage.removeItem('luebbert_protokoll_draft');
-  protState = { transports: [], personnel: [], categories: {} };
-  
+  protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null };
+
   // Re-hydrate UI without reloading if possible
   document.getElementById('prot-event').value = '';
   document.getElementById('prot-location').value = '';
@@ -553,6 +560,8 @@ async function saveProtokoll() {
     action: data.action,
     al: data.al,
     pl: data.pl,
+    alId: data.alId || null,
+    plId: data.plId || null,
     totalCost: data.totalCost,
     transports: data.transports,
     personnel: data.personnel,
@@ -633,10 +642,13 @@ async function syncProtokollToSupabase(data) {
       if (upErr) throw upErr;
       protId = protState.editingId;
       
-      // Cleanup sub-tables before re-inserting
-      await supabaseClient.from('protocol_transports').delete().eq('protocol_id', protId);
-      await supabaseClient.from('protocol_equipments').delete().eq('protocol_id', protId);
-      await supabaseClient.from('shifts').delete().eq('protocol_id', protId);
+      // Cleanup sub-tables before re-inserting (errors here abort to prevent duplicates)
+      var { error: trDelErr } = await supabaseClient.from('protocol_transports').delete().eq('protocol_id', protId);
+      if (trDelErr) { console.error('Transports delete failed, aborting:', trDelErr); throw trDelErr; }
+      var { error: eqDelErr } = await supabaseClient.from('protocol_equipments').delete().eq('protocol_id', protId);
+      if (eqDelErr) { console.error('Equipment delete failed, aborting:', eqDelErr); throw eqDelErr; }
+      var { error: shDelErr } = await supabaseClient.from('shifts').delete().eq('protocol_id', protId);
+      if (shDelErr) { console.error('Shifts delete failed, aborting to prevent duplicates:', shDelErr); throw shDelErr; }
     } else {
       var { data: protData, error: protError } = await supabaseClient.from('protocols').insert(protPayload).select().single();
       if (protError) throw protError;
@@ -699,7 +711,7 @@ async function syncProtokollToSupabase(data) {
           end_time: p.end,
           pause_mins: parseInt(p.pause) || 0,
           status: 'offen',
-          shift_date: protState.date || null
+          shift_date: (data.date && data.date !== '—') ? data.date : null
         });
       });
       if (shiftInserts.length > 0) {
@@ -1028,21 +1040,35 @@ async function renderProtHistory() {
             action: r.action || '—',
             al: (r.al && r.al.full_name) || r.al_name_fallback || '—',
             pl: (r.pl && r.pl.full_name) || r.pl_name_fallback || '—',
+            alId: r.al_id || null,
+            plId: r.pl_id || null,
             totalCost: (r.total_cost || 0).toFixed(2).replace('.', ',') + ' €',
             transports: (r.protocol_transports || []).map(function(t) {
               return { type: t.vehicle_type, driver: t.driver_name, punctuality: t.punctuality, delay: t.delay_mins };
             }),
-            personnel: (r.shifts || []).map(function(s) {
-              return {
-                name: (s.app_users && s.app_users.full_name) || s.temp_worker_name || '—',
-                userId: s.user_id || null,
-                pos: (s.position_role || '').replace(/ (fest|frei)$/, ''),
-                fest: / fest$/.test(s.position_role || ''),
-                start: (s.start_time || '').substring(0, 5),
-                end: (s.end_time || '').substring(0, 5),
-                pause: s.pause_mins || 0
-              };
-            }),
+            personnel: (function(shifts) {
+              // Deduplicate identical shifts (same user + times + role) caused by prior save bugs
+              var seen = {};
+              return shifts.filter(function(s) {
+                var key = (s.user_id || s.temp_worker_name || '') + '|' + s.position_role + '|' + s.start_time + '|' + s.end_time;
+                if (seen[key]) return false;
+                seen[key] = true;
+                return true;
+              }).map(function(s) {
+                return {
+                  shiftId: s.id || null,
+                  name: (s.app_users && s.app_users.full_name) || s.temp_worker_name || '—',
+                  userId: s.user_id || null,
+                  isTemp: !s.user_id,
+                  tempName: s.user_id ? null : (s.temp_worker_name || null),
+                  pos: (s.position_role || '').replace(/ (fest|frei)$/, ''),
+                  fest: / fest$/.test(s.position_role || ''),
+                  start: (s.start_time || '').substring(0, 5),
+                  end: (s.end_time || '').substring(0, 5),
+                  pause: s.pause_mins || 0
+                };
+              });
+            })(r.shifts || []),
             categories: catMap,
             damages: r.notes_damages || 'nein',
             incidents: r.notes_incidents || 'nein',
@@ -1112,13 +1138,30 @@ async function renderProtHistory() {
   list.innerHTML = html;
 }
 
-function deleteProtHistory(id) {
-  if (!confirm('Protokoll aus dem Verlauf löschen?')) return;
+async function deleteProtHistory(id) {
   var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
+  var entry = archive.find(function(e) { return e.id === id; });
+  var supabaseId = entry && entry.supabaseId;
+
+  var msg = supabaseId
+    ? 'Protokoll vollständig löschen?\n\nAlle zugehörigen Schichten, Transporte und Bewertungen werden unwiderruflich aus der Datenbank entfernt.'
+    : 'Protokoll aus dem lokalen Verlauf entfernen?';
+  if (!confirm(msg)) return;
+
+  if (supabaseId && typeof supabaseClient !== 'undefined') {
+    showToast('Lösche...', 'info');
+    var { error } = await supabaseClient.from('protocols').delete().eq('id', supabaseId);
+    if (error) {
+      console.error('Protocol delete error:', error);
+      showToast('Fehler beim Löschen: ' + (error.message || error), 'danger');
+      return;
+    }
+  }
+
   archive = archive.filter(function(e) { return e.id !== id; });
   localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
   renderProtHistory();
-  showToast('Gelöscht');
+  showToast(supabaseId ? '✅ Protokoll und alle Schichten gelöscht.' : 'Aus Verlauf entfernt.');
 }
 
 function loadProtFromHistory(id) {
@@ -1129,8 +1172,8 @@ function loadProtFromHistory(id) {
 
   if (!confirm('Dieses Protokoll in das Formular laden? Nicht gespeicherte Änderungen gehen verloren.')) return;
 
-  // Hydrate DOM fields
-  var fieldMap = { event: 'prot-event', location: 'prot-location', date: 'prot-date', action: 'prot-action', al: 'prot-al', pl: 'prot-pl', damages: 'prot-damages', incidents: 'prot-incidents', feedback: 'prot-feedback' };
+  // Hydrate DOM fields (al/pl handled separately via protState.alId/plId)
+  var fieldMap = { event: 'prot-event', location: 'prot-location', date: 'prot-date', action: 'prot-action', damages: 'prot-damages', incidents: 'prot-incidents', feedback: 'prot-feedback' };
   Object.keys(fieldMap).forEach(function(key) {
     var el = document.getElementById(fieldMap[key]);
     if (el) el.value = entry[key] || '';
@@ -1141,6 +1184,20 @@ function loadProtFromHistory(id) {
   protState.personnel  = (entry.personnel  || []).map(function(p) { return Object.assign({}, p); });
   protState.categories = JSON.parse(JSON.stringify(entry.categories || {}));
   protState.signature  = entry.signature || null;
+  // Resolve AL/PL UUIDs: prefer stored ID, fall back to name lookup for legacy entries
+  var findUserByName = function(name) {
+    if (!name || name === '—' || !appUsers.length) return null;
+    var u = appUsers.find(function(u) { return u.full_name === name || u.email === name; });
+    return u ? u.id : null;
+  };
+  protState.alId = entry.alId || findUserByName(entry.al) || null;
+  protState.plId = entry.plId || findUserByName(entry.pl) || null;
+
+  // If appUsers already loaded, set AL/PL selects immediately
+  var alSel = document.getElementById('prot-al');
+  var plSel = document.getElementById('prot-pl');
+  if (alSel && appUsers.length) alSel.value = protState.alId || '';
+  if (plSel && appUsers.length) plSel.value = protState.plId || '';
 
   // Ensure at least one slot if empty
   if (!protState.transports.length) protState.transports.push({ type: 'Sprinter', driver: '', punctuality: 'pünktlich', delay: '' });
