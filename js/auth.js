@@ -132,6 +132,11 @@ function handleSession(user) {
       if (addBtn) addBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
       if (alleOrdner.length > 0) renderOrdner(alleOrdner);
     }
+    // If Produktdatenbank is already shown, re-init with correct role
+    if (typeof activeModule !== 'undefined' && activeModule === 'produkte' &&
+        typeof initProdukte === 'function') {
+      initProdukte();
+    }
   } else {
     currentUser = null;
     userRole = 'MA';

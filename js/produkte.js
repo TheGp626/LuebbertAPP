@@ -309,6 +309,7 @@ async function saveProdukt() {
     }
 
     // Upload new media files (images + videos)
+    var mediaFailCount = 0;
     if (imageFiles.length > 0 && productId) {
       var existingCount = 0;
       if (editingProduktId) {
@@ -331,7 +332,7 @@ async function saveProdukt() {
         var { error: mediaUpErr } = await supabaseClient.storage
           .from(bucketName)
           .upload(mediaPath, mediaFile, { upsert: false, contentType: mediaFile.type || 'application/octet-stream' });
-        if (mediaUpErr) { console.error('Media upload error:', mediaUpErr); continue; }
+        if (mediaUpErr) { console.error('Media upload error:', mediaUpErr); mediaFailCount++; continue; }
 
         var { data: mediaUrlData } = supabaseClient.storage.from(bucketName).getPublicUrl(mediaPath);
         var mediaUrl = mediaUrlData && mediaUrlData.publicUrl ? mediaUrlData.publicUrl : null;
@@ -346,7 +347,11 @@ async function saveProdukt() {
       }
     }
 
-    showToast(editingProduktId ? '✅ Produkt aktualisiert!' : '✅ Produkt gespeichert!');
+    if (mediaFailCount > 0) {
+      showToast('⚠️ Produkt gespeichert, aber ' + mediaFailCount + ' Datei(en) konnten nicht hochgeladen werden. Bitte erneut versuchen.', 'danger');
+    } else {
+      showToast(editingProduktId ? '✅ Produkt aktualisiert!' : '✅ Produkt gespeichert!');
+    }
     closeProduktForm();
     await fetchProdukte();
   } catch(e) {
