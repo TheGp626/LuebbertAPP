@@ -25,7 +25,8 @@ function saveCurrentDayToCache() {
       ort: (document.getElementById('ort-' + key) || {}).value || '',
       al: (document.getElementById('al-' + key) || {}).value || '',
       dept: deptEl ? deptEl.value : (shiftValues[i][s] && shiftValues[i][s].dept) || selectedAbt,
-      isProtocol: shiftValues[i][s] ? (shiftValues[i][s].isProtocol || false) : false
+      isProtocol: shiftValues[i][s] ? (shiftValues[i][s].isProtocol || false) : false,
+      protocolId: shiftValues[i][s] ? (shiftValues[i][s].protocolId || null) : null
     };
   }
 }
@@ -45,12 +46,13 @@ function getShiftData(dayIdx, shiftIdx) {
         al: (document.getElementById('al-' + key) || {}).value || '',
         dept: deptEl ? deptEl.value : selectedAbt,
         sig: shiftSigData[key] || null,
-        isProtocol: sv0.isProtocol || false
+        isProtocol: sv0.isProtocol || false,
+        protocolId: sv0.protocolId || null
       };
     }
   }
   var sv = (shiftValues[dayIdx] || [])[shiftIdx] || {};
-  return { von: sv.von || '', bis: sv.bis || '', pause: sv.pause || '0', ort: sv.ort || '', al: sv.al || '', dept: sv.dept || selectedAbt, sig: shiftSigData[key] || null, isProtocol: sv.isProtocol || false };
+  return { von: sv.von || '', bis: sv.bis || '', pause: sv.pause || '0', ort: sv.ort || '', al: sv.al || '', dept: sv.dept || selectedAbt, sig: shiftSigData[key] || null, isProtocol: sv.isProtocol || false, protocolId: sv.protocolId || null };
 }
 
 function buildDays() {
@@ -73,9 +75,12 @@ function buildDays() {
   }
 }
 
+var _shiftsSyncRunning = false;
 async function fetchSupabaseShifts() {
   if (typeof supabaseClient === 'undefined' || !currentUser) return;
-  
+  if (_shiftsSyncRunning) return;
+  _shiftsSyncRunning = true;
+
   try {
     var { data, error } = await supabaseClient
       .from('shifts')
@@ -159,6 +164,15 @@ async function fetchSupabaseShifts() {
       // Use proper week label matching the Stundenzettel format
       weekObj.weekLabel = weekLabelFromVal(wKey);
 
+      // AL signatures and AL names on manual shifts exist ONLY locally (they are
+      // never synced to the server) — carry them over before the local entries
+      // for this week get replaced below, or they'd be wiped on every sync.
+      var oldEntries = [];
+      Object.keys(allLocal).forEach(function(k) {
+        if (k === wKey || k.indexOf(wKey + ':') === 0) oldEntries.push(allLocal[k]);
+      });
+      mergeLocalShiftExtras(weekObj, oldEntries);
+
       var wTotal = 0;
       weekObj.days.forEach(function(dd) {
         dd.shifts.forEach(function(sh) {
@@ -201,9 +215,39 @@ async function fetchSupabaseShifts() {
 
     if (changed) {
       localStorage.setItem('stundenzettel', JSON.stringify(allLocal));
-      if (typeof renderHistory === 'function' && document.getElementById('history-list')) renderHistory();
+      // Re-render WITHOUT re-triggering the sync — renderHistory(false, true)
+      // would otherwise call fetchSupabaseShifts again in an endless loop
+      if (typeof renderHistory === 'function' && document.getElementById('history-list')) {
+        renderHistory(true);
+        if (typeof renderHistoryChart === 'function' && document.getElementById('historyChart')) renderHistoryChart();
+      }
     }
   } catch(e) { console.error("Error fetching shifts:", e); }
+  finally { _shiftsSyncRunning = false; }
+}
+
+// Copies local-only shift data (AL signature, AL name, Ort fallback) from the
+// previously stored week entries into a freshly server-built week object.
+// Shifts are matched by day (isoDate or dd.mm.yyyy) + von + bis.
+function mergeLocalShiftExtras(weekObj, oldEntries) {
+  if (!oldEntries || !oldEntries.length) return;
+  weekObj.days.forEach(function(dd) {
+    dd.shifts.forEach(function(sh) {
+      if (sh.sig && sh.al && sh.ort) return;
+      oldEntries.forEach(function(oe) {
+        (oe.days || []).forEach(function(od) {
+          var sameDay = (od.isoDate && od.isoDate === dd.isoDate) || (od.date && od.date === dd.date);
+          if (!sameDay) return;
+          (od.shifts || []).forEach(function(os) {
+            if (os.von !== sh.von || os.bis !== sh.bis) return;
+            if (!sh.sig && os.sig) sh.sig = os.sig;
+            if (!sh.al && os.al) sh.al = os.al;
+            if (!sh.ort && os.ort) sh.ort = os.ort;
+          });
+        });
+      });
+    });
+  });
 }
 
 function getWeekString(d) {
@@ -361,6 +405,7 @@ function addShift(dayIdx) {
 }
 
 function removeShift(dayIdx, shiftIdx) {
+  if (isShiftLocked(dayIdx, shiftIdx)) { showToast('🔒 Bereits abgezeichnet – Schicht kann nicht entfernt werden.'); return; }
   saveCurrentDayToCache();
   if (shiftValues[dayIdx]) shiftValues[dayIdx].splice(shiftIdx, 1);
   for (var s = shiftIdx; s < shiftCounts[dayIdx] - 1; s++) {
@@ -443,10 +488,16 @@ function calcTotal() {
 
 // ── SIGNATURE ──
 function openSignaturePad(dayIdx, shiftIdx) {
+  if (isShiftLocked(dayIdx, shiftIdx)) { showToast('🔒 Bereits abgezeichnet – nur AL/PL können das ändern.'); return; }
   var key = dayIdx + '-' + shiftIdx;
   document.getElementById('sig-modal').classList.add('open');
   if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(function(){});
-  if (screen.orientation && screen.orientation.lock) try { screen.orientation.lock("landscape"); } catch(_){}
+  if (screen.orientation && screen.orientation.lock) {
+    try {
+      var lockP = screen.orientation.lock("landscape");
+      if (lockP && lockP.catch) lockP.catch(function(){});
+    } catch(_){}
+  }
   sigModalState.key = key;
   var pad = initSigModalCanvas();
   pad.ctx.clearRect(0, 0, pad.w, pad.h);
@@ -472,13 +523,67 @@ function initShiftSig(dayIdx, shiftIdx) {
 }
 
 function redrawShiftSig(key) {
-  var sc = shiftSigCanvases[key]; if (!sc) return;
-  sc.ctx.clearRect(0, 0, sc.w, sc.h);
-  if (shiftSigData[key]) {
-    var img = new Image(); img.onload = function () { sc.ctx.drawImage(img, 0, 0, sc.w, sc.h); };
-    img.src = shiftSigData[key];
+  var sc = shiftSigCanvases[key];
+  if (sc) {
+    sc.ctx.clearRect(0, 0, sc.w, sc.h);
+    if (shiftSigData[key]) {
+      var img = new Image(); img.onload = function () { sc.ctx.drawImage(img, 0, 0, sc.w, sc.h); };
+      img.src = shiftSigData[key];
+    }
   }
   var ph = document.getElementById('sigph-' + key); if (ph) ph.style.display = shiftSigData[key] ? 'none' : '';
+  updateShiftLockState(key);
+}
+
+// ── SIGNED-SHIFT LOCK ──
+// Once the AL has signed a shift, MA users may no longer change its times.
+// AL/PL/Buchhaltung/Admin keep edit rights so mistakes can still be corrected.
+function canEditSignedShifts() {
+  return typeof userRole !== 'undefined' && ['AL', 'PL', 'Buchhaltung', 'Admin'].indexOf(userRole) !== -1;
+}
+
+// A shift is locked for MA users when it carries a local AL signature OR when
+// it was synced from a protocol (the AL signed the protocol; local edits to
+// such shifts are never written back to the server anyway).
+function isShiftLocked(dayIdx, shiftIdx) {
+  if (canEditSignedShifts()) return false;
+  if (shiftSigData[dayIdx + '-' + shiftIdx]) return true;
+  var sv = (shiftValues[dayIdx] || [])[shiftIdx] || {};
+  return !!sv.isProtocol;
+}
+
+function updateShiftLockState(key) {
+  var parts = key.split('-');
+  var dayIdx = parseInt(parts[0]), shiftIdx = parseInt(parts[1]);
+  var locked = isShiftLocked(dayIdx, shiftIdx);
+  var sv = (shiftValues[dayIdx] || [])[shiftIdx] || {};
+  ['von-', 'bis-', 'ort-', 'al-', 'dept-'].forEach(function (prefix) {
+    var el = document.getElementById(prefix + key);
+    if (el) el.disabled = locked;
+  });
+  var block = document.getElementById('shift-' + key);
+  if (block) {
+    var clearBtn = block.querySelector('.sig-clear');
+    if (clearBtn) clearBtn.style.display = locked ? 'none' : '';
+    var fullBtn = block.querySelector('.sig-full-btn');
+    if (fullBtn) fullBtn.style.display = locked ? 'none' : '';
+    var removeBtn = block.querySelector('.shift-remove');
+    if (removeBtn) removeBtn.style.display = locked ? 'none' : '';
+    var sigWrap = block.querySelector('.sig-wrap');
+    if (sigWrap) sigWrap.style.pointerEvents = locked ? 'none' : '';
+    var hint = block.querySelector('.shift-lock-hint');
+    if (locked && !hint) {
+      hint = document.createElement('div');
+      hint.className = 'shift-lock-hint';
+      hint.style.cssText = 'font-size:11px;color:var(--text3);margin-top:6px;';
+      hint.textContent = sv.isProtocol && !shiftSigData[key]
+        ? '🔒 Aus Protokoll übernommen – Änderungen nur durch AL/PL möglich.'
+        : '🔒 Vom AL abgezeichnet – Zeiten können nicht mehr geändert werden.';
+      block.appendChild(hint);
+    } else if (!locked && hint) {
+      hint.remove();
+    }
+  }
 }
 
 function redrawSigModalFromState() {
@@ -490,12 +595,39 @@ function redrawSigModalFromState() {
     img.src = data;
   }
 }
-function clearShiftSig(d, s) { var key = d + '-' + s; shiftSigData[key] = null; redrawShiftSig(key); }
+function clearShiftSig(d, s) {
+  if (isShiftLocked(d, s)) { showToast('🔒 Bereits abgezeichnet – nur AL/PL können das ändern.'); return; }
+  var key = d + '-' + s; shiftSigData[key] = null; redrawShiftSig(key);
+}
 
 // ── HISTORY ──
-function renderHistory() {
-  fetchSupabaseShifts(); // Trigger background sync when entering history
-  
+// Splits a stored week day-by-day into billing periods (cutoff-aware).
+// Returns { periodKey: { label, hours } }. A week crossing the cutoff (e.g.
+// Mon 16. – Sun 22. with cutoff 20) contributes to BOTH periods.
+function weekBillingSplit(w) {
+  var out = {}, hasAny = false;
+  (w.days || []).forEach(function (dd) {
+    var d = parseDayDate(dd);
+    if (!d) return;
+    var shifts = dd.shifts || [dd]; // legacy single-shift day format
+    var hrs = 0;
+    shifts.forEach(function (sh) { hrs += shiftNetHours(sh); });
+    if (hrs <= 0) return;
+    var p = getBillingKeyForDate(d, billingCutoff);
+    if (!out[p.key]) out[p.key] = { label: p.label, hours: 0 };
+    out[p.key].hours += hrs;
+    hasAny = true;
+  });
+  if (!hasAny) {
+    var m = getMonthKeyFromWeek(w.weekStart, billingCutoff);
+    out[m.key] = { label: m.label, hours: parseFloat((w.total || '0').replace(',', '.')) || 0 };
+  }
+  return out;
+}
+
+function renderHistory(skipSync) {
+  if (!skipSync) fetchSupabaseShifts(); // Background sync when entering history (not when called FROM the sync)
+
   var list = document.getElementById('history-list');
   var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
   var keys = Object.keys(all).sort().reverse();
@@ -503,10 +635,12 @@ function renderHistory() {
   var months = {};
   keys.forEach(function (k) {
     var w = all[k];
-    var m = getMonthKeyFromWeek(w.weekStart, billingCutoff);
-    if (!months[m.key]) months[m.key] = { label: m.label, weeks: [], totalHours: 0 };
-    months[m.key].weeks.push(w);
-    months[m.key].totalHours += parseFloat((w.total || '0').replace(',', '.'));
+    var periods = weekBillingSplit(w);
+    Object.keys(periods).forEach(function (pk) {
+      if (!months[pk]) months[pk] = { label: periods[pk].label, weeks: [], totalHours: 0 };
+      months[pk].weeks.push(w);
+      months[pk].totalHours += periods[pk].hours;
+    });
   });
   var html = '';
   Object.keys(months).sort().reverse().forEach(function (mKey) {
@@ -572,7 +706,7 @@ function saveWeek() {
   var depts = d.depts && d.depts.length ? d.depts : [d.abt];
 
   if (depts.length > 1) {
-    // Mixed week: save separate history entry + separate PDF per dept
+    // Mixed week: save one history entry per dept (PDF only via download button)
     depts.forEach(function(dept) {
       var filteredDays = d.days.map(function(dd) {
         return {
@@ -582,30 +716,21 @@ function saveWeek() {
       });
       var deptTotal = 0;
       filteredDays.forEach(function(dd) {
-        dd.shifts.forEach(function(sh) {
-          var v = timeToMins(sh.von), b = timeToMins(sh.bis), p = parseInt(sh.pause) || 0;
-          var effB = (b < v) ? b + 1440 : b;
-          if (v !== null && b !== null && effB > v) deptTotal += Math.max(180, effB - v - p) / 60;
-        });
+        dd.shifts.forEach(function(sh) { deptTotal += shiftNetHours(sh); });
       });
       var shortKey = dept.split(' ')[0]; // 'AL' or 'MA'
       var histKey = d.weekStart + ':' + shortKey;
       var entry = Object.assign({}, d, { abt: dept, days: filteredDays, total: deptTotal % 1 === 0 ? deptTotal.toFixed(0) : deptTotal.toFixed(2), histKey: histKey });
       all[histKey] = entry;
-      // Export dept-specific PDF
-      (function(e, dk) {
-        exportPDF_dept(e, dk);
-      })(entry, shortKey);
     });
     localStorage.setItem('stundenzettel', JSON.stringify(all));
-    showToast('Gespeichert! ' + depts.length + ' PDFs werden erstellt …');
   } else {
     // Single dept: classic save
     all[d.weekStart] = d;
     localStorage.setItem('stundenzettel', JSON.stringify(all));
-    exportPDF();
   }
-  
+  showToast('💾 Woche gespeichert!');
+
   // ── PUSH TO SUPABASE (Async) ──
   syncWeekToSupabase(d);
 }
@@ -759,55 +884,56 @@ function splitWeekByDepts(w) {
 }
 
 // ── PDF ──
-async function exportPDF() {
-  var data = collectData();
+// Downloads the current week as PDF (one page per department). Pure download —
+// saving/syncing happens only via the Speichern button.
+async function downloadWeekPDF() {
+  var data = collectData(); if (!data.name) { showToast('Bitte Namen eingeben'); return; }
   await fetchSignaturesForWeeks([data]);
   var sigP = [];
   data.days.forEach(function (dd) { dd.shifts.forEach(function (sh) { if (sh.sig) sigP.push(new Promise(function (res) { compressSignature(sh.sig, function (c) { sh.sig = c; res(); }); })); }); });
   await Promise.all(sigP);
-
-  var pages = splitWeekByDepts(data);
   var doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
-  pages.forEach(function(pageData, i) {
+  splitWeekByDepts(data).forEach(function (pageData, i) {
     if (i > 0) doc.addPage();
     drawPDFContent(doc, pageData, ml, cw);
   });
-  doc.save('stundennachweis_' + data.weekStart + '.pdf');
-  showToast('PDF wurde gespeichert!');
-}
-
-async function exportPDF_dept(data, deptShort) {
-  var sigP = [];
-  data.days.forEach(function (dd) { dd.shifts.forEach(function (sh) { if (sh.sig) sigP.push(new Promise(function (res) { compressSignature(sh.sig, function (c) { sh.sig = c; res(); }); })); }); });
-  await Promise.all(sigP);
-  var doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
-  drawPDFContent(doc, data, ml, cw);
-  doc.save('stundennachweis_' + data.weekStart + '_' + deptShort + '.pdf');
-}
-
-async function sendToBuchhaltung() {
-  var data = collectData(); if (!data.name) { showToast('Bitte Namen eingeben'); return; }
-  var doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
-  drawPDFContent(doc, data, ml, cw);
   var fileName = 'stundennachweis_' + data.weekStart + '_' + data.name.replace(/\s+/g, '_') + '.pdf';
-  var subject = encodeURIComponent('Stundennachweis ' + data.weekLabel + ' – ' + data.name);
-  var body = encodeURIComponent('Hallo,\n\nanbei der Stundennachweis für ' + data.weekLabel + ' (' + data.name + ', ' + data.abt + ').\nGesamtstunden: ' + data.total + ' h\n\n(Die PDF-Datei wurde automatisch gespeichert und muss noch manuell als Anhang hinzugefügt werden.)\n\nMit freundlichen Grüßen,\n' + data.name);
-  if (navigator.canShare) {
-    try {
-      var file = new File([doc.output('blob')], fileName, { type: 'application/pdf' });
-      if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Stundennachweis ' + data.weekLabel, text: 'Stundennachweis ' + data.weekLabel + ' – ' + data.name + ', ' + data.total + ' h' }); showToast('✅ geteilt!'); return; }
-    } catch (e) { }
-  }
-  doc.save(fileName); setTimeout(function () { window.location.href = 'mailto:buchhaltung@peterluebbert.de?subject=' + subject + '&body=' + body; }, 400); showToast('📧 PDF gespeichert – E-Mail wird geöffnet …');
+  doc.save(fileName);
+  showToast('📄 PDF heruntergeladen!');
 }
+
+// Backwards-compat alias (old button name)
+var sendToBuchhaltung = downloadWeekPDF;
 
 async function exportMonthlyPDF(mKey) {
   var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
   var ks = Object.keys(all).sort();
-  var monthW = [], mLab = '', mTot = 0, name = '';
+  var monthW = [], mLab = monthLabelFromKey(mKey), mTot = 0, name = '';
   ks.forEach(function (k) {
-    var w = all[k], m = getMonthKeyFromWeek(w.weekStart, billingCutoff);
-    if (m.key === mKey) { monthW.push(w); mLab = m.label; mTot += parseFloat((w.total || '0').replace(',', '.')); if (!name) name = w.name; }
+    var w = all[k];
+    // Keep only the days of THIS billing period (a week crossing the cutoff
+    // contributes its remaining days to the neighbouring month's export)
+    var anyDate = false;
+    var fDays = (w.days || []).map(function (dd) {
+      var d = parseDayDate(dd);
+      if (d) anyDate = true;
+      var inPeriod = d && getBillingKeyForDate(d, billingCutoff).key === mKey;
+      return { day: dd.day, date: dd.date, isoDate: dd.isoDate, shifts: inPeriod ? (dd.shifts || [dd]) : [] };
+    });
+    if (!anyDate) {
+      // Legacy week without parseable dates — fall back to whole-week bucketing
+      if (getMonthKeyFromWeek(w.weekStart, billingCutoff).key !== mKey) return;
+      monthW.push(Object.assign({}, w));
+      mTot += parseFloat((w.total || '0').replace(',', '.')) || 0;
+      if (!name) name = w.name;
+      return;
+    }
+    var hours = 0;
+    fDays.forEach(function (dd) { dd.shifts.forEach(function (sh) { hours += shiftNetHours(sh); }); });
+    if (hours <= 0) return;
+    monthW.push(Object.assign({}, w, { days: fDays, total: hours % 1 === 0 ? hours.toFixed(0) : hours.toFixed(2) }));
+    mTot += hours;
+    if (!name) name = w.name;
   });
   if (!monthW.length) return;
   var doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
@@ -861,12 +987,6 @@ async function exportMonthlyPDF(mKey) {
   await Promise.all(sigComprP);
   monthW.forEach(function (w) { splitWeekByDepts(w).forEach(function (data) { doc.addPage(); drawPDFContent(doc, data, ml, cw); }); });
   var fN = 'stundennachweis_' + mKey.replace('-', '_') + '_' + (name || 'Mitarbeiter').replace(/\s+/g, '_') + '.pdf';
-  if (navigator.canShare) {
-    try {
-      var file = new File([doc.output('blob')], fN, { type: 'application/pdf' });
-      if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Monatsübersicht ' + mLab, text: 'Stundennachweise für ' + mLab }); showToast('✅ geteilt!'); return; }
-    } catch (e) { }
-  }
   doc.save(fN); showToast('📄 Monats-PDF gespeichert!');
 }
 
@@ -889,7 +1009,8 @@ function drawPDFContent(doc, data, ml, cw) {
   var cx = ml + 2; hd.forEach(function (h, i) { doc.text(h, cx, y + 5.5); cx += cols[i]; });
   doc.setTextColor(0); y += 8;
   data.days.forEach(function (dd, idx) {
-    var actS = dd.shifts.filter(function (sh) { return sh.von && sh.bis; }); if (!actS.length) return;
+    // legacy entries stored the shift inline on the day object instead of a shifts array
+    var actS = (dd.shifts || [dd]).filter(function (sh) { return sh.von && sh.bis; }); if (!actS.length) return;
     var dRows = actS.length;
     if (y + dRows * 10 > 268) { doc.addPage(); y = 20; doc.setFillColor(30, 30, 28); doc.rect(ml, y, cw, 8, 'F'); doc.setTextColor(255); doc.setFontSize(8); doc.setFont('helvetica', 'bold'); var hcx = ml + 2; hd.forEach(function (h, i) { doc.text(h, hcx, y + 5.5); hcx += cols[i]; }); doc.setTextColor(0); y += 8; }
     for (var r = 0; r < dRows; r++) {

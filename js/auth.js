@@ -37,7 +37,8 @@ function pinLockoutRemaining() {
 async function fetchEmployees() {
   const { data, error } = await supabaseClient
     .from('app_users')
-    .select('id, full_name, role, default_dept')
+    .select('id, full_name, role, default_dept, hourly_rate_conni, hourly_rate_internal')
+    .or('is_active.is.null,is_active.eq.true')
     .order('full_name', { ascending: true });
 
   if (error) {
@@ -49,38 +50,75 @@ async function fetchEmployees() {
   populateDropdown();
 }
 
+// ── SEARCHABLE NAME PICKER (combobox) ──
+let authSelectedUserId = null;
+
 function populateDropdown() {
-  const sel = document.getElementById('auth-name-select');
-  if (!sel) return;
-  
-  // Clear existing options except the placeholder
-  sel.innerHTML = '<option value="" disabled selected>Name auswählen...</option>';
-  
-  allUsers.forEach(emp => {
-    let opt = document.createElement('option');
-    opt.value = emp.id;
-    opt.textContent = emp.full_name;
-    sel.appendChild(opt);
+  // Refresh the filtered list if the picker is currently open
+  const list = document.getElementById('auth-name-list');
+  if (list && list.style.display !== 'none') renderAuthNameList();
+}
+
+function renderAuthNameList() {
+  const inp = document.getElementById('auth-name-input');
+  const list = document.getElementById('auth-name-list');
+  if (!inp || !list) return;
+  const q = (inp.value || '').toLowerCase().trim();
+  const matches = allUsers.filter(u => !q || (u.full_name || '').toLowerCase().includes(q));
+  list.innerHTML = matches.length
+    ? matches.map(u => '<div class="combo-item" data-id="' + u.id + '">' + escapeHtml(u.full_name || '') + '</div>').join('')
+    : '<div class="combo-empty">Kein Treffer</div>';
+  list.style.display = 'block';
+}
+
+function selectAuthUser(id) {
+  const user = allUsers.find(u => u.id === id);
+  if (!user) return;
+  authSelectedUserId = id;
+  const inp = document.getElementById('auth-name-input');
+  if (inp) inp.value = user.full_name || '';
+  const list = document.getElementById('auth-name-list');
+  if (list) list.style.display = 'none';
+  const pwWrapper = document.getElementById('auth-password-wrapper');
+  if (pwWrapper) {
+    if (user.role === 'MA') {
+      pwWrapper.style.display = 'none';
+      document.getElementById('auth-password').value = '';
+    } else {
+      pwWrapper.style.display = 'block';
+    }
+  }
+}
+
+function initAuthNamePicker() {
+  const inp = document.getElementById('auth-name-input');
+  const list = document.getElementById('auth-name-list');
+  if (!inp || !list) return;
+
+  inp.addEventListener('focus', renderAuthNameList);
+  inp.addEventListener('input', function () {
+    authSelectedUserId = null;
+    renderAuthNameList();
+    // Exact name typed out fully → select it right away (shows/hides pw field)
+    const exact = allUsers.find(u => (u.full_name || '').toLowerCase() === inp.value.toLowerCase().trim());
+    if (exact) selectAuthUser(exact.id);
+  });
+  inp.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); handleAuthSubmit(); }
+  });
+  // mousedown fires before the input's blur, so taps on entries always land
+  list.addEventListener('mousedown', function (e) {
+    const item = e.target.closest('.combo-item');
+    if (item) { e.preventDefault(); selectAuthUser(item.dataset.id); }
+  });
+  inp.addEventListener('blur', function () {
+    setTimeout(function () { list.style.display = 'none'; }, 150);
   });
 }
 
 async function initAuth() {
+  initAuthNamePicker();
   await fetchEmployees();
-
-  // Show/hide password field based on selected user's role
-  const nameSel = document.getElementById('auth-name-select');
-  const pwWrapper = document.getElementById('auth-password-wrapper');
-  if (nameSel && pwWrapper) {
-    nameSel.addEventListener('change', () => {
-      const user = allUsers.find(u => u.id === nameSel.value);
-      if (user && user.role === 'MA') {
-        pwWrapper.style.display = 'none';
-        document.getElementById('auth-password').value = '';
-      } else if (user) {
-        pwWrapper.style.display = 'block';
-      }
-    });
-  }
 
   // Check if we have an active local session (with expiry)
   const activeUserId = localStorage.getItem('local_app_user_id');
@@ -140,6 +178,11 @@ function handleSession(user) {
   } else {
     currentUser = null;
     userRole = 'MA';
+    authSelectedUserId = null;
+    const nameInp = document.getElementById('auth-name-input');
+    if (nameInp) nameInp.value = '';
+    const pwWrapper = document.getElementById('auth-password-wrapper');
+    if (pwWrapper) pwWrapper.style.display = 'none';
     overlay.style.display = 'flex';
   }
 }
@@ -158,20 +201,29 @@ function enforceUI() {
 }
 
 async function handleAuthSubmit() {
-  const nameSel = document.getElementById('auth-name-select');
+  const nameInp = document.getElementById('auth-name-input');
   const passInput = document.getElementById('auth-password');
   const errorEl = document.getElementById('auth-error');
   const btn = document.getElementById('auth-submit-btn');
 
   errorEl.style.display = 'none';
 
-  if (!nameSel || !nameSel.value) {
+  // Resolve typed name if no explicit selection was made
+  if (!authSelectedUserId && nameInp && nameInp.value.trim()) {
+    const typed = nameInp.value.toLowerCase().trim();
+    const exact = allUsers.filter(u => (u.full_name || '').toLowerCase() === typed);
+    const partial = allUsers.filter(u => (u.full_name || '').toLowerCase().includes(typed));
+    if (exact.length === 1) selectAuthUser(exact[0].id);
+    else if (partial.length === 1) selectAuthUser(partial[0].id);
+  }
+
+  if (!authSelectedUserId) {
     errorEl.textContent = 'Bitte deinen Namen auswählen.';
     errorEl.style.display = 'block';
     return;
   }
 
-  const user = allUsers.find(u => u.id === nameSel.value);
+  const user = allUsers.find(u => u.id === authSelectedUserId);
   if (!user) {
     errorEl.textContent = 'Benutzer nicht in Datenbank gefunden!';
     errorEl.style.display = 'block';

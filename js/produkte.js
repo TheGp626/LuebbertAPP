@@ -141,7 +141,7 @@ async function renderPdfThumbnails() {
       canvas.width = 200;
       canvas.height = 140;
       var ctx2 = canvas.getContext('2d');
-      ctx2.fillStyle = 'var(--bg3, #2a2a2a)';
+      ctx2.fillStyle = '#2a2a2a'; // canvas can't resolve CSS variables
       ctx2.fillRect(0, 0, 200, 140);
       ctx2.font = '48px serif';
       ctx2.textAlign = 'center';

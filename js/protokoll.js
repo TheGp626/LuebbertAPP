@@ -28,7 +28,7 @@ var protState = {
 var appUsers = [];
 async function fetchAppUsers() {
   if (typeof supabaseClient === 'undefined') return;
-  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, email, role, role_rates, hourly_rate_internal, is_fest');
+  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, email, role, role_rates, hourly_rate_internal, is_fest').or('is_active.is.null,is_active.eq.true');
   if (error) console.error("Error fetching app_users:", error);
   if (data) {
     appUsers = data;
@@ -54,6 +54,14 @@ function getEffectivePersonnelRate(basePos, userId) {
 function populateAlPlSelects() {
   var alSel = document.getElementById('prot-al');
   var plSel = document.getElementById('prot-pl');
+
+  // Shared datalist that powers the type-to-search personnel inputs
+  var dl = document.getElementById('prot-users-datalist');
+  if (dl) {
+    dl.innerHTML = appUsers.map(function(u) {
+      return '<option value="' + escapeHtml(u.full_name || u.email || '') + '"></option>';
+    }).join('');
+  }
 
   if (alSel) {
     var alUsers = appUsers.filter(function(u) { return u.role === 'AL' || u.role === 'Admin'; });
@@ -249,13 +257,10 @@ function renderProtPersonnel() {
       return '<option value="' + o + '" ' + (p.pos === o ? 'selected' : '') + '>' + o + '</option>';
     }).join('');
 
-    var userOpts = '<option value="">-- Personal wählen --</option>' + appUsers.map(function(u) {
-      return '<option value="' + u.id + '" ' + (p.userId === u.id ? 'selected' : '') + '>' + (u.full_name || u.email || 'Unbenannt') + '</option>';
-    }).join('');
-
-    var nameField = p.isTemp 
-      ? '<input type="text" class="meta-input" placeholder="Aushilfe Name" style="margin-bottom:0;" value="' + (p.tempName || '') + '" oninput="updateProtPersonnel(' + i + ', \'tempName\', this.value)"/>'
-      : '<select class="meta-input" style="margin-bottom:0;" onchange="updateProtPersonnel(' + i + ', \'userId\', this.value)">' + userOpts + '</select>';
+    var nameField = p.isTemp
+      ? '<input type="text" class="meta-input" placeholder="Aushilfe Name" style="margin-bottom:0;" value="' + escapeHtml(p.tempName || '') + '" oninput="updateProtPersonnel(' + i + ', \'tempName\', this.value)"/>'
+      : '<input type="text" class="meta-input" placeholder="Name tippen…" style="margin-bottom:0;" list="prot-users-datalist" autocomplete="off" value="' + escapeHtml(p.name || '') + '" onchange="onProtPersonnelName(' + i + ', this.value)"/>' +
+        (p.userId ? '' : (p.name ? '<div style="font-size:11px;color:var(--danger);margin-top:3px;">⚠ Kein registrierter Mitarbeiter – wird als Externe(r) gespeichert</div>' : ''));
       
     var tempCheck = '<label style="display:flex; align-items:center; gap:4px; font-size:12px; margin-top:4px; cursor:pointer;">' +
       '<input type="checkbox" onchange="updateProtPersonnel(' + i + ',\'isTemp\',this.checked)" ' + (p.isTemp ? 'checked' : '') + ' /> Externe(r) / Aushilfe</label>';
@@ -302,6 +307,28 @@ function renderProtPersonnel() {
            (ratingBlock ? '  <div class="meta-fields" style="margin-top: 8px;">' + ratingBlock + '</div>' : '') +
            '</div>';
   }).join('');
+}
+
+// Resolves a typed personnel name to a registered user (exact match first,
+// then unique substring match). Unresolved names are kept as free text and
+// stored like an Aushilfe (temp_worker_name) — the warning under the field
+// makes that visible.
+function onProtPersonnelName(idx, val) {
+  var typed = (val || '').trim();
+  var lower = typed.toLowerCase();
+  var exact = appUsers.filter(function(u) { return (u.full_name || '').toLowerCase() === lower; });
+  var partial = typed.length >= 3 ? appUsers.filter(function(u) { return (u.full_name || '').toLowerCase().includes(lower); }) : [];
+  var match = exact.length === 1 ? exact[0] : (partial.length === 1 ? partial[0] : null);
+  if (match) {
+    protState.personnel[idx].userId = match.id;
+    protState.personnel[idx].name = match.full_name || match.email;
+  } else {
+    protState.personnel[idx].userId = '';
+    protState.personnel[idx].name = typed;
+  }
+  renderProtPersonnel();
+  saveProtDraft();
+  calcProtCosts();
 }
 
 function updateProtPersonnel(idx, field, val) {
@@ -430,7 +457,8 @@ function calcProtCosts() {
         var u = appUsers.find(function(x) { return x.id === p.userId; });
         basePos += (u && u.is_fest ? ' fest' : ' frei');
       }
-      var costs = calcSplitShiftCosts(basePos, currentDate, currentHoliday, v, effB, pa);
+      var customRate = (!p.isTemp && p.userId) ? getEffectivePersonnelRate(basePos, p.userId) : undefined;
+      var costs = calcSplitShiftCosts(basePos, currentDate, currentHoliday, v, effB, pa, customRate);
       costs.forEach(function(c) {
         total += c.hrs * c.rate;
       });
@@ -541,7 +569,7 @@ async function saveProtokoll() {
   };
 
   showToast('Speichere & Sende an Server...', 'info');
-  var btn = document.querySelector('.fab-area .btn.primary');
+  var btn = document.querySelector('#page-protokoll .fab-area .btn.primary');
   if (btn) { btn.disabled = true; btn.textContent = 'Lädt...'; }
 
   // ── PUSH TO SUPABASE ──
@@ -638,8 +666,10 @@ async function syncProtokollToSupabase(data) {
 
     var protId = null;
     if (protState.editingId) {
-      var { error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', protState.editingId);
+      var { data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', protState.editingId).select('id');
       if (upErr) throw upErr;
+      // RLS can silently match 0 rows instead of erroring — treat that as a failure
+      if (!upData || upData.length === 0) throw new Error('Update abgelehnt – fehlende Berechtigung auf dem Server (protocols).');
       protId = protState.editingId;
       
       // Cleanup sub-tables before re-inserting (errors here abort to prevent duplicates)
@@ -748,233 +778,6 @@ async function syncProtokollToSupabase(data) {
     showToast("Server Sync fehlgeschlagen. Offline gespeichert.", "danger");
     return null;
   }
-}
-
-// ── PDF EXPORT ──
-async function exportProtPDF() {
-  var data = {
-    event: (document.getElementById('prot-event') || {}).value || '—',
-    location: (document.getElementById('prot-location') || {}).value || '—',
-    date: (document.getElementById('prot-date') || {}).value || '—',
-    action: (document.getElementById('prot-action') || {}).value || '—',
-    al: (document.getElementById('prot-al') || {}).value || '—',
-    pl: (document.getElementById('prot-pl') || {}).value || '—',
-    damages: (document.getElementById('prot-damages') || {}).value || 'nein',
-    incidents: (document.getElementById('prot-incidents') || {}).value || 'nein',
-    feedback: (document.getElementById('prot-feedback') || {}).value || '—',
-    transports: protState.transports,
-    personnel: protState.personnel,
-    categories: protState.categories,
-    totalCost: document.getElementById('prot-total-cost').textContent + ' €'
-  };
-
-  showToast('Generiere PDF...');
-  
-  var doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
-  if (typeof LOGO_BASE64 !== 'undefined') {
-    try {
-      var lw = 30, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100;
-      doc.addImage(LOGO_BASE64, 'PNG', 160, 10, lw, lh);
-    } catch (e) { }
-  }
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text('Einsatzprotokoll', ml, 20);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120); doc.text('Lübbert Event Interiors', ml, 26); doc.setTextColor(0);
-  var y = 20; // Initialize y here
-  y += 18;
-
-  // Metadata Table
-  doc.setDrawColor(230); doc.setFillColor(248, 248, 246); doc.rect(ml, y, cw, 32, 'F');
-  doc.setFontSize(9); doc.setFont('helvetica', 'bold');
-  doc.text('Projekt:', ml + 4, y + 6); doc.setFont('helvetica', 'normal'); doc.text(data.event, ml + 25, y + 6);
-  doc.setFont('helvetica', 'bold'); doc.text('Ort:', ml + 4, y + 12); doc.setFont('helvetica', 'normal'); doc.text(data.location, ml + 25, y + 12);
-  doc.setFont('helvetica', 'bold'); doc.text('Datum:', ml + 4, y + 18); doc.setFont('helvetica', 'normal'); doc.text(data.date, ml + 25, y + 18);
-  doc.setFont('helvetica', 'bold'); doc.text('Aktion:', ml + 80, y + 18); doc.setFont('helvetica', 'normal'); doc.text(data.action, ml + 100, y + 18);
-  doc.setFont('helvetica', 'bold'); doc.text('AL:', ml + 4, y + 24); doc.setFont('helvetica', 'normal'); doc.text(data.al, ml + 25, y + 24);
-  doc.setFont('helvetica', 'bold'); doc.text('PL:', ml + 80, y + 24); doc.setFont('helvetica', 'normal'); doc.text(data.pl, ml + 100, y + 24);
-  y += 40;
-
-  // Transports
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Logistik & Transport', ml, y); y += 6;
-  if (data.transports.length === 0) {
-    doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.text('Keine Lieferung hat stattgefunden.', ml, y); y += 8;
-  } else {
-    doc.setFillColor(30,30,28); doc.rect(ml, y, cw, 8, 'F'); doc.setTextColor(255);
-    doc.setFontSize(8); doc.text('Fahrzeug', ml + 2, y + 5.5); doc.text('Fahrer', ml + 40, y + 5.5); doc.text('Status', ml + 80, y + 5.5); doc.text('Verspätung', ml + 120, y + 5.5);
-    doc.setTextColor(0); y += 8;
-    data.transports.forEach(function(t, i) {
-      if (i % 2 === 1) { doc.setFillColor(248, 248, 246); doc.rect(ml, y, cw, 8, 'F'); }
-      doc.text(t.type, ml + 2, y + 5.5); doc.text(t.driver || '—', ml + 40, y + 5.5); doc.text(t.punctuality, ml + 80, y + 5.5); doc.text((t.delay ? t.delay + ' Min' : '—'), ml + 120, y + 5.5);
-      y += 8;
-    });
-    y += 4;
-  }
-
-  // Categories
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Equipment & Gewerke', ml, y); y += 6;
-  var activeCats = PROT_CATEGORIES_CONFIG.filter(function(c) { return data.categories[c.id] && data.categories[c.id].active; });
-  if (activeCats.length === 0) {
-    doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.text('Keine Gewerke dokumentiert.', ml, y); y += 8;
-  } else {
-    activeCats.forEach(function(cat) {
-      var s = data.categories[cat.id];
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text(cat.label + ':', ml, y);
-      doc.setFont('helvetica', 'normal'); doc.text(s.status.toUpperCase(), ml + 40, y);
-      
-      if (s.note) { 
-        y += 5; doc.setFontSize(8); doc.setTextColor(100); 
-        doc.text(s.note, ml + 5, y); 
-        doc.setTextColor(0); 
-      }
-      
-      if (cat.id === 'stoffe') {
-        y += 5;
-        doc.setFontSize(8); doc.setFont('helvetica', 'normal');
-        doc.text('Rücklauf Estrel-Hussen:', ml + 5, y);
-        
-        var val1 = s.hussenDelivered || '0';
-        var val2 = s.hussenReturned || '0';
-        
-        doc.setFont('helvetica', 'bold');
-        doc.text(val1, ml + 45, y);
-        doc.setFont('helvetica', 'normal');
-        doc.text('Stück geliefert', ml + 55, y);
-        
-        doc.setFont('helvetica', 'bold');
-        doc.text(val2, ml + 85, y);
-        doc.setFont('helvetica', 'normal');
-        doc.text('Stück zurück (gezählt)', ml + 95, y);
-        
-        // Underlines
-        doc.setDrawColor(200); doc.line(ml + 44, y + 1, ml + 54, y + 1); doc.line(ml + 84, y + 1, ml + 94, y + 1);
-      }
-      
-      y += 7;
-      if (y > 270) { doc.addPage(); y = 20; }
-    });
-    y += 4;
-  }
-
-  // Personnel
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Personal', ml, y); y += 6;
-  if (data.personnel.length === 0) {
-    doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.text('Keine Personaldaten erfasst.', ml, y); y += 8;
-  } else {
-    doc.setFillColor(30,30,28); doc.rect(ml, y, cw, 8, 'F'); doc.setTextColor(255);
-    doc.setFontSize(8); doc.text('Pos', ml + 2, y + 5.5); doc.text('Name', ml + 15, y + 5.5); doc.text('Arbeitszeit', ml + 70, y + 5.5); doc.text('Pause', ml + 110, y + 5.5); doc.text('Netto', ml + 140, y + 5.5);
-    doc.setTextColor(0); y += 8;
-    data.personnel.forEach(function(p, i) {
-      if (i % 2 === 1) { doc.setFillColor(248, 248, 246); doc.rect(ml, y, cw, 8, 'F'); }
-      var v = timeToMins(p.start), b = timeToMins(p.end), pa = parseInt(p.pause) || 0;
-      var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
-      var netStr = '—';
-      if (v !== null && b !== null && effB > v) {
-        var n = Math.max(3, (effB - v - pa) / 60); netStr = n.toFixed(2) + ' h';
-      }
-      var posLabel = p.pos;
-      if (['AL', 'MA', 'Fahrer'].includes(p.pos)) posLabel += (p.fest ? ' fest' : ' frei');
-      doc.text(posLabel, ml + 2, y + 5.5); doc.text(p.name || '—', ml + 25, y + 5.5); doc.text(p.start + ' - ' + p.end, ml + 80, y + 5.5); doc.text(pa + ' Min', ml + 120, y + 5.5); doc.text(netStr, ml + 150, y + 5.5);
-      y += 8;
-      if (y > 270) { doc.addPage(); y = 20; }
-    });
-    y += 4;
-  }
-
-  // Incidents
-  doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.text('Vorkommnisse / Feedback', ml, y); y += 6;
-  doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.text('Mängel:', ml, y); doc.setFont('helvetica', 'normal'); doc.text(data.damages || 'nein', ml + 40, y); y += 6;
-  doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.text('Vorkommnisse:', ml, y); doc.setFont('helvetica', 'normal'); doc.text(data.incidents || 'nein', ml + 40, y); y += 6;
-  doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.text('Feedback Location:', ml, y); doc.setFont('helvetica', 'normal'); doc.text(data.feedback || '—', ml + 40, y); y += 12;
-
-  // Total & Nebenkalkulation
-  doc.setDrawColor(24, 95, 165); doc.setLineWidth(0.5); doc.line(ml, y, ml + cw, y); y += 8;
-  doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.text('Nebenkalkulation (itemisiert):', ml, y); y += 6;
-  doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(100);
-  
-  var logTotal = 0;
-  data.transports.forEach(function(t) {
-    var r = PROT_VEHICLE_RATES[t.type] || 0;
-    doc.text('- ' + t.type + ': ' + r.toFixed(2) + ' EUR', ml + 5, y); y += 4;
-    logTotal += r;
-  });
-  
-  var persTotal = 0;
-  data.personnel.forEach(function(p) {
-    var v = timeToMins(p.start), b = timeToMins(p.end), pa = parseInt(p.pause) || 0;
-    var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
-    if (v !== null && b !== null && effB > v) {
-      var basePos = p.pos;
-      if (['AL', 'MA', 'Fahrer'].includes(p.pos)) basePos += (p.fest ? ' fest' : ' frei');
-      var costs = calcSplitShiftCosts(basePos, data.date || new Date().toISOString().split('T')[0], protState.holiday, v, effB, pa);
-      costs.forEach(function(c) {
-        var sub = c.hrs * c.rate;
-        doc.text('- ' + p.name + ' (' + c.desc + '): ' + c.hrs.toFixed(2) + 'h x ' + c.rate.toFixed(2) + ' EUR = ' + sub.toFixed(2) + ' EUR', ml + 5, y); y += 4;
-        persTotal += sub;
-      });
-    }
-  });
-  y += 2;
-  doc.setFontSize(14); doc.setFont('helvetica', 'bold'); doc.setTextColor(24, 95, 165);
-  doc.text('Gesamtkosten (geschätzt): ' + data.totalCost, ml, y);
-  y += 12;
-
-  y += 12;
-
-  // Signature section
-  if (protState.signature) {
-    if (y + 35 > 270) { doc.addPage(); y = 20; }
-    doc.setDrawColor(24, 95, 165); doc.setLineWidth(0.3); doc.line(ml, y, ml + cw, y); y += 8;
-    doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(0); doc.text('Unterschrift Aufbauleitung:', ml, y); y += 6;
-    try {
-      doc.addImage(protState.signature, 'JPEG', ml, y, 70, 22);
-    } catch(e) {}
-    y += 24;
-    doc.setDrawColor(180); doc.line(ml, y, ml + 70, y); y += 4;
-    doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(120);
-    doc.text(data.al || 'Aufbauleitung', ml, y);
-    doc.setTextColor(0);
-    y += 10;
-  }
-
-  var fName = 'protokoll_' + data.date + '_' + data.event.replace(/\s+/g, '_') + '.pdf';
-  doc.save(fName);
-  showToast('PDF generiert! Sende an Server...');
-
-  // ── PUSH TO SUPABASE ──
-  await syncProtokollToSupabase(data);
-  
-  // ── ARCHIVE TO HISTORY ──
-  var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
-  var entry = {
-    id: Date.now().toString(),
-    savedAt: new Date().toISOString(),
-    event: data.event,
-    location: data.location,
-    date: data.date,
-    action: data.action,
-    al: data.al,
-    pl: data.pl,
-    totalCost: data.totalCost,
-    transports: data.transports,
-    personnel: data.personnel,
-    categories: data.categories,
-    damages: data.damages,
-    incidents: data.incidents,
-    feedback: data.feedback,
-    signature: protState.signature || null,
-    synced: isSynced
-  };
-  archive.unshift(entry);
-  if (archive.length > 50) archive = archive.slice(0, 50);
-  localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
-  
-  if (isSynced) {
-    showToast('✅ Protokoll erfolgreich synchronisiert und gespeichert!');
-  } else {
-    showToast('⚠️ Offline gespeichert. Synchronisierung folgt bei Verbindung.', 'warning');
-  }
-  
-  clearProtForm(true); // Soft clear without reloading
-  if (typeof navigateProt === 'function') navigateProt('protokoll-history');
 }
 
 async function retrySyncAllProtocols() {

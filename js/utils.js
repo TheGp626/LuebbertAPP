@@ -58,21 +58,49 @@ function autoPause(rawMins) {
   return 0;
 }
 
-function getMonthKeyFromWeek(weekStart, billingCutoff) {
-  var mon = getMondayFromWeekVal(weekStart);
-  var fri = new Date(mon.getTime() + 4 * 86400000);
+var MONTHS_DE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 
-  var m = fri.getMonth();
-  var y = fri.getFullYear();
-  var dd = fri.getDate();
-
-  if (billingCutoff < 31 && dd > billingCutoff) {
+// Billing period runs from <cutoff>. of the previous month to <cutoff-1>. of
+// the key month (see getBillingPeriodLabel), so a date on or after the cutoff
+// day belongs to the NEXT month's period.
+function getBillingKeyForDate(d, billingCutoff) {
+  var m = d.getMonth(), y = d.getFullYear();
+  if (billingCutoff < 31 && d.getDate() >= billingCutoff) {
     m++;
     if (m > 11) { m = 0; y++; }
   }
+  return { key: y + '-' + pad(m + 1), label: MONTHS_DE[m] + ' ' + y };
+}
 
-  var months = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
-  return { key: y + '-' + pad(m + 1), label: months[m] + ' ' + y };
+function monthLabelFromKey(mKey) {
+  var parts = mKey.split('-');
+  return MONTHS_DE[parseInt(parts[1]) - 1] + ' ' + parts[0];
+}
+
+// Coarse week→period mapping via the week's Friday. Only used as fallback for
+// weeks without parseable day dates — day-precise grouping uses getBillingKeyForDate.
+function getMonthKeyFromWeek(weekStart, billingCutoff) {
+  var mon = getMondayFromWeekVal(weekStart);
+  var fri = new Date(mon.getTime() + 4 * 86400000);
+  return getBillingKeyForDate(fri, billingCutoff);
+}
+
+// Parses a stored day entry back into a Date (Supabase-synced weeks carry
+// isoDate, locally saved ones only "dd.mm.yyyy")
+function parseDayDate(dd) {
+  if (dd.isoDate) return new Date(dd.isoDate + 'T12:00:00');
+  var p = (dd.date || '').split('.');
+  if (p.length !== 3) return null;
+  var d = new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]), 12);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// Net hours of one shift entry incl. the 3h minimum billing floor
+function shiftNetHours(sh) {
+  var v = timeToMins(sh.von), b = timeToMins(sh.bis), p = parseInt(sh.pause) || 0;
+  if (v === null || b === null) return 0;
+  var effB = (b < v) ? b + 1440 : b;
+  return effB > v ? Math.max(180, effB - v - p) / 60 : 0;
 }
 
 function compressSignature(base64, callback) {

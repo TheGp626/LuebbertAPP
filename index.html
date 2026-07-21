@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=4">
+  <link rel="stylesheet" href="css/style.css?v=9">
 </head>
 
 <body>
@@ -27,11 +27,10 @@
 
       <div id="auth-error" style="color: var(--danger); font-size: 13px; margin-bottom: 12px; display: none;"></div>
 
-      <div class="field" style="margin-bottom: 12px;">
-        <select id="auth-name-select" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 16px; background: var(--bg2); color: var(--text);">
-          <option value="" disabled selected>Name auswählen...</option>
-          <!-- Option list populated via JS -->
-        </select>
+      <div class="field" style="margin-bottom: 12px; position: relative;">
+        <input type="text" id="auth-name-input" placeholder="Name tippen oder auswählen…" autocomplete="off" autocapitalize="words"
+          style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 16px; background: var(--bg2); color: var(--text); box-sizing: border-box;" />
+        <div id="auth-name-list" class="combo-list" style="display: none;"></div>
       </div>
 
       <div id="auth-password-wrapper" class="field" style="margin-bottom: 20px; display: none;">
@@ -163,7 +162,7 @@
 
       <div class="fab-area">
         <button class="btn primary" onclick="saveWeek()">Speichern</button>
-        <button class="btn send" onclick="sendToBuchhaltung()">PDF senden</button>
+        <button class="btn send" onclick="downloadWeekPDF()">PDF herunterladen</button>
       </div>
     </div>
 
@@ -533,8 +532,11 @@
         <!-- ── ORDNER DETAIL VIEW (file list) ── -->
         <div id="ordner-detail-view" style="display:none;">
           <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
-            <button class="btn" style="width:auto; padding:8px 16px;" onclick="closeOrdnerDetail()">← Zurück</button>
+            <button class="btn" style="width:auto; padding:8px 16px;" onclick="ordnerGoBack()">← Zurück</button>
             <h2 id="ordner-detail-title" style="margin:0; font-size:18px; flex:1;">📁 Ordner</h2>
+            <button id="ordner-add-sub-btn" class="btn" style="width:auto; padding:8px 16px; display:none;" onclick="createSubfolder()">
+              + Unterordner
+            </button>
             <button id="ordner-upload-btn" class="btn primary" style="width:auto; padding:8px 16px; display:none;" onclick="triggerOrdnerUpload()">
               + Datei hochladen
             </button>
@@ -543,6 +545,7 @@
             </button>
           </div>
           <input type="file" id="ordner-file-input" multiple style="display:none;" onchange="handleOrdnerFileInput(this)">
+          <div id="ordner-subfolder-grid" style="display:none; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:12px; margin-bottom:16px;"></div>
           <div id="ordner-files-list">
             <!-- Rendered by JS -->
           </div>
@@ -899,18 +902,21 @@
     </div>
   </div>
 
+  <!-- Shared name suggestions for Protokoll personnel inputs -->
+  <datalist id="prot-users-datalist"></datalist>
+
   <!-- Scripts -->
-  <script src="js/supabase-config.js?v=4"></script>
-  <script src="js/auth.js?v=4"></script>
-  <script src="js/logo.js?v=4"></script>
-  <script src="js/formulas.js?v=4"></script>
-  <script src="js/utils.js?v=4"></script>
-  <script src="js/stundenzettel.js?v=4"></script>
-  <script src="js/protokoll.js?v=4"></script>
-  <script src="js/dashboard.js?v=4"></script>
-  <script src="js/produkte.js?v=4"></script>
-  <script src="js/ordner.js?v=4"></script>
-  <script src="js/app.js?v=4"></script>
+  <script src="js/supabase-config.js?v=9"></script>
+  <script src="js/auth.js?v=9"></script>
+  <script src="js/logo.js?v=9"></script>
+  <script src="js/formulas.js?v=9"></script>
+  <script src="js/utils.js?v=9"></script>
+  <script src="js/stundenzettel.js?v=9"></script>
+  <script src="js/protokoll.js?v=9"></script>
+  <script src="js/dashboard.js?v=9"></script>
+  <script src="js/produkte.js?v=9"></script>
+  <script src="js/ordner.js?v=9"></script>
+  <script src="js/app.js?v=9"></script>
 </body>
 
 </html>

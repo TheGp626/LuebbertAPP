@@ -52,9 +52,15 @@ try {
 
 // ── MODE SELECTION & NAVIGATION ──
 function selectMode(m) {
-  // Role-based guard
-  if (m === 'protokoll' && typeof userRole !== 'undefined' && userRole === 'MA') {
+  // Role-based guards (only once a user is logged in — during module restore
+  // on page load the role is not resolved yet and the auth overlay blocks input)
+  var loggedIn = typeof currentUser !== 'undefined' && currentUser;
+  if (loggedIn && m === 'protokoll' && userRole === 'MA') {
     showToast('Zugriff verweigert: Nur für AL/PL.');
+    return;
+  }
+  if (loggedIn && m === 'dashboard' && ['AL', 'PL', 'Buchhaltung', 'Admin'].indexOf(userRole) === -1) {
+    showToast('Zugriff verweigert: Nur für AL/PL/Buchhaltung.');
     return;
   }
 
@@ -239,6 +245,7 @@ window.addEventListener('DOMContentLoaded', function() {
     });
   }
 
+  if (typeof renderDeptChips === 'function') renderDeptChips();
   if (typeof buildDays === 'function') buildDays();
   if (typeof initProtokoll === 'function') initProtokoll();
 
@@ -292,6 +299,43 @@ function initSigModalCanvas() {
 }
 
 function sigModalPos(e, c) { var r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+
+// Re-size the modal canvas after rotation/fullscreen changes. Without this the
+// backing store keeps its pre-rotation dimensions and strokes appear skewed.
+function resizeSigModalCanvas() {
+  var c = document.getElementById('sig-modal-canvas');
+  if (!c) return;
+  var snapshot = sigModalState.hasInk ? c.toDataURL('image/png') : null;
+  var pad = initSigModalCanvas();
+  var key = sigModalState.key;
+  var stored = (key === 'prot')
+    ? (typeof protState !== 'undefined' ? protState.signature : null)
+    : (typeof shiftSigData !== 'undefined' && key ? shiftSigData[key] : null);
+  var src = snapshot || stored;
+  if (src) {
+    var img = new Image();
+    img.onload = function () { pad.ctx.drawImage(img, 0, 0, pad.w, pad.h); sigModalState.hasInk = true; };
+    img.src = src;
+  }
+}
+
+var _sigLayoutTimer = null;
+function _onSigLayoutChange() {
+  clearTimeout(_sigLayoutTimer);
+  _sigLayoutTimer = setTimeout(function () {
+    var m = document.getElementById('sig-modal');
+    if (m && m.classList.contains('open')) resizeSigModalCanvas();
+    // Inline signature previews stretch on rotation — re-init and redraw from stored data
+    if (typeof shiftSigCanvases !== 'undefined' && typeof activeDayIdx !== 'undefined' && activeDayIdx !== null) {
+      shiftSigCanvases = {};
+      for (var s = 0; s < (shiftCounts[activeDayIdx] || 1); s++) initShiftSig(activeDayIdx, s);
+    }
+    if (typeof initProtSig === 'function' && document.getElementById('sigc-prot')) { initProtSig(); redrawProtSig(); }
+  }, 180);
+}
+window.addEventListener('resize', _onSigLayoutChange);
+window.addEventListener('orientationchange', _onSigLayoutChange);
+document.addEventListener('fullscreenchange', _onSigLayoutChange);
 
 function clearSigModal() { var c = document.getElementById('sig-modal-canvas'), ctx = c.getContext('2d'); ctx.clearRect(0, 0, c.width, c.height); sigModalState.hasInk = false; }
 
@@ -402,12 +446,22 @@ function renderSettingsDepts() {
   }).join('');
 }
 
-function selectDepartment(d) { 
-  selectedAbt = d; 
-  localStorage.setItem('stundenzettel_active_dept', d); 
-  renderSettingsDepts(); 
-  updateTopBarSub(); 
-  if (typeof renderDeptChips === 'function') renderDeptChips(); 
+function selectDepartment(d) {
+  selectedAbt = d;
+  localStorage.setItem('stundenzettel_active_dept', d);
+  renderSettingsDepts();
+  updateTopBarSub();
+  if (typeof renderDeptChips === 'function') renderDeptChips();
+}
+
+// Renders the department chips on the Erfassen page (container #chips-abt)
+function renderDeptChips() {
+  var c = document.getElementById('chips-abt');
+  if (!c) return;
+  c.innerHTML = departments.map(function (d) {
+    var safe = d.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return '<div class="chip' + (d === selectedAbt ? ' active' : '') + '" onclick="selectDepartment(\'' + safe + '\')">' + deptLabel(d) + '</div>';
+  }).join('');
 }
 
 function addDepartment() {

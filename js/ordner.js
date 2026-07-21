@@ -25,7 +25,7 @@ async function fetchOrdner() {
 
   var { data, error } = await supabaseClient
     .from('project_folders')
-    .select('id, name, description, created_at')
+    .select('id, name, description, created_at, parent_id')
     .order('name', { ascending: true });
 
   showOrdnerLoading(false);
@@ -42,6 +42,9 @@ function renderOrdner(list) {
   var grid = document.getElementById('ordner-grid');
   var empty = document.getElementById('ordner-empty');
   if (!grid) return;
+
+  // Top level shows only root folders; subfolders live inside their parent
+  list = (list || []).filter(function(o) { return !o.parent_id; });
 
   if (!list || list.length === 0) {
     grid.innerHTML = '';
@@ -68,12 +71,31 @@ function renderOrdner(list) {
 function filterOrdner() {
   var q = ((document.getElementById('ordner-search') || {}).value || '').toLowerCase().trim();
   if (!q) { renderOrdner(alleOrdner); return; }
-  renderOrdner(alleOrdner.filter(function(o) {
-    return o.name.toLowerCase().includes(q) || (o.description || '').toLowerCase().includes(q);
-  }));
+  // Match any folder (incl. subfolders), then surface the root folder that
+  // contains the match — the list view only shows roots.
+  var rootIds = {};
+  alleOrdner.forEach(function(o) {
+    if (!o.name.toLowerCase().includes(q) && !(o.description || '').toLowerCase().includes(q)) return;
+    var cur = o, guard = 0;
+    while (cur && cur.parent_id && guard++ < 10) {
+      cur = alleOrdner.find(function(x) { return x.id === cur.parent_id; });
+    }
+    if (cur) rootIds[cur.id] = true;
+  });
+  renderOrdner(alleOrdner.filter(function(o) { return rootIds[o.id]; }));
 }
 
-// ── ORDNER DETAIL (FILE LIST) ──
+// ── ORDNER DETAIL (FILE LIST + SUBFOLDERS) ──
+function ordnerBreadcrumb(folder) {
+  // Walk parent chain for the title, e.g. "K5 / Bühne / Pläne"
+  var names = [folder.name], cur = folder, guard = 0;
+  while (cur && cur.parent_id && guard++ < 10) {
+    cur = alleOrdner.find(function(o) { return o.id === cur.parent_id; });
+    if (cur) names.unshift(cur.name);
+  }
+  return names.join(' / ');
+}
+
 async function openOrdnerDetail(id) {
   var folder = alleOrdner.find(function(o) { return o.id === id; });
   if (!folder) return;
@@ -84,16 +106,63 @@ async function openOrdnerDetail(id) {
   document.getElementById('ordner-detail-view').style.display = 'block';
 
   var titleEl = document.getElementById('ordner-detail-title');
-  if (titleEl) titleEl.textContent = '📁 ' + folder.name;
+  if (titleEl) titleEl.textContent = '📁 ' + ordnerBreadcrumb(folder);
   initOrdnerDragDrop();
 
   var uploadBtn = document.getElementById('ordner-upload-btn');
   if (uploadBtn) uploadBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
 
+  var subBtn = document.getElementById('ordner-add-sub-btn');
+  if (subBtn) subBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
+
   var delFolderBtn = document.getElementById('ordner-delete-folder-btn');
   if (delFolderBtn) delFolderBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
 
+  renderSubfolders(id);
   await fetchOrdnerFiles(id);
+}
+
+function renderSubfolders(parentId) {
+  var grid = document.getElementById('ordner-subfolder-grid');
+  if (!grid) return;
+  var children = alleOrdner.filter(function(o) { return o.parent_id === parentId; });
+  if (!children.length) { grid.innerHTML = ''; grid.style.display = 'none'; return; }
+  grid.style.display = 'grid';
+  grid.innerHTML = children.map(function(o) {
+    var renameBtn = canManageOrdner
+      ? '<button class="btn" style="width:100%;margin-top:6px;padding:4px;font-size:11px;" onclick="event.stopPropagation();renameOrdnerPrompt(\'' + o.id + '\')">Umbenennen</button>'
+      : '';
+    return '<div class="ordner-card" onclick="openOrdnerDetail(\'' + o.id + '\')">' +
+      '<div style="font-size:32px;margin-bottom:6px;">📁</div>' +
+      '<div class="produkt-name">' + escOrdner(o.name) + '</div>' +
+      (o.description ? '<div class="produkt-desc">' + escOrdner(o.description) + '</div>' : '') +
+      renameBtn +
+      '</div>';
+  }).join('');
+}
+
+async function createSubfolder() {
+  if (!aktuellerOrdner || !canManageOrdner) return;
+  var name = prompt('Name des neuen Unterordners:');
+  if (!name || !name.trim()) return;
+  var { error } = await supabaseClient.from('project_folders').insert({
+    name: name.trim(),
+    parent_id: aktuellerOrdner.id,
+    created_by: typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null
+  });
+  if (error) { showToast('Fehler: ' + error.message, 'danger'); return; }
+  showToast('✅ Unterordner erstellt.');
+  var keepId = aktuellerOrdner.id;
+  await fetchOrdner();          // refresh alleOrdner (re-shows list view)
+  await openOrdnerDetail(keepId); // jump back into the folder
+}
+
+function ordnerGoBack() {
+  if (aktuellerOrdner && aktuellerOrdner.parent_id) {
+    openOrdnerDetail(aktuellerOrdner.parent_id);
+  } else {
+    closeOrdnerDetail();
+  }
 }
 
 function closeOrdnerDetail() {
@@ -103,6 +172,7 @@ function closeOrdnerDetail() {
   var detailView = document.getElementById('ordner-detail-view');
   if (listView) listView.style.display = 'block';
   if (detailView) detailView.style.display = 'none';
+  renderOrdner(alleOrdner);
 }
 
 function initOrdnerDragDrop() {
@@ -159,7 +229,7 @@ function renderOrdnerFiles(list) {
     var delBtn = canManageOrdner
       ? '<button class="btn" style="width:auto;padding:4px 10px;font-size:12px;color:var(--danger);flex-shrink:0;" onclick="event.stopPropagation();deleteOrdnerFile(\'' + f.id + '\',\'' + f.file_url + '\')">✕</button>'
       : '';
-    return '<div class="ordner-file-row" onclick="openFileViewer(\'' + f.file_url + '\',\'' + escOrdner(f.name) + '\',\'' + (f.file_type || '') + '\')">' +
+    return '<div class="ordner-file-row" onclick="openOrdnerFileById(\'' + f.id + '\')">' +
       '<span class="ordner-file-icon">' + icon + '</span>' +
       '<div class="ordner-file-info">' +
         '<div class="ordner-file-name">' + escOrdner(f.name) + '</div>' +
@@ -306,25 +376,67 @@ async function saveOrdner() {
   await fetchOrdner();
 }
 
+async function renameOrdnerPrompt(id) {
+  var o = alleOrdner.find(function(x) { return x.id === id; });
+  if (!o || !canManageOrdner) return;
+  var name = prompt('Neuer Name:', o.name);
+  if (!name || !name.trim() || name.trim() === o.name) return;
+  var { error } = await supabaseClient.from('project_folders').update({ name: name.trim() }).eq('id', id);
+  if (error) { showToast('Fehler: ' + error.message, 'danger'); return; }
+  showToast('✅ Umbenannt.');
+  var keepId = aktuellerOrdner ? aktuellerOrdner.id : null;
+  await fetchOrdner();
+  if (keepId) await openOrdnerDetail(keepId);
+}
+
+// Collects the folder and all nested subfolder ids (depth-first over the cached list)
+function collectOrdnerTreeIds(rootId) {
+  var ids = [rootId];
+  for (var i = 0; i < ids.length; i++) {
+    /* eslint-disable no-loop-func */
+    alleOrdner.forEach(function(o) {
+      if (o.parent_id === ids[i] && ids.indexOf(o.id) === -1) ids.push(o.id);
+    });
+  }
+  return ids;
+}
+
 async function deleteCurrentOrdner() {
   if (!aktuellerOrdner) return;
-  if (!confirm('Ordner "' + aktuellerOrdner.name + '" und alle darin enthaltenen Dateien wirklich löschen?')) return;
-  // Delete all storage files first
-  for (var i = 0; i < ordnerFiles.length; i++) {
-    var f = ordnerFiles[i];
-    if (f.file_url) {
-      var parts = f.file_url.split('/project-files/');
-      if (parts.length > 1) await supabaseClient.storage.from('project-files').remove([parts[1]]);
-    }
-  }
+  var treeIds = collectOrdnerTreeIds(aktuellerOrdner.id);
+  var subCount = treeIds.length - 1;
+  var msg = 'Ordner "' + aktuellerOrdner.name + '"' +
+    (subCount > 0 ? ' inkl. ' + subCount + ' Unterordner(n)' : '') +
+    ' und alle enthaltenen Dateien wirklich löschen?';
+  if (!confirm(msg)) return;
+
+  // Remove storage objects of the whole subtree (DB rows cascade via FK)
+  var { data: allFiles } = await supabaseClient
+    .from('folder_files').select('file_url').in('folder_id', treeIds);
+  var paths = (allFiles || []).map(function(f) {
+    var parts = (f.file_url || '').split('/project-files/');
+    return parts.length > 1 ? parts[1] : null;
+  }).filter(Boolean);
+  if (paths.length) await supabaseClient.storage.from('project-files').remove(paths);
+
   var { error } = await supabaseClient.from('project_folders').delete().eq('id', aktuellerOrdner.id);
   if (error) { showToast('Fehler: ' + error.message, 'danger'); return; }
   showToast('Ordner gelöscht.');
+  var parentId = aktuellerOrdner.parent_id;
   closeOrdnerDetail();
   await fetchOrdner();
+  if (parentId) await openOrdnerDetail(parentId);
 }
 
 // ── SHARED FILE VIEWER ──
+// Looks the file up by id — passing name/url through inline onclick strings
+// breaks as soon as a filename contains a quote character.
+function openOrdnerFileById(id) {
+  var f = ordnerFiles.find(function(x) { return x.id === id; });
+  if (!f) return;
+  openFileViewer(f.file_url, f.name, f.file_type || '');
+}
+
 function openFileViewer(url, name, mimeType) {
   var modal = document.getElementById('produkt-viewer-modal');
   var titleEl = document.getElementById('viewer-title');

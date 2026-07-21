@@ -1510,8 +1510,7 @@ function populateDashboardMonthFilter(shifts) {
     const dStr = (s.protocols && s.protocols.date) || s.shift_date;
     if (!dStr) return;
     const dObj = new Date(dStr + 'T12:00:00');
-    const wStr = getWeekString(dObj);
-    const m = getMonthKeyFromWeek(wStr, billingCutoff);
+    const m = getBillingKeyForDate(dObj, billingCutoff);
     months[m.key] = m.label;
   });
 
@@ -1552,8 +1551,10 @@ async function exportDashboardMonthlyPDF() {
     const dStr = (s.protocols && s.protocols.date) || s.shift_date;
     if (!dStr) return;
     const dObj = new Date(dStr + 'T12:00:00');
+    // Day-precise cutoff assignment: the shift's own date decides the billing
+    // period, not the week it happens to sit in
+    if (getBillingKeyForDate(dObj, billingCutoff).key !== mKey) return;
     const wStr = getWeekString(dObj);
-    if (getMonthKeyFromWeek(wStr, billingCutoff).key !== mKey) return;
 
     if (!userWeeks[wStr]) {
       userWeeks[wStr] = {
@@ -1609,7 +1610,7 @@ async function exportDashboardMonthlyPDF() {
     const wTot = wMins / 60;
     w.total = wTot % 1 === 0 ? wTot.toFixed(0) : wTot.toFixed(2);
     mTot += wTot;
-    if (!mLab) mLab = getMonthKeyFromWeek(wStr, billingCutoff).label;
+    if (!mLab) mLab = monthLabelFromKey(mKey);
     return w;
   });
 
@@ -1680,11 +1681,5 @@ async function exportDashboardMonthlyPDF() {
   window.currentUserRateConni = prevRate;
 
   const fN = 'stundennachweis_' + mKey.replace('-', '_') + '_' + workerName.replace(/\s+/g, '_') + '.pdf';
-  if (navigator.canShare) {
-    try {
-      const file = new File([doc.output('blob')], fN, { type: 'application/pdf' });
-      if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Monatsübersicht ' + mLab, text: 'Stundennachweise für ' + mLab }); showToast('✅ geteilt!'); return; }
-    } catch(e) {}
-  }
   doc.save(fN); showToast('📄 Monats-PDF gespeichert!');
 }
