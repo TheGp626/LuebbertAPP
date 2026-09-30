@@ -53,8 +53,8 @@ function timeToMins(t) {
 }
 
 function autoPause(rawMins) {
-  if (rawMins >= 540) return 45;
-  if (rawMins >= 360) return 30;
+  if (rawMins > 540) return 45;
+  if (rawMins > 360) return 30;
   return 0;
 }
 
