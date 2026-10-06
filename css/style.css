@@ -1236,10 +1236,21 @@ canvas#historyChart {
   font-size: 14px;
   font-weight: 500;
   color: var(--text1);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* full title readable on phones: wrap instead of truncating */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
 }
+.ordner-file-row { align-items: flex-start; }
+.ordner-file-icon { margin-top: 2px; }
+#viewer-title { white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
+.ordner-card .produkt-name { overflow-wrap: anywhere; }
+.zv-btn {
+  width: 40px; height: 40px; border-radius: 50%; border: none;
+  background: rgba(0,0,0,.65); color: #fff; font-size: 20px; line-height: 1;
+  cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.4);
+}
+.zv-btn:active { background: rgba(0,0,0,.85); }
 .ordner-file-meta { font-size: 12px; color: var(--text3); margin-top: 2px; }
 
 /* ── MEDIA LIGHTBOX ── */

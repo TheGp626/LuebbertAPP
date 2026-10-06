@@ -451,14 +451,16 @@ function openFileViewer(url, name, mimeType) {
   var isPdf = /pdf/i.test(mimeType) || /\.pdf(\?|$)/i.test(url);
   if (subtitleEl) subtitleEl.textContent = isImage ? 'Bild' : isPdf ? 'PDF' : 'Datei';
 
+  if (modal) modal.style.display = 'flex'; // visible first so the zoom viewer can measure its width
   if (body) {
+    body.style.display = 'flex';
+    body.style.alignItems = 'center';
+    body.style.justifyContent = 'center';
+    body.style.touchAction = '';
     if (isImage) {
-      body.innerHTML = '<img src="' + url + '" style="max-width:100%;max-height:100%;object-fit:contain;display:block;" />';
+      mountZoomViewer(body, { kind: 'image', url: url });
     } else if (isPdf) {
-      var viewerUrl = 'https://docs.google.com/viewer?url=' + encodeURIComponent(url) + '&embedded=true';
-      body.innerHTML = '<iframe src="' + viewerUrl + '" style="width:100%;height:100%;border:none;min-height:70vh;" allowfullscreen>' +
-        '<p style="color:#fff;padding:20px;">PDF kann nicht angezeigt werden. <a href="' + url + '" target="_blank" style="color:#60a5fa;">Herunterladen</a></p>' +
-        '</iframe>';
+      mountZoomViewer(body, { kind: 'pdf', url: url });
     } else {
       body.innerHTML = '<div style="color:#fff;padding:40px;text-align:center;">' +
         '<div style="font-size:64px;margin-bottom:16px;">' + fileIcon(mimeType, name) + '</div>' +
@@ -468,6 +470,190 @@ function openFileViewer(url, name, mimeType) {
     }
   }
   if (modal) modal.style.display = 'flex';
+}
+
+// ── ZOOMABLE VIEWER (PDF via PDF.js, images) ──
+// The page itself has user-scalable=no, so pinch/zoom is implemented here:
+// content width = fit-width * zoom; pinch + buttons + double-tap change `zoom`.
+var PDFJS_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+var PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+var _pdfjsPromise = null;
+var _zv = null; // current zoom viewer state
+
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (_pdfjsPromise) return _pdfjsPromise;
+  _pdfjsPromise = new Promise(function(resolve, reject) {
+    var s = document.createElement('script');
+    s.src = PDFJS_SRC;
+    s.onload = function() {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+      resolve(window.pdfjsLib);
+    };
+    s.onerror = function() { _pdfjsPromise = null; reject(new Error('pdf.js load failed')); };
+    document.head.appendChild(s);
+  });
+  return _pdfjsPromise;
+}
+
+function mountZoomViewer(body, opts) {
+  var token = {};
+  _zv = { token: token, zoom: 1, fitW: 0, pages: [], renderTimer: null, renderGen: 0 };
+  var zv = _zv;
+
+  body.innerHTML =
+    '<div style="position:relative;width:100%;height:100%;">' +
+      '<div id="zv-scroll" style="position:absolute;inset:0;overflow:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;">' +
+        '<div id="zv-content" style="margin:0 auto;"></div>' +
+      '</div>' +
+      '<div style="position:absolute;right:12px;bottom:12px;display:flex;gap:6px;z-index:5;">' +
+        '<button class="zv-btn" data-z="out">−</button>' +
+        '<button class="zv-btn" data-z="fit">⤢</button>' +
+        '<button class="zv-btn" data-z="in">+</button>' +
+      '</div>' +
+      '<div id="zv-status" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;pointer-events:none;">Lade…</div>' +
+    '</div>';
+  body.style.display = 'block';
+
+  var scroll = body.querySelector('#zv-scroll');
+  var content = body.querySelector('#zv-content');
+  var status = body.querySelector('#zv-status');
+  zv.scroll = scroll; zv.content = content;
+
+  function alive() { return _zv === zv && document.body.contains(scroll); }
+
+  function applyZoom(newZoom, cx, cy) {
+    newZoom = Math.max(1, Math.min(6, newZoom));
+    if (cx === undefined) { cx = scroll.clientWidth / 2; cy = scroll.clientHeight / 2; }
+    var ratio = newZoom / zv.zoom;
+    // keep the focal point stable while resizing
+    var px = (scroll.scrollLeft + cx) * ratio - cx;
+    var py = (scroll.scrollTop + cy) * ratio - cy;
+    zv.zoom = newZoom;
+    content.style.width = (zv.fitW * zv.zoom) + 'px';
+    scroll.scrollLeft = px;
+    scroll.scrollTop = py;
+    scheduleRerender();
+  }
+  zv.applyZoom = applyZoom;
+
+  function scheduleRerender() {
+    if (!zv.rerender) return;
+    clearTimeout(zv.renderTimer);
+    zv.renderTimer = setTimeout(function() { if (alive()) zv.rerender(); }, 250);
+  }
+
+  body.querySelectorAll('.zv-btn').forEach(function(b) {
+    b.addEventListener('click', function() {
+      var z = b.getAttribute('data-z');
+      if (z === 'in') applyZoom(zv.zoom * 1.4);
+      else if (z === 'out') applyZoom(zv.zoom / 1.4);
+      else applyZoom(1);
+    });
+  });
+
+  // Pinch zoom + double-tap
+  var pinch = null, lastTap = 0;
+  function dist(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); }
+  scroll.addEventListener('touchstart', function(e) {
+    if (e.touches.length === 2) {
+      pinch = { d: dist(e.touches), z: zv.zoom };
+    } else if (e.touches.length === 1) {
+      var now = Date.now();
+      if (now - lastTap < 300) {
+        var r = scroll.getBoundingClientRect();
+        var t = e.touches[0];
+        applyZoom(zv.zoom > 1.2 ? 1 : 2.5, t.clientX - r.left, t.clientY - r.top);
+        e.preventDefault();
+      }
+      lastTap = now;
+    }
+  }, { passive: false });
+  scroll.addEventListener('touchmove', function(e) {
+    if (pinch && e.touches.length === 2) {
+      e.preventDefault();
+      var r = scroll.getBoundingClientRect();
+      var cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+      var cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
+      applyZoom(pinch.z * dist(e.touches) / pinch.d, cx, cy);
+    }
+  }, { passive: false });
+  scroll.addEventListener('touchend', function(e) { if (e.touches.length < 2) pinch = null; });
+  // Ctrl+wheel / trackpad pinch on desktop
+  scroll.addEventListener('wheel', function(e) {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    var r = scroll.getBoundingClientRect();
+    applyZoom(zv.zoom * Math.exp(-e.deltaY * 0.01), e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+
+  function setFitWidth() {
+    zv.fitW = Math.max(200, scroll.clientWidth);
+    content.style.width = (zv.fitW * zv.zoom) + 'px';
+  }
+
+  if (opts.kind === 'image') {
+    setFitWidth();
+    var img = new Image();
+    img.src = opts.url;
+    img.style.cssText = 'width:100%;height:auto;display:block;user-select:none;-webkit-user-drag:none;';
+    img.onload = function() { if (alive()) status.style.display = 'none'; };
+    img.onerror = function() { if (alive()) status.textContent = 'Bild konnte nicht geladen werden.'; };
+    content.appendChild(img);
+    return;
+  }
+
+  // PDF
+  setFitWidth();
+  loadPdfJs().then(function(pdfjs) {
+    return pdfjs.getDocument({ url: opts.url }).promise;
+  }).then(function(pdf) {
+    if (!alive()) return;
+    status.style.display = 'none';
+    var chain = Promise.resolve();
+    for (var n = 1; n <= pdf.numPages; n++) {
+      (function(num) {
+        chain = chain.then(function() { return pdf.getPage(num); }).then(function(page) {
+          if (!alive()) return;
+          var canvas = document.createElement('canvas');
+          canvas.style.cssText = 'width:100%;height:auto;display:block;margin:0 0 8px;background:#fff;';
+          content.appendChild(canvas);
+          zv.pages.push({ page: page, canvas: canvas });
+        });
+      })(n);
+    }
+    zv.rerender = function() {
+      var gen = ++zv.renderGen;
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      var cssW = zv.fitW * zv.zoom;
+      // cap backing-store width to keep memory sane on phones
+      var targetW = Math.min(cssW * dpr, 3000);
+      zv.pages.reduce(function(p, item) {
+        return p.then(function() {
+          if (!alive() || gen !== zv.renderGen) return;
+          var vp0 = item.page.getViewport({ scale: 1 });
+          var vp = item.page.getViewport({ scale: targetW / vp0.width });
+          var c = item.canvas;
+          // render offscreen first so the old bitmap stays visible (no flicker)
+          var off = document.createElement('canvas');
+          off.width = Math.floor(vp.width); off.height = Math.floor(vp.height);
+          return item.page.render({ canvasContext: off.getContext('2d'), viewport: vp }).promise.then(function() {
+            if (!alive() || gen !== zv.renderGen) return;
+            c.width = off.width; c.height = off.height;
+            c.getContext('2d').drawImage(off, 0, 0);
+          });
+        });
+      }, Promise.resolve());
+    };
+    return chain.then(function() { if (alive()) zv.rerender(); });
+  }).catch(function(err) {
+    console.error('PDF viewer:', err);
+    if (!alive()) return;
+    // Fallback: Google viewer iframe
+    body.style.display = 'flex';
+    body.innerHTML = '<iframe src="https://docs.google.com/viewer?url=' + encodeURIComponent(opts.url) + '&embedded=true" ' +
+      'style="width:100%;height:100%;border:none;min-height:70vh;" allowfullscreen></iframe>';
+  });
 }
 
 // ── UTILS ──

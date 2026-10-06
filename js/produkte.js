@@ -509,7 +509,8 @@ function openProduktViewer(id) {
 function closeProduktViewer() {
   var modal = document.getElementById('produkt-viewer-modal');
   var body = document.getElementById('viewer-body');
-  if (body) body.innerHTML = ''; // Stop iframe/video loading
+  if (body) { body.innerHTML = ''; body.style.display = 'flex'; } // Stop iframe/video loading; restore centering
+  if (typeof _zv !== 'undefined') _zv = null;
   if (modal) modal.style.display = 'none';
   window.currentViewerMediaList = null;
   closeLightbox();
