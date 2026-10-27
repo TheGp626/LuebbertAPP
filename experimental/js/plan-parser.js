@@ -1,0 +1,346 @@
+// Turns the page data from plan-pdf.js (Daniel's weekly plan, Excel → PDF) into shifts.
+// Pure functions without DOM/Supabase → testable with `node --test` (exported via module.exports).
+//
+// Layout: one table with the columns Datum | Was | Wann | Wer | AP (header on page 1 only).
+// Grey rows "Montag … 12.10.26" start a day; every other row (between two full-width
+// border lines) is a shift. A row without text in the Datum column continues the row above.
+
+var PLAN_COLUMNS = ['datum', 'was', 'wann', 'wer', 'ap'];
+var PLAN_WEEKDAYS = /^(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\b/i;
+var PLAN_PLAIN_COLORS = ['#ffffff', '#c0c0c0', '#bfbfbf'];
+
+// "12.10.26" / "18.10.2026" → "2026-10-12"
+function planDate(s) {
+  var m = /(\d{1,2})\.(\d{1,2})\.(\d{2,4})/.exec(s || '');
+  if (!m) return null;
+  var y = m[3].length === 2 ? 2000 + parseInt(m[3], 10) : parseInt(m[3], 10);
+  return y + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+}
+
+// ISO 8601 week number of a "YYYY-MM-DD" date
+function planIsoWeek(dateStr) {
+  var p = dateStr.split('-').map(Number);
+  var d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
+  var day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return { week: Math.ceil(((d - yearStart) / 86400000 + 1) / 7), year: d.getUTCFullYear() };
+}
+
+// Phone numbers of agency workers must never be stored ("Max Muster, 0170 1234567")
+function planStripPhones(s) {
+  return String(s || '')
+    .replace(/,?\s*(\+\d|\b0)[\d\s\/-]{6,}\d/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+// Column x boundaries from the header row on page 1
+function planFindColumns(page) {
+  var want = { Datum: 'datum', Was: 'was', Wann: 'wann', Wer: 'wer', AP: 'ap' }, found = {};
+  page.items.forEach(function(it) {
+    var k = want[it.s.trim()];
+    if (k && !found[k]) found[k] = it;
+  });
+  if (PLAN_COLUMNS.some(function(c) { return !found[c]; })) return null;
+  var y = found.was.y;
+  return {
+    x: PLAN_COLUMNS.map(function(c) { return found[c].x - 2; }),
+    headerBottom: y + found.was.h * 1.5
+  };
+}
+
+function planColumnOf(cols, x) {
+  for (var i = PLAN_COLUMNS.length - 1; i >= 0; i--) if (x >= cols.x[i]) return i;
+  return -1;
+}
+
+// Groups text items into lines (same baseline) per column
+function planCellLines(items) {
+  var sorted = items.slice().sort(function(a, b) { return (a.y - b.y) || (a.x - b.x); });
+  var lines = [];
+  sorted.forEach(function(it) {
+    var last = lines[lines.length - 1];
+    if (last && Math.abs(last.y - it.y) < it.h * 0.5) {
+      last.parts.push(it);
+    } else lines.push({ y: it.y, parts: [it] });
+  });
+  return lines.map(function(l) {
+    return l.parts.sort(function(a, b) { return a.x - b.x; }).map(function(p) { return p.s.trim(); }).join(' ').replace(/\s+/g, ' ').trim();
+  }).filter(Boolean);
+}
+
+function planBandColor(page, cols, y0, y1) {
+  var midY = (y0 + y1) / 2, midX = (cols.x[1] + cols.x[2]) / 2, best = null;
+  page.fills.forEach(function(f) {
+    if (f.x0 <= midX && f.x1 >= midX && f.y0 <= midY && f.y1 >= midY && PLAN_PLAIN_COLORS.indexOf(f.color) === -1) best = f.color;
+  });
+  return best;
+}
+
+// Splits all pages into bands (rows) with their text per column
+function planBands(pages) {
+  var cols = null, bands = [];
+  pages.forEach(function(page, pi) {
+    if (!cols) cols = planFindColumns(page);
+    if (!cols) return;
+    var left = cols.x[0], width = (cols.x[4] + 30) - left;
+    // Row borders span (almost) the whole table; short lines are text underlines
+    var ys = page.hlines.filter(function(l) { return (l.x1 - l.x0) >= width * 0.5; })
+      .map(function(l) { return l.y; }).sort(function(a, b) { return a - b; });
+    var uniq = [];
+    ys.forEach(function(y) { if (!uniq.length || y - uniq[uniq.length - 1] > 1.5) uniq.push(y); });
+    var minY = (pi === 0) ? cols.headerBottom : -Infinity;
+    for (var i = 0; i < uniq.length - 1; i++) {
+      var y0 = uniq[i], y1 = uniq[i + 1];
+      if (y1 <= minY) continue;
+      var cells = [[], [], [], [], []];
+      page.items.forEach(function(it) {
+        var mid = it.y + it.h * 0.6;
+        if (mid < y0 || mid >= y1 || mid < minY) return;
+        var c = planColumnOf(cols, it.x);
+        if (c >= 0) cells[c].push(it);
+      });
+      var text = cells.map(planCellLines);
+      if (!text.some(function(t) { return t.length; })) continue;
+      bands.push({ page: pi + 1, y0: y0, y1: y1, cells: text, color: planBandColor(page, cols, y0, y1) });
+    }
+  });
+  return { columnsFound: !!cols, bands: bands };
+}
+
+var PLAN_AGENCY = { zenjob: 'Zenjob', rockit: 'ROCKiT' };
+var PLAN_NOTE_ONLY = /^(folgt|extern|florist|via\b|team\b|bar pl\b|tba\b|offen\b)/i;
+
+function planRoleFromTag(tag) {
+  var t = (tag || '').trim().toLowerCase();
+  if (t === 'al') return 'AL';
+  if (t === 'ma') return 'MA';
+  if (t === 'deko') return 'Deko';
+  if (t === 'fahrer') return 'Fahrer';
+  return null;
+}
+
+// "Kacper (AL)" / "Milan (ab 14 Uhr)" / "Feli bis 13 Uhr" → { name, role, note }
+function planPerson(text, defaultRole) {
+  var s = planStripPhones(text), role = defaultRole, notes = [];
+  s = s.replace(/\(([^)]*)\)/g, function(_, inner) {
+    var r = planRoleFromTag(inner);
+    if (r) role = r; else notes.push(inner.trim());
+    return ' ';
+  });
+  var m = /\s+((?:ab|bis)\s+\d.*)$/i.exec(s);
+  if (m) { notes.push(m[1].trim()); s = s.slice(0, m.index); }
+  s = s.replace(/[,;]+$/, '').replace(/\s+/g, ' ').trim();
+  if (!s) return null;
+  return { name: s, role: role, note: notes.join(', ') || null };
+}
+
+// One shift's "Wer" cell → assigned people, open slots and plain notes
+function planParseWer(lines) {
+  var people = [], open = [], notes = [], group = null, sameAsAbove = false;
+  function addPerson(p) {
+    if (!p) return;
+    var key = p.name.toLowerCase();
+    var existing = people.find(function(x) { return x.name.toLowerCase() === key; });
+    if (existing) { if (p.role === 'AL') existing.role = 'AL'; return; }
+    people.push(p);
+  }
+  function closeGroup() {
+    if (group && group.left > 0) open.push({ role: group.role, count: group.left, note: group.note });
+    group = null;
+  }
+  lines.forEach(function(raw) {
+    var line = planStripPhones(raw).trim();
+    if (!line) return;
+    if (/^siehe oben$/i.test(line)) { sameAsAbove = true; return; }
+    // "2 x Zenjob (8.30 - 16.30 Uhr)", "4 x ROCKiT", "1 x Lagercrew"
+    var g = /^(\d+)\s*x\s*([A-Za-zÄÖÜäöü]+)\s*(?:\(([^)]*)\))?\s*$/.exec(line);
+    if (g) {
+      closeGroup();
+      var key = g[2].toLowerCase();
+      group = { role: PLAN_AGENCY[key] || (key === 'lagercrew' ? 'Lager' : g[2]), left: parseInt(g[1], 10), note: g[3] ? g[3].trim() : null };
+      return;
+    }
+    // "3 MA", "1 AL", "1 MA (AL)"
+    var o = /^(\d+)\s*(AL|MA|Fahrer)\b\s*(?:\(([^)]*)\))?\s*$/i.exec(line);
+    if (o) {
+      closeGroup();
+      open.push({ role: planRoleFromTag(o[3]) || planRoleFromTag(o[2]) || o[2], count: parseInt(o[1], 10), note: null });
+      return;
+    }
+    // "BAR PL 550 | Kacper (AL)", "LeihLkw | Marcin", "Barnimer Land | Fahrer"
+    if (line.indexOf('|') !== -1) {
+      closeGroup();
+      var parts = line.split('|'), vehicle = parts[0].trim(), who = parts.slice(1).join('|').trim();
+      notes.push(vehicle);
+      if (!who || /^fahrer$/i.test(who)) open.push({ role: 'Fahrer', count: 1, note: vehicle });
+      else {
+        var drv = planPerson(who, 'Fahrer');
+        if (drv) { drv.note = [vehicle, drv.note].filter(Boolean).join(', '); addPerson(drv); }
+      }
+      return;
+    }
+    // "Deko: Feli & Arina"
+    var d = /^([A-Za-zÄÖÜäöü]+):\s*(.+)$/.exec(line);
+    if (d) {
+      closeGroup();
+      var role = planRoleFromTag(d[1]) || d[1];
+      d[2].split(/\s*(?:&|,|\bund\b)\s*/).forEach(function(n) { addPerson(planPerson(n, role)); });
+      return;
+    }
+    if (PLAN_NOTE_ONLY.test(line)) { closeGroup(); notes.push(line); return; }
+    if (group && group.left > 0) {
+      var ap = planPerson(line, group.role);
+      if (ap) { if (!ap.note && group.note) ap.note = group.note; addPerson(ap); }
+      group.left--;
+      if (group.left === 0) group = null;
+      return;
+    }
+    closeGroup();
+    addPerson(planPerson(line, 'MA'));
+  });
+  closeGroup();
+  return { people: people, open: open, notes: notes, sameAsAbove: sameAsAbove };
+}
+
+function planShiftKey(s) {
+  return [s.date, (s.venue || '').toLowerCase(), (s.title || '').toLowerCase()].join('|');
+}
+
+// Whole document → { weekStart, weekEnd, kw, year, shifts, warnings }
+function planParse(pages) {
+  var res = planBands(pages), warnings = [], shifts = [], date = null, days = [];
+  if (!res.columnsFound) return { shifts: [], warnings: ['Spaltenköpfe (Datum | Was | Wann | Wer | AP) nicht gefunden – ist das ein Wochenplan?'] };
+  res.bands.forEach(function(b) {
+    var datum = b.cells[0], first = datum[0] || '';
+    if (PLAN_WEEKDAYS.test(first)) {
+      date = planDate(datum.join(' '));
+      if (!date) warnings.push('Tag ohne Datum: ' + datum.join(' '));
+      else days.push(date);
+      return;
+    }
+    var was = b.cells[1], wann = b.cells[2], wer = b.cells[3], ap = b.cells[4];
+    var prev = shifts[shifts.length - 1];
+    // Row without location continues the shift above (e.g. a second area or a page break)
+    if (!datum.length && prev && prev.date === date) {
+      prev.details = prev.details.concat(was);
+      prev.wann = prev.wann.concat(wann);
+      prev.werLines = prev.werLines.concat(wer);
+      if (!prev.ap && ap.length) prev.ap = ap.join(' ');
+      return;
+    }
+    if (!date) { warnings.push('Zeile vor dem ersten Tag übersprungen: ' + (was[0] || first)); return; }
+    shifts.push({
+      date: date, venue: first, location: datum.slice(1),
+      title: was[0] || '', details: was.slice(1), wann: wann, werLines: wer,
+      ap: ap.join(' ') || null, color: b.color, page: b.page
+    });
+  });
+  var byDate = {}, seenKeys = {};
+  shifts.forEach(function(s, i) {
+    s.location = s.location.map(planStripPhones).filter(Boolean);
+    s.details = s.details.map(planStripPhones).filter(Boolean);
+    s.wann = s.wann.map(planStripPhones).filter(Boolean);
+    var w = planParseWer(s.werLines);
+    delete s.werLines;
+    s.people = w.people; s.open = w.open; s.notes = w.notes;
+    // "siehe oben" = same team as the shift above on that day
+    if (w.sameAsAbove && byDate[s.date]) {
+      var above = byDate[s.date];
+      above.people.forEach(function(p) { if (!s.people.some(function(x) { return x.name === p.name; })) s.people.push(Object.assign({}, p)); });
+      if (!s.open.length) s.open = above.open.map(function(o) { return Object.assign({}, o); });
+    }
+    s.sort = i;
+    // Same location + title twice on one day (e.g. Aufbau and Abbau rows) → numbered keys
+    var key = planShiftKey(s);
+    seenKeys[key] = (seenKeys[key] || 0) + 1;
+    s.key = seenKeys[key] > 1 ? key + '#' + seenKeys[key] : key;
+    byDate[s.date] = s;
+  });
+  var dates = (days.length ? days : shifts.map(function(s) { return s.date; })).slice().sort();
+  var start = dates[0] || null, end = dates[dates.length - 1] || null;
+  var wk = start ? planIsoWeek(start) : null;
+  if (!shifts.length) warnings.push('Keine Einsätze erkannt.');
+  return { weekStart: start, weekEnd: end, kw: wk && wk.week, year: wk && wk.year, shifts: shifts, warnings: warnings };
+}
+
+// Plan name → app user. Aliases (remembered from earlier imports) win, then the full name,
+// then a unique first name among active users. Agency workers are never matched.
+function planMatchPerson(person, users, aliases) {
+  if (person.role === 'Zenjob' || person.role === 'ROCKiT') return { userId: null, candidates: [] };
+  var n = person.name.toLowerCase().replace(/\.$/, '').trim();
+  if (aliases && aliases[n]) return { userId: aliases[n], candidates: [], via: 'alias' };
+  var active = users.filter(function(u) { return u.is_active !== false && u.role !== 'Gast'; });
+  var full = active.filter(function(u) { return (u.full_name || '').toLowerCase() === n; });
+  if (full.length === 1) return { userId: full[0].id, candidates: [], via: 'name' };
+  var words = n.split(' '), rest = words.slice(1).join(' ').replace(/\.$/, '');
+  var byFirst = active.filter(function(u) {
+    var parts = (u.full_name || '').toLowerCase().split(/\s+/);
+    if (parts[0] !== words[0]) return false;
+    // "Julian H." must fit the surname's initial
+    return !rest || parts.slice(1).join(' ').indexOf(rest) === 0;
+  });
+  if (byFirst.length === 1) return { userId: byFirst[0].id, candidates: [], via: 'vorname' };
+  return { userId: null, candidates: byFirst.map(function(u) { return u.id; }) };
+}
+
+// Old vs new shifts of the same week → status per new shift + removed old shifts
+function planDiff(oldShifts, newShifts) {
+  var oldByKey = {};
+  oldShifts.forEach(function(s) { oldByKey[s.key] = s; });
+  // Field by field, never whole objects: jsonb hands back open slots with its own key order
+  var fp = function(s) {
+    return JSON.stringify([s.wann, (s.people || []).map(function(p) { return p.name + '/' + p.role; }).sort(),
+      (s.open || []).map(function(o) { return o.count + '/' + o.role + '/' + (o.note || ''); }), s.ap || null, s.details]);
+  };
+  var status = newShifts.map(function(s) {
+    var o = oldByKey[s.key];
+    if (!o) return 'neu';
+    delete oldByKey[s.key];
+    return fp(o) === fp(s) ? null : 'geändert';
+  });
+  return { status: status, removed: Object.keys(oldByKey).map(function(k) { return oldByKey[k]; }) };
+}
+
+// "Abbau: 0.30 Uhr" → protocol action for the "Protokoll starten" prefill
+function planGuessAction(wann) {
+  var t = (wann || []).join(' ');
+  var has = function(w) { return new RegExp('\\b' + w, 'i').test(t); };
+  if (has('Umbau') || has('Umstellen')) return 'Umbau';
+  if (has('Abbau') && !has('Aufbau')) return 'Abbau';
+  if (has('Teilaufbau')) return 'Teilaufbau';
+  return 'Aufbau';
+}
+
+// Equipment lines ("4 Sitzhocker …") are no event names → fall back to the location
+function planEventName(s) {
+  return (s.title && !/^\d/.test(s.title)) ? s.title : s.venue;
+}
+
+// Parsed shift + resolved user ids → DB rows (assignments without shift_id, added after insert)
+function planShiftRow(s, weekId, status) {
+  return {
+    week_id: weekId, date: s.date, sort: s.sort, key: s.key, venue: s.venue || null,
+    location: s.location.join('\n') || null, title: s.title || null, details: s.details.join('\n') || null,
+    wann: s.wann.join('\n') || null, ap: s.ap || null, notes: s.notes.join('\n') || null,
+    color: s.color || null, open_slots: s.open, change_status: status || null
+  };
+}
+
+// DB rows (with plan_assignments) → parser shape, so planDiff can compare old and new uploads
+function planShiftFromDb(r) {
+  var lines = function(t) { return t ? String(t).split('\n') : []; };
+  return {
+    id: r.id, key: r.key, date: r.date, venue: r.venue, title: r.title || '', location: lines(r.location),
+    details: lines(r.details), wann: lines(r.wann), ap: r.ap, notes: lines(r.notes), color: r.color,
+    open: r.open_slots || [], changeStatus: r.change_status,
+    people: (r.plan_assignments || []).map(function(a) { return { name: a.name, role: a.role, note: a.note, userId: a.user_id }; })
+  };
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
+    planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planShiftKey: planShiftKey,
+    planGuessAction: planGuessAction, planEventName: planEventName, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb };
+}
