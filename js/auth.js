@@ -164,6 +164,9 @@ function handleSession(user) {
     enforceUI();
     if (typeof loadErinnerungen === 'function') loadErinnerungen();
     if (typeof handleEinsatzDeepLink === 'function') handleEinsatzDeepLink();
+    if (typeof handleWochenplanDeepLink === 'function') handleWochenplanDeepLink();
+    // Wochenplan restored from before the login needs the user to load "Meine Schichten"
+    if (typeof activeModule !== 'undefined' && activeModule === 'wochenplan' && typeof initWochenplan === 'function') initWochenplan();
     // If Projektordner is already rendered, re-render with correct permissions
     if (typeof activeModule !== 'undefined' && activeModule === 'ordner' &&
         typeof renderOrdner === 'function' && typeof alleOrdner !== 'undefined') {
@@ -210,6 +213,8 @@ function enforceUI() {
   if (protBtn) {
     protBtn.style.display = (userRole === 'MA' || userRole === 'Gast') ? 'none' : 'block';
   }
+  const planBtn = document.getElementById('btn-select-wochenplan');
+  if (planBtn) planBtn.style.display = (userRole === 'Gast') ? 'none' : 'block';
   // A module restored from before the login may be off-limits for a guest
   if (userRole === 'Gast' && typeof activeModule !== 'undefined' && activeModule && GAST_MODULES.indexOf(activeModule) === -1 &&
       typeof exitToMenu === 'function') {

@@ -138,26 +138,30 @@ async function openProtokollForEinsatz(einsatzId) {
   var { data: e, error } = await supabaseClient.from('einsaetze')
     .select('id, date, action, al_id, folder:project_folders(name)').eq('id', einsatzId).maybeSingle();
   if (error || !e) { showToast('Einsatz nicht gefunden.', 'danger'); return; }
+  await openProtokollPrefilled({ event: (e.folder && e.folder.name) || '', date: e.date, action: e.action, alId: e.al_id });
+}
+
+// Fresh protocol form pre-filled with { event, date, action, alId, location } (reminder banner, Wochenplan)
+async function openProtokollPrefilled(p) {
   var val = function(id) { return ((document.getElementById(id) || {}).value || '').trim(); };
-  var folderName = (e.folder && e.folder.name) || '';
   if (typeof appUsers !== 'undefined' && !appUsers.length && typeof fetchAppUsers === 'function') await fetchAppUsers();
 
   // The AL already started this very protocol → keep the draft, only fill what's missing
-  if (val('prot-event') === folderName && val('prot-date') === e.date) {
-    if (!val('prot-al')) { document.getElementById('prot-al').value = e.al_id; protState.alId = e.al_id; }
+  if (val('prot-event') === p.event && val('prot-date') === p.date) {
+    if (!val('prot-al') && p.alId) { document.getElementById('prot-al').value = p.alId; protState.alId = p.alId; }
     saveProtDraft();
     selectMode('protokoll');
     return;
   }
   var hasDraft = ['prot-event', 'prot-location', 'prot-damages', 'prot-incidents', 'prot-feedback'].some(val) || !!protState.editingId;
   if (hasDraft && !confirm('Es gibt einen angefangenen Protokoll-Entwurf' + (val('prot-event') ? ' („' + val('prot-event') + '“)' : '') +
-      '. Verwerfen und neues Protokoll für „' + folderName + '“ beginnen?')) return;
+      '. Verwerfen und neues Protokoll für „' + p.event + '“ beginnen?')) return;
   clearProtForm(true);
-  document.getElementById('prot-event').value = folderName;
-  document.getElementById('prot-date').value = e.date;
-  document.getElementById('prot-action').value = e.action;
-  document.getElementById('prot-al').value = e.al_id;
-  protState.alId = e.al_id;
+  document.getElementById('prot-event').value = p.event;
+  document.getElementById('prot-date').value = p.date;
+  if (p.action) document.getElementById('prot-action').value = p.action;
+  if (p.location) document.getElementById('prot-location').value = p.location;
+  if (p.alId) { document.getElementById('prot-al').value = p.alId; protState.alId = p.alId; }
   saveProtDraft();
   if (typeof calcProtCosts === 'function') calcProtCosts();
   selectMode('protokoll');

@@ -107,6 +107,13 @@ function selectMode(m) {
     if (pn3) pn3.style.display = 'none';
     navigate('ordner');
     if (typeof initOrdner === 'function') initOrdner();
+  } else if (m === 'wochenplan') {
+    document.getElementById('main-nav').style.display = 'none';
+    var pn4 = document.getElementById('prot-nav');
+    if (pn4) pn4.style.display = 'none';
+    navigate('wochenplan');
+    // The plan needs the logged-in user; a module restored before login is initialised from handleSession
+    if (typeof initWochenplan === 'function' && typeof currentUser !== 'undefined' && currentUser) initWochenplan();
   }
 }
 
