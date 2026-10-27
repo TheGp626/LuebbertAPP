@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { berlinDate, isBerlinNineAm, daysSince, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes } from './reminders.mjs';
+import { berlinDate, isBerlinNineAm, daysSince, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planWindowStart } from './reminders.mjs';
 
 // ── Plan jobs (Wochenplan → reminders) ──
 const row = (o) => Object.assign({ al_id: 'A', date: '2026-10-26', venue: 'Estrel', title: 'CH I', wann: 'Aufbau: 8 Uhr', ap_user_id: 'P1' }, o);
@@ -36,6 +36,13 @@ test('groupPlanPushes: text, date link, one push per AL', () => {
   assert.equal(two[0].body, '2 offene Protokolle: Messe (25.10.), Estrel (26.10.)');
   assert.equal(two[0].url, './index.html?open=protokoll&datum=2026-10-25');
   assert.equal(two[0].keys.length, 2);
+});
+
+test('planWindowStart: plan jobs only count from the day the switch was turned on (Berlin date)', () => {
+  assert.equal(planWindowStart('2026-10-17', '2026-10-27T08:00:00Z'), '2026-10-27');
+  assert.equal(planWindowStart('2026-10-17', '2026-10-01T08:00:00Z'), '2026-10-17');
+  assert.equal(planWindowStart('2026-10-17', '2026-10-26T23:30:00Z'), '2026-10-27'); // 00:30 Berlin
+  assert.equal(planWindowStart('2026-10-17', null), '2026-10-17');
 });
 
 test('plan jobs go through the same day rules (classify)', () => {

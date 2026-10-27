@@ -162,8 +162,9 @@ function handleSession(user) {
 
     console.log('User logged in locally:', user.full_name, 'Role:', userRole);
     enforceUI();
-    if (typeof loadAppSettings === 'function') loadAppSettings();
-    if (typeof loadErinnerungen === 'function') loadErinnerungen();
+    // The reminder banner depends on the admin switches → load them first (cached values if offline)
+    var settingsReady = (typeof loadAppSettings === 'function') ? loadAppSettings() : Promise.resolve();
+    settingsReady.then(function() { if (typeof loadErinnerungen === 'function') loadErinnerungen(); });
     if (typeof handleEinsatzDeepLink === 'function') handleEinsatzDeepLink();
     if (typeof handleWochenplanDeepLink === 'function') handleWochenplanDeepLink();
     // Wochenplan restored from before the login needs the user to load "Meine Schichten"

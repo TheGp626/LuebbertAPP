@@ -5,7 +5,7 @@
 // Body: { force?, only_user_id?, dry_run? (list only, send/log nothing), plan_override? (dry runs: treat plan reminders as on) }
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import webpush from 'npm:web-push@3.6.7';
-import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, LOOKBACK_DAYS } from './reminders.mjs';
+import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, LOOKBACK_DAYS } from './reminders.mjs';
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { loadSettings } from '../_shared/settings.ts';
 import { chooseRecipient } from '../_shared/recipient.mjs';
@@ -87,10 +87,16 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
   let planJobs: ReturnType<typeof mergePlanJobs> = [];
   const planOn = settings.plan_reminders_enabled || (dry && input.plan_override);
   if (planOn) {
+    // Only jobs from the day the switch went on (dry-run overrides look at the whole window)
+    let planFrom = from;
+    if (settings.plan_reminders_enabled) {
+      const { data: sw } = await db.from('app_settings').select('updated_at').eq('key', 'plan_reminders_enabled').maybeSingle();
+      planFrom = planWindowStart(from, sw?.updated_at || null);
+    }
     let pq = db.from('plan_assignments')
       .select('user_id, role, shift:plan_shifts!inner(date, venue, title, wann, ap_user_id)')
       .eq('role', 'AL').not('user_id', 'is', null)
-      .gte('shift.date', from).lte('shift.date', to);
+      .gte('shift.date', planFrom).lte('shift.date', to);
     if (input.only_user_id) pq = pq.eq('user_id', input.only_user_id);
     const { data: rows, error: rErr } = await pq;
     if (rErr) { console.error('send-reminders: load plan failed', rErr); return json({ error: 'db_error' }, 500); }

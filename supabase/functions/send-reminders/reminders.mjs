@@ -89,6 +89,14 @@ export function mergePlanJobs(folderJobs, planRows) {
   return [...byKey.values()];
 }
 
+// First job date that counts for plan reminders: the later of the lookback start and the (Berlin) day the
+// switch was turned on — switching on must not flood the PLs with mails about weeks before
+export function planWindowStart(lookbackFrom, enabledAtIso) {
+  if (!enabledAtIso) return lookbackFrom;
+  const enabledDay = berlinDate(new Date(enabledAtIso));
+  return enabledDay > lookbackFrom ? enabledDay : lookbackFrom;
+}
+
 export function planJobVenue(job) {
   return job.venues.join(' / ') || 'Einsatz';
 }

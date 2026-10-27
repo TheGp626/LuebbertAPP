@@ -14,13 +14,32 @@ async function fetchOpenEinsaetze(userId) {
     .eq('al_id', userId).eq('cancelled', false)
     .gte('date', localDateStr(from)).lte('date', today).order('date');
   if (error) { console.error('Erinnerungen laden:', error); return []; }
-  if (!rows || !rows.length) return [];
+  rows = rows || [];
+  // Wochenplan → reminders (admin switch): the AL's own plan shifts count as jobs, one per date
+  var planRows = [];
+  if (typeof appSetting === 'function' && appSetting('plan_reminders_enabled')) {
+    // Plan jobs only count from the day the switch went on (same rule as send-reminders)
+    var planFrom = localDateStr(from);
+    var { data: sw } = await supabaseClient.from('app_settings').select('updated_at').eq('key', 'plan_reminders_enabled').maybeSingle();
+    if (sw && sw.updated_at && localDateStr(new Date(sw.updated_at)) > planFrom) planFrom = localDateStr(new Date(sw.updated_at));
+    var { data: pa, error: pErr } = await supabaseClient.from('plan_assignments')
+      .select('shift:plan_shifts!inner(date, venue, wann)')
+      .eq('user_id', userId).eq('role', 'AL')
+      .gte('shift.date', planFrom).lte('shift.date', today);
+    if (pErr) console.error('Plan-Erinnerungen laden:', pErr);
+    planRows = (pa || []).map(function(r) {
+      return { date: r.shift.date, venue: r.shift.venue, action: planGuessAction(r.shift.wann ? String(r.shift.wann).split('\n') : []) };
+    });
+  }
+  if (!rows.length && !planRows.length) return [];
+  var dates = rows.map(function(r) { return r.date; }).concat(planRows.map(function(r) { return r.date; }));
   var { data: prots } = await supabaseClient.from('protocols').select('date')
-    .eq('al_id', userId).in('date', rows.map(function(r) { return r.date; }));
+    .eq('al_id', userId).in('date', dates);
   var done = {};
   (prots || []).forEach(function(p) { done[p.date] = true; });
-  return rows.filter(function(r) { return einsatzStatus(r, !!done[r.date], today) === 'open'; })
+  var folder = rows.filter(function(r) { return einsatzStatus(r, !!done[r.date], today) === 'open'; })
     .map(function(r) { return { id: r.id, date: r.date, action: r.action, folderName: (r.folder && r.folder.name) || 'Projekt' }; });
+  return mergeOpenJobs(folder, planRows.filter(function(r) { return !done[r.date] && r.date <= today; }));
 }
 
 function isIosWithoutHomescreen() {
@@ -45,7 +64,8 @@ async function loadErinnerungen() {
     html += '<div style="background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.5); border-radius:12px; padding:12px 14px; margin-bottom:10px;">' +
       '<div style="font-weight:700; margin-bottom:6px;">📋 Du hast ' + _erinnerungOpen.length + ' offene' + (_erinnerungOpen.length === 1 ? 's Protokoll' : ' Protokolle') + '</div>' +
       _erinnerungOpen.map(function(e) {
-        return '<button type="button" class="btn" style="width:100%; text-align:left; padding:8px 10px; margin-top:6px; font-size:13px;" data-einsatz="' + e.id + '">' +
+        return '<button type="button" class="btn" style="width:100%; text-align:left; padding:8px 10px; margin-top:6px; font-size:13px;" ' +
+          (e.id ? 'data-einsatz="' + e.id + '"' : 'data-datum="' + e.date + '"') + '>' +
           escapeHtml(e.folderName) + ' – ' + escapeHtml(e.action) + ' am ' + shortDateDE(e.date) + ' →</button>';
       }).join('') +
       '</div>';
@@ -67,6 +87,9 @@ async function loadErinnerungen() {
   box.style.display = 'block';
   box.querySelectorAll('[data-einsatz]').forEach(function(b) {
     b.addEventListener('click', function() { openProtokollForEinsatz(b.dataset.einsatz); });
+  });
+  box.querySelectorAll('[data-datum]').forEach(function(b) {
+    b.addEventListener('click', function() { openProtokollForDate(b.dataset.datum); });
   });
   var pushBtn = document.getElementById('btn-enable-push');
   if (pushBtn) pushBtn.addEventListener('click', async function() {
@@ -167,11 +190,31 @@ async function openProtokollPrefilled(p) {
   selectMode('protokoll');
 }
 
-// Notification tap opens ./index.html?open=protokoll&einsatz=<id>; handled once the user is logged in
+// Plan job (no einsatz id): the AL's own plan shift on that date pre-fills the protocol like
+// "Protokoll starten" in the Wochenplan; without a shift only date and AL are filled in.
+// The link carries the date, not a shift id, because shift ids change with every plan upload.
+async function openProtokollForDate(date) {
+  var me = currentUser.id;
+  var { data, error } = await supabaseClient.from('plan_assignments')
+    .select('shift:plan_shifts!inner(date, sort, venue, title, wann, location, details, notes, open_slots)')
+    .eq('user_id', me).eq('role', 'AL').eq('shift.date', date);
+  if (error) console.error('Plan-Einsatz laden:', error);
+  var shifts = (data || []).map(function(r) { return r.shift; }).sort(function(a, b) { return a.sort - b.sort; });
+  if (!shifts.length) { await openProtokollPrefilled({ event: '', date: date, alId: me }); return; }
+  var p = planShiftFromDb(shifts[0]);
+  await openProtokollPrefilled({
+    event: planEventName(p), date: date, action: planGuessAction(p.wann), alId: me,
+    location: [p.venue].concat(p.location.slice(0, 1)).filter(Boolean).join(', ')
+  });
+}
+
+// Notification tap opens ./index.html?open=protokoll&einsatz=<id> (folder job) or &datum=YYYY-MM-DD (plan job);
+// handled once the user is logged in
 function handleEinsatzDeepLink() {
   var params = new URLSearchParams(location.search);
-  if (params.get('open') !== 'protokoll' || !params.get('einsatz')) return;
+  if (params.get('open') !== 'protokoll' || (!params.get('einsatz') && !params.get('datum'))) return;
   history.replaceState(null, '', location.pathname);
   if (typeof currentUser === 'undefined' || !currentUser || ['MA', 'Gast'].indexOf(userRole) !== -1) return;
-  openProtokollForEinsatz(params.get('einsatz'));
+  if (params.get('einsatz')) openProtokollForEinsatz(params.get('einsatz'));
+  else if (/^\d{4}-\d{2}-\d{2}$/.test(params.get('datum'))) openProtokollForDate(params.get('datum'));
 }
