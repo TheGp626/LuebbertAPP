@@ -4,7 +4,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { buildSubject, buildBody, attachmentName, safePdfBase64 } from './mail.mjs';
 import { loadSettings } from '../_shared/settings.ts';
-import { chooseRecipient } from '../_shared/recipient.mjs';
+import { chooseRecipient, disabledReason } from '../_shared/recipient.mjs';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -23,7 +23,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
 
-  let input: { protocol_id?: string; pdf_base64?: string; is_update?: boolean };
+  let input: { protocol_id?: string; pdf_base64?: string; is_update?: boolean; client?: number };
   try { input = await req.json(); } catch { return json({ error: 'invalid_json' }, 400); }
   const { protocol_id, pdf_base64, is_update } = input || {};
   if (!protocol_id || typeof protocol_id !== 'string') return json({ error: 'protocol_id_required' }, 400);
@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
 
   // Admin switches (Office Dashboard → Einstellungen); a failed read keeps today's behaviour
   const settings = await loadSettings(db);
-  if (!settings.protocol_mail_enabled) return json({ sent: false, reason: 'disabled' });
+  if (!settings.protocol_mail_enabled) return json({ sent: false, reason: disabledReason(input.client) });
 
   if (p.mailed_at && Date.now() - new Date(p.mailed_at).getTime() < THROTTLE_MS) {
     return json({ sent: false, reason: 'throttled' });

@@ -26,3 +26,10 @@ test('no PL / PL without email', () => {
   assert.equal(chooseRecipient({ ...base, plId: null, plEmail: '' }).reason, 'no_pl');
   assert.equal(chooseRecipient({ ...base, plEmail: '  ' }).reason, 'no_email');
 });
+
+test('disabledReason: older app versions get a reason they already treat as done', async () => {
+  const { disabledReason } = await import('./recipient.mjs');
+  assert.equal(disabledReason(2), 'disabled');
+  assert.equal(disabledReason(undefined), 'not_found');
+  assert.equal(disabledReason(1), 'not_found');
+});

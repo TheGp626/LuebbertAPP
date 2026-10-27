@@ -19,6 +19,8 @@ var APP_SETTINGS_CACHE_KEY = 'luebbert_app_settings';
 var _appSettings = Object.assign({}, APP_SETTINGS_DEFAULTS);
 var _appSettingsMeta = null;   // { updated_at, updated_by } of the newest change
 var _settingsPin = null;       // admin password, memory only, for this session
+var _appSettingsFresh = false; // last load came from the server (not cache/defaults)
+var _settingsRendered = null;  // values the settings form was rendered with
 
 function _settingsMerge(obj) {
   var out = Object.assign({}, APP_SETTINGS_DEFAULTS);
@@ -38,6 +40,13 @@ function appSettingsFromCache() {
   try { cached = JSON.parse(localStorage.getItem(APP_SETTINGS_CACHE_KEY) || 'null'); } catch (e) { cached = null; }
   _appSettings = _settingsMerge(cached);
   return _appSettings;
+}
+
+// Only what the admin actually changed in the form, so stale or fallback values are never written back
+function changedSettings(rendered, form) {
+  var out = {};
+  Object.keys(form).forEach(function(k) { if (form[k] !== rendered[k]) out[k] = form[k]; });
+  return out;
 }
 
 // First invalid key (unknown key, wrong type or out of range) or null; mirrors the RPC's checks
@@ -67,7 +76,9 @@ async function loadAppSettings() {
     });
     _appSettings = _settingsMerge(obj);
     localStorage.setItem(APP_SETTINGS_CACHE_KEY, JSON.stringify(_appSettings));
+    _appSettingsFresh = true;
   } catch (e) {
+    _appSettingsFresh = false;
     console.warn('Einstellungen laden fehlgeschlagen, nutze gespeicherte Werte:', e);
   }
   if (typeof onAppSettingsLoaded === 'function') onAppSettingsLoaded();
@@ -114,10 +125,15 @@ async function renderSettingsTab() {
     var who = (typeof allUsers !== 'undefined' && allUsers.find(function(u) { return u.id === _appSettingsMeta.updated_by; })) || null;
     meta = 'Zuletzt geändert von ' + _settingsEsc(who ? who.full_name : 'Admin') + ' am ' + new Date(_appSettingsMeta.updated_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
-  html += '<div id="set-error" class="set-error" role="alert"></div>' +
-    '<div class="set-actions"><button type="button" class="btn primary" id="set-save-btn" onclick="saveSettingsTab()">Speichern</button></div>' +
+  // Without fresh values from the server, saving could write stale switches back → read-only until reload
+  html += '<div id="set-error" class="set-error" role="alert">' +
+      (_appSettingsFresh ? '' : 'Die Einstellungen konnten nicht vom Server geladen werden. Angezeigt werden die zuletzt bekannten Werte; Speichern ist erst nach erneutem Laden möglich.') + '</div>' +
+    '<div class="set-actions">' + (_appSettingsFresh
+      ? '<button type="button" class="btn primary" id="set-save-btn" onclick="saveSettingsTab()">Speichern</button>'
+      : '<button type="button" class="btn" onclick="renderSettingsTab()">Erneut laden</button>') + '</div>' +
     (meta ? '<div class="set-meta">' + meta + '</div>' : '');
   box.innerHTML = html;
+  _settingsRendered = _appSettingsFresh ? _readSettingsForm() : null;
 }
 
 function _readSettingsForm() {
@@ -134,9 +150,12 @@ var SETTINGS_LABELS = { evening_push_hour: 'Uhrzeit Abend-Push', billing_cutoff:
 async function saveSettingsTab() {
   var err = document.getElementById('set-error'), btn = document.getElementById('set-save-btn');
   err.textContent = '';
-  var changes = _readSettingsForm();
-  var bad = validateSettings(changes);
+  if (!_settingsRendered) return;
+  var form = _readSettingsForm();
+  var bad = validateSettings(form);
   if (bad) { err.textContent = 'Ungültiger Wert für ' + (SETTINGS_LABELS[bad] || bad) + '.'; return; }
+  var changes = changedSettings(_settingsRendered, form);
+  if (!Object.keys(changes).length) { showToast('Keine Änderungen'); return; }
   if (!_settingsPin) {
     var pin = prompt('Admin-Passwort zum Speichern der Einstellungen:');
     if (!pin) return;
@@ -162,5 +181,6 @@ async function saveSettingsTab() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { APP_SETTINGS_DEFAULTS: APP_SETTINGS_DEFAULTS, appSetting: appSetting, appSettingsFromCache: appSettingsFromCache, validateSettings: validateSettings };
+  module.exports = { APP_SETTINGS_DEFAULTS: APP_SETTINGS_DEFAULTS, appSetting: appSetting, appSettingsFromCache: appSettingsFromCache,
+    validateSettings: validateSettings, changedSettings: changedSettings };
 }

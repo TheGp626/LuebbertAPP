@@ -166,3 +166,16 @@ test('real plan kw45: open slots and colours', { skip: !fixture('kw45') && 'no l
   assert.deepEqual(teambox.open.map(o => o.count + ' ' + o.role), ['1 AL', '1 MA']);
   assert.equal(r.shifts.find(x => x.title === 'Inventur Stoffe').color, '#fcd5b4');
 });
+
+test('planMatchPerson: the AP column (role PL) only matches PL, Admin or Buchhaltung', () => {
+  const users = [
+    { id: 'm1', full_name: 'Sabine Muster', role: 'MA' },
+    { id: 'p1', full_name: 'Inge Beispiel', role: 'PL' },
+    { id: 'a1', full_name: 'Sonja Chef', role: 'Admin' },
+  ];
+  assert.equal(P.planMatchPerson({ name: 'Sabine', role: 'PL' }, users, {}).userId, null);
+  assert.equal(P.planMatchPerson({ name: 'Inge', role: 'PL' }, users, {}).userId, 'p1');
+  assert.equal(P.planMatchPerson({ name: 'Sonja', role: 'PL' }, users, {}).userId, 'a1');
+  assert.equal(P.planMatchPerson({ name: 'Sabine', role: 'MA' }, users, {}).userId, 'm1');
+  assert.equal(P.planMatchPerson({ name: 'Sabine', role: 'PL' }, users, { sabine: 'm1' }).userId, 'm1', 'a remembered choice still wins');
+});

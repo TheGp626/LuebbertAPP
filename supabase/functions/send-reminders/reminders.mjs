@@ -101,6 +101,20 @@ export function planWindowStart(lookbackFrom, enabledAtIso) {
   return enabledDay > lookbackFrom ? enabledDay : lookbackFrom;
 }
 
+// groups: [{keys:[{al_id,date}], resolved}] — one per PL mail. A plan job (AL + date) is logged as mailed only
+// when every PL mail it belongs to is resolved (sent, or nothing to retry); otherwise all stay pending
+export function planMailLogKeys(groups) {
+  const state = new Map();
+  for (const g of groups) {
+    for (const k of g.keys) {
+      const id = `${k.al_id}|${k.date}`;
+      const prev = state.get(id);
+      state.set(id, { key: k, ok: (prev ? prev.ok : true) && g.resolved });
+    }
+  }
+  return [...state.values()].filter(s => s.ok).map(s => s.key);
+}
+
 export function planJobVenue(job) {
   return job.venues.join(' / ') || 'Einsatz';
 }

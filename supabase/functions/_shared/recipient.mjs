@@ -8,3 +8,9 @@ export function chooseRecipient({ mailEnabled, testMode, testRecipient, plEmail,
   if (!email) return { to: null, reason: 'no_email', test: false };
   return { to: email, reason: null, test: false };
 }
+
+// Mails switched off: app versions without the 'disabled' branch (client < 2, e.g. the live app on main)
+// would show an error and retry for days → they get 'not_found', which they already treat as done
+export function disabledReason(clientVersion) {
+  return (Number(clientVersion) || 0) >= 2 ? 'disabled' : 'not_found';
+}

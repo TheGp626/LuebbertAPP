@@ -51,3 +51,9 @@ test('the old per-device cut-off no longer counts', () => {
   S.appSettingsFromCache();
   assert.equal(S.appSetting('billing_cutoff'), 20);
 });
+
+test('changedSettings: only keys that differ from what the form was rendered with', () => {
+  const rendered = { reminders_enabled: true, mail_test_mode: false, billing_cutoff: 20 };
+  assert.deepEqual(S.changedSettings(rendered, { reminders_enabled: true, mail_test_mode: false, billing_cutoff: 21 }), { billing_cutoff: 21 });
+  assert.deepEqual(S.changedSettings(rendered, { reminders_enabled: true, mail_test_mode: false, billing_cutoff: 20 }), {});
+});

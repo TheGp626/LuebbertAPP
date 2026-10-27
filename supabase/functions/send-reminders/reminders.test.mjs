@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { berlinDate, isBerlinNineAm, daysSince, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planWindowStart, buildEveningPushes, berlinHour } from './reminders.mjs';
+import { berlinDate, isBerlinNineAm, daysSince, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys } from './reminders.mjs';
 
 // ── Plan jobs (Wochenplan → reminders) ──
 const row = (o) => Object.assign({ al_id: 'A', date: '2026-10-26', venue: 'Estrel', title: 'CH I', wann: 'Aufbau: 8 Uhr', ap_user_id: 'P1' }, o);
@@ -161,4 +161,11 @@ test('evening: same place at the same time is listed once (several rooms of one 
     ev({ venue: 'Capital Catering', wann: ['Abbau: 22.30 Uhr'] })]);
   assert.equal(p.title, 'Morgen 3 Einsätze');
   assert.equal(p.body, '16:00 Estrel · 22:30 Capital Catering');
+});
+
+test('planMailLogKeys: a plan job counts as mailed only when all of its PL mails are resolved', () => {
+  const k1 = { al_id: 'A', date: '2026-10-20' }, k2 = { al_id: 'B', date: '2026-10-20' };
+  assert.deepEqual(planMailLogKeys([{ keys: [k1, k2], resolved: true }, { keys: [k1], resolved: false }]), [k2]);
+  assert.deepEqual(planMailLogKeys([{ keys: [k1], resolved: true }, { keys: [k1], resolved: true }]), [k1]);
+  assert.deepEqual(planMailLogKeys([]), []);
 });

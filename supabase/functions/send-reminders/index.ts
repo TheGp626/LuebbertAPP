@@ -5,7 +5,7 @@
 // Body: { mode? ("evening" → evening push), force?, only_user_id?, dry_run? (list only, send/log nothing), plan_override? (daily dry runs: treat plan reminders as on) }
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import webpush from 'npm:web-push@3.6.7';
-import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, LOOKBACK_DAYS } from './reminders.mjs';
+import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, LOOKBACK_DAYS } from './reminders.mjs';
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { loadSettings } from '../_shared/settings.ts';
 import { chooseRecipient } from '../_shared/recipient.mjs';
@@ -123,8 +123,10 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
   }
   let planAlready = new Set<string>(), planMailedEarlier = new Set<string>();
   if (planJobs.length) {
+    // Bounded to the job window: the log keeps growing and PostgREST caps unbounded reads
     const { data: pl, error: plErr } = await db.from('plan_reminder_log').select('al_id, date, day, kind')
-      .in('al_id', [...new Set(planJobs.map(j => j.al_id))]).or(`day.eq.${today},kind.eq.pl_mail`);
+      .in('al_id', [...new Set(planJobs.map(j => j.al_id))]).gte('date', from).lte('date', to)
+      .or(`day.eq.${today},kind.eq.pl_mail`);
     if (plErr) { console.error('send-reminders: load plan_reminder_log failed', plErr); return json({ error: 'db_error' }, 500); }
     planAlready = new Set((pl || []).filter((l: Db) => l.day === today).map((l: Db) => `${l.al_id}|${l.date}|${l.kind}`));
     planMailedEarlier = new Set((pl || []).filter((l: Db) => l.kind === 'pl_mail').map((l: Db) => `${l.al_id}|${l.date}`));
@@ -218,22 +220,29 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
 
   // ── Day-6 mail (one per PL) ──
   let mailed = 0;
+  // A plan job with several PLs is logged only when all of its PL mails are resolved (planMailLogKeys)
+  const planResults: { keys: { al_id: string; date: string }[]; resolved: boolean }[] = [];
   for (const { g, rcpt, m } of mailPlans) {
     if (rcpt.reason === 'no_pl' || rcpt.reason === 'no_email') {
       console.error('send-reminders: kein PL/E-Mail für', g.items.map((it: Db) => it.folderName).join(', '));
-      await log(g.logFolder, 'pl_mail'); await logPlan(g.logPlan, 'pl_mail'); // nothing to retry
+      await log(g.logFolder, 'pl_mail'); planResults.push({ keys: g.logPlan, resolved: true }); // nothing to retry
       continue;
     }
-    if (rcpt.reason) { console.error('send-reminders: PL mail held back', rcpt.reason); continue; } // not_configured → retried
-    if (!gmailConfigured()) { console.error('send-reminders: Gmail not configured'); continue; }
+    if (rcpt.reason || !gmailConfigured()) { // not_configured / no Gmail → retried
+      console.error('send-reminders: PL mail held back', rcpt.reason || 'gmail_not_configured');
+      planResults.push({ keys: g.logPlan, resolved: false });
+      continue;
+    }
     try {
       await sendGmail({ to: rcpt.to!, subject: rcpt.test ? `[TEST → ${g.plName}] ${m.subject}` : m.subject, text: m.text, html: m.html });
       mailed++;
-      await log(g.logFolder, 'pl_mail'); await logPlan(g.logPlan, 'pl_mail');
+      await log(g.logFolder, 'pl_mail'); planResults.push({ keys: g.logPlan, resolved: true });
     } catch (e) {
       console.error('send-reminders: PL mail failed', e);
+      planResults.push({ keys: g.logPlan, resolved: false });
     }
   }
+  await logPlan(planMailLogKeys(planResults), 'pl_mail');
 
   return json({ pushed, mailed, removed_subscriptions: removed, ...((folderPushes.length || planPushes.length) && !vapid ? { push_skipped: 'vapid_not_configured' } : {}) });
 }

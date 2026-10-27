@@ -912,7 +912,7 @@ async function mailProtokoll(supabaseId, entry, isUpdate, notify) {
     var timeout = new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, MAIL_TIMEOUT_MS); });
     var { data: res, error } = await Promise.race([
       supabaseClient.functions.invoke('send-protocol-mail', {
-        body: { protocol_id: supabaseId, pdf_base64: pdfBase64, is_update: !!isUpdate }
+        body: { protocol_id: supabaseId, pdf_base64: pdfBase64, is_update: !!isUpdate, client: 2 }  // client 2 knows reason 'disabled'
       }),
       timeout
     ]);
