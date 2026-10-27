@@ -910,7 +910,7 @@ async function recalcAllProtocolCosts() {
 
 // Zenjob/Rockit ratings are stored per protocol by worker name (shift_id is never set)
 function ratingForShift(p, s) {
-  const key = (s.temp_worker_name || '').trim().toLowerCase();
+  const key = ratingKeyForShift(s);
   if (!key) return null;
   return (p.worker_ratings || []).find(r => (r.temp_worker_name || '').trim().toLowerCase() === key) || null;
 }
@@ -1252,7 +1252,8 @@ function renderDashProtEquipment(existing) {
 
   c.innerHTML = _PE_CATEGORIES.map(function(cat) {
     var e = existMap[cat.id] || {};
-    var status = e.status || 'okay';
+    // Categories not stored with the protocol were switched off by the AL → keep them off
+    var status = existMap[cat.id] ? (e.status || 'okay') : '';
     var note   = e.note   || '';
     var hDel   = e.hussen_delivered || '';
     var hRet   = e.hussen_returned  || '';
@@ -1268,6 +1269,7 @@ function renderDashProtEquipment(existing) {
       '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">' +
         '<span style="font-size:13px;font-weight:600;flex:1;">' + cat.label + '</span>' +
         '<select id="pe-st-' + cat.id + '" class="meta-input" style="width:auto;padding:4px 8px;font-size:12px;">' +
+          '<option value=""' + (status === '' ? ' selected' : '') + '>Ausgeblendet</option>' +
           ['okay','unsauber','beschädigt','unvollständig'].map(function(s) {
             return '<option value="' + s + '"' + (status === s ? ' selected' : '') + '>' + s.charAt(0).toUpperCase() + s.slice(1) + '</option>';
           }).join('') +
@@ -1316,7 +1318,9 @@ async function saveDashProtEdit() {
     // Re-insert equipment (delete first, check error before inserting)
     const { error: eDelErr } = await supabaseClient.from('protocol_equipments').delete().eq('protocol_id', _editProtId);
     if (eDelErr) throw eDelErr;
-    const eInserts = _PE_CATEGORIES.map(function(cat) {
+    const eInserts = _PE_CATEGORIES.filter(function(cat) {
+      return (document.getElementById('pe-st-' + cat.id) || {}).value !== '';
+    }).map(function(cat) {
       return {
         protocol_id:      _editProtId,
         category_id:      cat.id,
@@ -1326,8 +1330,10 @@ async function saveDashProtEdit() {
         hussen_returned:  cat.id === 'stoffe' ? (parseInt((document.getElementById('pe-hr-stoffe') || {}).value) || null) : null,
       };
     });
-    const { error: eErr } = await supabaseClient.from('protocol_equipments').insert(eInserts);
-    if (eErr) throw eErr;
+    if (eInserts.length) {
+      const { error: eErr } = await supabaseClient.from('protocol_equipments').insert(eInserts);
+      if (eErr) throw eErr;
+    }
 
     showToast('✅ Protokoll gespeichert!');
     closeDashProtEdit();
@@ -1441,7 +1447,11 @@ async function exportDashProtPDF(pId) {
       const catLabel = fallbackLabels[catId] || catId;
       doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text(catLabel+':', ml, y);
       doc.setFont('helvetica','normal'); doc.text((s.status||'okay').toUpperCase(), ml+40, y);
-      if (s.note) { y+=5; doc.setFontSize(8); doc.setTextColor(100); doc.text(s.note, ml+5, y); doc.setTextColor(0); }
+      if (s.note) {
+        doc.setFontSize(8); doc.setTextColor(100);
+        doc.splitTextToSize(String(s.note), cw - 5).forEach(function(line) { y += 4; if (y > 280) { doc.addPage(); y = 20; } doc.text(line, ml+5, y); });
+        doc.setTextColor(0);
+      }
       y += 7; if (y > 270) { doc.addPage(); y = 20; }
     }); y += 4;
   }
@@ -1473,10 +1483,13 @@ async function exportDashProtPDF(pId) {
 
   // Incidents
   if (y > 230) { doc.addPage(); y = 20; }
+  y += 4;
   doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.text('Vorkommnisse / Feedback', ml, y); y += 6;
-  doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.text('Mängel:', ml, y); doc.setFont('helvetica','normal'); doc.text(data.damages, ml+40, y); y += 6;
-  doc.setFont('helvetica','bold'); doc.text('Vorkommnisse:', ml, y); doc.setFont('helvetica','normal'); doc.text(data.incidents, ml+40, y); y += 6;
-  doc.setFont('helvetica','bold'); doc.text('Feedback:', ml, y); doc.setFont('helvetica','normal'); doc.text(data.feedback, ml+40, y); y += 12;
+  doc.setFontSize(9);
+  y = pdfWrappedRow(doc, 'Mängel:', data.damages, ml, ml+40, cw-40, y, 4.5, 280);
+  y = pdfWrappedRow(doc, 'Vorkommnisse:', data.incidents, ml, ml+40, cw-40, y, 4.5, 280);
+  y = pdfWrappedRow(doc, 'Feedback:', data.feedback, ml, ml+40, cw-40, y, 4.5, 280); y += 6;
+  if (y > 250) { doc.addPage(); y = 20; }
 
   // Costs (Matches protokoll.js style identically)
   doc.setDrawColor(24,95,165); doc.setLineWidth(0.5); doc.line(ml,y,ml+cw,y); y += 8;

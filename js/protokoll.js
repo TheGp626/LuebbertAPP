@@ -80,17 +80,16 @@ function populateAlPlSelects() {
 }
 
 function initProtokoll() {
-  loadProtDraft();
+  var hadDraft = loadProtDraft();
   if (!protState.alId && typeof currentUser !== 'undefined' && currentUser) {
     protState.alId = currentUser.id;
     saveProtDraft();
   }
-  if (protState.transports.length === 0) addProtTransport();
+  // Default Sprinter only for a brand-new form; a draft whose transports were removed stays without
+  if (!hadDraft && protState.transports.length === 0) addProtTransport();
   if (protState.personnel.length === 0) addProtPersonnel();
-  
-  PROT_CATEGORIES_CONFIG.forEach(function(cat) {
-    if (!protState.categories[cat.id]) protState.categories[cat.id] = { active: true, status: 'okay', note: '' };
-  });
+
+  fillMissingCategories(protState.categories, PROT_CATEGORIES_CONFIG, true);
 
   renderProtTransport();
   renderProtPersonnel();
@@ -499,7 +498,7 @@ function saveProtDraft() {
 
 function loadProtDraft() {
   var saved = localStorage.getItem('luebbert_protokoll_draft');
-  if (!saved) return;
+  if (!saved) return false;
   try {
     var data = JSON.parse(saved);
     if (document.getElementById('prot-event')) document.getElementById('prot-event').value = data.event || '';
@@ -519,7 +518,8 @@ function loadProtDraft() {
     protState.signature = data.signature || null;
     protState.editingId = data.editingId || null;
     protState.editingLocalId = data.editingLocalId || null;
-  } catch(e) { console.error("Error loading draft", e); }
+    return true;
+  } catch(e) { console.error("Error loading draft", e); return false; }
 }
 
 function clearProtForm(skipConfirm) {
@@ -764,20 +764,25 @@ async function syncProtokollToSupabase(data, targetId) {
     // 6. Save Ratings for Zenjob/Rockit workers
     var ratingInserts = [];
     data.personnel.forEach(function(p) {
-      if ((p.pos !== 'Zenjob' && p.pos !== 'Rockit') || !p.rating) return;
+      if (p.pos !== 'Zenjob' && p.pos !== 'Rockit') return;
+      var r = ratingToSave(p);
+      if (!r) return;
       var workerName = p.isTemp ? (p.tempName || p.name || null) : (p.name || p.tempName || null);
       if (!workerName) return;
       ratingInserts.push({
         protocol_id: protId,
-        temp_worker_name: workerName,
-        rating: p.rating,
-        is_star: p.isStar || false,
+        temp_worker_name: workerName.trim(),
+        rating: r.rating,
+        is_star: r.is_star,
         rated_by: typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null
       });
     });
+    // On edits old ratings go first, also when all of them were removed
+    if (editId) {
+      var { error: ratDelErr } = await supabaseClient.from('worker_ratings').delete().eq('protocol_id', protId);
+      if (ratDelErr) console.error("Ratings Delete Error:", ratDelErr);
+    }
     if (ratingInserts.length > 0) {
-      // Delete old ratings for this protocol before re-inserting (handles edits)
-      await supabaseClient.from('worker_ratings').delete().eq('protocol_id', protId);
       var { error: ratErr } = await supabaseClient.from('worker_ratings').insert(ratingInserts);
       if (ratErr) console.error("Ratings Insert Error:", ratErr);
     }
@@ -872,6 +877,17 @@ async function retryPendingMails() {
   }
 }
 
+var MAIL_THROTTLE_RETRY_MS = 65000; // server THROTTLE_MS (60 s) + margin
+var _mailRetryTimer = null;
+function scheduleMailRetry() {
+  if (_mailRetryTimer) return;
+  _mailRetryTimer = setTimeout(function() {
+    _mailRetryTimer = null;
+    if (_mailRetryRunning) scheduleMailRetry(); // a running pass may have read the archive before this entry
+    else retryPendingMails();
+  }, MAIL_THROTTLE_RETRY_MS);
+}
+
 // Above the server worst case (cold start + SMTP timeouts 10/10/15 s), else a slow success looks like a failure and gets mailed twice
 var MAIL_TIMEOUT_MS = 60000;
 var MAIL_MAX_PDF_B64 = 4900000; // just under the function's 5 MB limit
@@ -911,8 +927,14 @@ async function mailProtokoll(supabaseId, entry, isUpdate, notify) {
       return true;
     }
     if (reason === 'not_found') return true;
-    // A correction right after Senden must still reach the PL → stays pending
-    if (reason === 'throttled') return !isUpdate;
+    // A correction right after Senden must still reach the PL → stays pending and is retried once the
+    // server's 60 s duplicate guard has passed (not only on the next history visit)
+    if (reason === 'throttled') {
+      if (!isUpdate) return true;
+      scheduleMailRetry();
+      if (notify) showToast('Korrektur wird in ca. 1 Minute an die PL gemailt', 'info');
+      return false;
+    }
     // Mail setup not finished / hourly cap: retry later without bothering the AL
     if (reason === 'not_configured' || reason === 'rate_limited') return false;
     throw new Error(reason || 'unknown');
@@ -975,7 +997,7 @@ async function renderProtHistory() {
                 seen[key] = true;
                 return true;
               }).map(function(s) {
-                var rKey = (s.temp_worker_name || '').trim().toLowerCase();
+                var rKey = ratingKeyForShift(s);
                 var rat = rKey ? (r.worker_ratings || []).find(function(w) {
                   return (w.temp_worker_name || '').trim().toLowerCase() === rKey;
                 }) : null;
@@ -1131,14 +1153,11 @@ function loadProtFromHistory(id) {
   if (alSel && appUsers.length) alSel.value = protState.alId || '';
   if (plSel && appUsers.length) plSel.value = protState.plId || '';
 
-  // Ensure at least one slot if empty
-  if (!protState.transports.length) protState.transports.push({ type: 'Sprinter', driver: '', punctuality: 'pünktlich', delay: '' });
+  // No transport stays no transport (a default Sprinter would also add its cost on re-save)
   if (!protState.personnel.length)  protState.personnel.push({ pos: 'MA', name: '', start: '', end: '', pause: '0' });
 
-  // Re-initialize categories that might be missing
-  PROT_CATEGORIES_CONFIG.forEach(function(cat) {
-    if (!protState.categories[cat.id]) protState.categories[cat.id] = { active: true, status: 'okay', note: '' };
-  });
+  // Categories not saved with the protocol were switched off
+  fillMissingCategories(protState.categories, PROT_CATEGORIES_CONFIG, false);
 
   // Re-render dynamic sections
   renderProtTransport();
@@ -1229,7 +1248,11 @@ function buildProtPdfDoc(entry) {
     var s = data.categories[cat.id];
     doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text(cat.label+':', ml, y);
     doc.setFont('helvetica','normal'); doc.text(s.status.toUpperCase(), ml+40, y);
-    if (s.note) { y+=5; doc.setFontSize(8); doc.setTextColor(100); doc.text(s.note, ml+5, y); doc.setTextColor(0); }
+    if (s.note) {
+      doc.setFontSize(8); doc.setTextColor(100);
+      doc.splitTextToSize(String(s.note), cw - 5).forEach(function(line) { y += 4; if (y > 280) { doc.addPage(); y = 20; } doc.text(line, ml+5, y); });
+      doc.setTextColor(0);
+    }
     if (cat.id === 'stoffe') {
       y += 5;
       doc.setFontSize(8); doc.setFont('helvetica', 'normal');
@@ -1270,11 +1293,13 @@ function buildProtPdfDoc(entry) {
     }); y += 4;
   }
 
-  // Incidents
+  // Incidents (free text → wrapped, can span pages)
+  y += 4; if (y > 260) { doc.addPage(); y = 20; }
   doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.text('Vorkommnisse / Feedback', ml, y); y += 6;
-  doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.text('Mängel:', ml, y); doc.setFont('helvetica','normal'); doc.text(data.damages, ml+40, y); y += 6;
-  doc.setFont('helvetica','bold'); doc.text('Vorkommnisse:', ml, y); doc.setFont('helvetica','normal'); doc.text(data.incidents, ml+40, y); y += 6;
-  doc.setFont('helvetica','bold'); doc.text('Feedback:', ml, y); doc.setFont('helvetica','normal'); doc.text(data.feedback, ml+40, y); y += 12;
+  doc.setFontSize(9);
+  y = pdfWrappedRow(doc, 'Mängel:', data.damages, ml, ml+40, cw-40, y, 4.5, 280);
+  y = pdfWrappedRow(doc, 'Vorkommnisse:', data.incidents, ml, ml+40, cw-40, y, 4.5, 280);
+  y = pdfWrappedRow(doc, 'Feedback:', data.feedback, ml, ml+40, cw-40, y, 4.5, 280); y += 6;
 
   // Costs, itemized with the same rules as calcProtCosts (custom rates, holiday) so the lines add up to the total
   if (y > 250) { doc.addPage(); y = 20; }

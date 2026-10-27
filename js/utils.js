@@ -162,8 +162,41 @@ function truncatePdf(doc, text, maxWidth) {
 
 // Zenjob/Rockit rating as plain text (jsPDF helvetica can't draw emoji)
 function ratingPdfLabel(rating, isStar) {
-  if (!rating) return 'keine';
+  if (!rating) return isStar ? 'gut + Stern' : 'keine';
   return (rating === 'up' ? 'gut' : 'schlecht') + (isStar ? ' + Stern' : '');
+}
+
+// worker_ratings.rating is NOT NULL → a star on its own is saved as a good rating
+function ratingToSave(p) {
+  var rating = p.rating || (p.isStar ? 'up' : null);
+  if (!rating) return null;
+  return { rating: rating, is_star: !!p.isStar };
+}
+
+// The DB only stores active categories → for a loaded protocol a missing one means "ausgeblendet"
+function fillMissingCategories(cats, config, activeDefault) {
+  config.forEach(function(cat) {
+    if (!cats[cat.id]) cats[cat.id] = { active: activeDefault, status: 'okay', note: '' };
+  });
+  return cats;
+}
+
+// Ratings are stored by worker name; a Zenjob/Rockit picked from the employee list has no temp name
+function ratingKeyForShift(s) {
+  return (s.temp_worker_name || (s.app_users && s.app_users.full_name) || '').trim().toLowerCase();
+}
+
+// Label + wrapped value for long free text in jsPDF; returns the y below the block (page breaks included)
+function pdfWrappedRow(doc, label, text, x, valueX, maxW, y, lineH, pageBottom) {
+  doc.setFont('helvetica', 'bold'); doc.text(label, x, y);
+  doc.setFont('helvetica', 'normal');
+  var lines = doc.splitTextToSize(String(text), maxW);
+  for (var i = 0; i < lines.length; i++) {
+    if (y > pageBottom) { doc.addPage(); y = 20; }
+    doc.text(lines[i], valueX, y);
+    y += lineH;
+  }
+  return y + 1.5;
 }
 
 function getBillingPeriodLabel(mKey, cutoff) {
