@@ -234,3 +234,18 @@ function einsatzStatus(einsatz, hasProtocol, todayStr) {
   if (einsatz.date > todayStr) return 'future';
   return 'open';
 }
+
+// Open jobs of one AL for the banner: folder jobs [{id, date, action, folderName}] plus plan rows
+// [{date, venue, action}] (one entry per date, venues joined); a folder job on the same date wins
+function mergeOpenJobs(folderJobs, planRows) {
+  var out = folderJobs.map(function(e) { return { id: e.id, date: e.date, action: e.action, folderName: e.folderName, source: 'folder' }; });
+  var taken = {};
+  out.forEach(function(e) { taken[e.date] = true; });
+  var byDate = {};
+  planRows.forEach(function(r) {
+    if (taken[r.date]) return;
+    if (!byDate[r.date]) { byDate[r.date] = { id: null, date: r.date, action: r.action, folderName: r.venue || 'Einsatz', source: 'plan' }; out.push(byDate[r.date]); }
+    else if (r.venue && byDate[r.date].folderName.split(' / ').indexOf(r.venue) === -1) byDate[r.date].folderName += ' / ' + r.venue;
+  });
+  return out.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+}

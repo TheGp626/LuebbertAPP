@@ -50,9 +50,13 @@ const BUCHHALTUNG_MIN_HOURS_ENABLED = true; // Set to false to show raw hours
 function switchDashTab(tab) {
   document.getElementById('dash-tab-prot').classList.toggle('primary', tab === 'prot');
   document.getElementById('dash-tab-work').classList.toggle('primary', tab === 'work');
-  
+  document.getElementById('dash-tab-settings').classList.toggle('primary', tab === 'settings');
+
   document.getElementById('dash-view-prot').style.display = tab === 'prot' ? 'block' : 'none';
   document.getElementById('dash-view-work').style.display = tab === 'work' ? 'block' : 'none';
+  document.getElementById('dash-view-settings').style.display = tab === 'settings' ? 'block' : 'none';
+
+  if (tab === 'settings' && typeof renderSettingsTab === 'function') renderSettingsTab();
 
   if (tab === 'work' && dashboardWorkers.length === 0) {
     loadDashboardWorkers();

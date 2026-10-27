@@ -392,6 +392,18 @@ async function wpFileChosen(input) {
         unresolved[k].count++;
       }
     });
+    // The AP column is the PL: resolved like a team name (same aliases), needed for the day-6 reminder mail
+    s.apUserId = null;
+    if (s.ap) {
+      var pm = planMatchPerson({ name: s.ap, role: 'PL' }, wpUsers, wpAliases);
+      s.apUserId = pm.userId;
+      if (!pm.userId) {
+        var ak = s.ap.toLowerCase();
+        if (!unresolved[ak]) unresolved[ak] = { name: s.ap, candidates: pm.candidates, count: 0 };
+        unresolved[ak].count++;
+        unresolved[ak].pl = true;
+      }
+    }
   });
   wpImport = { parsed: parsed, fileName: file.name, existing: ex || null, unresolved: unresolved };
   wpRenderImport();
@@ -424,7 +436,7 @@ function wpRenderImport() {
     var rest = active.filter(function(u) { return r.candidates.indexOf(u.id) === -1; });
     var opt = function(u) { return '<option value="' + u.id + '">' + wpEsc(u.full_name) + '</option>'; };
     return '<label class="wp-map">' +
-      '<span class="wp-map-name">„' + wpEsc(r.name) + '“ <small>' + r.count + '×</small></span>' +
+      '<span class="wp-map-name">„' + wpEsc(r.name) + '“' + (r.pl ? ' <small>(PL)</small>' : '') + ' <small>' + r.count + '×</small></span>' +
       '<select class="meta-input" data-alias="' + wpEsc(k) + '">' +
         '<option value="">Nicht zuordnen (nur Name)</option>' +
         (cands.length ? '<optgroup label="Vorschläge">' + cands.map(opt).join('') + '</optgroup>' : '') +
@@ -477,6 +489,7 @@ async function wpSaveImport() {
     });
     p.shifts.forEach(function(s) {
       s.people.forEach(function(x) { if (!x.userId) x.userId = wpAliases[x.name.toLowerCase()] || null; });
+      if (!s.apUserId && s.ap) s.apUserId = wpAliases[s.ap.toLowerCase()] || null;
     });
 
     var oldShifts = ex ? (ex.plan_shifts || []).map(planShiftFromDb) : [];

@@ -162,7 +162,9 @@ function handleSession(user) {
 
     console.log('User logged in locally:', user.full_name, 'Role:', userRole);
     enforceUI();
-    if (typeof loadErinnerungen === 'function') loadErinnerungen();
+    // The reminder banner depends on the admin switches → load them first (cached values if offline)
+    var settingsReady = (typeof loadAppSettings === 'function') ? loadAppSettings() : Promise.resolve();
+    settingsReady.then(function() { if (typeof loadErinnerungen === 'function') loadErinnerungen(); });
     if (typeof handleEinsatzDeepLink === 'function') handleEinsatzDeepLink();
     if (typeof handleWochenplanDeepLink === 'function') handleWochenplanDeepLink();
     // Wochenplan restored from before the login needs the user to load "Meine Schichten"
@@ -223,6 +225,12 @@ function enforceUI() {
   if (dashBtn) {
     const isAdmin = ['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole);
     dashBtn.style.display = isAdmin ? 'block' : 'none';
+  }
+  // Settings tab only for the Admin role (saving additionally needs the admin password)
+  const setTab = document.getElementById('dash-tab-settings');
+  if (setTab) {
+    setTab.style.display = userRole === 'Admin' ? '' : 'none';
+    if (userRole !== 'Admin' && setTab.classList.contains('primary') && typeof switchDashTab === 'function') switchDashTab('prot');
   }
 }
 

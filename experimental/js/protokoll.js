@@ -912,7 +912,7 @@ async function mailProtokoll(supabaseId, entry, isUpdate, notify) {
     var timeout = new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, MAIL_TIMEOUT_MS); });
     var { data: res, error } = await Promise.race([
       supabaseClient.functions.invoke('send-protocol-mail', {
-        body: { protocol_id: supabaseId, pdf_base64: pdfBase64, is_update: !!isUpdate }
+        body: { protocol_id: supabaseId, pdf_base64: pdfBase64, is_update: !!isUpdate, client: 2 }  // client 2 knows reason 'disabled'
       }),
       timeout
     ]);
@@ -927,6 +927,11 @@ async function mailProtokoll(supabaseId, entry, isUpdate, notify) {
       return true;
     }
     if (reason === 'not_found') return true;
+    // Switched off in the admin settings → nothing to retry
+    if (reason === 'disabled') {
+      if (notify) showToast('Protokoll-Mails sind ausgeschaltet', 'info');
+      return true;
+    }
     // A correction right after Senden must still reach the PL → stays pending and is retried once the
     // server's 60 s duplicate guard has passed (not only on the next history visit)
     if (reason === 'throttled') {

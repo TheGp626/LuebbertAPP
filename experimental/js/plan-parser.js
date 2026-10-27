@@ -272,6 +272,8 @@ function planMatchPerson(person, users, aliases) {
   var n = person.name.toLowerCase().replace(/\.$/, '').trim();
   if (aliases && aliases[n]) return { userId: aliases[n], candidates: [], via: 'alias' };
   var active = users.filter(function(u) { return u.is_active !== false && u.role !== 'Gast'; });
+  // The AP column names the PL: an MA with the same first name must never get the PL's mails
+  if (person.role === 'PL') active = active.filter(function(u) { return ['PL', 'Admin', 'Buchhaltung'].indexOf(u.role) !== -1; });
   var full = active.filter(function(u) { return (u.full_name || '').toLowerCase() === n; });
   if (full.length === 1) return { userId: full[0].id, candidates: [], via: 'name' };
   var words = n.split(' '), rest = words.slice(1).join(' ').replace(/\.$/, '');
@@ -347,7 +349,7 @@ function planShiftRow(s, weekId, status) {
   return {
     week_id: weekId, date: s.date, sort: s.sort, key: s.key, venue: s.venue || null,
     location: s.location.join('\n') || null, title: s.title || null, details: s.details.join('\n') || null,
-    wann: s.wann.join('\n') || null, ap: s.ap || null, notes: s.notes.join('\n') || null,
+    wann: s.wann.join('\n') || null, ap: s.ap || null, ap_user_id: s.apUserId || null, notes: s.notes.join('\n') || null,
     color: s.color || null, open_slots: s.open, change_status: status || null
   };
 }
