@@ -18,14 +18,21 @@ function fmtDateFull(d) {
   return pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + '.' + d.getFullYear(); 
 }
 
+// ISO week of today. Date-only UTC math: the old version counted the time of day
+// and returned the following week for most of 2027.
 function currentWeekVal() {
   var d = new Date();
-  var thu = new Date(d); 
-  thu.setDate(d.getDate() + (4 - (d.getDay() || 7)));
-  var year = thu.getFullYear();
-  var jan1 = new Date(year, 0, 1);
-  var week = Math.ceil(((thu - jan1) / 86400000 + 1) / 7);
+  var thu = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  thu.setUTCDate(thu.getUTCDate() + 4 - (thu.getUTCDay() || 7));
+  var year = thu.getUTCFullYear();
+  var week = Math.ceil(((thu - Date.UTC(year, 0, 1)) / 86400000 + 1) / 7);
   return year + '-W' + pad(week);
+}
+
+// Today as YYYY-MM-DD in local time (toISOString() is UTC → yesterday's date after midnight in Germany)
+function localDateStr(d) {
+  d = d || new Date();
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 }
 
 function getMondayFromWeekVal(val) {
@@ -153,9 +160,44 @@ function truncatePdf(doc, text, maxWidth) {
   return full + '…';
 }
 
+// Zenjob/Rockit rating as plain text (jsPDF helvetica can't draw emoji)
+function ratingPdfLabel(rating, isStar) {
+  if (!rating) return 'keine';
+  return (rating === 'up' ? 'gut' : 'schlecht') + (isStar ? ' + Stern' : '');
+}
+
 function getBillingPeriodLabel(mKey, cutoff) {
   var parts = mKey.split('-'), y = +parts[0], m = +parts[1];
   var prevM = m === 1 ? 12 : m - 1;
   var prevY = m === 1 ? y - 1 : y;
   return pad(cutoff) + '.' + pad(prevM) + '.' + prevY + ' – ' + pad(cutoff - 1) + '.' + pad(m) + '.' + y;
+}
+
+// ── EINSÄTZE (AL-Erinnerung) ──
+// Compares the folder's saved jobs with the edited form rows.
+// Rows without id are new; saved ids missing from the form are removed; changed fields → update.
+function diffEinsaetze(existing, edited) {
+  var FIELDS = ['date', 'action', 'al_id', 'cancelled'];
+  var pick = function(r) { var o = {}; FIELDS.forEach(function(f) { o[f] = r[f]; }); return o; };
+  var byId = {};
+  existing.forEach(function(e) { byId[e.id] = e; });
+  var keep = {};
+  var insert = [], update = [];
+  edited.forEach(function(r) {
+    if (!r.id || !byId[r.id]) { insert.push(pick(r)); return; }
+    keep[r.id] = true;
+    var old = byId[r.id];
+    var changed = FIELDS.some(function(f) { return old[f] !== r[f]; });
+    if (changed) update.push(Object.assign({ id: r.id }, pick(r)));
+  });
+  var remove = existing.filter(function(e) { return !keep[e.id]; }).map(function(e) { return e.id; });
+  return { insert: insert, update: update, remove: remove };
+}
+
+// 'cancelled' | 'done' (protocol exists) | 'future' (after today) | 'open'
+function einsatzStatus(einsatz, hasProtocol, todayStr) {
+  if (einsatz.cancelled) return 'cancelled';
+  if (hasProtocol) return 'done';
+  if (einsatz.date > todayStr) return 'future';
+  return 'open';
 }

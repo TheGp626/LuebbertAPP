@@ -55,6 +55,10 @@ function selectMode(m) {
   // Role-based guards (only once a user is logged in — during module restore
   // on page load the role is not resolved yet and the auth overlay blocks input)
   var loggedIn = typeof currentUser !== 'undefined' && currentUser;
+  if (loggedIn && userRole === 'Gast' && GAST_MODULES.indexOf(m) === -1) {
+    showToast('Zugriff verweigert: Gastzugang nur für Produktdatenbank und Projektordner.');
+    return;
+  }
   if (loggedIn && m === 'protokoll' && userRole === 'MA') {
     showToast('Zugriff verweigert: Nur für AL/PL.');
     return;
@@ -486,7 +490,7 @@ function exportBackup() {
     if (k.startsWith('stundenzettel') || k.startsWith('luebbert')) b.data[k] = localStorage.getItem(k); 
   }
   var blob = new Blob([JSON.stringify(b, null, 2)], { type: 'application/json' }), url = URL.createObjectURL(blob), a = document.createElement('a');
-  a.href = url; a.download = 'luebbert_app_backup_' + new Date().toISOString().split('T')[0] + '.json'; a.click();  
+  a.href = url; a.download = 'luebbert_app_backup_' + localDateStr() + '.json'; a.click();  
   showToast('Backup exportiert!');
 }
 

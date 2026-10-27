@@ -31,7 +31,8 @@ async function fetchAppUsers() {
   var { data, error } = await supabaseClient.from('app_users').select('id, full_name, email, role, role_rates, hourly_rate_internal, is_fest').or('is_active.is.null,is_active.eq.true');
   if (error) console.error("Error fetching app_users:", error);
   if (data) {
-    appUsers = data;
+    // The guest login never works shifts → keep it out of AL/PL/staff pickers
+    appUsers = data.filter(function(u) { return u.role !== 'Gast'; });
     renderProtPersonnel();
     populateAlPlSelects();
   }
@@ -439,7 +440,7 @@ function calcProtCosts() {
   // Read date and holiday directly from the DOM so live edits are reflected
   var dateEl    = document.getElementById('prot-date');
   var holidayEl = document.getElementById('prot-isholiday');
-  var currentDate    = (dateEl && dateEl.value)       ? dateEl.value    : (protState.date    || new Date().toISOString().split('T')[0]);
+  var currentDate    = (dateEl && dateEl.value)       ? dateEl.value    : (protState.date    || localDateStr());
   var currentHoliday = (holidayEl)                    ? holidayEl.checked : (protState.holiday || false);
 
   // Logistics
@@ -573,6 +574,7 @@ async function saveProtokoll() {
   if (btn) { btn.disabled = true; btn.textContent = 'Lädt...'; }
 
   // ── PUSH TO SUPABASE ──
+  var isUpdate = !!protState.editingId;
   var supabaseId = await syncProtokollToSupabase(data);
   var isSynced = !!supabaseId;
   
@@ -598,8 +600,11 @@ async function saveProtokoll() {
     incidents: data.incidents,
     feedback: data.feedback,
     signature: protState.signature || null,
-    synced: isSynced
+    synced: isSynced,
+    isUpdate: isUpdate,
+    holiday: !!(document.getElementById('prot-isholiday') || {}).checked
   };
+  entry.mailed = false; // flipped by sendMailForEntry once the mail went out
 
   if (protState.editingLocalId) {
     // Replace existing entry if editing
@@ -623,11 +628,17 @@ async function saveProtokoll() {
   localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
   
   if (btn) { btn.disabled = false; btn.textContent = 'Senden'; }
+  // Mail in the background so Senden never waits on SMTP (registered as in-flight before the history retry runs)
+  if (isSynced) sendMailForEntry(entry, true);
   clearProtForm(true); // Soft clear without reloading
   if (typeof navigateProt === 'function') navigateProt('protokoll-history');
+  // The start-page banner must not keep offering the job that was just documented
+  if (typeof loadErinnerungen === 'function') loadErinnerungen();
 }
 
-async function syncProtokollToSupabase(data) {
+// targetId: Supabase id to update (null = insert). Omitted → the protocol currently open in the form.
+async function syncProtokollToSupabase(data, targetId) {
+  var editId = (targetId === undefined) ? protState.editingId : targetId;
   if (typeof supabaseClient === 'undefined') return false;
   try {
     // 1. Resolve Project
@@ -646,7 +657,7 @@ async function syncProtokollToSupabase(data) {
     // 2. Insert or Update Protokoll
     var costNum = parseFloat(data.totalCost.replace(' €', '').replace('.', '').replace(',', '.')) || 0;
     var parsedDate = data.date;
-    if (!parsedDate || parsedDate === '—') parsedDate = new Date().toISOString().split('T')[0];
+    if (!parsedDate || parsedDate === '—') parsedDate = localDateStr();
 
     var protPayload = {
       project_id: projId,
@@ -657,7 +668,7 @@ async function syncProtokollToSupabase(data) {
       pl_id: data.plId || null,
       al_name_fallback: data.al === '—' ? null : data.al,
       pl_name_fallback: data.pl === '—' ? null : data.pl,
-      signature_text: protState.signature,
+      signature_text: (data.signature !== undefined) ? data.signature : protState.signature,
       total_cost: costNum,
       notes_damages: data.damages === 'nein' ? null : data.damages,
       notes_incidents: data.incidents === 'nein' ? null : data.incidents,
@@ -665,13 +676,13 @@ async function syncProtokollToSupabase(data) {
     };
 
     var protId = null;
-    if (protState.editingId) {
-      var { data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', protState.editingId).select('id');
+    if (editId) {
+      var { data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', editId).select('id');
       if (upErr) throw upErr;
       // RLS can silently match 0 rows instead of erroring — treat that as a failure
       if (!upData || upData.length === 0) throw new Error('Update abgelehnt – fehlende Berechtigung auf dem Server (protocols).');
-      protId = protState.editingId;
-      
+      protId = editId;
+
       // Cleanup sub-tables before re-inserting (errors here abort to prevent duplicates)
       var { error: trDelErr } = await supabaseClient.from('protocol_transports').delete().eq('protocol_id', protId);
       if (trDelErr) { console.error('Transports delete failed, aborting:', trDelErr); throw trDelErr; }
@@ -783,16 +794,22 @@ async function syncProtokollToSupabase(data) {
 async function retrySyncAllProtocols() {
   var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
   var unsynced = archive.filter(e => !e.synced);
-  if (unsynced.length === 0) return;
+  var unmailed = archive.filter(e => e.synced && e.mailed === false && e.supabaseId);
+  if (unsynced.length === 0 && unmailed.length === 0) return;
 
-  showToast(`Synchronisiere ${unsynced.length} Protokolle...`, 'info');
+  if (unsynced.length) showToast(`Synchronisiere ${unsynced.length} Protokolle...`, 'info');
   let successCount = 0;
+  const newlySynced = [];
 
   for (let entry of archive) {
     if (!entry.synced) {
-      const ok = await syncProtokollToSupabase(entry);
+      // Edits target their original row; never the protocol currently open in the form
+      const ok = await syncProtokollToSupabase(entry, entry.isUpdate ? (entry.supabaseId || null) : null);
       if (ok) {
         entry.synced = true;
+        entry.supabaseId = ok;
+        entry.mailed = false;
+        newlySynced.push(entry);
         successCount++;
       }
     }
@@ -800,11 +817,111 @@ async function retrySyncAllProtocols() {
 
   if (successCount > 0) {
     localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
-    renderProtHistory();
     showToast(`✅ ${successCount} Protokolle erfolgreich synchronisiert!`);
+  }
+  for (const entry of newlySynced) await sendMailForEntry(entry, true);
+  if (successCount > 0) renderProtHistory(); // also retries older pending mails quietly
+  else if (unmailed.length) await retryPendingMails();
+}
+
+var MAIL_RETRY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+var _mailInFlight = {};
+
+// Sends the mail for one archived entry and flips its `mailed` flag when done.
+// In-flight guard keeps the save path and the history retry from mailing the same protocol twice.
+async function sendMailForEntry(entry, notify) {
+  var sid = entry.supabaseId;
+  if (!sid || _mailInFlight[sid]) return false;
+  _mailInFlight[sid] = true;
+  try {
+    var done = await mailProtokoll(sid, entry, !!entry.isUpdate, notify);
+    if (done) markProtMailed(sid);
+    return done;
+  } finally {
+    delete _mailInFlight[sid];
   }
 }
 
+// Re-reads the archive so entries written meanwhile aren't lost; only flips the flag
+function markProtMailed(supabaseId) {
+  var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
+  var changed = false;
+  archive.forEach(function(x) {
+    if (x.supabaseId === supabaseId && x.mailed === false) { x.mailed = true; changed = true; }
+  });
+  if (changed) localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
+}
+
+// Quietly retries mails of synced protocols whose mail failed (runs on every history render).
+// Skips offline and entries older than 7 days, so fixing the mail setup never sends an old backlog.
+var _mailRetryRunning = false;
+async function retryPendingMails() {
+  if (_mailRetryRunning || navigator.onLine === false) return;
+  _mailRetryRunning = true;
+  try {
+    var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
+    var now = Date.now();
+    for (var i = 0; i < archive.length; i++) {
+      var e = archive[i];
+      if (!e.synced || e.mailed !== false || !e.supabaseId) continue;
+      if (!e.savedAt || now - new Date(e.savedAt).getTime() > MAIL_RETRY_MAX_AGE_MS) continue;
+      await sendMailForEntry(e, false);
+    }
+  } finally {
+    _mailRetryRunning = false;
+  }
+}
+
+// Above the server worst case (cold start + SMTP timeouts 10/10/15 s), else a slow success looks like a failure and gets mailed twice
+var MAIL_TIMEOUT_MS = 60000;
+var MAIL_MAX_PDF_B64 = 4900000; // just under the function's 5 MB limit
+
+// Mails the protocol (summary + PDF) to its PL via the send-protocol-mail Edge Function.
+// Returns true when nothing is left to retry; never throws. `notify` = user just pressed Senden/Sync,
+// so failures get a toast; background retries stay quiet.
+async function mailProtokoll(supabaseId, entry, isUpdate, notify) {
+  if (!supabaseId || typeof supabaseClient === 'undefined') return false;
+  var pdfBase64 = null;
+  try {
+    pdfBase64 = buildProtPdfDoc(entry).output('datauristring').split(',')[1] || null;
+    // The function rejects >5 MB with 413 forever → send the summary without attachment instead
+    if (pdfBase64 && pdfBase64.length > MAIL_MAX_PDF_B64) {
+      console.warn('Protokoll-PDF zu groß für Mail, sende ohne Anhang:', pdfBase64.length);
+      pdfBase64 = null;
+    }
+  } catch (e) {
+    console.warn('Protokoll-PDF für Mail fehlgeschlagen, sende ohne Anhang:', e);
+  }
+  try {
+    var timeout = new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, MAIL_TIMEOUT_MS); });
+    var { data: res, error } = await Promise.race([
+      supabaseClient.functions.invoke('send-protocol-mail', {
+        body: { protocol_id: supabaseId, pdf_base64: pdfBase64, is_update: !!isUpdate }
+      }),
+      timeout
+    ]);
+    if (error) throw error;
+    if (res && res.sent) {
+      showToast('📧 Protokoll an ' + (res.to_name || 'PL') + ' gesendet');
+      return true;
+    }
+    var reason = res && res.reason;
+    if (reason === 'no_pl' || reason === 'no_email') {
+      if (notify) showToast('Kein Mail: PL hat keine E-Mail hinterlegt', 'info');
+      return true;
+    }
+    if (reason === 'not_found') return true;
+    // A correction right after Senden must still reach the PL → stays pending
+    if (reason === 'throttled') return !isUpdate;
+    // Mail setup not finished / hourly cap: retry later without bothering the AL
+    if (reason === 'not_configured' || reason === 'rate_limited') return false;
+    throw new Error(reason || 'unknown');
+  } catch (e) {
+    console.error('Protokoll-Mail fehlgeschlagen:', e);
+    if (notify) showToast('Mail konnte nicht gesendet werden – wird beim nächsten Sync erneut versucht', 'danger');
+    return false;
+  }
+}
 
 // ── PROTOKOLL HISTORY ──
 async function renderProtHistory() {
@@ -819,7 +936,7 @@ async function renderProtHistory() {
     try {
       var { data: rows } = await supabaseClient
         .from('protocols')
-        .select('*, projects(name,location), al:app_users!protocols_al_id_fkey(full_name), pl:app_users!protocols_pl_id_fkey(full_name), shifts(*,app_users(full_name)), protocol_transports(*), protocol_equipments(*)')
+        .select('*, projects(name,location), al:app_users!protocols_al_id_fkey(full_name), pl:app_users!protocols_pl_id_fkey(full_name), shifts(*,app_users(full_name)), protocol_transports(*), protocol_equipments(*), worker_ratings(temp_worker_name, rating, is_star)')
         .order('date', { ascending: false })
         .limit(60);
 
@@ -858,7 +975,13 @@ async function renderProtHistory() {
                 seen[key] = true;
                 return true;
               }).map(function(s) {
+                var rKey = (s.temp_worker_name || '').trim().toLowerCase();
+                var rat = rKey ? (r.worker_ratings || []).find(function(w) {
+                  return (w.temp_worker_name || '').trim().toLowerCase() === rKey;
+                }) : null;
                 return {
+                  rating: rat ? rat.rating : null,
+                  isStar: rat ? !!rat.is_star : false,
                   shiftId: s.id || null,
                   name: (s.app_users && s.app_users.full_name) || s.temp_worker_name || '—',
                   userId: s.user_id || null,
@@ -876,14 +999,19 @@ async function renderProtHistory() {
             damages: r.notes_damages || 'nein',
             incidents: r.notes_incidents || 'nein',
             feedback: r.notes_feedback || '—',
+            holiday: !!r.is_holiday,
             synced: true
           };
           var existingIdx = archive.findIndex(function(e) { return e.supabaseId === r.id; });
           if (existingIdx !== -1) {
             // Preserve local-only fields (signature, editingLocalId) but refresh Supabase data
             fresh.signature = archive[existingIdx].signature || null;
+            // Keep a pending mail retry; older entries without the flag never get mailed retroactively
+            fresh.mailed = archive[existingIdx].mailed !== false;
+            fresh.isUpdate = !!archive[existingIdx].isUpdate;
             archive[existingIdx] = fresh;
           } else {
+            fresh.mailed = true;
             archive.push(fresh);
           }
         });
@@ -894,6 +1022,7 @@ async function renderProtHistory() {
         }
       }
     } catch(e) { console.warn('Verlauf Supabase fetch failed:', e); }
+    retryPendingMails(); // fire-and-forget
   }
 
   var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
@@ -1037,8 +1166,16 @@ async function reExportProtPDF(id) {
   if (!entry) { showToast('Nicht gefunden'); return; }
 
   showToast('Generiere PDF...');
+  buildProtPdfDoc(entry).save(protPdfFileName(entry));
+  showToast('PDF wurde gespeichert!');
+}
 
-  // Build PDF directly from archived data – no DOM, no re-archiving, no email
+function protPdfFileName(entry) {
+  return 'protokoll_' + (entry.date || '—') + '_' + (entry.event || '—').replace(/\s+/g,'_') + '.pdf';
+}
+
+// Builds the protocol PDF from an archived history entry (shared by download and mail)
+function buildProtPdfDoc(entry) {
   var data = {
     event: entry.event || '—', location: entry.location || '—',
     date: entry.date || '—', action: entry.action || '—',
@@ -1051,6 +1188,7 @@ async function reExportProtPDF(id) {
   };
   var savedProtState = protState;
   protState = { transports: data.transports, personnel: data.personnel, categories: data.categories, signature: entry.signature || null };
+  try {
 
   var doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
   if (typeof LOGO_BASE64 !== 'undefined') {
@@ -1117,7 +1255,7 @@ async function reExportProtPDF(id) {
     doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Keine Personaldaten.', ml, y); y += 8;
   } else {
     doc.setFillColor(30,30,28); doc.rect(ml,y,cw,8,'F'); doc.setTextColor(255); doc.setFontSize(8);
-    doc.text('Pos',ml+2,y+5.5); doc.text('Name',ml+15,y+5.5); doc.text('Arbeitszeit',ml+70,y+5.5); doc.text('Pause',ml+110,y+5.5); doc.text('Netto',ml+140,y+5.5);
+    doc.text('Pos',ml+2,y+5.5); doc.text('Name',ml+25,y+5.5); doc.text('Arbeitszeit',ml+72,y+5.5); doc.text('Pause',ml+100,y+5.5); doc.text('Netto',ml+118,y+5.5); doc.text('Bewertung',ml+138,y+5.5);
     doc.setTextColor(0); y += 8;
     data.personnel.forEach(function(p,i) {
       if (i%2===1){doc.setFillColor(248,248,246);doc.rect(ml,y,cw,8,'F');}
@@ -1126,7 +1264,8 @@ async function reExportProtPDF(id) {
       var netStr='—'; if(v!==null&&b!==null&&effB>v){var n=Math.max(3,(effB-v-pa)/60);netStr=n.toFixed(2)+' h';}
       var posLabel = p.pos;
       if (['AL', 'MA', 'Fahrer'].includes(p.pos)) posLabel += (p.fest ? ' fest' : ' frei');
-      doc.text(posLabel,ml+2,y+5.5); doc.text(p.name||'—',ml+25,y+5.5); doc.text(p.start+' - '+p.end,ml+80,y+5.5); doc.text(pa+' Min',ml+120,y+5.5); doc.text(netStr,ml+150,y+5.5);
+      doc.text(truncatePdf(doc,posLabel,22),ml+2,y+5.5); doc.text(truncatePdf(doc,p.name||'—',45),ml+25,y+5.5); doc.text(p.start+' - '+p.end,ml+72,y+5.5); doc.text(pa+' Min',ml+100,y+5.5); doc.text(netStr,ml+118,y+5.5);
+      if (p.pos === 'Zenjob' || p.pos === 'Rockit') doc.text(ratingPdfLabel(p.rating, p.isStar),ml+138,y+5.5);
       y+=8; if(y>270){doc.addPage();y=20;}
     }); y += 4;
   }
@@ -1137,9 +1276,38 @@ async function reExportProtPDF(id) {
   doc.setFont('helvetica','bold'); doc.text('Vorkommnisse:', ml, y); doc.setFont('helvetica','normal'); doc.text(data.incidents, ml+40, y); y += 6;
   doc.setFont('helvetica','bold'); doc.text('Feedback:', ml, y); doc.setFont('helvetica','normal'); doc.text(data.feedback, ml+40, y); y += 12;
 
-  // Costs
+  // Costs, itemized with the same rules as calcProtCosts (custom rates, holiday) so the lines add up to the total
+  if (y > 250) { doc.addPage(); y = 20; }
   doc.setDrawColor(24,95,165); doc.setLineWidth(0.5); doc.line(ml,y,ml+cw,y); y += 8;
-  doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.text('Gesamtkosten (geschätzt): ' + data.totalCost, ml, y); y += 12;
+  doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.text('Nebenkalkulation (itemisiert):', ml, y); y += 6;
+  doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(100);
+  var calcDate = (data.date && data.date !== '—') ? data.date : localDateStr();
+  data.transports.forEach(function(t) {
+    if (!t.type) return;
+    var r = calcTransportCost(t.type, calcDate);
+    doc.text('- ' + t.type + (t.driver ? ' (' + t.driver + ')' : '') + ': ' + r.toFixed(2) + ' EUR', ml + 5, y); y += 4;
+    if (y > 280) { doc.addPage(); y = 20; }
+  });
+  data.personnel.forEach(function(p) {
+    var v = timeToMins(p.start), b = timeToMins(p.end), pa = parseInt(p.pause) || 0;
+    var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
+    if (v === null || b === null || effB <= v) return;
+    var basePos = p.pos;
+    if (['AL', 'MA', 'Fahrer'].includes(p.pos)) {
+      var u = p.userId ? appUsers.find(function(x) { return x.id === p.userId; }) : null;
+      var fest = (p.fest !== undefined) ? p.fest : !!(u && u.is_fest);
+      basePos += (fest ? ' fest' : ' frei');
+    }
+    var customRate = (!p.isTemp && p.userId) ? getEffectivePersonnelRate(basePos, p.userId) : undefined;
+    calcSplitShiftCosts(basePos, calcDate, !!entry.holiday, v, effB, pa, customRate).forEach(function(c) {
+      var sub = c.hrs * c.rate;
+      doc.text('- ' + (p.name || '—') + ' (' + c.desc + '): ' + c.hrs.toFixed(2) + 'h x ' + c.rate.toFixed(2) + ' EUR = ' + sub.toFixed(2) + ' EUR', ml + 5, y); y += 4;
+      if (y > 280) { doc.addPage(); y = 20; }
+    });
+  });
+  y += 2;
+  doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.setTextColor(24,95,165);
+  doc.text('Gesamtkosten (geschätzt): ' + data.totalCost, ml, y); doc.setTextColor(0); y += 12;
 
   // Signature
   if (entry.signature) {
@@ -1151,10 +1319,9 @@ async function reExportProtPDF(id) {
     doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(120); doc.text(data.al||'Aufbauleitung', ml, y); doc.setTextColor(0);
   }
 
-  var fName = 'protokoll_' + data.date + '_' + data.event.replace(/\s+/g,'_') + '.pdf';
-  doc.save(fName);
-  showToast('PDF wurde gespeichert!');
-
-  protState = savedProtState;
+  return doc;
+  } finally {
+    protState = savedProtState;
+  }
 }
 

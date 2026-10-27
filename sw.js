@@ -1,4 +1,4 @@
-const CACHE = 'stundenzettel-v43';
+const CACHE = 'stundenzettel-v55';
 const ASSETS = ['./index.html', './manifest.json'];
 
 self.addEventListener('install', e => {
@@ -59,4 +59,29 @@ self.addEventListener('fetch', e => {
 
 self.addEventListener('message', e => {
   if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
+// ── Web Push (AL-Erinnerungen) ──
+self.addEventListener('push', e => {
+  let data = {};
+  try { data = e.data ? e.data.json() : {}; } catch (_) { data = { body: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(data.title || 'Lübbert App', {
+    body: data.body || '',
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-192.png',
+    data: { url: data.url || './index.html' }
+  }));
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || './index.html', self.registration.scope).href;
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      const win = list[0];
+      // navigate() rejects for windows this SW doesn't control (e.g. after a hard reload) → open a fresh one
+      if (win) return win.navigate(url).then(w => (w || win).focus()).catch(() => self.clients.openWindow(url));
+      return self.clients.openWindow(url);
+    })
+  );
 });

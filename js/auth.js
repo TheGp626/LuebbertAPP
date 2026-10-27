@@ -81,7 +81,7 @@ function selectAuthUser(id) {
   if (list) list.style.display = 'none';
   const pwWrapper = document.getElementById('auth-password-wrapper');
   if (pwWrapper) {
-    if (user.role === 'MA') {
+    if (isPasswordlessRole(user.role)) {
       pwWrapper.style.display = 'none';
       document.getElementById('auth-password').value = '';
     } else {
@@ -162,6 +162,8 @@ function handleSession(user) {
 
     console.log('User logged in locally:', user.full_name, 'Role:', userRole);
     enforceUI();
+    if (typeof loadErinnerungen === 'function') loadErinnerungen();
+    if (typeof handleEinsatzDeepLink === 'function') handleEinsatzDeepLink();
     // If Projektordner is already rendered, re-render with correct permissions
     if (typeof activeModule !== 'undefined' && activeModule === 'ordner' &&
         typeof renderOrdner === 'function' && typeof alleOrdner !== 'undefined') {
@@ -183,16 +185,35 @@ function handleSession(user) {
     if (nameInp) nameInp.value = '';
     const pwWrapper = document.getElementById('auth-password-wrapper');
     if (pwWrapper) pwWrapper.style.display = 'none';
+    const banner = document.getElementById('erinnerung-banner');
+    if (banner) { banner.style.display = 'none'; banner.innerHTML = ''; }
     overlay.style.display = 'flex';
   }
 }
 
+// MA and Gast log in by name only; every other role needs the Admin PIN
+function isPasswordlessRole(role) {
+  return role === 'MA' || role === 'Gast';
+}
+
+// Gast (Zenjob/Rockit guest login) may only open the Produktdatenbank and Projektordner
+var GAST_MODULES = ['produkte', 'ordner'];
+
 function enforceUI() {
+  const stundenBtn = document.getElementById('btn-select-stunden');
   const protBtn = document.getElementById('btn-select-protokoll');
   const dashBtn = document.getElementById('btn-select-dashboard');
 
+  if (stundenBtn) {
+    stundenBtn.style.display = (userRole === 'Gast') ? 'none' : 'block';
+  }
   if (protBtn) {
-    protBtn.style.display = (userRole === 'MA') ? 'none' : 'block';
+    protBtn.style.display = (userRole === 'MA' || userRole === 'Gast') ? 'none' : 'block';
+  }
+  // A module restored from before the login may be off-limits for a guest
+  if (userRole === 'Gast' && typeof activeModule !== 'undefined' && activeModule && GAST_MODULES.indexOf(activeModule) === -1 &&
+      typeof exitToMenu === 'function') {
+    exitToMenu();
   }
   if (dashBtn) {
     const isAdmin = ['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole);
@@ -234,7 +255,7 @@ async function handleAuthSubmit() {
   btn.disabled = true;
 
   // Non-MA users require Admin PIN (validated server-side via Supabase RPC)
-  if (user.role !== 'MA') {
+  if (!isPasswordlessRole(user.role)) {
     const passVal = passInput.value;
     if (!passVal) {
       errorEl.textContent = 'Bitte das Admin-Passwort eingeben.';

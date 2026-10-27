@@ -1,0 +1,173 @@
+/**
+ * AL-Erinnerung: banner with open protocols, pre-filled protocol form, Web Push registration.
+ * Open job = einsaetze row of the logged-in AL, not cancelled, date <= today, no protocol with same al_id + date.
+ */
+
+var ERINNERUNG_LOOKBACK_DAYS = 30;
+var _erinnerungOpen = []; // [{id, date, action, folderName}]
+
+async function fetchOpenEinsaetze(userId) {
+  var today = localDateStr();
+  var from = new Date(); from.setDate(from.getDate() - ERINNERUNG_LOOKBACK_DAYS);
+  var { data: rows, error } = await supabaseClient.from('einsaetze')
+    .select('id, date, action, al_id, cancelled, folder:project_folders(name)')
+    .eq('al_id', userId).eq('cancelled', false)
+    .gte('date', localDateStr(from)).lte('date', today).order('date');
+  if (error) { console.error('Erinnerungen laden:', error); return []; }
+  if (!rows || !rows.length) return [];
+  var { data: prots } = await supabaseClient.from('protocols').select('date')
+    .eq('al_id', userId).in('date', rows.map(function(r) { return r.date; }));
+  var done = {};
+  (prots || []).forEach(function(p) { done[p.date] = true; });
+  return rows.filter(function(r) { return einsatzStatus(r, !!done[r.date], today) === 'open'; })
+    .map(function(r) { return { id: r.id, date: r.date, action: r.action, folderName: (r.folder && r.folder.name) || 'Projekt' }; });
+}
+
+function isIosWithoutHomescreen() {
+  return /iPhone|iPad|iPod/.test(navigator.userAgent) && !navigator.standalone;
+}
+
+function pushSupported() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+async function loadErinnerungen() {
+  var box = document.getElementById('erinnerung-banner');
+  if (!box) return;
+  box.style.display = 'none';
+  box.innerHTML = '';
+  if (typeof currentUser === 'undefined' || !currentUser || ['MA', 'Gast'].indexOf(userRole) !== -1) return;
+  if (typeof supabaseClient === 'undefined') return;
+
+  _erinnerungOpen = await fetchOpenEinsaetze(currentUser.id);
+  var html = '';
+  if (_erinnerungOpen.length) {
+    html += '<div style="background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.5); border-radius:12px; padding:12px 14px; margin-bottom:10px;">' +
+      '<div style="font-weight:700; margin-bottom:6px;">📋 Du hast ' + _erinnerungOpen.length + ' offene' + (_erinnerungOpen.length === 1 ? 's Protokoll' : ' Protokolle') + '</div>' +
+      _erinnerungOpen.map(function(e) {
+        return '<button type="button" class="btn" style="width:100%; text-align:left; padding:8px 10px; margin-top:6px; font-size:13px;" data-einsatz="' + e.id + '">' +
+          escapeHtml(e.folderName) + ' – ' + escapeHtml(e.action) + ' am ' + shortDateDE(e.date) + ' →</button>';
+      }).join('') +
+      '</div>';
+  }
+
+  await syncPushSubscription();
+
+  // Push opt-in (only for users who can get reminders, i.e. not MA/Gast)
+  if (isIosWithoutHomescreen()) {
+    html += '<div style="font-size:12px; color:var(--text3); margin-bottom:10px;">🔔 Für Benachrichtigungen: Teilen → „Zum Home-Bildschirm“, dann die App von dort öffnen.</div>';
+  } else if (pushSupported() && Notification.permission === 'denied') {
+    html += '<div style="font-size:12px; color:var(--text3); margin-bottom:10px;">🔕 Benachrichtigungen sind für diese App blockiert. In den Browser-/Handy-Einstellungen erlauben, um Erinnerungen zu bekommen.</div>';
+  } else if (pushSupported() && !(await hasPushSubscription())) {
+    html += '<button type="button" class="btn" id="btn-enable-push" style="width:100%; padding:10px; font-size:13px; margin-bottom:10px;">🔔 Erinnerungen aufs Handy aktivieren</button>';
+  }
+
+  if (!html) return;
+  box.innerHTML = html;
+  box.style.display = 'block';
+  box.querySelectorAll('[data-einsatz]').forEach(function(b) {
+    b.addEventListener('click', function() { openProtokollForEinsatz(b.dataset.einsatz); });
+  });
+  var pushBtn = document.getElementById('btn-enable-push');
+  if (pushBtn) pushBtn.addEventListener('click', async function() {
+    var res = await enablePushReminders();
+    if (res === 'granted') { showToast('🔔 Erinnerungen aktiviert'); loadErinnerungen(); }
+    else if (res === 'denied') showToast('Benachrichtigungen wurden abgelehnt (in den Browser-Einstellungen änderbar).', 'danger');
+    else if (res === 'ios_needs_install') showToast('Bitte die App zuerst zum Home-Bildschirm hinzufügen.', 'info');
+    else showToast('Benachrichtigungen werden auf diesem Gerät nicht unterstützt.', 'danger');
+  });
+}
+
+// This device's subscription always belongs to whoever is logged in: heals a failed first save and
+// hands a shared phone over to the next AL (otherwise the old AL keeps getting the new one's pushes)
+async function syncPushSubscription() {
+  if (!pushSupported() || Notification.permission !== 'granted') return;
+  try {
+    var reg = await navigator.serviceWorker.getRegistration();
+    var sub = reg && await reg.pushManager.getSubscription();
+    if (!sub) return;
+    var j = sub.toJSON();
+    var { error } = await supabaseClient.from('push_subscriptions')
+      .upsert({ endpoint: j.endpoint, user_id: currentUser.id, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: 'endpoint' })
+      .select('endpoint');
+    if (error) console.error('Push-Abo abgleichen:', error);
+  } catch (e) {
+    console.error('Push-Abo abgleichen:', e);
+  }
+}
+
+async function hasPushSubscription() {
+  try {
+    var reg = await navigator.serviceWorker.getRegistration();
+    return !!(reg && await reg.pushManager.getSubscription());
+  } catch (e) { return false; }
+}
+
+function urlBase64ToUint8Array(b64) {
+  var pad = '='.repeat((4 - b64.length % 4) % 4);
+  var raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  var out = new Uint8Array(raw.length);
+  for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+// Asks for permission, subscribes this device and stores it for the logged-in user
+async function enablePushReminders() {
+  if (isIosWithoutHomescreen()) return 'ios_needs_install';
+  if (!pushSupported() || typeof VAPID_PUBLIC_KEY === 'undefined') return 'unsupported';
+  var perm = await Notification.requestPermission();
+  if (perm !== 'granted') return 'denied';
+  try {
+    var reg = await navigator.serviceWorker.ready;
+    var sub = await reg.pushManager.getSubscription() ||
+      await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
+    var j = sub.toJSON();
+    var { data, error } = await supabaseClient.from('push_subscriptions')
+      .upsert({ endpoint: j.endpoint, user_id: currentUser.id, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: 'endpoint' })
+      .select('endpoint');
+    if (error || !data || !data.length) throw error || new Error('Abo nicht gespeichert');
+    return 'granted';
+  } catch (e) {
+    console.error('Push-Abo fehlgeschlagen:', e);
+    return 'unsupported';
+  }
+}
+
+// Opens a fresh protocol form pre-filled from a planned job (banner click or notification tap)
+async function openProtokollForEinsatz(einsatzId) {
+  var { data: e, error } = await supabaseClient.from('einsaetze')
+    .select('id, date, action, al_id, folder:project_folders(name)').eq('id', einsatzId).maybeSingle();
+  if (error || !e) { showToast('Einsatz nicht gefunden.', 'danger'); return; }
+  var val = function(id) { return ((document.getElementById(id) || {}).value || '').trim(); };
+  var folderName = (e.folder && e.folder.name) || '';
+  if (typeof appUsers !== 'undefined' && !appUsers.length && typeof fetchAppUsers === 'function') await fetchAppUsers();
+
+  // The AL already started this very protocol → keep the draft, only fill what's missing
+  if (val('prot-event') === folderName && val('prot-date') === e.date) {
+    if (!val('prot-al')) { document.getElementById('prot-al').value = e.al_id; protState.alId = e.al_id; }
+    saveProtDraft();
+    selectMode('protokoll');
+    return;
+  }
+  var hasDraft = ['prot-event', 'prot-location', 'prot-damages', 'prot-incidents', 'prot-feedback'].some(val) || !!protState.editingId;
+  if (hasDraft && !confirm('Es gibt einen angefangenen Protokoll-Entwurf' + (val('prot-event') ? ' („' + val('prot-event') + '“)' : '') +
+      '. Verwerfen und neues Protokoll für „' + folderName + '“ beginnen?')) return;
+  clearProtForm(true);
+  document.getElementById('prot-event').value = folderName;
+  document.getElementById('prot-date').value = e.date;
+  document.getElementById('prot-action').value = e.action;
+  document.getElementById('prot-al').value = e.al_id;
+  protState.alId = e.al_id;
+  saveProtDraft();
+  if (typeof calcProtCosts === 'function') calcProtCosts();
+  selectMode('protokoll');
+}
+
+// Notification tap opens ./index.html?open=protokoll&einsatz=<id>; handled once the user is logged in
+function handleEinsatzDeepLink() {
+  var params = new URLSearchParams(location.search);
+  if (params.get('open') !== 'protokoll' || !params.get('einsatz')) return;
+  history.replaceState(null, '', location.pathname);
+  if (typeof currentUser === 'undefined' || !currentUser || ['MA', 'Gast'].indexOf(userRole) !== -1) return;
+  openProtokollForEinsatz(params.get('einsatz'));
+}

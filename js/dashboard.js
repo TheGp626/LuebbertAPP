@@ -86,6 +86,7 @@ function openEditWorker() {
   document.getElementById('edit-worker-rate-conni').value    = worker.hourly_rate_conni || '';
   document.getElementById('edit-worker-rate-internal').value = worker.hourly_rate_internal || '';
   document.getElementById('edit-worker-income-limit').value  = worker.income_limit || '';
+  document.getElementById('edit-worker-email').value         = worker.email || '';
   _editWorkerRoleRates = Array.isArray(worker.role_rates) ? JSON.parse(JSON.stringify(worker.role_rates)) : [];
   renderRoleRatesList();
   document.getElementById('edit-worker-fest').checked = !!worker.is_fest;
@@ -152,6 +153,9 @@ async function saveEditWorker() {
   const lastName  = (document.getElementById('edit-worker-lastname').value  || '').trim();
   const fullName  = (firstName + ' ' + lastName).trim();
   if (!fullName) { showToast('Bitte Namen eingeben.', 'danger'); return; }
+  const email = document.getElementById('edit-worker-email').value.trim();
+  // Gmail rejects malformed recipients → the protocol mail would be retried forever
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Bitte eine gültige E-Mail-Adresse eingeben.', 'danger'); return; }
 
   const payload = {
     full_name:          fullName,
@@ -160,6 +164,7 @@ async function saveEditWorker() {
     hourly_rate_conni:    parseFloat(document.getElementById('edit-worker-rate-conni').value)    || null,
     hourly_rate_internal: parseFloat(document.getElementById('edit-worker-rate-internal').value) || null,
     income_limit:         parseFloat(document.getElementById('edit-worker-income-limit').value)  || null,
+    email:                email || null,
     role_rates:           _editWorkerRoleRates.filter(function(r) { return r.role; }),
     is_fest:              document.getElementById('edit-worker-fest').checked,
   };
@@ -247,14 +252,15 @@ async function refreshDashboard() {
       .select(`
         id, date, action, is_holiday, total_cost,
         notes_damages, notes_incidents, notes_feedback,
-        al_name_fallback, pl_name_fallback, created_at,
+        al_name_fallback, pl_name_fallback, created_at, mailed_at,
         projects(name, location),
         al:app_users!protocols_al_id_fkey(full_name),
         pl:app_users!protocols_pl_id_fkey(full_name),
         shifts(id, user_id, temp_worker_name, position_role, start_time, end_time, pause_mins, status, shift_date, ort,
                app_users(full_name)),
         protocol_transports(*),
-        protocol_equipments(*)
+        protocol_equipments(*),
+        worker_ratings(temp_worker_name, rating, is_star)
       `)
       .order('date', { ascending: false });
 
@@ -322,7 +328,7 @@ async function loadDashboardWorkers() {
   try {
     const { data: users, error: uErr } = await supabaseClient
       .from('app_users')
-      .select('id, full_name, role, default_dept, hourly_rate_conni, hourly_rate_internal, income_limit, role_rates, is_active, is_fest')
+      .select('id, full_name, email, role, default_dept, hourly_rate_conni, hourly_rate_internal, income_limit, role_rates, is_active, is_fest')
       .eq('is_active', true)
       .order('full_name');
     if (uErr) throw uErr;
@@ -627,7 +633,7 @@ function openAddShift() {
   _shiftEditContext = 'worker';
   _shiftModalBase();
   document.getElementById('shift-edit-title').textContent = 'Schicht hinzufügen';
-  document.getElementById('shift-edit-date').value  = new Date().toISOString().slice(0, 10);
+  document.getElementById('shift-edit-date').value  = localDateStr();
   document.getElementById('shift-edit-ort').value   = '';
   document.getElementById('shift-edit-role').value  = 'MA frei';
   document.getElementById('shift-edit-start').value = '';
@@ -902,6 +908,17 @@ async function recalcAllProtocolCosts() {
 
 // ── PROTOCOL DETAILS & EXPORT ──
 
+// Zenjob/Rockit ratings are stored per protocol by worker name (shift_id is never set)
+function ratingForShift(p, s) {
+  const key = (s.temp_worker_name || '').trim().toLowerCase();
+  if (!key) return null;
+  return (p.worker_ratings || []).find(r => (r.temp_worker_name || '').trim().toLowerCase() === key) || null;
+}
+
+function isAgencyShift(s) {
+  return /^(Zenjob|Rockit)/.test(s.position_role || '');
+}
+
 function openDashDetail(id) {
   const p = dashboardProtocols.find(x => x.id === id);
   if (!p) return;
@@ -937,6 +954,12 @@ function openDashDetail(id) {
     <div>
       <div class="stat-label">Gesamtkosten (Schätzung)</div>
       <div style="font-weight:600; color:var(--accent);">${escapeHtml((p.total_cost || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 }))} €</div>
+    </div>
+    <div>
+      <div class="stat-label">Mail an PL</div>
+      ${p.mailed_at
+        ? `<div style="font-weight:600;">📧 ${escapeHtml(new Date(p.mailed_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}</div>`
+        : '<div style="color:var(--text3);">noch nicht gemailt</div>'}
     </div>
     <div>
       <div class="stat-label">Interne ID</div>
@@ -1023,8 +1046,17 @@ function openDashDetail(id) {
         }
       }
 
+      let ratingHtml = '';
+      if (isAgencyShift(s)) {
+        const r = ratingForShift(p, s);
+        ratingHtml = !r
+          ? '<div style="font-size:11px; color:var(--text3);">keine Bewertung</div>'
+          : '<div style="font-size:11px; font-weight:600; color:' + (r.rating === 'up' ? '#22c55e' : '#ef4444') + ';">'
+            + (r.rating === 'up' ? '👍 gut' : '👎 schlecht') + (r.is_star ? ' ⭐' : '') + '</div>';
+      }
+
       shiftsHtml += `<tr>
-        <td><div style="font-weight:600;">${escapeHtml(name)}</div><div style="font-size:10px; opacity:0.6;">${escapeHtml(role)}</div></td>
+        <td><div style="font-weight:600;">${escapeHtml(name)}</div><div style="font-size:10px; opacity:0.6;">${escapeHtml(role)}</div>${ratingHtml}</td>
         <td>${escapeHtml(von)} – ${escapeHtml(bis)}</td>
         <td style="font-weight:600; color:var(--accent);">${escapeHtml(netStr)}</td>
       </tr>`;
@@ -1323,7 +1355,7 @@ async function exportDashProtPDF(pId) {
   var data = {
     event: p.projects ? p.projects.name : 'Unbekannt', 
     location: p.location || (p.projects ? p.projects.location : '—'),
-    date: p.date ? p.date : new Date().toISOString().split('T')[0], 
+    date: p.date ? p.date : localDateStr(), 
     action: p.action || '—',
     al: p.al ? p.al.full_name : p.al_name_fallback || '—', 
     pl: p.pl ? p.pl.full_name : p.pl_name_fallback || '—',
@@ -1334,14 +1366,20 @@ async function exportDashProtPDF(pId) {
     transports: (p.protocol_transports || []).map(t => ({
       type: t.vehicle_type, driver: t.driver_name, punctuality: t.punctuality, delay: t.delay_mins
     })), 
-    personnel: (p.shifts || []).map(s => ({
-      pos: s.position_role, 
-      name: s.temp_worker_name || (s.app_users ? s.app_users.full_name : 'Fest'), 
-      start: (s.start_time||'').substring(0,5), 
-      end: (s.end_time||'').substring(0,5), 
-      pause: s.pause_mins, 
-      fest: true
-    })),
+    personnel: (p.shifts || []).map(s => {
+      const r = isAgencyShift(s) ? ratingForShift(p, s) : null;
+      return {
+        pos: s.position_role,
+        name: s.temp_worker_name || (s.app_users ? s.app_users.full_name : 'Fest'),
+        start: (s.start_time||'').substring(0,5),
+        end: (s.end_time||'').substring(0,5),
+        pause: s.pause_mins,
+        fest: true,
+        isAgency: isAgencyShift(s),
+        rating: r ? r.rating : null,
+        isStar: r ? !!r.is_star : false
+      };
+    }),
     categories: {}
   };
 
@@ -1415,7 +1453,7 @@ async function exportDashProtPDF(pId) {
     doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Keine Personaldaten.', ml, y); y += 8;
   } else {
     doc.setFillColor(30,30,28); doc.rect(ml,y,cw,8,'F'); doc.setTextColor(255); doc.setFontSize(8);
-    doc.text('Pos',ml+2,y+5.5); doc.text('Name',ml+15,y+5.5); doc.text('Arbeitszeit',ml+70,y+5.5); doc.text('Pause',ml+110,y+5.5); doc.text('Netto',ml+140,y+5.5);
+    doc.text('Pos',ml+2,y+5.5); doc.text('Name',ml+25,y+5.5); doc.text('Arbeitszeit',ml+72,y+5.5); doc.text('Pause',ml+100,y+5.5); doc.text('Netto',ml+118,y+5.5); doc.text('Bewertung',ml+138,y+5.5);
     doc.setTextColor(0); y += 8;
     data.personnel.forEach(function(pen,i) {
       if (i%2===1){doc.setFillColor(248,248,246);doc.rect(ml,y,cw,8,'F');}
@@ -1427,7 +1465,8 @@ async function exportDashProtPDF(pId) {
       var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
       var netStr='—'; if(v!==null&&b!==null&&effB>v){var n=(effB-v-pa)/60;netStr=n.toFixed(2)+' h';}
       var posLabel = pen.pos || 'MA';
-      doc.text(posLabel,ml+2,y+5.5); doc.text(pen.name||'—',ml+25,y+5.5); doc.text((pen.start||'—')+' - '+(pen.end||'—'),ml+80,y+5.5); doc.text(pa+' Min',ml+120,y+5.5); doc.text(netStr,ml+150,y+5.5);
+      doc.text(truncatePdf(doc,posLabel,22),ml+2,y+5.5); doc.text(truncatePdf(doc,pen.name||'—',45),ml+25,y+5.5); doc.text((pen.start||'—')+' - '+(pen.end||'—'),ml+72,y+5.5); doc.text(pa+' Min',ml+100,y+5.5); doc.text(netStr,ml+118,y+5.5);
+      if (pen.isAgency) doc.text(ratingPdfLabel(pen.rating, pen.isStar),ml+138,y+5.5);
       y+=8; if(y>270){doc.addPage();y=20;}
     }); y += 4;
   }
