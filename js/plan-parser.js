@@ -303,6 +303,30 @@ function planDiff(oldShifts, newShifts) {
   return { status: status, removed: Object.keys(oldByKey).map(function(k) { return oldByKey[k]; }) };
 }
 
+var PLAN_WHEN_LABELS = ['Teilaufbau', 'Teilabbau', 'Aufbau', 'Abbau', 'Umbau', 'Umstellen', 'Anlieferung', 'Abholung', 'Lieferung'];
+
+// "Aufbau: 8 - 9 Uhr" → { time: '08:00', end: '09:00', prefix: null, label: 'Aufbau' } for the time column.
+// The first line with a time wins; without any time only the label (if any) is returned.
+function planWhen(wann) {
+  var hm = function(h, m) { return ('0' + h).slice(-2) + ':' + (m || '00'); };
+  var labelOf = function(line) {
+    var l = line.toLowerCase();
+    for (var i = 0; i < PLAN_WHEN_LABELS.length; i++) if (l.indexOf(PLAN_WHEN_LABELS[i].toLowerCase()) === 0) return PLAN_WHEN_LABELS[i];
+    return null;
+  };
+  var re = /(?:\b(ab|bis)\s+)?(\d{1,2})(?:[.:](\d{2}))?(?:\s*-\s*(\d{1,2})(?:[.:](\d{2}))?)?\s*Uhr/i;
+  var lines = wann || [], firstLabel = null;
+  for (var i = 0; i < lines.length; i++) {
+    var label = labelOf(lines[i]);
+    if (!firstLabel) firstLabel = label;
+    var m = re.exec(lines[i]);
+    if (m && +m[2] <= 24 && (!m[4] || +m[4] <= 24)) {
+      return { time: hm(m[2], m[3]), end: m[4] ? hm(m[4], m[5]) : null, prefix: m[1] ? m[1].toLowerCase() : null, label: label };
+    }
+  }
+  return { time: null, end: null, prefix: null, label: firstLabel };
+}
+
 // "Abbau: 0.30 Uhr" → protocol action for the "Protokoll starten" prefill
 function planGuessAction(wann) {
   var t = (wann || []).join(' ');
@@ -342,5 +366,5 @@ function planShiftFromDb(r) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
     planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planShiftKey: planShiftKey,
-    planGuessAction: planGuessAction, planEventName: planEventName, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb };
+    planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb };
 }

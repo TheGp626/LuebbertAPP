@@ -82,6 +82,20 @@ test('planDiff: new, changed, unchanged, removed', () => {
   assert.deepEqual(d.removed.map(s => s.key), ['c']);
 });
 
+test('planWhen: start time and label for the time column', () => {
+  assert.deepEqual(P.planWhen(['Aufbau: 8 - 9 Uhr', 'Abbau: 12 Uhr']), { time: '08:00', end: '09:00', prefix: null, label: 'Aufbau' });
+  assert.deepEqual(P.planWhen(['Aufbau Team 1: 8 Uhr', '@Team: Material bereits vor Ort!!']), { time: '08:00', end: null, prefix: null, label: 'Aufbau' });
+  assert.deepEqual(P.planWhen(['19.30 - 21 Uhr']), { time: '19:30', end: '21:00', prefix: null, label: null });
+  assert.deepEqual(P.planWhen(['Abbau: 0.30 Uhr']), { time: '00:30', end: null, prefix: null, label: 'Abbau' });
+  assert.deepEqual(P.planWhen(['Aufbau Deko: bis 11 Uhr']), { time: '11:00', end: null, prefix: 'bis', label: 'Aufbau' });
+  assert.deepEqual(P.planWhen(['Abbau: ab 17 Uhr']), { time: '17:00', end: null, prefix: 'ab', label: 'Abbau' });
+  assert.deepEqual(P.planWhen(['Umbau: 16 - 19 Uhr', 'Leergut hinter Vorhang']), { time: '16:00', end: '19:00', prefix: null, label: 'Umbau' });
+  assert.deepEqual(P.planWhen(['Aufbau Barhocker & Deko : 10 Uhr']), { time: '10:00', end: null, prefix: null, label: 'Aufbau' });
+  assert.deepEqual(P.planWhen(['KW 45-46']), { time: null, end: null, prefix: null, label: null });
+  assert.deepEqual(P.planWhen(['Aufbau: nach Aufbau gedatec']), { time: null, end: null, prefix: null, label: 'Aufbau' });
+  assert.deepEqual(P.planWhen([]), { time: null, end: null, prefix: null, label: null });
+});
+
 test('planGuessAction and planEventName', () => {
   assert.equal(P.planGuessAction(['Aufbau: 9 - 14 Uhr', 'Abbau: 0.30 Uhr']), 'Aufbau');
   assert.equal(P.planGuessAction(['Abbau: 8 - 11 Uhr']), 'Abbau');

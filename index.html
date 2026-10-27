@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=10">
+  <link rel="stylesheet" href="css/style.css?v=11">
 </head>
 
 <body>
@@ -488,31 +488,35 @@
     <!-- ══════════ PROJEKTORDNER PAGE ══════════ -->
     <!-- ══════════ WOCHENPLAN PAGE ══════════ -->
     <div class="page" id="page-wochenplan" style="overflow-y:auto; -webkit-overflow-scrolling:touch;">
-      <div class="dash-container" style="max-width:720px; width:100%; box-sizing:border-box;">
+      <div class="dash-container wp-wrap">
         <div id="wp-main">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:12px; flex-wrap:wrap;">
-            <h2 style="margin:0; font-size:20px;">Wochenplan</h2>
-            <button id="wp-upload-btn" class="btn primary" style="width:auto; padding:10px 16px; display:none;" onclick="wpPickFile()">📄 Plan hochladen</button>
+          <div class="wp-titlebar">
+            <h2>Wochenplan</h2>
+            <button id="wp-upload-btn" class="btn wp-upload" style="display:none;" onclick="wpPickFile()">
+              <svg class="wp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V5M7 10l5-5 5 5M5 19h14"/></svg> Plan hochladen</button>
             <input type="file" id="wp-file" accept="application/pdf,.pdf" style="display:none;" onchange="wpFileChosen(this)">
           </div>
           <div id="wp-push-hint"></div>
-          <div class="chips" style="margin-bottom:12px;">
-            <div class="chip active" id="wp-tab-mine" onclick="wpSetView('mine')">Meine Schichten</div>
-            <div class="chip" id="wp-tab-all" onclick="wpSetView('all')">Ganze Woche</div>
-          </div>
-          <div id="wp-week-nav" style="display:none; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;">
-            <button id="wp-prev" class="btn" style="flex:0 0 52px; width:52px; padding:6px 0;" onclick="wpStepWeek(-1)">‹</button>
-            <div id="wp-week-label" style="font-weight:700; text-align:center;"></div>
-            <button id="wp-next" class="btn" style="flex:0 0 52px; width:52px; padding:6px 0;" onclick="wpStepWeek(1)">›</button>
+          <div class="wp-sticky" id="wp-sticky">
+            <div class="wp-seg" role="tablist">
+              <button type="button" class="active" id="wp-tab-mine" role="tab" aria-selected="true" onclick="wpSetView('mine')">Meine Schichten</button>
+              <button type="button" id="wp-tab-all" role="tab" aria-selected="false" onclick="wpSetView('all')">Ganze Woche</button>
+            </div>
+            <div id="wp-week-nav" class="wp-weeknav" style="display:none;">
+              <button type="button" id="wp-prev" aria-label="Vorige Woche" onclick="wpStepWeek(-1)"><svg class="wp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6"/></svg></button>
+              <div id="wp-week-label"></div>
+              <button type="button" id="wp-next" aria-label="Nächste Woche" onclick="wpStepWeek(1)"><svg class="wp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6l6 6-6 6"/></svg></button>
+            </div>
+            <div id="wp-days" class="wp-days" style="display:none;"></div>
           </div>
           <div id="wp-content"></div>
         </div>
         <div id="wp-import" style="display:none;">
-          <h2 style="margin:0 0 14px; font-size:20px;">Plan prüfen</h2>
+          <div class="wp-titlebar"><h2>Plan prüfen</h2></div>
           <div id="wp-import-body"></div>
-          <div style="display:flex; gap:10px; position:sticky; bottom:0; padding:12px 0; background:var(--bg);">
-            <button class="btn" style="flex:1;" onclick="wpCancelImport()">Abbrechen</button>
-            <button id="wp-save-btn" class="btn primary" style="flex:2;" onclick="wpSaveImport()">Übernehmen</button>
+          <div class="wp-actions">
+            <button class="btn" onclick="wpCancelImport()">Abbrechen</button>
+            <button id="wp-save-btn" class="btn primary" onclick="wpSaveImport()">Übernehmen</button>
           </div>
         </div>
       </div>
@@ -971,8 +975,8 @@
   <script src="js/protokoll.js?v=20"></script>
   <script src="js/erinnerung.js?v=4"></script>
   <script src="js/plan-pdf.js?v=1"></script>
-  <script src="js/plan-parser.js?v=1"></script>
-  <script src="js/wochenplan.js?v=1"></script>
+  <script src="js/plan-parser.js?v=2"></script>
+  <script src="js/wochenplan.js?v=2"></script>
   <script src="js/dashboard.js?v=14"></script>
   <script src="js/produkte.js?v=10"></script>
   <script src="js/ordner.js?v=13"></script>
