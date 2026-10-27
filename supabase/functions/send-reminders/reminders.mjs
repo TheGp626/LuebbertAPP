@@ -1,4 +1,5 @@
 // Pure reminder logic for send-reminders (no Deno/Node APIs → testable with `node --test`)
+import { planGuessAction } from '../_shared/plan-time.mjs';
 
 const FOOTER = 'Automatisch gesendet von der Lübbert App';
 const PUSH_DAYS_MAX = 5;   // day 1–5 after the job: push to the AL
@@ -65,6 +66,48 @@ export function groupPushes(items) {
       url: `./index.html?open=protokoll&einsatz=${first.einsatz.id}`,
       einsatz_ids: list.map(it => it.einsatz.id),
     };
+  });
+}
+
+// ── Plan jobs (Wochenplan → reminders): one job per AL + date ──
+
+// planRows: [{al_id, date, venue, title, wann (text), ap_user_id}] from plan AL assignments.
+// A non-cancelled folder job on the same AL + date wins (it has its own PL and log).
+export function mergePlanJobs(folderJobs, planRows) {
+  const taken = new Set((folderJobs || []).filter(e => !e.cancelled).map(e => `${e.al_id}|${e.date}`));
+  const byKey = new Map();
+  for (const r of planRows || []) {
+    const key = `${r.al_id}|${r.date}`;
+    if (taken.has(key)) continue;
+    if (!byKey.has(key)) byKey.set(key, { source: 'plan', al_id: r.al_id, date: r.date, cancelled: false, venues: [], titles: [], wann: [], pl_ids: [] });
+    const j = byKey.get(key);
+    if (r.venue && !j.venues.includes(r.venue)) j.venues.push(r.venue);
+    if (r.title) j.titles.push(r.title);
+    if (r.wann) j.wann.push(...String(r.wann).split('\n'));
+    if (r.ap_user_id && !j.pl_ids.includes(r.ap_user_id)) j.pl_ids.push(r.ap_user_id);
+  }
+  return [...byKey.values()];
+}
+
+export function planJobVenue(job) {
+  return job.venues.join(' / ') || 'Einsatz';
+}
+
+// One push per AL; the tap opens the protocol for the oldest date (date link survives plan re-uploads)
+export function groupPlanPushes(jobs) {
+  const byAl = new Map();
+  for (const j of jobs) {
+    if (!byAl.has(j.al_id)) byAl.set(j.al_id, []);
+    byAl.get(j.al_id).push(j);
+  }
+  return [...byAl.entries()].map(([al_id, list]) => {
+    list.sort((a, b) => a.date.localeCompare(b.date));
+    const first = list[0];
+    const body = list.length === 1
+      ? `${planJobVenue(first)} – ${planGuessAction(first.wann)} am ${shortDate(first.date)}`
+      : `${list.length} offene Protokolle: ` + list.map(j => `${planJobVenue(j)} (${shortDate(j.date)})`).join(', ');
+    return { al_id, title: 'Protokoll fehlt', body, url: `./index.html?open=protokoll&datum=${first.date}`,
+      keys: list.map(j => ({ al_id: j.al_id, date: j.date })) };
   });
 }
 
