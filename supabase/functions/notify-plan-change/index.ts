@@ -4,6 +4,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import webpush from 'npm:web-push@3.6.7';
 import { buildPlanPushes } from './notify.mjs';
+import { loadSettings } from '../_shared/settings.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -35,13 +36,17 @@ Deno.serve(async (req) => {
     return json({ error: 'db_error' }, 500);
   }
   if (!week) return json({ skipped: 'not_found' });
-  if (week.notified_version >= week.version) return json({ skipped: 'already_notified' });
+
+  // Admin switch: off → nothing is sent and the version stays unclaimed
+  const settings = await loadSettings(db);
+  if (!input.dry_run && !settings.plan_change_push_enabled) return json({ skipped: 'disabled' });
+  if (!input.dry_run && week.notified_version >= week.version) return json({ skipped: 'already_notified' });
 
   const { data: shifts, error: sErr } = await db.from('plan_shifts')
     .select('date, venue, change_status, plan_assignments(user_id)').eq('week_id', week.id);
   if (sErr) { console.error('notify-plan-change: load shifts failed', sErr); return json({ error: 'db_error' }, 500); }
   const pushes = buildPlanPushes(week, shifts || [], berlinToday());
-  if (input.dry_run) return json({ dry_run: true, pushes });
+  if (input.dry_run) return json({ dry_run: true, enabled: settings.plan_change_push_enabled, pushes });
 
   try {
     webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT') || 'mailto:noreply@example.com',
