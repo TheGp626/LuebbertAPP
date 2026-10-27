@@ -3,6 +3,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { buildSubject, buildBody, attachmentName, safePdfBase64 } from './mail.mjs';
+import { loadSettings } from '../_shared/settings.ts';
+import { chooseRecipient } from '../_shared/recipient.mjs';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -49,6 +51,10 @@ Deno.serve(async (req) => {
   }
   if (!p) return json({ sent: false, reason: 'not_found' });
 
+  // Admin switches (Office Dashboard → Einstellungen); a failed read keeps today's behaviour
+  const settings = await loadSettings(db);
+  if (!settings.protocol_mail_enabled) return json({ sent: false, reason: 'disabled' });
+
   if (p.mailed_at && Date.now() - new Date(p.mailed_at).getTime() < THROTTLE_MS) {
     return json({ sent: false, reason: 'throttled' });
   }
@@ -68,12 +74,11 @@ Deno.serve(async (req) => {
   }
 
   const plName = (p.pl && p.pl.full_name) || p.pl_name_fallback || 'PL';
-  const plEmail = (p.pl && (p.pl.email || '').trim()) || '';
-  if (!testRecipient) {
-    if (!p.pl_id) return json({ sent: false, reason: 'no_pl' });
-    if (!plEmail) return json({ sent: false, reason: 'no_email', to_name: plName });
-  }
-  const to = testRecipient || plEmail;
+  const rcpt = chooseRecipient({ mailEnabled: true, testMode: settings.mail_test_mode, testRecipient,
+    plEmail: (p.pl && p.pl.email) || '', plId: p.pl_id });
+  if (rcpt.reason === 'not_configured') console.error('send-protocol-mail: test mode on but TEST_RECIPIENT not set, mail held back');
+  if (rcpt.reason) return json({ sent: false, reason: rcpt.reason, ...(rcpt.reason === 'no_email' ? { to_name: plName } : {}) });
+  const to = rcpt.to!;
 
   // Claim the send slot atomically so two concurrent calls (save + retry) can't both send
   const cutoff = new Date(Date.now() - THROTTLE_MS).toISOString();
@@ -94,7 +99,7 @@ Deno.serve(async (req) => {
   try {
     await sendGmail({
       to,
-      subject: buildSubject(p, !!is_update, testRecipient ? plName : undefined),
+      subject: buildSubject(p, !!is_update, rcpt.test ? plName : undefined),
       text,
       html,
       attachments: pdf ? [{ filename: attachmentName(p), content: pdf, encoding: 'base64', contentType: 'application/pdf' }] : [],

@@ -927,6 +927,11 @@ async function mailProtokoll(supabaseId, entry, isUpdate, notify) {
       return true;
     }
     if (reason === 'not_found') return true;
+    // Switched off in the admin settings → nothing to retry
+    if (reason === 'disabled') {
+      if (notify) showToast('Protokoll-Mails sind ausgeschaltet', 'info');
+      return true;
+    }
     // A correction right after Senden must still reach the PL → stays pending and is retried once the
     // server's 60 s duplicate guard has passed (not only on the next history visit)
     if (reason === 'throttled') {
