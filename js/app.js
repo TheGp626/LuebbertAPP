@@ -69,7 +69,10 @@ function selectMode(m) {
   }
 
   activeModule = m;
-  localStorage.setItem('luebbert_mode', m);
+  // The test build at /experimental/ shares localStorage with the live app, which doesn't know
+  // the Wochenplan module → never hand it over as the module to restore
+  if (window.IS_TEST_BUILD && m === 'wochenplan') localStorage.removeItem('luebbert_mode');
+  else localStorage.setItem('luebbert_mode', m);
   
   // Hide startup
   var startup = document.getElementById('page-startup');
