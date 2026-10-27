@@ -119,6 +119,12 @@ test('planShiftRow → planShiftFromDb round trip keeps planDiff stable', () => 
   assert.deepEqual(P.planDiff([back], [s]).status, [null]);
 });
 
+test('planShiftRow stores the resolved PL (ap_user_id)', () => {
+  const s = { date: '2026-11-03', sort: 0, key: 'k', venue: 'Messe', location: [], title: 'T', details: [], wann: [], ap: 'Inge', notes: [], color: null, open: [], people: [] };
+  assert.equal(P.planShiftRow(Object.assign({ apUserId: 'u9' }, s), 'w', null).ap_user_id, 'u9');
+  assert.equal(P.planShiftRow(s, 'w', null).ap_user_id, null);
+});
+
 const fixture = name => { const f = `${__dirname}/../_fixtures/${name}.json`; return fs.existsSync(f) ? require(f) : null; };
 
 for (const [name, kw, start, end, minShifts] of [

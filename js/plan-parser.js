@@ -347,7 +347,7 @@ function planShiftRow(s, weekId, status) {
   return {
     week_id: weekId, date: s.date, sort: s.sort, key: s.key, venue: s.venue || null,
     location: s.location.join('\n') || null, title: s.title || null, details: s.details.join('\n') || null,
-    wann: s.wann.join('\n') || null, ap: s.ap || null, notes: s.notes.join('\n') || null,
+    wann: s.wann.join('\n') || null, ap: s.ap || null, ap_user_id: s.apUserId || null, notes: s.notes.join('\n') || null,
     color: s.color || null, open_slots: s.open, change_status: status || null
   };
 }
