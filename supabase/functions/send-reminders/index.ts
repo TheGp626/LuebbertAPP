@@ -2,10 +2,10 @@
 // Day 1–5 after the job → Web Push to the AL; from day 6 one mail to the PL (retried until day 10).
 // Jobs come from project folders (einsaetze) and, when switched on, from the Wochenplan (AL + date).
 // Cron runs several times in the 9:00 hour; reminder_log / plan_reminder_log make later runs no-ops and retry failures.
-// Body: { force?, only_user_id?, dry_run? (list only, send/log nothing), plan_override? (dry runs: treat plan reminders as on) }
+// Body: { mode? ("evening" → evening push), force?, only_user_id?, dry_run? (list only, send/log nothing), plan_override? (daily dry runs: treat plan reminders as on) }
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import webpush from 'npm:web-push@3.6.7';
-import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, LOOKBACK_DAYS } from './reminders.mjs';
+import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, LOOKBACK_DAYS } from './reminders.mjs';
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { loadSettings } from '../_shared/settings.ts';
 import { chooseRecipient } from '../_shared/recipient.mjs';
@@ -238,6 +238,59 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
   return json({ pushed, mailed, removed_subscriptions: removed, ...((folderPushes.length || planPushes.length) && !vapid ? { push_skipped: 'vapid_not_configured' } : {}) });
 }
 
+// Evening push (cron 'send-evening-push', body {"mode":"evening"}): one message per AL about tomorrow.
+// Runs every 15 min in the afternoon/evening; sends once the Berlin hour equals evening_push_hour, at most once per AL per evening.
+async function runEvening(db: Db, input: Input, settings: Record<string, unknown>, now: Date) {
+  const dry = !!input.dry_run;
+  if (!settings.evening_push_enabled && !dry) return json({ skipped: 'disabled' });
+  if (!input.force && berlinHour(now) !== settings.evening_push_hour) return json({ skipped: 'not_time' });
+  const today = berlinDate(now), tomorrow = shiftDate(today, 1);
+
+  let pq = db.from('plan_assignments')
+    .select('user_id, shift:plan_shifts!inner(date, sort, venue, title, wann, ap, open_slots, plan_assignments(name, role, user_id))')
+    .eq('role', 'AL').not('user_id', 'is', null).eq('shift.date', tomorrow);
+  if (input.only_user_id) pq = pq.eq('user_id', input.only_user_id);
+  const { data: rows, error: rErr } = await pq;
+  if (rErr) { console.error('send-reminders: evening plan load failed', rErr); return json({ error: 'db_error' }, 500); }
+  let fq = db.from('einsaetze').select('al_id, date, action, folder:project_folders(name)').eq('cancelled', false).eq('date', tomorrow);
+  if (input.only_user_id) fq = fq.eq('al_id', input.only_user_id);
+  const { data: folder, error: fErr } = await fq;
+  if (fErr) { console.error('send-reminders: evening folder load failed', fErr); return json({ error: 'db_error' }, 500); }
+
+  const agency = ['Zenjob', 'ROCKiT'];
+  const items = [
+    ...(rows || []).sort((a: Db, b: Db) => a.shift.sort - b.shift.sort).map((r: Db) => ({
+      al_id: r.user_id, date: tomorrow, source: 'plan', venue: r.shift.venue || 'Einsatz', title: r.shift.title || '',
+      wann: r.shift.wann ? String(r.shift.wann).split('\n') : [],
+      team: (r.shift.plan_assignments || []).filter((a: Db) => a.user_id !== r.user_id && agency.indexOf(a.role) === -1).map((a: Db) => String(a.name).split(' ')[0]),
+      open: r.shift.open_slots || [], pl: r.shift.ap || null,
+    })),
+    ...(folder || []).map((e: Db) => ({ al_id: e.al_id, date: tomorrow, source: 'folder', folderName: e.folder?.name || 'Projekt', action: e.action })),
+  ];
+  if (!items.length) return json({ pushed: 0, ...(dry ? { dry_run: true, pushes: [] } : {}) });
+
+  const { data: logged, error: lErr } = await db.from('plan_reminder_log').select('al_id')
+    .in('al_id', [...new Set(items.map(i => i.al_id))]).eq('date', tomorrow).eq('day', today).eq('kind', 'evening');
+  if (lErr) { console.error('send-reminders: evening log read failed', lErr); return json({ error: 'db_error' }, 500); }
+  const done = new Set((logged || []).map((l: Db) => l.al_id));
+  const pushes = buildEveningPushes(items.filter(i => !done.has(i.al_id)));
+  if (dry) return json({ dry_run: true, enabled: settings.evening_push_enabled, hour: settings.evening_push_hour, tomorrow, pushes });
+  if (!pushes.length) return json({ pushed: 0 });
+  if (!vapidReady()) return json({ pushed: 0, push_skipped: 'vapid_not_configured' });
+
+  let pushed = 0, removed = 0;
+  for (const p of pushes) {
+    const r = await pushTo(db, p.al_id, p);
+    pushed += r.ok; removed += r.removed;
+    if (r.ok > 0 || r.failed === 0) {
+      const { error: wErr } = await db.from('plan_reminder_log')
+        .upsert({ al_id: p.al_id, date: tomorrow, day: today, kind: 'evening' }, { ignoreDuplicates: true });
+      if (wErr) console.error('send-reminders: evening log failed', wErr);
+    }
+  }
+  return json({ pushed, users: pushes.length, removed_subscriptions: removed });
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
@@ -246,5 +299,6 @@ Deno.serve(async (req) => {
 
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const settings = await loadSettings(db);
-  return runDaily(db, input, settings, new Date());
+  const now = new Date();
+  return input.mode === 'evening' ? runEvening(db, input, settings, now) : runDaily(db, input, settings, now);
 });

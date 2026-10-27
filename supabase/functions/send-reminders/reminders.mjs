@@ -1,5 +1,5 @@
 // Pure reminder logic for send-reminders (no Deno/Node APIs → testable with `node --test`)
-import { planGuessAction } from '../_shared/plan-time.mjs';
+import { planGuessAction, planWhen } from '../_shared/plan-time.mjs';
 
 const FOOTER = 'Automatisch gesendet von der Lübbert App';
 const PUSH_DAYS_MAX = 5;   // day 1–5 after the job: push to the AL
@@ -21,6 +21,10 @@ export function berlinDate(now) {
 
 export function isBerlinNineAm(now) {
   return berlinParts(now).hour === 9;
+}
+
+export function berlinHour(now) {
+  return berlinParts(now).hour;
 }
 
 // Whole calendar days between two YYYY-MM-DD dates (date-only math, DST-safe)
@@ -117,6 +121,45 @@ export function groupPlanPushes(jobs) {
     return { al_id, title: 'Protokoll fehlt', body, url: `./index.html?open=protokoll&datum=${first.date}`,
       keys: list.map(j => ({ al_id: j.al_id, date: j.date })) };
   });
+}
+
+// ── Evening push: one message per AL about tomorrow ──
+// items: {al_id, date, source:'plan', venue, title, wann[], team[], open[{count,role}], pl}
+//      | {al_id, date, source:'folder', folderName, action}
+// Plan details win: a folder job is only used for an AL without plan jobs tomorrow.
+export function buildEveningPushes(items) {
+  const byAl = new Map();
+  for (const it of items) {
+    if (!byAl.has(it.al_id)) byAl.set(it.al_id, []);
+    byAl.get(it.al_id).push(it);
+  }
+  const out = [];
+  for (const [al_id, all] of byAl) {
+    const plan = all.filter(i => i.source === 'plan');
+    const list = plan.length ? plan : all;
+    if (!plan.length) {
+      const f = list[0];
+      out.push({ al_id, title: list.length === 1 ? `Morgen: ${f.folderName} – ${f.action}` : `Morgen ${list.length} Einsätze`,
+        body: list.length === 1 ? '' : list.map(i => i.folderName).join(' · '), url: './index.html' });
+      continue;
+    }
+    const withTime = list.map(i => ({ i, w: planWhen(i.wann || []) }))
+      .sort((a, b) => (a.w.time ? 0 : 1) - (b.w.time ? 0 : 1) || (a.w.time || '').localeCompare(b.w.time || ''));
+    if (withTime.length > 1) {
+      // Several rooms of one event at the same time read as one entry
+      const entries = [...new Set(withTime.map(({ i, w }) => (w.time ? w.time + ' ' : '') + i.venue))];
+      out.push({ al_id, title: `Morgen ${withTime.length} Einsätze`, body: entries.join(' · '), url: './index.html?open=wochenplan' });
+      continue;
+    }
+    const { i, w } = withTime[0];
+    const title = `Morgen: ${i.venue}` + (i.title && i.title !== i.venue ? ` · ${i.title}` : '');
+    const time = w.time ? [w.time, w.label].filter(Boolean).join(' ') : '';
+    const missing = (i.open || []).map(o => `${o.count} ${o.role} ${o.count === 1 ? 'fehlt' : 'fehlen'}`);
+    const team = [(i.team || []).slice(0, 3).join(', '), ...missing].filter(Boolean).join(', ');
+    const body = [time, team, i.pl ? `PL ${i.pl}` : ''].filter(Boolean).join(' · ');
+    out.push({ al_id, title, body, url: './index.html?open=wochenplan' });
+  }
+  return out;
 }
 
 // Day-6 mail to one PL listing all of their overdue jobs

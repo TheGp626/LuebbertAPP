@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { berlinDate, isBerlinNineAm, daysSince, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planWindowStart } from './reminders.mjs';
+import { berlinDate, isBerlinNineAm, daysSince, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planWindowStart, buildEveningPushes, berlinHour } from './reminders.mjs';
 
 // ── Plan jobs (Wochenplan → reminders) ──
 const row = (o) => Object.assign({ al_id: 'A', date: '2026-10-26', venue: 'Estrel', title: 'CH I', wann: 'Aufbau: 8 Uhr', ap_user_id: 'P1' }, o);
@@ -114,4 +114,51 @@ test('pl_mail is retried on later days until it went out once', () => {
   assert.equal(classify({ date: '2026-10-16', cancelled: false }, false, t, false), 'pl_mail'); // day 10, last chance
   assert.equal(classify({ date: '2026-10-15', cancelled: false }, false, t, false), 'none');    // day 11: give up
   assert.equal(classify({ date: '2026-10-19', cancelled: false }, false, t, true), 'none');     // already mailed
+});
+
+// ── Evening push (ALs, the evening before) ──
+const ev = (o) => Object.assign({ al_id: 'A', date: '2026-11-04', source: 'plan', venue: 'VBKI', title: 'Apollo Saal',
+  wann: ['Aufbau: 10 Uhr'], team: ['Arina'], open: [{ count: 3, role: 'MA' }], pl: 'Maike' }, o);
+
+test('evening: one plan job → place, time, team, missing people, PL', () => {
+  assert.deepEqual(buildEveningPushes([ev({})]), [{ al_id: 'A', title: 'Morgen: VBKI · Apollo Saal',
+    body: '10:00 Aufbau · Arina, 3 MA fehlen · PL Maike', url: './index.html?open=wochenplan' }]);
+});
+
+test('evening: several jobs sorted by time, jobs without time last', () => {
+  const [p] = buildEveningPushes([ev({ venue: 'Messe Berlin', wann: ['Aufbau: 16 Uhr'] }), ev({ venue: 'Ohne Zeit', wann: ['tagsüber'] }), ev({ venue: 'Estrel', wann: ['8 Uhr'] })]);
+  assert.equal(p.title, 'Morgen 3 Einsätze');
+  assert.equal(p.body, '08:00 Estrel · 16:00 Messe Berlin · Ohne Zeit');
+});
+
+test('evening: folder job only', () => {
+  assert.deepEqual(buildEveningPushes([{ al_id: 'B', date: '2026-11-04', source: 'folder', folderName: 'Capital Catering', action: 'Aufbau' }]),
+    [{ al_id: 'B', title: 'Morgen: Capital Catering – Aufbau', body: '', url: './index.html' }]);
+});
+
+test('evening: unknown parts are left out without empty separators', () => {
+  const [p] = buildEveningPushes([ev({ title: '', wann: [], team: [], open: [], pl: null })]);
+  assert.equal(p.title, 'Morgen: VBKI');
+  assert.equal(p.body, '');
+  const [q] = buildEveningPushes([ev({ wann: [], team: [], open: [{ count: 1, role: 'AL' }], pl: null })]);
+  assert.equal(q.body, '1 AL fehlt');
+});
+
+test('evening: one push per AL; plan details win over a folder job of the same AL', () => {
+  const pushes = buildEveningPushes([ev({}), ev({ venue: 'Estrel', title: 'CH I', wann: ['Abbau: 22 Uhr'] }),
+    { al_id: 'A', date: '2026-11-04', source: 'folder', folderName: 'Ordner', action: 'Aufbau' }, ev({ al_id: 'C' })]);
+  assert.equal(pushes.length, 2);
+  assert.equal(pushes.find(p => p.al_id === 'A').title, 'Morgen 2 Einsätze');
+});
+
+test('berlinHour in summer and winter', () => {
+  assert.equal(berlinHour(new Date('2026-07-01T16:00:00Z')), 18);
+  assert.equal(berlinHour(new Date('2026-12-01T17:00:00Z')), 18);
+});
+
+test('evening: same place at the same time is listed once (several rooms of one event)', () => {
+  const [p] = buildEveningPushes([ev({ venue: 'Estrel', title: 'CH I', wann: ['Aufbau: 16 Uhr'] }), ev({ venue: 'Estrel', title: 'CH II', wann: ['Aufbau: 16 Uhr'] }),
+    ev({ venue: 'Capital Catering', wann: ['Abbau: 22.30 Uhr'] })]);
+  assert.equal(p.title, 'Morgen 3 Einsätze');
+  assert.equal(p.body, '16:00 Estrel · 22:30 Capital Catering');
 });
