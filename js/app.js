@@ -9,7 +9,16 @@ var ICONS = { 'auto': 'Auto', 'light': 'Hell', 'dark': 'Dunkel' };
 var currentTheme = localStorage.getItem('theme') || 'auto';
 var sigModalState = { key: null, drawing: false, last: null, hasInk: false };
 var hourlyWage = parseFloat(localStorage.getItem('stundenzettel_wage')) || 0;
-var billingCutoff = parseInt(localStorage.getItem('stundenzettel_cutoff')) || 20;
+// Central admin setting (js/settings.js), cached for offline starts; the old per-device value no longer counts
+var billingCutoff = (typeof appSettingsFromCache === 'function') ? appSettingsFromCache().billing_cutoff : 20;
+
+// Called by loadAppSettings() once fresh settings arrived
+function onAppSettingsLoaded() {
+  var c = appSetting('billing_cutoff');
+  if (c === billingCutoff) return;
+  billingCutoff = c;
+  if (typeof renderHistory === 'function' && document.getElementById('history-list')) renderHistory(true);
+}
 var DEPT_DEFAULTS = ["AL frei", "MA frei", "Fahrer frei", "Floristik", "Lager", "Stoffe", "Tischlerei"];
 var DEPT_OLD_STYLE = ["AL (Aufbauleitung)", "MA für Auf-/ Abbau"];
 var DEPT_LABELS = {
@@ -399,9 +408,9 @@ function saveSigModal() {
 
 // ── SETTINGS ──
 function openSettingsModal() {
-  var m = document.getElementById('settings-modal'), w = document.getElementById('inp-wage'), c = document.getElementById('inp-cutoff');
-  if (w) w.value = hourlyWage > 0 ? hourlyWage : ''; 
-  if (c) c.value = billingCutoff;
+  var m = document.getElementById('settings-modal'), w = document.getElementById('inp-wage'), c = document.getElementById('inp-cutoff-info');
+  if (w) w.value = hourlyWage > 0 ? hourlyWage : '';
+  if (c) c.textContent = billingCutoff + '. des Monats (zentral eingestellt)';
   renderSettingsDepts(); 
   if (m) m.classList.add('open');
 }
@@ -412,14 +421,12 @@ function closeSettingsModal() {
 }
 
 function saveSettingsModal() {
-  var wEl = document.getElementById('inp-wage'), cEl = document.getElementById('inp-cutoff');
-  var w = wEl ? parseFloat(wEl.value) : NaN, c = cEl ? parseInt(cEl.value) : NaN;
-  
-  if (!isNaN(w) && w > 0) { hourlyWage = w; localStorage.setItem('stundenzettel_wage', w); } 
+  var wEl = document.getElementById('inp-wage');
+  var w = wEl ? parseFloat(wEl.value) : NaN;
+
+  if (!isNaN(w) && w > 0) { hourlyWage = w; localStorage.setItem('stundenzettel_wage', w); }
   else { hourlyWage = 0; localStorage.removeItem('stundenzettel_wage'); }
-  
-  if (!isNaN(c) && c >= 1 && c <= 31) { billingCutoff = c; localStorage.setItem('stundenzettel_cutoff', c); }
-  else { billingCutoff = 20; localStorage.removeItem('stundenzettel_cutoff'); }
+  // The billing cut-off is set centrally (Office Dashboard → Einstellungen)
 
   // Save per-dept wages
   departments.forEach(function(d) {

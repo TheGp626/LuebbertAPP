@@ -162,6 +162,7 @@ function handleSession(user) {
 
     console.log('User logged in locally:', user.full_name, 'Role:', userRole);
     enforceUI();
+    if (typeof loadAppSettings === 'function') loadAppSettings();
     if (typeof loadErinnerungen === 'function') loadErinnerungen();
     if (typeof handleEinsatzDeepLink === 'function') handleEinsatzDeepLink();
     if (typeof handleWochenplanDeepLink === 'function') handleWochenplanDeepLink();
@@ -223,6 +224,12 @@ function enforceUI() {
   if (dashBtn) {
     const isAdmin = ['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole);
     dashBtn.style.display = isAdmin ? 'block' : 'none';
+  }
+  // Settings tab only for the Admin role (saving additionally needs the admin password)
+  const setTab = document.getElementById('dash-tab-settings');
+  if (setTab) {
+    setTab.style.display = userRole === 'Admin' ? '' : 'none';
+    if (userRole !== 'Admin' && setTab.classList.contains('primary') && typeof switchDashTab === 'function') switchDashTab('prot');
   }
 }
 
