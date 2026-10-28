@@ -35,3 +35,17 @@ test('update: only changed and removed shifts, past days skipped', () => {
 test('nothing changed → nobody', () => {
   assert.deepEqual(buildPlanPushes({ kw: 45, version: 3, removed: [] }, [shifts[0]], '2026-11-02'), []);
 });
+
+test('update: people taken off a shift get "nicht mehr eingeteilt"', () => {
+  const removed = [
+    { date: '2026-11-04', venue: 'Estrel', title: 'Gala', user_ids: ['e'], kind: 'unassigned' },
+    { date: '2026-11-01', venue: 'Alt', user_ids: ['f'], kind: 'unassigned' },
+  ];
+  const p = buildPlanPushes({ kw: 45, version: 2, removed }, [shifts[0]], '2026-11-02');
+  assert.deepEqual(p, [{ user_id: 'e', title: 'Wochenplan KW 45 geändert', body: 'Du bist am 04.11. (Estrel) nicht mehr eingeteilt.' }]);
+});
+
+test('first upload ignores leftover unassigned entries', () => {
+  const p = buildPlanPushes({ kw: 45, version: 1, removed: [{ date: '2026-11-04', venue: 'Estrel', user_ids: ['e'], kind: 'unassigned' }] }, [], '2026-11-02');
+  assert.deepEqual(p, []);
+});

@@ -15,8 +15,9 @@ var wpAliases = {};      // alias (lowercase) → user id
 var wpWeeks = [];        // plan_weeks, newest first
 var wpWeekId = null;     // week shown in "Ganze Woche"
 var wpView = 'mine';
-var wpImport = null;     // { parsed, fileName, existing, unresolved }
+var wpImport = null;     // { parsed, fileName, existing, unresolved, orphanWeekId }
 var _wpShiftCache = {};
+var _wpRenderSeq = 0;    // bumped per render; a slower earlier render must not overwrite a newer one
 
 var WP_ICON = {
   pin: '<svg class="wp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6-5.5-6-10a6 6 0 1 1 12 0c0 4.5-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>',
@@ -171,7 +172,9 @@ function wpToggle(el) {
 function wpHero(s) {
   var tc = wpTimeCol(s), mine = wpMyAssignment(s), p = wpParts(s.date);
   var today = localDateStr(), tomorrow = wpAddDays(today, 1);
-  var when = s.date === today ? 'heute' : s.date === tomorrow ? 'morgen' : 'am ' + WP_WEEKDAYS_LONG[p.dow];
+  // A bare weekday is only clear within the next 6 days; further out the date is shown
+  var when = s.date === today ? 'heute' : s.date === tomorrow ? 'morgen' :
+    s.date < wpAddDays(today, 7) ? 'am ' + WP_WEEKDAYS_LONG[p.dow] : 'am ' + ('0' + p.d).slice(-2) + '.' + ('0' + p.m).slice(-2) + '.';
   // Room/building line plus the street ("Staatsoper, Unter den Linden 7"); postcode lines are left out
   var loc = s.location ? String(s.location).split('\n') : [];
   var street = loc.find(function(l) { return /\d/.test(l) && !/^\d{5}\b/.test(l); });
@@ -209,7 +212,8 @@ async function initWochenplan() {
   }
   wpUsers = u.data || [];
   wpAliases = {};
-  (a.data || []).forEach(function(r) { wpAliases[r.alias] = r.user_id; });
+  // Same normalisation as planMatchPerson (older entries were saved with a trailing dot)
+  (a.data || []).forEach(function(r) { wpAliases[planAliasKey(r.alias)] = r.user_id; });
   wpWeeks = w.data || [];
   // Default: the week containing today, else the next upcoming one, else the newest
   var today = localDateStr();
@@ -263,11 +267,14 @@ function wpStepWeek(dir) {
 async function wpRenderMine() {
   var content = document.getElementById('wp-content');
   if (!wpMe()) return;
+  var seq = ++_wpRenderSeq;
   var from = localDateStr();
   var { data, error } = await supabaseClient.from('plan_assignments')
     .select('shift:plan_shifts!inner(*, plan_assignments(*), plan_weeks(kw))')
     .eq('user_id', wpMe())
     .gte('shift.date', from);
+  // The user switched tab/week or another render started meanwhile → drop this result
+  if (seq !== _wpRenderSeq || wpView !== 'mine') return;
   if (error) { console.error('Meine Schichten:', error); content.innerHTML = '<div class="wp-empty">Deine Schichten konnten nicht geladen werden.</div>'; return; }
   var seen = {};
   var shifts = (data || []).map(function(r) { return r.shift; })
@@ -306,6 +313,7 @@ function wpJumpTo(date) {
 
 async function wpRenderWeek() {
   var content = document.getElementById('wp-content');
+  var seq = ++_wpRenderSeq;
   var week = wpWeeks.find(function(w) { return w.id === wpWeekId; });
   var label = document.getElementById('wp-week-label');
   var i = wpWeeks.indexOf(week);
@@ -324,15 +332,18 @@ async function wpRenderWeek() {
   content.innerHTML = '<div class="wp-empty">Lädt…</div>';
   var { data, error } = await supabaseClient.from('plan_shifts').select('*, plan_assignments(*)')
     .eq('week_id', week.id).order('date').order('sort');
+  if (seq !== _wpRenderSeq || wpView !== 'all' || wpWeekId !== week.id) return;
   if (error) { console.error('Woche laden:', error); content.innerHTML = '<div class="wp-empty">Die Woche konnte nicht geladen werden.</div>'; return; }
   (data || []).forEach(function(s) { _wpShiftCache[s.id] = s; });
   var byDay = {};
   (data || []).forEach(function(s) { (byDay[s.date] = byDay[s.date] || []).push(s); });
   wpRenderDays(week, byDay);
   var html = '';
-  if ((week.removed || []).length) {
+  // Entries with kind 'unassigned' only drive the push ("nicht mehr eingeteilt"); that shift still exists
+  var gone = (week.removed || []).filter(function(r) { return r.kind !== 'unassigned'; });
+  if (gone.length) {
     html += '<div class="wp-removed"><div class="wp-removed-title">Entfallen seit dem letzten Stand</div>' +
-      week.removed.map(function(r) { return '<div>' + wpDayLabel(r.date) + ' · ' + wpEsc(r.venue) + (r.title ? ' – ' + wpEsc(r.title) : '') + '</div>'; }).join('') + '</div>';
+      gone.map(function(r) { return '<div>' + wpDayLabel(r.date) + ' · ' + wpEsc(r.venue) + (r.title ? ' – ' + wpEsc(r.title) : '') + '</div>'; }).join('') + '</div>';
   }
   Object.keys(byDay).sort().forEach(function(d) {
     var p = wpParts(d);
@@ -387,18 +398,19 @@ async function wpFileChosen(input) {
       var m = planMatchPerson(p, wpUsers, wpAliases);
       p.userId = m.userId;
       if (!m.userId && WP_AGENCY.indexOf(p.role) === -1) {
-        var k = p.name.toLowerCase();
+        var k = planAliasKey(p.name);
         if (!unresolved[k]) unresolved[k] = { name: p.name, candidates: m.candidates, count: 0 };
         unresolved[k].count++;
       }
     });
-    // The AP column is the PL: resolved like a team name (same aliases), needed for the day-6 reminder mail
+    // The AP column is the PL, needed for the day-6 reminder mail. It gets its own "ap:" alias entry, so
+    // choosing the PL for "Sabine" never maps a team member "Sabine" to that PL.
     s.apUserId = null;
     if (s.ap) {
       var pm = planMatchPerson({ name: s.ap, role: 'PL' }, wpUsers, wpAliases);
       s.apUserId = pm.userId;
       if (!pm.userId) {
-        var ak = s.ap.toLowerCase();
+        var ak = planAliasKey(s.ap, true);
         if (!unresolved[ak]) unresolved[ak] = { name: s.ap, candidates: pm.candidates, count: 0 };
         unresolved[ak].count++;
         unresolved[ak].pl = true;
@@ -429,11 +441,15 @@ function wpRenderImport() {
       '<div><b>' + d.removed.length + '</b><span>entfallen</span></div></div>' +
       '<div class="wp-sub">Ersetzt Stand ' + ex.version + ' dieser Woche.</div>';
   }
-  var names = Object.keys(wpImport.unresolved).sort();
+  var names = Object.keys(wpImport.unresolved).sort(function(a, b) {
+    return wpImport.unresolved[a].name.localeCompare(wpImport.unresolved[b].name, 'de') || (a < b ? -1 : 1);
+  });
   var nameRows = names.map(function(k) {
     var r = wpImport.unresolved[k];
-    var cands = r.candidates.map(function(id) { return active.find(function(u) { return u.id === id; }); }).filter(Boolean);
-    var rest = active.filter(function(u) { return r.candidates.indexOf(u.id) === -1; });
+    // The AP column may only be mapped to PL, Admin or Buchhaltung (planMatchPerson ignores anything else)
+    var pool = r.pl ? active.filter(function(u) { return ['PL', 'Admin', 'Buchhaltung'].indexOf(u.role) !== -1; }) : active;
+    var cands = r.candidates.map(function(id) { return pool.find(function(u) { return u.id === id; }); }).filter(Boolean);
+    var rest = pool.filter(function(u) { return r.candidates.indexOf(u.id) === -1; });
     var opt = function(u) { return '<option value="' + u.id + '">' + wpEsc(u.full_name) + '</option>'; };
     return '<label class="wp-map">' +
       '<span class="wp-map-name">„' + wpEsc(r.name) + '“' + (r.pl ? ' <small>(PL)</small>' : '') + ' <small>' + r.count + '×</small></span>' +
@@ -480,42 +496,47 @@ async function wpSaveImport() {
   if (!wpImport) return;
   var btn = document.getElementById('wp-save-btn');
   btn.disabled = true; btn.textContent = 'Speichert…';
+  var insertedIds = [], createdWeekId = null, committed = false;
   try {
     var p = wpImport.parsed, ex = wpImport.existing;
-    // Names chosen in the preview → remembered as aliases
+    // Names chosen in the preview → remembered as aliases (data-alias already holds planAliasKey)
     var newAliases = [];
     document.querySelectorAll('#wp-import-body select[data-alias]').forEach(function(sel) {
       if (sel.value) { wpAliases[sel.dataset.alias] = sel.value; newAliases.push({ alias: sel.dataset.alias, user_id: sel.value }); }
     });
     p.shifts.forEach(function(s) {
-      s.people.forEach(function(x) { if (!x.userId) x.userId = wpAliases[x.name.toLowerCase()] || null; });
-      if (!s.apUserId && s.ap) s.apUserId = wpAliases[s.ap.toLowerCase()] || null;
+      s.people.forEach(function(x) { if (!x.userId && WP_AGENCY.indexOf(x.role) === -1) x.userId = wpAliases[planAliasKey(x.name)] || null; });
+      if (!s.apUserId && s.ap) s.apUserId = wpAliases[planAliasKey(s.ap, true)] || null;
     });
 
     var oldShifts = ex ? (ex.plan_shifts || []).map(planShiftFromDb) : [];
-    var diff = ex ? planDiff(oldShifts, p.shifts) : { status: p.shifts.map(function() { return null; }), removed: [] };
+    var diff = ex ? planDiff(oldShifts, p.shifts) : { status: p.shifts.map(function() { return null; }), matched: [], removed: [] };
     var removed = diff.removed.map(function(r) {
       return { date: r.date, venue: r.venue, title: r.title,
         user_ids: r.people.map(function(x) { return x.userId; }).filter(Boolean) };
-    });
+    }).concat(planUnassigned(p.shifts, diff)); // people taken off a shift that stays → push only
     var weekRow = { year: p.year, kw: p.kw, week_start: p.weekStart, week_end: p.weekEnd, removed: removed,
       file_name: wpImport.fileName, uploaded_by: wpMe(), uploaded_at: new Date().toISOString() };
 
+    // Order matters: an existing week's row (version, removed) is only touched after all shifts and
+    // assignments are in, so a failure leaves the old Stand as it was. A new week needs its row first;
+    // on failure it is deleted again, so a retry doesn't run into UNIQUE (year, kw).
     var weekId;
     if (ex) {
-      weekRow.version = ex.version + 1;
-      var up = await supabaseClient.from('plan_weeks').update(weekRow).eq('id', ex.id).select('id');
-      if (up.error || !up.data || !up.data.length) throw up.error || new Error('Woche nicht aktualisiert');
       weekId = ex.id;
+    } else if (wpImport.orphanWeekId) {
+      // An earlier attempt created the row but could not delete it again → reuse it
+      weekId = createdWeekId = wpImport.orphanWeekId;
     } else {
       var ins = await supabaseClient.from('plan_weeks').insert(weekRow).select('id').single();
       if (ins.error) throw ins.error;
-      weekId = ins.data.id;
+      weekId = createdWeekId = ins.data.id;
     }
 
     // New shifts first, old ones deleted afterwards → a failed upload never leaves an empty week
     var rows = p.shifts.map(function(s, i) { return planShiftRow(s, weekId, diff.status[i]); });
     var sh = await supabaseClient.from('plan_shifts').insert(rows).select('id, key');
+    if (sh.data) insertedIds = sh.data.map(function(r) { return r.id; });
     if (sh.error || !sh.data || sh.data.length !== rows.length) throw sh.error || new Error('Einsätze nicht gespeichert');
     var idByKey = {};
     sh.data.forEach(function(r) { idByKey[r.key] = r.id; });
@@ -529,6 +550,14 @@ async function wpSaveImport() {
       var as = await supabaseClient.from('plan_assignments').insert(asg).select('id');
       if (as.error || !as.data || as.data.length !== asg.length) throw as.error || new Error('Personal nicht gespeichert');
     }
+    if (ex) {
+      // Only bump the Stand this preview was based on (a parallel upload of the same week fails here)
+      weekRow.version = ex.version + 1;
+      var up = await supabaseClient.from('plan_weeks').update(weekRow).eq('id', ex.id).eq('version', ex.version).select('id');
+      if (up.error || !up.data || !up.data.length) throw up.error || new Error('Die Woche wurde inzwischen geändert. Lade die PDF erneut hoch.');
+    }
+    committed = true;
+    wpImport.orphanWeekId = null;
     if (oldShifts.length) {
       var del = await supabaseClient.from('plan_shifts').delete().in('id', oldShifts.map(function(s) { return s.id; }));
       if (del.error) console.error('Alte Einsätze löschen:', del.error);
@@ -550,9 +579,24 @@ async function wpSaveImport() {
     await initWochenplan();
   } catch (e) {
     console.error('Plan speichern:', e);
+    if (!committed) await wpRollbackImport(insertedIds, createdWeekId);
     showToast('Speichern fehlgeschlagen: ' + (e.message || e), 'danger');
   } finally {
     btn.disabled = false; btn.textContent = 'Übernehmen';
+  }
+}
+
+// Undoes a failed save: deletes the shifts it inserted (their assignments go by cascade) and a week row
+// it created. If that row can't be deleted, the next attempt reuses it (wpImport.orphanWeekId).
+async function wpRollbackImport(shiftIds, createdWeekId) {
+  if (shiftIds.length) {
+    var d = await supabaseClient.from('plan_shifts').delete().in('id', shiftIds);
+    if (d.error) console.error('Rückgängig (Einsätze):', d.error);
+  }
+  if (createdWeekId) {
+    var w = await supabaseClient.from('plan_weeks').delete().eq('id', createdWeekId).select('id');
+    if (w.error) console.error('Rückgängig (Woche):', w.error);
+    if (wpImport) wpImport.orphanWeekId = (!w.error && w.data && w.data.length) ? null : createdWeekId;
   }
 }
 

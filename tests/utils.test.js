@@ -2,7 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const src = require('fs').readFileSync(require('path').join(__dirname, '../js/utils.js'), 'utf8');
-const grab = name => { const m = src.match(new RegExp('function ' + name + '\\([\\s\\S]*?\\n}\\n')); if (!m) throw new Error(name + ' missing'); return m[0]; };
+const grab = name => { const m = src.match(new RegExp('function ' + name + '\\([\\s\\S]*?\\r?\\n}\\r?\\n')); if (!m) throw new Error(name + ' missing'); return m[0]; };
 const diffEinsaetze = new Function(grab('diffEinsaetze') + '; return diffEinsaetze;')();
 const einsatzStatus = new Function(grab('einsatzStatus') + '; return einsatzStatus;')();
 
@@ -106,4 +106,61 @@ test('mergeOpenJobs: folder job wins on the same date, plan rows of one day are 
     { id: null, date: '2026-10-25', action: 'Aufbau', folderName: 'Estrel / Messe', source: 'plan' },
   ]);
   assert.deepEqual(mergeOpenJobs([], []), []);
+});
+
+// Billing periods: getBillingKeyForDate is the source of truth, the label must describe exactly its days
+const billing = new Function(
+  "var MONTHS_DE = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];" +
+  grab('pad') + grab('getBillingKeyForDate') + grab('getBillingPeriodLabel') +
+  '; return { getBillingKeyForDate, getBillingPeriodLabel };')();
+const bk = (iso, c) => billing.getBillingKeyForDate(new Date(iso + 'T12:00:00'), c).key;
+
+test('billing cutoff 20: the 20th starts the next period', () => {
+  assert.equal(bk('2026-10-19', 20), '2026-10');
+  assert.equal(bk('2026-10-20', 20), '2026-11');
+  assert.equal(bk('2026-12-20', 20), '2027-01');
+  assert.equal(billing.getBillingPeriodLabel('2026-11', 20), '20.10.2026 – 19.11.2026');
+  assert.equal(billing.getBillingPeriodLabel('2027-01', 20), '20.12.2026 – 19.01.2027');
+});
+
+test('billing cutoff 1 = calendar month', () => {
+  assert.equal(bk('2026-10-01', 1), '2026-10');
+  assert.equal(bk('2026-10-31', 1), '2026-10');
+  assert.equal(bk('2026-12-31', 1), '2026-12');
+  assert.equal(billing.getBillingKeyForDate(new Date(2026, 9, 15, 12), 1).label, 'Oktober 2026');
+  assert.equal(billing.getBillingPeriodLabel('2026-10', 1), '01.10.2026 – 31.10.2026');
+  assert.equal(billing.getBillingPeriodLabel('2026-02', 1), '01.02.2026 – 28.02.2026');
+});
+
+test('billing cutoff 31 = calendar month (label too)', () => {
+  assert.equal(bk('2026-10-31', 31), '2026-10');
+  assert.equal(billing.getBillingPeriodLabel('2026-10', 31), '01.10.2026 – 31.10.2026');
+  assert.equal(billing.getBillingPeriodLabel('2026-09', 31), '01.09.2026 – 30.09.2026');
+});
+
+test('billing cutoff 30: label follows the real days around February', () => {
+  // Jan 30/31 → Feb period; all of Feb (28 days) stays in Feb; March starts on the 1st
+  assert.equal(bk('2026-01-30', 30), '2026-02');
+  assert.equal(bk('2026-02-28', 30), '2026-02');
+  assert.equal(bk('2026-03-01', 30), '2026-03');
+  assert.equal(billing.getBillingPeriodLabel('2026-02', 30), '30.01.2026 – 28.02.2026');
+  assert.equal(billing.getBillingPeriodLabel('2026-03', 30), '01.03.2026 – 29.03.2026');
+});
+
+test('billing: every day of a year lands in exactly the period whose label covers it (all cutoffs)', () => {
+  const parse = s => { const [d, m, y] = s.split('.').map(Number); return new Date(y, m - 1, d, 12); };
+  for (let c = 1; c <= 31; c++) {
+    for (let t = new Date(2027, 0, 1, 12); t.getFullYear() === 2027; t.setDate(t.getDate() + 1)) {
+      const key = billing.getBillingKeyForDate(t, c).key;
+      const [from, to] = billing.getBillingPeriodLabel(key, c).split(' – ').map(parse);
+      assert.ok(t >= from && t <= to, 'cutoff ' + c + ' day ' + t.toDateString() + ' not in ' + billing.getBillingPeriodLabel(key, c));
+    }
+  }
+});
+
+test('jsAttrArg: safe as a quoted JS string inside an HTML attribute', () => {
+  const jsAttrArg = new Function(grab('escapeHtml') + grab('jsAttrArg') + '; return jsAttrArg;')();
+  assert.equal(jsAttrArg("2026-W12:AL fest"), '2026-W12:AL fest');
+  assert.equal(jsAttrArg("O'Neil"), "O\\&#039;Neil");
+  assert.equal(jsAttrArg('a"b<c>\\'), 'a&quot;b&lt;c&gt;\\\\');
 });

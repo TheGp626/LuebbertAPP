@@ -161,16 +161,18 @@ async function fetchSupabaseShifts() {
     Object.keys(userWeeks).forEach(function(wKey) {
       var weekObj = userWeeks[wKey];
 
+      // A local save that hasn't reached the server yet (offline, failed sync) wins —
+      // replacing it with the server state would silently drop those shifts
+      if (weekHasUnsynced(allLocal, wKey)) return;
+
       // Use proper week label matching the Stundenzettel format
       weekObj.weekLabel = weekLabelFromVal(wKey);
 
       // AL signatures and AL names on manual shifts exist ONLY locally (they are
-      // never synced to the server) — carry them over before the local entries
-      // for this week get replaced below, or they'd be wiped on every sync.
-      var oldEntries = [];
-      Object.keys(allLocal).forEach(function(k) {
-        if (k === wKey || k.indexOf(wKey + ':') === 0) oldEntries.push(allLocal[k]);
-      });
+      // never synced to the server) — carry them over while the local entries
+      // for this week get replaced (both combined key and any dept-split keys),
+      // or they'd be wiped on every sync.
+      var oldEntries = removeWeekEntries(allLocal, wKey);
       mergeLocalShiftExtras(weekObj, oldEntries);
 
       var wTotal = 0;
@@ -185,31 +187,9 @@ async function fetchSupabaseShifts() {
       });
       weekObj.total = wTotal % 1 === 0 ? wTotal.toFixed(0) : wTotal.toFixed(2);
 
-      // Remove stale entries for this week (both combined key and any old dept-split keys)
-      Object.keys(allLocal).forEach(function(k) {
-        if (k === wKey || k.indexOf(wKey + ':') === 0) {
-          delete allLocal[k];
-        }
-      });
-
-      // Split by dept and save separate cards (matches saveWeek() behaviour)
+      // Split by dept and save separate cards (same as saveWeek())
       // so Lager, AL, MA etc. each get their own history card
-      var syncPages = splitWeekByDepts(weekObj);
-      if (syncPages.length <= 1) {
-        allLocal[wKey] = weekObj;
-      } else {
-        syncPages.forEach(function(page) {
-          var shortKey = page.abt.split(' ')[0]; // 'AL', 'Lager', 'MA', etc.
-          var hKey = wKey + ':' + shortKey;
-          allLocal[hKey] = Object.assign({}, page, {
-            histKey: hKey,
-            weekStart: wKey,
-            weekLabel: weekObj.weekLabel,
-            name: weekObj.name,
-            isSupabaseSync: true
-          });
-        });
-      }
+      Object.assign(allLocal, buildWeekEntries(weekObj));
       changed = true;
     });
 
@@ -374,7 +354,7 @@ function renderShift(dayIdx, shiftIdx) {
   var removeBtn = shiftIdx > 0 ? '<button class="shift-remove" onclick="removeShift(' + dayIdx + ',' + shiftIdx + ')">×</button>' : '';
   // Build dept options
   var deptOpts = (typeof departments !== 'undefined' ? departments : []).map(function(d) {
-    return '<option value="' + d.replace(/"/g,'&quot;') + '">' + (typeof deptLabel === 'function' ? deptLabel(d) : d) + '</option>';
+    return '<option value="' + escapeHtml(d) + '">' + escapeHtml(typeof deptLabel === 'function' ? deptLabel(d) : d) + '</option>';
   }).join('');
   block.innerHTML =
     '<div class="shift-label">Schicht ' + (shiftIdx + 1) + removeBtn + '</div>' +
@@ -651,13 +631,14 @@ function renderHistory(skipSync) {
     html += m.weeks.map(function (w) {
       var hKey = w.histKey || w.weekStart;
       var earnW = formatEarnings(parseFloat((w.total || '0').replace(',', '.')), w.abt);
-      return '<div class="card" onclick="loadWeek(\'' + hKey + '\')">' +
+      return '<div class="card" onclick="loadWeek(\'' + jsAttrArg(hKey) + '\')">' +
         '<div style="display:flex;justify-content:space-between;align-items:center">' +
-        '<div><div class="history-week">' + w.weekLabel + '</div>' +
-        '<div class="history-sub">' + w.name + ' · <span class="badge">' + w.abt + '</span></div></div>' +
-        '<div style="text-align:right"><div class="history-hours">' + w.total + 'h</div>' +
+        '<div><div class="history-week">' + escapeHtml(w.weekLabel) + '</div>' +
+        '<div class="history-sub">' + escapeHtml(w.name) + ' · <span class="badge">' + escapeHtml(w.abt) + '</span></div>' +
+        (w.unsynced ? '<div style="font-size:11px;color:var(--danger);margin-top:2px">⚠ nicht mit Server synchronisiert</div>' : '') + '</div>' +
+        '<div style="text-align:right"><div class="history-hours">' + escapeHtml(w.total) + 'h</div>' +
         (earnW ? '<div class="history-earnings" style="display:block">' + earnW + '</div>' : '') +
-        '<button onclick="deleteWeek(event,\'' + hKey + '\')" style="font-size:11px;color:var(--danger);background:none;border:none;cursor:pointer;margin-top:4px">löschen</button>' +
+        '<button onclick="deleteWeek(event,\'' + jsAttrArg(hKey) + '\')" style="font-size:11px;color:var(--danger);background:none;border:none;cursor:pointer;margin-top:4px">löschen</button>' +
         '</div></div></div>';
     }).join('') + '</div>';
   });
@@ -684,6 +665,101 @@ function renderHistoryChart() {
   });
 }
 
+// ── WEEK STORAGE HELPERS ──
+// localStorage 'stundenzettel' holds one entry per week ("2026-W44") or, for
+// weeks with several departments, one per department ("2026-W44:AL frei").
+
+// Full department name in the key: the first word alone made "AL fest" and "AL frei" collide
+function weekPartKey(weekStart, dept) {
+  return weekStart + ':' + dept;
+}
+
+// Removes the plain entry and every department part of a week; returns the removed entries
+function removeWeekEntries(all, weekStart) {
+  var removed = [];
+  Object.keys(all).forEach(function (k) {
+    if (k === weekStart || k.indexOf(weekStart + ':') === 0) { removed.push(all[k]); delete all[k]; }
+  });
+  return removed;
+}
+
+// The entries a week is stored as: { key: entry }
+function buildWeekEntries(w) {
+  var out = {};
+  var pages = splitWeekByDepts(w);
+  if (pages.length <= 1) { out[w.weekStart] = w; return out; }
+  pages.forEach(function (page) {
+    var k = weekPartKey(w.weekStart, page.abt);
+    out[k] = Object.assign({}, page, { histKey: k });
+  });
+  return out;
+}
+
+// All stored parts of a week combined into one week (for editing); a single entry is returned as is
+function mergeWeekParts(all, weekStart) {
+  var keys = Object.keys(all).filter(function (k) { return k === weekStart || k.indexOf(weekStart + ':') === 0; }).sort();
+  if (!keys.length) return null;
+  if (keys.length === 1) return all[keys[0]];
+  var base = all[keys[0]];
+  var days = (base.days || []).map(function (dd) { return { day: dd.day, date: dd.date, isoDate: dd.isoDate, shifts: [] }; });
+  keys.forEach(function (k) {
+    var part = all[k];
+    (part.days || []).forEach(function (dd, i) {
+      if (!days[i]) days[i] = { day: dd.day, date: dd.date, isoDate: dd.isoDate, shifts: [] };
+      (dd.shifts || []).forEach(function (s) {
+        days[i].shifts.push(Object.assign({}, s, { dept: s.dept || part.abt }));
+      });
+    });
+  });
+  var merged = Object.assign({}, base, { days: days });
+  delete merged.histKey;
+  return merged;
+}
+
+// True while a local save of this week has not reached the server yet
+function weekHasUnsynced(all, weekStart) {
+  return Object.keys(all).some(function (k) {
+    return (k === weekStart || k.indexOf(weekStart + ':') === 0) && all[k] && all[k].unsynced;
+  });
+}
+
+// Clears the flag after a successful sync — only on entries of that exact save (a newer save keeps its flag)
+function clearUnsyncedFlag(all, weekStart, saved) {
+  var changed = false;
+  Object.keys(all).forEach(function (k) {
+    if ((k === weekStart || k.indexOf(weekStart + ':') === 0) && all[k] && all[k].unsynced && all[k].saved === saved) {
+      delete all[k].unsynced;
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+// What a week save changes on the server. existing = manual shifts of the user in that week
+// (DB rows), desired = rows to insert built from the local week.
+// - Shifts not 'offen' (accounting set them to 'eingetragen') are never deleted, and a desired
+//   shift on the same date/time is not inserted again.
+// - 'offen' shifts identical to a desired one stay untouched; the other 'offen' ones are deleted.
+function planWeekSync(existing, desired) {
+  var hm = function (t) { return (t || '').substring(0, 5); };
+  var slot = function (r) { return r.shift_date + '|' + hm(r.start_time) + '|' + hm(r.end_time); };
+  var full = function (r) { return slot(r) + '|' + (r.position_role || '') + '|' + (parseInt(r.pause_mins) || 0) + '|' + (r.ort || ''); };
+  var booked = {}, open = {};
+  existing.forEach(function (r) {
+    if (r.status === 'offen') (open[full(r)] = open[full(r)] || []).push(r.id);
+    else booked[slot(r)] = (booked[slot(r)] || 0) + 1;
+  });
+  var insert = [];
+  desired.forEach(function (d) {
+    if (booked[slot(d)]) { booked[slot(d)]--; return; }
+    if (open[full(d)] && open[full(d)].length) { open[full(d)].shift(); return; }
+    insert.push(d);
+  });
+  var deleteIds = [];
+  Object.keys(open).forEach(function (k) { deleteIds = deleteIds.concat(open[k]); });
+  return { deleteIds: deleteIds, insert: insert };
+}
+
 // ── DATA COLLECT / SAVE ──
 function collectData() {
   saveCurrentDayToCache();
@@ -703,32 +779,12 @@ function saveWeek() {
   var d = collectData(); if (!d.name) { showToast('Bitte Namen eingeben'); return; }
   var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
 
-  var depts = d.depts && d.depts.length ? d.depts : [d.abt];
-
-  if (depts.length > 1) {
-    // Mixed week: save one history entry per dept (PDF only via download button)
-    depts.forEach(function(dept) {
-      var filteredDays = d.days.map(function(dd) {
-        return {
-          day: dd.day, date: dd.date,
-          shifts: dd.shifts.filter(function(sh) { return (sh.dept || d.abt) === dept && sh.von && sh.bis; })
-        };
-      });
-      var deptTotal = 0;
-      filteredDays.forEach(function(dd) {
-        dd.shifts.forEach(function(sh) { deptTotal += shiftNetHours(sh); });
-      });
-      var shortKey = dept.split(' ')[0]; // 'AL' or 'MA'
-      var histKey = d.weekStart + ':' + shortKey;
-      var entry = Object.assign({}, d, { abt: dept, days: filteredDays, total: deptTotal % 1 === 0 ? deptTotal.toFixed(0) : deptTotal.toFixed(2), histKey: histKey });
-      all[histKey] = entry;
-    });
-    localStorage.setItem('stundenzettel', JSON.stringify(all));
-  } else {
-    // Single dept: classic save
-    all[d.weekStart] = d;
-    localStorage.setItem('stundenzettel', JSON.stringify(all));
-  }
+  // The saved week replaces ALL stored parts of that week (plain key and every
+  // dept part) — otherwise an old split/unsplit entry stays and totals double-count.
+  // Mixed weeks get one history entry per dept. 'unsynced' stays until the server has it.
+  removeWeekEntries(all, d.weekStart);
+  Object.assign(all, buildWeekEntries(Object.assign({}, d, { unsynced: true })));
+  localStorage.setItem('stundenzettel', JSON.stringify(all));
   showToast('💾 Woche gespeichert!');
 
   // ── PUSH TO SUPABASE (Async) ──
@@ -751,22 +807,6 @@ async function syncWeekToSupabase(data) {
     var weekStart = isoWeekToDate(data.weekStart, 0);
     var weekEnd   = isoWeekToDate(data.weekStart, 6);
 
-    // Extend the delete range one day earlier to clean up any shifts stored with the old
-    // UTC-offset date bug (which saved Monday as the previous Sunday in UTC+2 timezones)
-    var mon = getMondayFromWeekVal(data.weekStart);
-    var dayBefore = new Date(mon.getTime() - 86400000);
-    var deleteFrom = dayBefore.getFullYear() + '-' + pad(dayBefore.getMonth() + 1) + '-' + pad(dayBefore.getDate());
-
-    // Delete existing manual (non-protocol) shifts for this user+week
-    // This prevents duplicates when saving the same week multiple times
-    await supabaseClient
-      .from('shifts')
-      .delete()
-      .eq('user_id', currentUser.id)
-      .is('protocol_id', null)
-      .gte('shift_date', deleteFrom)
-      .lte('shift_date', weekEnd);
-
     // Build the fresh shift list — skip shifts that came from a protocol (isSynced)
     // Those already live in Supabase under their protocol_id; re-inserting them causes duplicates
     var shiftsToSync = [];
@@ -788,23 +828,57 @@ async function syncWeekToSupabase(data) {
       });
     });
 
-    if (shiftsToSync.length > 0) {
-      const { error } = await supabaseClient.from('shifts').insert(shiftsToSync);
-      if (error) throw error;
+    // Existing manual (non-protocol) shifts of this user in exactly this week (Mon–Sun)
+    var ex = await supabaseClient
+      .from('shifts')
+      .select('id, shift_date, start_time, end_time, status, position_role, pause_mins, ort')
+      .eq('user_id', currentUser.id)
+      .is('protocol_id', null)
+      .gte('shift_date', weekStart)
+      .lte('shift_date', weekEnd);
+    if (ex.error) throw ex.error;
+
+    // Shifts accounting already marked 'eingetragen' are left alone (see planWeekSync)
+    var plan = planWeekSync(ex.data || [], shiftsToSync);
+
+    if (plan.deleteIds.length > 0) {
+      var del = await supabaseClient.from('shifts').delete()
+        .in('id', plan.deleteIds).eq('status', 'offen').select('id');
+      if (del.error) throw del.error;
+      // RLS returns 0 rows without an error — inserting anyway would create duplicates
+      var delCount = (del.data || []).length;
+      if (delCount !== plan.deleteIds.length) throw new Error('shifts delete: ' + delCount + ' of ' + plan.deleteIds.length + ' rows');
+    }
+
+    if (plan.insert.length > 0) {
+      var ins = await supabaseClient.from('shifts').insert(plan.insert).select('id');
+      if (ins.error) throw ins.error;
+      var insCount = (ins.data || []).length;
+      if (insCount !== plan.insert.length) throw new Error('shifts insert: ' + insCount + ' of ' + plan.insert.length + ' rows');
+    }
+
+    // Only now the server has this save → clear the flag (re-read: storage may have changed meanwhile)
+    var allNow = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+    if (clearUnsyncedFlag(allNow, data.weekStart, data.saved)) {
+      localStorage.setItem('stundenzettel', JSON.stringify(allNow));
     }
 
     showToast('✅ Stundenzettel mit Server synchronisiert!');
   } catch(e) {
+    // The local week keeps its 'unsynced' flag → the history sync won't overwrite it; saving again retries
     console.error("Week Sync Error:", e);
-    showToast("Server-Backup fehlgeschlagen (Offline).", "info");
+    showToast('Server-Sync fehlgeschlagen – Woche ist nur lokal gespeichert. Bitte später erneut speichern.');
   }
 }
 
 function loadWeek(key) {
-  var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}'), w = all[key]; if (!w) return;
+  var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}'), clicked = all[key]; if (!clicked) return;
+  // Edit the whole week (all dept parts): saving replaces every part locally and on the server,
+  // so loading only the clicked part would drop the other departments' shifts
+  var w = mergeWeekParts(all, clicked.weekStart) || clicked;
   document.getElementById('inp-name').value = w.name;
   document.getElementById('inp-week').value = w.weekStart;
-  selectedAbt = w.abt;
+  selectedAbt = clicked.abt;
   shiftSigCanvases = {}; shiftSigData = {}; shiftValues = {}; shiftCounts = {}; activeDayIdx = null;
   w.days.forEach(function (dd, i) {
     var shs = dd.shifts || [{ von: dd.von || '', bis: dd.bis || '', pause: dd.pause || '0', ort: dd.ort || '', al: dd.al || '', sig: dd.sig || null }];
@@ -813,7 +887,7 @@ function loadWeek(key) {
       if (sh.sig) shiftSigData[i + '-' + s] = sh.sig;
       var _v = timeToMins(sh.von||''), _b = timeToMins(sh.bis||'');
       var _p = (_v!==null&&_b!==null) ? autoPause(_b<_v ? _b+1440-_v : _b-_v) : 0;
-      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: _p.toString(), dept: sh.dept || w.abt || selectedAbt, protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
+      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: _p.toString(), dept: sh.dept || clicked.abt || selectedAbt, protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
     });
   });
   renderWeekStrip();
@@ -1046,5 +1120,5 @@ function drawPDFContent(doc, data, ml, cw) {
   }
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(150);
   doc.text('Es werden nur Stunden angerechnet, die auf diesem Nachweis eingetragen und vom AL abgezeichnet sind.', ml, 285);
-  doc.text('Einzureichen bis zum 20. Tag eines Monats.', ml, 290);
+  doc.text('Einzureichen bis zum ' + billingCutoff + '. Tag eines Monats.', ml, 290);
 }

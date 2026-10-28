@@ -57,7 +57,7 @@ test('planParseWer: unfilled agency slots become open slots; notes on names', ()
 test('planMatchPerson: alias, full name, unique first name, initial; agency never', () => {
   const users = [
     { id: 'u1', full_name: 'Paul Fischer', role: 'AL' },
-    { id: 'u2', full_name: 'Paul Mittendorf', role: 'AL' },
+    { id: 'u2', full_name: 'Paul Beispiel', role: 'AL' },
     { id: 'u3', full_name: 'Kacper Nowak', role: 'AL' },
     { id: 'u4', full_name: 'Julian Hoffmann', role: 'MA' },
     { id: 'u5', full_name: 'Julian Tetzlaff', role: 'MA' },
@@ -177,5 +177,102 @@ test('planMatchPerson: the AP column (role PL) only matches PL, Admin or Buchhal
   assert.equal(P.planMatchPerson({ name: 'Inge', role: 'PL' }, users, {}).userId, 'p1');
   assert.equal(P.planMatchPerson({ name: 'Sonja', role: 'PL' }, users, {}).userId, 'a1');
   assert.equal(P.planMatchPerson({ name: 'Sabine', role: 'MA' }, users, {}).userId, 'm1');
-  assert.equal(P.planMatchPerson({ name: 'Sabine', role: 'PL' }, users, { sabine: 'm1' }).userId, 'm1', 'a remembered choice still wins');
+  assert.equal(P.planMatchPerson({ name: 'Sabine', role: 'PL' }, users, { sabine: 'm1' }).userId, null, 'an alias to an MA never makes them the PL');
+});
+
+// ── Bug-fix round: duplicate keys, aliases, PL aliases, fingerprint, ISO week ──
+
+const mkS = (key, extra) => Object.assign({ key, date: '2026-11-03', venue: 'Messe', title: 'Bar', wann: ['8 Uhr'], people: [],
+  open: [], ap: null, details: [], location: [], notes: [] }, extra);
+const ppl = (...names) => names.map(n => ({ name: n, role: 'MA' }));
+
+test('planDiff: first of two same-key rows disappears → the second is matched, not "entfällt"', () => {
+  const k = '2026-11-03|messe|bar';
+  const old = [mkS(k, { wann: ['Aufbau: 8 Uhr'], people: ppl('Anna') }), mkS(k + '#2', { wann: ['Abbau: 22 Uhr'], people: ppl('Bert') })];
+  // New upload: only the Abbau row is left and is now numbered k
+  const neu = [mkS(k, { wann: ['Abbau: 22 Uhr'], people: ppl('Bert') })];
+  const d = P.planDiff(old, neu);
+  assert.deepEqual(d.status, [null]);
+  assert.deepEqual(d.removed.map(s => s.people[0].name), ['Anna']);
+  assert.equal(d.matched[0], old[1], 'matched old shift is returned per new shift');
+});
+
+test('planDiff: same-key rows changed → matched by first wann line, then by team', () => {
+  const k = '2026-11-03|messe|bar';
+  const old = [mkS(k, { wann: ['Aufbau: 8 Uhr'], people: ppl('Anna') }), mkS(k + '#2', { wann: ['Abbau: 22 Uhr'], people: ppl('Bert') })];
+  const neu = [mkS(k, { wann: ['Abbau: 22 Uhr'], people: ppl('Bert', 'Carl') })];
+  const d = P.planDiff(old, neu);
+  assert.deepEqual(d.status, ['geändert']);
+  assert.deepEqual(d.removed.map(s => s.people[0].name), ['Anna']);
+  const neu2 = [mkS(k, { wann: ['Abbau: 23 Uhr'], people: ppl('Bert') })];
+  const d2 = P.planDiff(old, neu2);
+  assert.deepEqual(d2.status, ['geändert']);
+  assert.deepEqual(d2.removed.map(s => s.people[0].name), ['Anna']);
+});
+
+test('planDiff: location and notes changes are flagged', () => {
+  const a = mkS('k', { location: ['Halle 1'], notes: ['BAR PL 50'] });
+  assert.deepEqual(P.planDiff([a], [mkS('k', { location: ['Halle 2'], notes: ['BAR PL 50'] })]).status, ['geändert']);
+  assert.deepEqual(P.planDiff([a], [mkS('k', { location: ['Halle 1'], notes: ['LeihLkw'] })]).status, ['geändert']);
+  assert.deepEqual(P.planDiff([a], [mkS('k', { location: ['Halle 1'], notes: ['BAR PL 50'] })]).status, [null]);
+});
+
+test('planAliasKey: one normalisation for saving and lookup; aliases with a trailing dot match', () => {
+  assert.equal(P.planAliasKey('Julian H.'), 'julian h');
+  assert.equal(P.planAliasKey('  Julian   H. '), 'julian h');
+  assert.equal(P.planAliasKey('Inge', true), 'ap:inge');
+  assert.equal(P.planAliasKey('ap:Julian H.'), 'ap:julian h', 'stored keys keep their prefix');
+  const users = [{ id: 'u4', full_name: 'Julian Hoffmann', role: 'MA' }, { id: 'u7', full_name: 'Julian Hase', role: 'MA' }];
+  const aliases = { [P.planAliasKey('Julian H.')]: 'u7' };
+  assert.equal(P.planMatchPerson({ name: 'Julian H.', role: 'MA' }, users, aliases).userId, 'u7');
+});
+
+test('planMatchPerson: PL aliases only point to PL/Admin/Buchhaltung; ap: keys stay apart from team names', () => {
+  const users = [
+    { id: 'm1', full_name: 'Sabine Muster', role: 'MA' },
+    { id: 'p1', full_name: 'Sabine Chef', role: 'PL' },
+    { id: 'b1', full_name: 'Bea Konto', role: 'Buchhaltung' },
+  ];
+  // A team alias "sabine" → MA must not make the MA the PL
+  assert.equal(P.planMatchPerson({ name: 'Sabine', role: 'PL' }, users, { sabine: 'm1' }).userId, 'p1', 'MA alias ignored, the PL Sabine matches');
+  // An AP alias → PL wins for the AP column, but never for a team member of the same name
+  const al = { 'ap:sabine': 'p1', sabine: 'm1' };
+  assert.equal(P.planMatchPerson({ name: 'Sabine', role: 'PL' }, users, al).userId, 'p1');
+  assert.equal(P.planMatchPerson({ name: 'Sabine', role: 'MA' }, users, al).userId, 'm1');
+  assert.equal(P.planMatchPerson({ name: 'Sabine', role: 'MA' }, users, { 'ap:sabine': 'p1' }).userId, null, 'team name ignores ap: aliases');
+  // An ap: alias pointing to an MA is ignored
+  assert.equal(P.planMatchPerson({ name: 'Sabine', role: 'PL' }, users, { 'ap:sabine': 'm1' }).userId, 'p1');
+  // Legacy plain alias that points to a PL still works for the AP column
+  assert.equal(P.planMatchPerson({ name: 'Bea', role: 'PL' }, users, { bea: 'b1' }).userId, 'b1');
+});
+
+// Minimal synthetic page for planParse: header + one day row + one shift per day
+function synthPage(days) {
+  const items = [], hlines = [];
+  const col = { Datum: 10, Was: 100, Wann: 200, Wer: 300, AP: 400 };
+  Object.keys(col).forEach(k => items.push({ s: k, x: col[k], y: 10, h: 10 }));
+  let y = 30;
+  hlines.push({ x0: 10, x1: 450, y });
+  days.forEach(([label, venue]) => {
+    items.push({ s: label, x: 12, y: y + 3, h: 10 }); y += 20; hlines.push({ x0: 10, x1: 450, y });
+    items.push({ s: venue, x: 12, y: y + 3, h: 10 }); items.push({ s: 'Event', x: 102, y: y + 3, h: 10 });
+    y += 20; hlines.push({ x0: 10, x1: 450, y });
+  });
+  return [{ items, hlines, fills: [] }];
+}
+
+test('planParse: a plan starting on Sunday takes the ISO week most of its days fall in', () => {
+  const r = P.planParse(synthPage([['Sonntag 01.11.26', 'A'], ['Montag 02.11.26', 'B'], ['Dienstag 03.11.26', 'C'], ['Mittwoch 04.11.26', 'D']]));
+  assert.deepEqual(r.warnings, []);
+  assert.equal(r.weekStart, '2026-11-01');
+  assert.equal(r.kw, 45);
+  assert.equal(r.year, 2026);
+});
+
+test('planUnassigned: users taken off a matched shift are listed; moved-in and new shifts are not', () => {
+  const u = (n, id) => ({ name: n, role: 'MA', userId: id });
+  const old = [mkS('a', { people: [u('Anna', 'ua'), u('Bert', 'ub')] }), mkS('b', { date: '2026-11-04', venue: 'Estrel', people: [u('Carl', 'uc')] })];
+  const neu = [mkS('a', { people: [u('Anna', 'ua'), u('Dora', 'ud')] }), mkS('c', { people: [u('Bert', 'ub')] })];
+  const d = P.planDiff(old, neu);
+  assert.deepEqual(P.planUnassigned(neu, d), [{ date: '2026-11-03', venue: 'Messe', title: 'Bar', user_ids: ['ub'], kind: 'unassigned' }]);
 });

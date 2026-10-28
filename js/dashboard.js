@@ -251,10 +251,11 @@ async function refreshDashboard() {
   _dashboardRefreshing = true;
 
   try {
+    await ensureRateUsers();
     const { data: protocols, error: protError } = await supabaseClient
       .from('protocols')
       .select(`
-        id, date, action, is_holiday, total_cost,
+        id, date, action, is_holiday, total_cost, al_id, pl_id,
         notes_damages, notes_incidents, notes_feedback,
         al_name_fallback, pl_name_fallback, created_at, mailed_at,
         projects(name, location),
@@ -849,6 +850,60 @@ async function deleteShiftFromModal() {
 
 // ── PROTOCOL COST RECALCULATION ──
 
+// Cost lines of one stored shift, with the employee's own rate like the app (getEffectivePersonnelRate)
+function dashShiftCosts(date, isHoliday, s) {
+  var von = (s.start_time || '').substring(0, 5);
+  var bis = (s.end_time || '').substring(0, 5);
+  if (!von || !bis || typeof calcSplitShiftCosts !== 'function') return [];
+  var sp = von.split(':').map(Number), ep = bis.split(':').map(Number);
+  if (sp.length !== 2 || ep.length !== 2 || isNaN(sp[0]) || isNaN(ep[0])) return [];
+  var v = sp[0] * 60 + (sp[1] || 0);
+  var b = ep[0] * 60 + (ep[1] || 0);
+  if (b < v) b += 1440;
+  if (b <= v) return [];
+  var basePos = s.position_role || 'MA frei';
+  var customRate = (s.user_id && typeof getEffectivePersonnelRate === 'function')
+    ? getEffectivePersonnelRate(basePos, s.user_id) : undefined;
+  return calcSplitShiftCosts(basePos, date, !!isHoliday, v, b, parseInt(s.pause_mins) || 0, customRate);
+}
+
+// Protocol total with the same formula as calcProtCosts in the app
+function calcDashProtTotal(date, isHoliday, vehicleTypes, shifts) {
+  var total = 0;
+  (vehicleTypes || []).forEach(function(type) {
+    total += (typeof calcTransportCost === 'function') ? calcTransportCost(type, date) : 0;
+  });
+  (shifts || []).forEach(function(s) {
+    dashShiftCosts(date, isHoliday, s).forEach(function(c) { total += c.hrs * c.rate; });
+  });
+  return isNaN(total) ? 0 : Math.round(total * 100) / 100;
+}
+
+// AL/PL typed in the edit modal → { id, fallback }. Unchanged name keeps the id; a changed name
+// gets an id only on a unique exact (case-insensitive) match, else it stays free text.
+function dashResolvePerson(typed, currentName, currentId, users) {
+  var name = (typed || '').trim();
+  if (!name) return { id: null, fallback: null };
+  if (name === (currentName || '').trim()) return { id: currentId || null, fallback: name };
+  var lower = name.toLowerCase();
+  var hits = (users || []).filter(function(u) { return (u.full_name || '').trim().toLowerCase() === lower; });
+  return { id: hits.length === 1 ? hits[0].id : null, fallback: name };
+}
+
+// Dashboard protocol row → archive entry for buildProtPdfDoc (one PDF builder for app and dashboard)
+function dashProtToEntry(p, signature) {
+  var entry = protRowToEntry(p);
+  entry.signature = signature || null;
+  return entry;
+}
+
+// Employee rates live in appUsers (protokoll.js); load them when the dashboard opens first
+async function ensureRateUsers() {
+  if (typeof appUsers !== 'undefined' && appUsers.length === 0 && typeof fetchAppUsers === 'function') {
+    try { await fetchAppUsers(); } catch (e) { console.warn('app_users für Stundensätze nicht geladen:', e); }
+  }
+}
+
 async function recalcAllProtocolCosts() {
   if (!dashboardProtocols || dashboardProtocols.length === 0) {
     if (typeof showToast === 'function') showToast('Keine Protokolle geladen.', 'danger');
@@ -859,42 +914,20 @@ async function recalcAllProtocolCosts() {
 
   let updated = 0, errors = 0;
 
+  await ensureRateUsers();
   for (const p of dashboardProtocols) {
-    let total = 0;
-
-    // Transport costs
-    (p.protocol_transports || []).forEach(function(t) {
-      total += (typeof calcTransportCost !== 'undefined') ? calcTransportCost(t.vehicle_type, p.date) : 0;
-    });
-
-    // Personnel costs
-    (p.shifts || []).forEach(function(s) {
-      const von = (s.start_time || '').substring(0, 5);
-      const bis = (s.end_time  || '').substring(0, 5);
-      const pa  = parseInt(s.pause_mins) || 0;
-      if (!von || !bis) return;
-      const [sh, sm] = von.split(':').map(Number);
-      const [eh, em] = bis.split(':').map(Number);
-      if (isNaN(sh) || isNaN(eh)) return;
-      let v = sh * 60 + sm;
-      let b = eh * 60 + em;
-      if (b < v) b += 1440;
-      if (b <= v) return;
-      const basePos = s.position_role || 'MA frei';
-      if (typeof calcSplitShiftCosts === 'function') {
-        const costs = calcSplitShiftCosts(basePos, p.date, p.is_holiday || false, v, b, pa);
-        costs.forEach(c => { total += c.hrs * c.rate; });
-      }
-    });
-
-    const rounded = isNaN(total) ? 0 : Math.round(total * 100) / 100;
+    const rounded = calcDashProtTotal(p.date, p.is_holiday,
+      (p.protocol_transports || []).map(t => t.vehicle_type), p.shifts || []);
 
     try {
-      const { error } = await supabaseClient
+      const { data: upd, error } = await supabaseClient
         .from('protocols')
         .update({ total_cost: rounded })
-        .eq('id', p.id);
+        .eq('id', p.id)
+        .select('id');
       if (error) throw error;
+      // RLS answers with 0 rows instead of an error
+      if (!upd || upd.length === 0) throw new Error('Update abgelehnt (keine Berechtigung)');
       p.total_cost = rounded;
       updated++;
     } catch (e) {
@@ -1091,27 +1124,11 @@ function openDashDetail(id) {
     // Personnel costs
     (p.shifts || []).forEach(function(s) {
       var name = s.temp_worker_name || (s.app_users ? s.app_users.full_name : 'Mitarbeiter');
-      var von = (s.start_time || '').substring(0, 5);
-      var bis = (s.end_time || '').substring(0, 5);
-      var pa = parseInt(s.pause_mins) || 0;
-      var v = null, b = null;
-      if (von && bis) {
-        var sp = von.split(':'), ep = bis.split(':');
-        if (sp.length === 2 && ep.length === 2) {
-          v = parseInt(sp[0]) * 60 + parseInt(sp[1]);
-          b = parseInt(ep[0]) * 60 + parseInt(ep[1]);
-        }
-      }
-      var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
-      if (v !== null && b !== null && effB > v && typeof calcSplitShiftCosts === 'function') {
-        var basePos = s.position_role || 'MA frei';
-        var costs = calcSplitShiftCosts(basePos, p.date, p.is_holiday || false, v, effB, pa);
-        costs.forEach(function(c) {
-          var sub = c.hrs * c.rate;
-          persTotal += sub;
-          rows.push({ section: 'personal', label: escapeHtml(name), detail: escapeHtml(c.desc), hrs: c.hrs, rate: c.rate, cost: sub });
-        });
-      }
+      dashShiftCosts(p.date, p.is_holiday, s).forEach(function(c) {
+        var sub = c.hrs * c.rate;
+        persTotal += sub;
+        rows.push({ section: 'personal', label: escapeHtml(name), detail: escapeHtml(c.desc), hrs: c.hrs, rate: c.rate, cost: sub });
+      });
     });
 
     var grandTotal = logTotal + persTotal;
@@ -1225,14 +1242,14 @@ function renderDashProtTransports() {
   }).join('');
   c.innerHTML = _editProtTransports.map(function(t, i) {
     var delayField = t.punctuality === 'verspätet'
-      ? '<input type="number" placeholder="Min" value="' + (t.delay || '') + '" oninput="_editProtTransports[' + i + '].delay=this.value" class="meta-input" style="width:70px;padding:5px 6px;font-size:12px;">'
+      ? '<input type="number" placeholder="Min" value="' + escapeHtml(t.delay || '') + '" oninput="_editProtTransports[' + i + '].delay=this.value" class="meta-input" style="width:70px;padding:5px 6px;font-size:12px;">'
       : '';
     var selOpts = Object.keys(PROT_VEHICLE_RATES).map(function(v) {
       return '<option value="' + v + '"' + (t.type === v ? ' selected' : '') + '>' + v + '</option>';
     }).join('');
     return '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
       '<select oninput="_editProtTransports[' + i + '].type=this.value" class="meta-input" style="flex:1;min-width:110px;padding:5px 6px;font-size:12px;">' + selOpts + '</select>' +
-      '<input type="text" placeholder="Fahrer" value="' + (t.driver || '') + '" oninput="_editProtTransports[' + i + '].driver=this.value" class="meta-input" style="flex:1;min-width:100px;padding:5px 6px;font-size:12px;">' +
+      '<input type="text" placeholder="Fahrer" value="' + escapeHtml(t.driver || '') + '" oninput="_editProtTransports[' + i + '].driver=this.value" class="meta-input" style="flex:1;min-width:100px;padding:5px 6px;font-size:12px;">' +
       '<select oninput="_editProtTransports[' + i + '].punctuality=this.value;renderDashProtTransports()" class="meta-input" style="flex:1;min-width:100px;padding:5px 6px;font-size:12px;">' +
         '<option value="pünktlich"' + (t.punctuality === 'pünktlich' ? ' selected' : '') + '>Pünktlich</option>' +
         '<option value="verspätet"' + (t.punctuality === 'verspätet' ? ' selected' : '') + '>Verspätet</option>' +
@@ -1291,21 +1308,42 @@ async function saveDashProtEdit() {
 
   const alVal = document.getElementById('pe-al').value.trim();
   const plVal = document.getElementById('pe-pl').value.trim();
+  const newDate = document.getElementById('pe-date').value || p.date;
+  const isHoliday = document.getElementById('pe-holiday').checked;
+
+  // A changed AL/PL name must not be hidden behind the old al_id/pl_id (the join wins in the display)
+  await ensureRateUsers();
+  const users = (typeof dashboardWorkers !== 'undefined' && dashboardWorkers.length) ? dashboardWorkers
+    : (typeof appUsers !== 'undefined' ? appUsers : []);
+  const al = dashResolvePerson(alVal, p.al ? p.al.full_name : (p.al_name_fallback || ''), p.al_id, users);
+  const pl = dashResolvePerson(plVal, p.pl ? p.pl.full_name : (p.pl_name_fallback || ''), p.pl_id, users);
 
   const protPayload = {
-    date:            document.getElementById('pe-date').value,
+    date:            newDate,
     action:          document.getElementById('pe-action').value,
-    is_holiday:      document.getElementById('pe-holiday').checked,
-    al_name_fallback: alVal || null,
-    pl_name_fallback: plVal || null,
+    is_holiday:      isHoliday,
+    al_id:           al.id,
+    pl_id:           pl.id,
+    al_name_fallback: al.fallback,
+    pl_name_fallback: pl.fallback,
+    // Same formula as the app (transports by date, holiday, employee rates, minimum hours)
+    total_cost:      calcDashProtTotal(newDate, isHoliday, _editProtTransports.map(t => t.type), p.shifts || []),
     notes_damages:   document.getElementById('pe-damages').value.trim()   || null,
     notes_incidents: document.getElementById('pe-incidents').value.trim() || null,
     notes_feedback:  document.getElementById('pe-feedback').value.trim()  || null,
   };
 
   try {
-    const { error: pErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', _editProtId);
+    const { data: pRows, error: pErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', _editProtId).select('id');
     if (pErr) throw pErr;
+    // RLS answers with 0 rows instead of an error
+    if (!pRows || pRows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung (protocols)');
+
+    // Shifts carry their own date (Buchhaltung) → follow a date change
+    if (newDate && newDate !== p.date) {
+      const { error: sdErr } = await supabaseClient.from('shifts').update({ shift_date: newDate }).eq('protocol_id', _editProtId);
+      if (sdErr) throw sdErr;
+    }
 
     // Re-insert transports (delete first, check error before inserting)
     const { error: tDelErr } = await supabaseClient.from('protocol_transports').delete().eq('protocol_id', _editProtId);
@@ -1351,200 +1389,31 @@ async function saveDashProtEdit() {
 }
 
 // PDF EXPORT FROM DASHBOARD
+// Same builder as the app (buildProtPdfDoc): holiday, date-based transport rates, employee rates,
+// category labels and minimum hours all match the PDF the AL mails.
 async function exportDashProtPDF(pId) {
   const p = dashboardProtocols.find(x => x.id === pId);
   if (!p) return;
   if (!window.jspdf || !window.jspdf.jsPDF) {
     alert("PDF Engine nicht geladen!"); return;
   }
-  
+
   if (typeof showToast === 'function') showToast('Generiere Protokoll-PDF...');
+  try {
+    await ensureRateUsers();
+    // The signature is only fetched here, so the dashboard list doesn't load every base64 image
+    let signature = null;
+    const { data: sigRow, error: sigErr } = await supabaseClient
+      .from('protocols').select('signature_text').eq('id', pId).maybeSingle();
+    if (sigErr) console.warn('Unterschrift nicht geladen:', sigErr);
+    else if (sigRow) signature = sigRow.signature_text || null;
 
-  // Map Dashboard Data exactly to traditional data format
-  // totalCost is missing from p if it was not computed correctly, but it has total_cost
-  var data = {
-    event: p.projects ? p.projects.name : 'Unbekannt', 
-    location: p.location || (p.projects ? p.projects.location : '—'),
-    date: p.date ? p.date : localDateStr(), 
-    action: p.action || '—',
-    al: p.al ? p.al.full_name : p.al_name_fallback || '—', 
-    pl: p.pl ? p.pl.full_name : p.pl_name_fallback || '—',
-    damages: p.notes_damages || 'nein', 
-    incidents: p.notes_incidents || 'nein',
-    feedback: p.notes_feedback || '—',
-    totalCost: (p.total_cost || 0).toLocaleString('de-DE', {minimumFractionDigits: 2}) + ' €',
-    transports: (p.protocol_transports || []).map(t => ({
-      type: t.vehicle_type, driver: t.driver_name, punctuality: t.punctuality, delay: t.delay_mins
-    })), 
-    personnel: (p.shifts || []).map(s => {
-      const r = isAgencyShift(s) ? ratingForShift(p, s) : null;
-      return {
-        pos: s.position_role,
-        name: s.temp_worker_name || (s.app_users ? s.app_users.full_name : 'Fest'),
-        start: (s.start_time||'').substring(0,5),
-        end: (s.end_time||'').substring(0,5),
-        pause: s.pause_mins,
-        fest: true,
-        isAgency: isAgencyShift(s),
-        rating: r ? r.rating : null,
-        isStar: r ? !!r.is_star : false
-      };
-    }),
-    categories: {}
-  };
-
-  if (p.protocol_equipments) {
-    p.protocol_equipments.forEach(eq => {
-      data.categories[eq.category_id] = {
-        active: true, status: eq.status, note: eq.note, hussenDelivered: eq.hussen_delivered, hussenReturned: eq.hussen_returned
-      };
-    });
+    const entry = dashProtToEntry(p, signature);
+    buildProtPdfDoc(entry).save(protPdfFileName(entry));
+  } catch (err) {
+    console.error('exportDashProtPDF error:', err);
+    if (typeof showToast === 'function') showToast('PDF konnte nicht erstellt werden', 'danger');
   }
-
-  // Backup protState and temporarily inject dashboard state into protState so formulas.js functions work seamlessly
-  var savedProtState = window.protState;
-  window.protState = { holiday: false, signature: p.signature_base64 || null };
-
-  var doc = new window.jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
-  if (typeof LOGO_BASE64 !== 'undefined') {
-    try { var lw = 30, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100; doc.addImage(LOGO_BASE64, 'PNG', 160, 10, lw, lh); } catch(e) {}
-  }
-  
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text('Einsatzprotokoll', ml, 20);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120); doc.text('Lübbert Event Interiors', ml, 26); doc.setTextColor(0);
-  var y = 38;
-
-  doc.setDrawColor(230); doc.setFillColor(248,248,246); doc.rect(ml, y, cw, 32, 'F');
-  doc.setFontSize(9); doc.setFont('helvetica','bold');
-  doc.text('Projekt:', ml+4, y+6); doc.setFont('helvetica','normal'); doc.text(data.event, ml+25, y+6);
-  doc.setFont('helvetica','bold'); doc.text('Ort:', ml+4, y+12); doc.setFont('helvetica','normal'); doc.text(data.location, ml+25, y+12);
-  doc.setFont('helvetica','bold'); doc.text('Datum:', ml+4, y+18); doc.setFont('helvetica','normal'); doc.text(new Date(data.date).toLocaleDateString('de-DE'), ml+25, y+18);
-  doc.setFont('helvetica','bold'); doc.text('Aktion:', ml+80, y+18); doc.setFont('helvetica','normal'); doc.text(data.action, ml+100, y+18);
-  doc.setFont('helvetica','bold'); doc.text('AL:', ml+4, y+24); doc.setFont('helvetica','normal'); doc.text(data.al, ml+25, y+24);
-  doc.setFont('helvetica','bold'); doc.text('PL:', ml+80, y+24); doc.setFont('helvetica','normal'); doc.text(data.pl, ml+100, y+24);
-  y += 40;
-
-  // Transports
-  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Logistik & Transport', ml, y); y += 6;
-  if (!data.transports.length) {
-    doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Keine Lieferung.', ml, y); y += 8;
-  } else {
-    doc.setFillColor(30,30,28); doc.rect(ml,y,cw,8,'F'); doc.setTextColor(255); doc.setFontSize(8);
-    doc.text('Fahrzeug',ml+2,y+5.5); doc.text('Fahrer',ml+40,y+5.5); doc.text('Status',ml+80,y+5.5); doc.text('Verspätung',ml+120,y+5.5);
-    doc.setTextColor(0); y += 8;
-    data.transports.forEach(function(t,i) {
-      if (i%2===1){doc.setFillColor(248,248,246);doc.rect(ml,y,cw,8,'F');}
-      doc.text(t.type,ml+2,y+5.5); doc.text(t.driver||'—',ml+40,y+5.5); doc.text(t.punctuality,ml+80,y+5.5); doc.text(t.delay?t.delay+' Min':'—',ml+120,y+5.5); y += 8;
-    }); y += 4;
-  }
-
-  // Categories
-  if (y > 240) { doc.addPage(); y = 20; }
-  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Equipment & Gewerke', ml, y); y += 6;
-  var activeCatKeys = Object.keys(data.categories);
-  if (activeCatKeys.length === 0) {
-    doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Keine Gewerke dokumentiert.', ml, y); y += 8;
-  } else {
-    activeCatKeys.forEach(function(catId) {
-      var s = data.categories[catId];
-      const fallbackLabels = { 'stoffe': 'Vorhänge & Stoffe', 'moebel': 'Möbel & Ausstattung', 'buehne': 'Bühne & Rigging', 'sonstiges': 'Sonstiges Equipment' };
-      const catLabel = fallbackLabels[catId] || catId;
-      doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text(catLabel+':', ml, y);
-      doc.setFont('helvetica','normal'); doc.text((s.status||'okay').toUpperCase(), ml+40, y);
-      if (s.note) {
-        doc.setFontSize(8); doc.setTextColor(100);
-        doc.splitTextToSize(String(s.note), cw - 5).forEach(function(line) { y += 4; if (y > 280) { doc.addPage(); y = 20; } doc.text(line, ml+5, y); });
-        doc.setTextColor(0);
-      }
-      y += 7; if (y > 270) { doc.addPage(); y = 20; }
-    }); y += 4;
-  }
-
-  // Personnel
-  if (y > 250) { doc.addPage(); y = 20; }
-  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Personal', ml, y); y += 6;
-  if (!data.personnel.length) {
-    doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Keine Personaldaten.', ml, y); y += 8;
-  } else {
-    doc.setFillColor(30,30,28); doc.rect(ml,y,cw,8,'F'); doc.setTextColor(255); doc.setFontSize(8);
-    doc.text('Pos',ml+2,y+5.5); doc.text('Name',ml+25,y+5.5); doc.text('Arbeitszeit',ml+72,y+5.5); doc.text('Pause',ml+100,y+5.5); doc.text('Netto',ml+118,y+5.5); doc.text('Bewertung',ml+138,y+5.5);
-    doc.setTextColor(0); y += 8;
-    data.personnel.forEach(function(pen,i) {
-      if (i%2===1){doc.setFillColor(248,248,246);doc.rect(ml,y,cw,8,'F');}
-      var v=null,b=null,pa=parseInt(pen.pause)||0;
-      if (pen.start && pen.end) {
-        var sp=pen.start.split(':'), ep=pen.end.split(':');
-        if(sp.length===2 && ep.length===2) { v=parseInt(sp[0])*60+parseInt(sp[1]); b=parseInt(ep[0])*60+parseInt(ep[1]); }
-      }
-      var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
-      var netStr='—'; if(v!==null&&b!==null&&effB>v){var n=(effB-v-pa)/60;netStr=n.toFixed(2)+' h';}
-      var posLabel = pen.pos || 'MA';
-      doc.text(truncatePdf(doc,posLabel,22),ml+2,y+5.5); doc.text(truncatePdf(doc,pen.name||'—',45),ml+25,y+5.5); doc.text((pen.start||'—')+' - '+(pen.end||'—'),ml+72,y+5.5); doc.text(pa+' Min',ml+100,y+5.5); doc.text(netStr,ml+118,y+5.5);
-      if (pen.isAgency) doc.text(ratingPdfLabel(pen.rating, pen.isStar),ml+138,y+5.5);
-      y+=8; if(y>270){doc.addPage();y=20;}
-    }); y += 4;
-  }
-
-  // Incidents
-  if (y > 230) { doc.addPage(); y = 20; }
-  y += 4;
-  doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.text('Vorkommnisse / Feedback', ml, y); y += 6;
-  doc.setFontSize(9);
-  y = pdfWrappedRow(doc, 'Mängel:', data.damages, ml, ml+40, cw-40, y, 4.5, 280);
-  y = pdfWrappedRow(doc, 'Vorkommnisse:', data.incidents, ml, ml+40, cw-40, y, 4.5, 280);
-  y = pdfWrappedRow(doc, 'Feedback:', data.feedback, ml, ml+40, cw-40, y, 4.5, 280); y += 6;
-  if (y > 250) { doc.addPage(); y = 20; }
-
-  // Costs (Matches protokoll.js style identically)
-  doc.setDrawColor(24,95,165); doc.setLineWidth(0.5); doc.line(ml,y,ml+cw,y); y += 8;
-  doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.text('Nebenkalkulation (itemisiert):', ml, y); y += 6;
-  doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(100);
-  
-  data.transports.forEach(function(t) {
-    if (typeof PROT_VEHICLE_RATES !== 'undefined') {
-      var r = PROT_VEHICLE_RATES[t.type] || 0;
-      doc.text('- ' + t.type + ': ' + r.toFixed(2) + ' EUR', ml + 5, y); y += 4;
-      if (y > 280) { doc.addPage(); y = 20; }
-    }
-  });
-  
-  data.personnel.forEach(function(pen) {
-    var v=null,b=null,pa=parseInt(pen.pause)||0;
-    if (pen.start && pen.end) {
-      var sp=pen.start.split(':'), ep=pen.end.split(':');
-      if(sp.length===2 && ep.length===2) { v=parseInt(sp[0])*60+parseInt(sp[1]); b=parseInt(ep[0])*60+parseInt(ep[1]); }
-    }
-    var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
-    if (v !== null && b !== null && effB > v) {
-      var basePos = pen.pos;
-      if (['AL', 'MA', 'Fahrer'].includes(pen.pos)) basePos += (pen.fest ? ' fest' : ' frei');
-      var costs = [];
-      if (typeof calcSplitShiftCosts === 'function') costs = calcSplitShiftCosts(basePos, data.date, false, v, effB, pa);
-      costs.forEach(function(c) {
-        var sub = c.hrs * c.rate;
-        doc.text('- ' + pen.name + ' (' + c.desc + '): ' + c.hrs.toFixed(2) + 'h x ' + c.rate.toFixed(2) + ' EUR = ' + sub.toFixed(2) + ' EUR', ml + 5, y); y += 4;
-        if (y > 280) { doc.addPage(); y = 20; }
-      });
-    }
-  });
-  y += 2;
-  doc.setFontSize(14); doc.setFont('helvetica','bold'); doc.setTextColor(24,95,165); 
-  doc.text('Gesamtkosten (geschätzt): ' + data.totalCost, ml, y); y += 12;
-
-  // Signature
-  if (window.protState.signature) {
-    if (y+35>270){doc.addPage();y=20;}
-    doc.setDrawColor(24,95,165); doc.setLineWidth(0.3); doc.line(ml,y,ml+cw,y); y+=8;
-    doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.setTextColor(0); doc.text('Unterschrift Aufbauleitung:', ml, y); y+=6;
-    try { doc.addImage(window.protState.signature,'PNG',ml,y,60,30); } catch(e){}
-    y+=35; doc.setDrawColor(180); doc.line(ml,y,ml+70,y); y+=4;
-  }
-
-  var fName = 'protokoll_' + data.date + '_' + data.event.replace(/\s+/g,'_') + '.pdf';
-  doc.save(fName);
-
-  // Revert temporary protState injection
-  window.protState = savedProtState;
 }
 
 // Expose shift-edit functions globally (belt-and-suspenders for inline onclick handlers)

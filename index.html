@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=12">
+  <link rel="stylesheet" href="css/style.css?v=13">
 </head>
 
 <body>
@@ -462,10 +462,12 @@
             <div id="prod-existing-images" style="display: none;"></div>
             <div class="field">
               <label>Aufbau-Datei (PDF oder Bild, optional)</label>
-              <input type="file" id="inp-prod-pdf" accept=".pdf,.jpg,.jpeg,.png" class="meta-input" style="padding: 8px;" />
+              <input type="file" id="inp-prod-pdf" accept="application/pdf,.pdf,image/*" class="meta-input" style="padding: 8px;" onchange="produktPdfSelected()" />
+              <div id="inp-prod-pdf-selected" style="font-size: 12px; color: var(--text2); margin-top: 4px; display: none;"></div>
               <div id="inp-prod-pdf-current" style="font-size: 12px; color: var(--text3); margin-top: 4px; display: none;"></div>
             </div>
           </div>
+          <div id="produkt-form-error" role="alert" style="display: none; margin-top: 12px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--danger); color: var(--danger); font-size: 13px; white-space: pre-wrap;"></div>
           <div style="display: flex; gap: 10px; margin-top: 16px;">
             <button class="btn primary" style="width: auto; padding: 10px 20px;" onclick="saveProdukt()">Speichern</button>
             <button class="btn" style="width: auto; padding: 10px 20px;" onclick="closeProduktForm()">Abbrechen</button>
@@ -971,21 +973,21 @@
 
   <!-- Scripts -->
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=14"></script>
+  <script src="js/auth.js?v=15"></script>
   <script src="js/logo.js?v=9"></script>
-  <script src="js/formulas.js?v=9"></script>
-  <script src="js/utils.js?v=16"></script>
+  <script src="js/formulas.js?v=10"></script>
+  <script src="js/utils.js?v=17"></script>
   <script src="js/settings.js?v=2"></script>
-  <script src="js/stundenzettel.js?v=9"></script>
-  <script src="js/protokoll.js?v=22"></script>
-  <script src="js/erinnerung.js?v=6"></script>
+  <script src="js/stundenzettel.js?v=10"></script>
+  <script src="js/protokoll.js?v=23"></script>
+  <script src="js/erinnerung.js?v=7"></script>
   <script src="js/plan-pdf.js?v=1"></script>
-  <script src="js/plan-parser.js?v=4"></script>
-  <script src="js/wochenplan.js?v=3"></script>
-  <script src="js/dashboard.js?v=15"></script>
-  <script src="js/produkte.js?v=10"></script>
-  <script src="js/ordner.js?v=13"></script>
-  <script src="js/app.js?v=13"></script>
+  <script src="js/plan-parser.js?v=5"></script>
+  <script src="js/wochenplan.js?v=4"></script>
+  <script src="js/dashboard.js?v=16"></script>
+  <script src="js/produkte.js?v=11"></script>
+  <script src="js/ordner.js?v=14"></script>
+  <script src="js/app.js?v=14"></script>
 </body>
 
 </html>

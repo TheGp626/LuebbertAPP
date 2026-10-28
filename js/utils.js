@@ -69,10 +69,10 @@ var MONTHS_DE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', '
 
 // Billing period runs from <cutoff>. of the previous month to <cutoff-1>. of
 // the key month (see getBillingPeriodLabel), so a date on or after the cutoff
-// day belongs to the NEXT month's period.
+// day belongs to the NEXT month's period. Cutoff 1 and 31 mean calendar months.
 function getBillingKeyForDate(d, billingCutoff) {
   var m = d.getMonth(), y = d.getFullYear();
-  if (billingCutoff < 31 && d.getDate() >= billingCutoff) {
+  if (billingCutoff > 1 && billingCutoff < 31 && d.getDate() >= billingCutoff) {
     m++;
     if (m > 11) { m = 0; y++; }
   }
@@ -147,6 +147,12 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+// A value passed as a '...' string argument inside an onclick="..." attribute:
+// JS-escape first, then HTML-escape (the browser decodes the entities before parsing the JS)
+function jsAttrArg(str) {
+  return escapeHtml(String(str == null ? '' : str).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+}
+
 function safeNote(text) {
   return escapeHtml(text || 'Keine Angaben').replace(/\n/g, '<br>');
 }
@@ -199,11 +205,18 @@ function pdfWrappedRow(doc, label, text, x, valueX, maxW, y, lineH, pageBottom) 
   return y + 1.5;
 }
 
+// Describes exactly the days getBillingKeyForDate puts into mKey: the previous
+// month's days >= cutoff plus this month's days < cutoff (short months clamp).
 function getBillingPeriodLabel(mKey, cutoff) {
   var parts = mKey.split('-'), y = +parts[0], m = +parts[1];
   var prevM = m === 1 ? 12 : m - 1;
   var prevY = m === 1 ? y - 1 : y;
-  return pad(cutoff) + '.' + pad(prevM) + '.' + prevY + ' – ' + pad(cutoff - 1) + '.' + pad(m) + '.' + y;
+  var daysIn = function (yy, mm) { return new Date(yy, mm, 0).getDate(); }; // mm is 1-based
+  var lastDay = daysIn(y, m);
+  var thisMonth = '.' + pad(m) + '.' + y;
+  if (!(cutoff > 1 && cutoff < 31)) return '01' + thisMonth + ' – ' + pad(lastDay) + thisMonth;
+  var start = cutoff <= daysIn(prevY, prevM) ? pad(cutoff) + '.' + pad(prevM) + '.' + prevY : '01' + thisMonth;
+  return start + ' – ' + pad(Math.min(cutoff - 1, lastDay)) + thisMonth;
 }
 
 // ── EINSÄTZE (AL-Erinnerung) ──

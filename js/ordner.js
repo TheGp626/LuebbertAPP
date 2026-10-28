@@ -484,8 +484,7 @@ async function saveOrdner() {
   var payload = {
     name: name,
     description: desc || null,
-    pl_id: plId,
-    created_by: typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null
+    pl_id: plId
   };
 
   var folderId = editingOrdnerId;
@@ -493,6 +492,8 @@ async function saveOrdner() {
     var { data: upd, error } = await supabaseClient.from('project_folders').update(payload).eq('id', editingOrdnerId).select('id');
     if (error || !upd || !upd.length) { showToast('Fehler: ' + (error ? error.message : 'Ordner nicht gespeichert'), 'danger'); return; }
   } else {
+    // created_by only on insert: an edit must not hand the folder over to the editor
+    payload.created_by = typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null;
     var { data: created, error: insErr } = await supabaseClient.from('project_folders').insert(payload).select('id').single();
     if (insErr) { showToast('Fehler: ' + insErr.message, 'danger'); return; }
     folderId = created.id;

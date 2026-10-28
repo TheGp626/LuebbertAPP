@@ -1,5 +1,6 @@
 // notify-plan-change: Web Push after a Wochenplan upload (experimental).
-// First upload of a week → everyone planned; later uploads → only people on changed, new or removed shifts.
+// First upload of a week → everyone planned; later uploads → only people on changed, new or removed shifts
+// and people taken off a shift (plan_weeks.removed entries with kind 'unassigned').
 // Sends at most once per plan version (plan_weeks.notified_version is claimed atomically).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import webpush from 'npm:web-push@3.6.7';

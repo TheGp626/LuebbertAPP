@@ -43,7 +43,10 @@ async function fetchOpenEinsaetze(userId) {
 }
 
 function isIosWithoutHomescreen() {
-  return /iPhone|iPad|iPod/.test(navigator.userAgent) && !navigator.standalone;
+  // iPadOS 13+ reports itself as "Macintosh"; only the touch screen tells it apart from a Mac
+  var ios = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+    (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  return ios && !navigator.standalone;
 }
 
 function pushSupported() {
