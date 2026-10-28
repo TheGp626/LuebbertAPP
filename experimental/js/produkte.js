@@ -492,6 +492,59 @@ function aufbauDateiBarHtml(url, kind) {
     '</div>';
 }
 
+var AUFBAU_MAX_PAGES = 15;
+
+// Page size for the inline Aufbau-Datei: full viewer width (max 900px), rendered at screen density (max 2.5x)
+function aufbauPageScale(pageWidth, containerWidth, dpr) {
+  var cssWidth = Math.min(containerWidth > 0 ? containerWidth : 320, 900);
+  var density = Math.min(Math.max(dpr || 1, 1), 2.5);
+  return { cssWidth: cssWidth, renderScale: cssWidth / pageWidth * density };
+}
+
+// The Aufbau-Datei shown directly in the viewer (no extra tap): images as <img>, PDFs as rendered pages
+function aufbauDateiInlineHtml(url, kind) {
+  if (kind === 'image') return '<img src="' + escHtml(url) + '" class="aufbau-inline-img" alt="Aufbau-Datei" />';
+  if (kind === 'pdf') return '<div class="aufbau-pdf-pages" data-url="' + escHtml(url) + '"><div class="aufbau-pdf-loading">Aufbau-Datei wird geladen…</div></div>';
+  return '<p style="color:#bbb;font-size:13px;text-align:center;margin:8px 0 16px;">Diese Datei kann hier nicht angezeigt werden. Bitte über „Aufbau-Datei öffnen“ ansehen.</p>';
+}
+
+// Draws the PDF pages into the viewer. Stops quietly when the viewer was closed or switched meanwhile.
+async function renderAufbauPdfPages(box) {
+  if (!box || typeof pdfjsLib === 'undefined') return;
+  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+  try {
+    var pdf = await pdfjsLib.getDocument({ url: box.dataset.url }).promise;
+    if (!box.isConnected) return;
+    box.innerHTML = '';
+    var pages = Math.min(pdf.numPages, AUFBAU_MAX_PAGES);
+    for (var n = 1; n <= pages; n++) {
+      var page = await pdf.getPage(n);
+      if (!box.isConnected) return;
+      var base = page.getViewport({ scale: 1 });
+      var s = aufbauPageScale(base.width, box.clientWidth, window.devicePixelRatio);
+      var vp = page.getViewport({ scale: s.renderScale });
+      var canvas = document.createElement('canvas');
+      canvas.className = 'aufbau-pdf-page';
+      canvas.width = Math.floor(vp.width);
+      canvas.height = Math.floor(vp.height);
+      canvas.style.width = s.cssWidth + 'px';
+      box.appendChild(canvas);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    }
+    if (pdf.numPages > pages) {
+      var more = document.createElement('div');
+      more.className = 'aufbau-pdf-loading';
+      more.textContent = 'Weitere ' + (pdf.numPages - pages) + ' Seiten über „PDF öffnen“ ansehen.';
+      box.appendChild(more);
+    }
+  } catch (e) {
+    console.warn('Aufbau-Datei anzeigen:', e);
+    if (box.isConnected) box.innerHTML = '<div class="aufbau-pdf-loading">Die Vorschau konnte nicht geladen werden. Bitte über „PDF öffnen“ ansehen.</div>';
+  }
+}
+
 function openProduktViewer(id) {
   var p = alleProdukte.find(function(x) { return x.id === id; });
   if (!p) return;
@@ -537,7 +590,7 @@ function openProduktViewer(id) {
 
     if (body) {
       body.innerHTML = wrapOpen +
-        (p.pdf_url ? aufbauDateiBarHtml(p.pdf_url, kind) : '') +
+        (p.pdf_url ? aufbauDateiBarHtml(p.pdf_url, kind) + aufbauDateiInlineHtml(p.pdf_url, kind) : '') +
         '<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">' +
         images.map(function(img, idx) {
           if (img.media_type === 'video') {
@@ -557,19 +610,8 @@ function openProduktViewer(id) {
   } else if (p.pdf_url) {
     // Only the Aufbau-Datei (PDF, image or unknown type)
     if (subtitle) subtitle.textContent = kind === 'image' ? 'Aufbau-Datei (Bild)' : kind === 'pdf' ? 'Aufbau-Datei (PDF)' : 'Aufbau-Datei';
-    var url = escHtml(p.pdf_url);
-    var content;
-    if (kind === 'image') {
-      content = '<img src="' + url + '" style="max-width:100%;max-height:75vh;object-fit:contain;display:block;margin:0 auto;" />';
-    } else if (kind === 'pdf' && !isMobilePdfDevice()) {
-      content = '<iframe src="' + url + '" style="width:100%;flex:1;border:none;min-height:70vh;background:#fff;" allowfullscreen></iframe>';
-    } else {
-      // Mobile browsers can't show PDFs inline reliably; the bar above has the link
-      content = '<p style="color:#bbb;font-size:13px;text-align:center;margin:8px 0;">' +
-        (kind === 'pdf' ? 'Tippe auf „PDF öffnen“, um die Anleitung anzuzeigen.' : 'Diese Datei kann hier nicht angezeigt werden. Bitte über „Aufbau-Datei öffnen“ ansehen.') +
-        '</p>';
-    }
-    if (body) body.innerHTML = wrapOpen + aufbauDateiBarHtml(p.pdf_url, kind) + content + textHtml + '</div>';
+    // Rendered with pdf.js on every device (an <iframe> stays blank on Android and shows one page on iOS)
+    if (body) body.innerHTML = wrapOpen + aufbauDateiBarHtml(p.pdf_url, kind) + aufbauDateiInlineHtml(p.pdf_url, kind) + textHtml + '</div>';
   } else {
     // Only text content
     if (subtitle) subtitle.textContent = 'Aufbauanleitung';
@@ -579,6 +621,8 @@ function openProduktViewer(id) {
   }
 
   if (modal) modal.style.display = 'flex';
+  // After the modal is visible, so the page width is known
+  if (body) renderAufbauPdfPages(body.querySelector('.aufbau-pdf-pages'));
 }
 
 function closeProduktViewer() {
@@ -823,12 +867,6 @@ async function prepareProduktUpload(file, forImageBucket) {
   return { file: file, name: name, type: type };
 }
 
-function isMobilePdfDevice() {
-  var ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
-  // iPadOS reports as Mac; detect via touch points
-  var iPadOS = /Macintosh/.test(ua) && typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1;
-  return /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || iPadOS;
-}
 
 // New sort_order values when `coverId` becomes the cover (= lowest sort_order): cover 0, the others 1..n in their
 // current order. Only rows whose value changes are returned.
@@ -870,5 +908,5 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { fileExtension: fileExtension, sanitizeStorageName: sanitizeStorageName, produktFileKey: produktFileKey,
     contentTypeFor: contentTypeFor, isPdfMagic: isPdfMagic, isBucketImageType: isBucketImageType,
     uploadErrorMessage: uploadErrorMessage, aufbauFileKind: aufbauFileKind, storagePathFromUrl: storagePathFromUrl,
-    produktCoverOrder: produktCoverOrder };
+    produktCoverOrder: produktCoverOrder, aufbauPageScale: aufbauPageScale };
 }
