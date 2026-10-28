@@ -166,7 +166,7 @@ export function buildEveningPushes(items) {
       continue;
     }
     const { i, w } = withTime[0];
-    const title = `Morgen: ${i.venue}` + (i.title && i.title !== i.venue ? ` · ${i.title}` : '');
+    const title = `Morgen: ${i.venue}` + (i.title && i.title !== i.venue && !/^\d+\s+\S/.test(i.title) ? ` · ${i.title}` : ''); // "7 Loungesessel …" = equipment, no heading
     const time = w.time ? [w.time, w.label].filter(Boolean).join(' ') : '';
     const missing = (i.open || []).map(o => `${o.count} ${o.role} ${o.count === 1 ? 'fehlt' : 'fehlen'}`);
     const team = [(i.team || []).slice(0, 3).join(', '), ...missing].filter(Boolean).join(', ');

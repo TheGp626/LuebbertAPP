@@ -450,6 +450,25 @@ function planEventName(s) {
   return (s.title && !/^\d/.test(s.title)) ? s.title : s.venue;
 }
 
+// "7 Loungesessel …" is a quantity line; "1. OG" is a floor and stays a heading
+function planIsMaterial(line) { return /^\d+\s+\S/.test(line || ''); }
+function planLines(x) { return Array.isArray(x) ? x : (x ? String(x).split('\n') : []); }
+
+// Display heading of a shift. When the Was cell starts straight with equipment, the parser's title is
+// that equipment line (it stays in the key so old uploads still match); show the room/customer lines
+// after the postcode instead ("Estrel Saal · Kunde")
+function planShiftHeading(s) {
+  if (s.title && !planIsMaterial(s.title)) return s.title;
+  var loc = planLines(s.location), i = loc.findIndex(function(l) { return /^\d{5}\b/.test(l); });
+  return i < 0 ? '' : loc.slice(i + 1).filter(Boolean).join(' · ');
+}
+
+// Material list incl. an equipment line that the parser took as the title
+function planMaterialLines(s) {
+  var d = planLines(s.details);
+  return planIsMaterial(s.title) ? [s.title].concat(d) : d;
+}
+
 // Parsed shift + resolved user ids → DB rows (assignments without shift_id, added after insert)
 function planShiftRow(s, weekId, status) {
   return {
@@ -475,5 +494,6 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
     planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planShiftKey: planShiftKey,
     planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek, planCellLines: planCellLines,
-    planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb };
+    planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName,
+    planShiftHeading: planShiftHeading, planMaterialLines: planMaterialLines, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb };
 }

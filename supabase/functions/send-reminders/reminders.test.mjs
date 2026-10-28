@@ -169,3 +169,8 @@ test('planMailLogKeys: a plan job counts as mailed only when all of its PL mails
   assert.deepEqual(planMailLogKeys([{ keys: [k1], resolved: true }, { keys: [k1], resolved: true }]), [k1]);
   assert.deepEqual(planMailLogKeys([]), []);
 });
+
+test('evening: an equipment line as title ("7 Loungesessel …") is left out', () => {
+  const [p] = buildEveningPushes([ev({ title: '7 Loungesessel Cube dunkelblau' })]);
+  assert.equal(p.title, 'Morgen: VBKI');
+});

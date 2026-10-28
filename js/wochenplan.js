@@ -129,13 +129,13 @@ function wpDetails(s) {
       (a.role && a.role !== 'MA' ? ' <span class="wp-chip-role">' + wpEsc(a.role) + '</span>' : '') +
       (a.note ? ' <span class="wp-chip-role">· ' + wpEsc(a.note) + '</span>' : '') + '</span>';
   }).join('');
-  var rest = wpWannRest(s);
+  var rest = wpWannRest(s), mat = planMaterialLines(s);
   return '<div class="wp-details">' +
     (rest.length ? '<div class="wp-d-block"><div class="wp-d-label">Zeiten & Hinweise</div>' + rest.map(wpEsc).join('<br>') + '</div>' : '') +
     (people ? '<div class="wp-d-block"><div class="wp-d-label">Team</div>' + people + '</div>' : '') +
     (s.notes ? '<div class="wp-d-block"><div class="wp-d-label">' + WP_ICON.truck + ' Fahrzeuge & Infos</div>' + lines(s.notes) + '</div>' : '') +
     (s.location ? '<div class="wp-d-block"><div class="wp-d-label">' + WP_ICON.pin + ' Ort</div>' + wpEsc(s.venue || '') + '<br>' + lines(s.location) + '</div>' : '') +
-    (s.details ? '<div class="wp-d-block"><div class="wp-d-label">Material</div>' + lines(s.details) + '</div>' : '') +
+    (mat.length ? '<div class="wp-d-block"><div class="wp-d-label">Material</div>' + mat.map(wpEsc).join('<br>') + '</div>' : '') +
   '</div>';
 }
 
@@ -148,8 +148,8 @@ function wpProtButton(s, cls) {
 // Compact, expandable shift row (week view and "Danach" list)
 function wpRow(s, opts) {
   opts = opts || {};
-  var tc = wpTimeCol(s), mine = wpMyAssignment(s);
-  var sub = [s.title && s.title !== s.venue ? s.title : null, s.ap ? 'PL ' + s.ap : null].filter(Boolean).join(' · ');
+  var tc = wpTimeCol(s), mine = wpMyAssignment(s), head = planShiftHeading(s);
+  var sub = [head && head !== s.venue ? head : null, s.ap ? 'PL ' + s.ap : null].filter(Boolean).join(' · ');
   return '<div class="wp-row' + (mine ? ' wp-row-me' : '') + '" onclick="wpToggle(this)" role="button" tabindex="0" aria-expanded="false">' +
     '<div class="wp-time' + (tc.fuzzy ? ' wp-time-fuzzy' : '') + '"><b>' + wpEsc(tc.big) + '</b><span>' + wpEsc(tc.small) + '</span></div>' +
     '<div class="wp-main">' +
@@ -170,7 +170,7 @@ function wpToggle(el) {
 
 // Large card for the next own shift
 function wpHero(s) {
-  var tc = wpTimeCol(s), mine = wpMyAssignment(s), p = wpParts(s.date);
+  var tc = wpTimeCol(s), mine = wpMyAssignment(s), p = wpParts(s.date), head = planShiftHeading(s);
   var today = localDateStr(), tomorrow = wpAddDays(today, 1);
   // A bare weekday is only clear within the next 6 days; further out the date is shown
   var when = s.date === today ? 'heute' : s.date === tomorrow ? 'morgen' :
@@ -184,7 +184,7 @@ function wpHero(s) {
       '<div class="wp-head"><div class="wp-hero-date">' + wpDayLabel(s.date) + '</div><div class="wp-badges">' + wpStatusPill(s) +
         '<span class="wp-pill wp-me">Du' + (mine && mine.role && mine.role !== 'MA' ? ' · ' + wpEsc(mine.role) : '') + '</span></div></div>' +
       '<div class="wp-hero-time">' + wpEsc(tc.big) + (tc.small ? ' <span>' + wpEsc(tc.small) + '</span>' : '') + '</div>' +
-      '<div class="wp-hero-venue">' + wpEsc(s.venue || '—') + (s.title && s.title !== s.venue ? ' · ' + wpEsc(s.title) : '') + '</div>' +
+      '<div class="wp-hero-venue">' + wpEsc(s.venue || '—') + (head && head !== s.venue ? ' · ' + wpEsc(head) : '') + '</div>' +
       (addr ? '<div class="wp-sub">' + WP_ICON.pin + ' ' + wpEsc(addr) + '</div>' : '') +
       wpTeamLine(s) +
       (s.ap ? '<div class="wp-sub">PL ' + wpEsc(s.ap) + '</div>' : '') +
@@ -343,7 +343,7 @@ async function wpRenderWeek() {
   var gone = (week.removed || []).filter(function(r) { return r.kind !== 'unassigned'; });
   if (gone.length) {
     html += '<div class="wp-removed"><div class="wp-removed-title">Entfallen seit dem letzten Stand</div>' +
-      gone.map(function(r) { return '<div>' + wpDayLabel(r.date) + ' · ' + wpEsc(r.venue) + (r.title ? ' – ' + wpEsc(r.title) : '') + '</div>'; }).join('') + '</div>';
+      gone.map(function(r) { return '<div>' + wpDayLabel(r.date) + ' · ' + wpEsc(r.venue) + (planShiftHeading(r) ? ' – ' + wpEsc(planShiftHeading(r)) : '') + '</div>'; }).join('') + '</div>';
   }
   Object.keys(byDay).sort().forEach(function(d) {
     var p = wpParts(d);

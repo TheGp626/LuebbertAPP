@@ -307,3 +307,20 @@ test('real plans: no words torn apart in the material lists', { skip: !fixture('
   assert.match(all, /Bazaar/);
   assert.doesNotMatch(all, /Holz hoch tisch|B azaar/);
 });
+
+test('planShiftHeading / planMaterialLines: a Was cell that starts with equipment has no heading', () => {
+  const s = { title: '7 Loungesessel Cube dunkelblau', venue: 'Estrel', details: '3 Loungetisch Stockholm schwarz Duo',
+    location: 'Sonnenallee 225\n12057 Berlin\nEstrel Saal\nKunde GmbH' };
+  // the room/customer lines after the postcode replace the equipment line
+  assert.equal(P.planShiftHeading(s), 'Estrel Saal · Kunde GmbH');
+  // and the equipment line is the first material line again
+  assert.deepEqual(P.planMaterialLines(s), ['7 Loungesessel Cube dunkelblau', '3 Loungetisch Stockholm schwarz Duo']);
+  // parser shape (arrays) works the same, without a postcode there is no heading
+  assert.equal(P.planShiftHeading({ title: '1 Bar weiß klein', location: ['WECC'], details: [] }), '');
+  assert.deepEqual(P.planMaterialLines({ title: '1 Bar weiß klein', details: [] }), ['1 Bar weiß klein']);
+  // real headings stay ("1. OG" is a floor, not a quantity)
+  const h = { title: 'CH II', details: 'Barbereich\n3 Stehtisch Kris weiß', location: 'Sonnenallee 225\n12057 Berlin\nBVL' };
+  assert.equal(P.planShiftHeading(h), 'CH II');
+  assert.deepEqual(P.planMaterialLines(h), ['Barbereich', '3 Stehtisch Kris weiß']);
+  assert.equal(P.planShiftHeading({ title: '1. OG', location: [] }), '1. OG');
+});
