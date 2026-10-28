@@ -325,6 +325,21 @@ function planMatchPerson(person, users, aliases) {
 // Same day + location + title twice gets numbered keys (k, k#2); when the first row disappears the
 // second becomes k. So shifts are paired within the group of their base key: identical content first,
 // then same first "Wann" line, then most shared team names, then the remaining ones in order.
+// Stored week this upload replaces: same year+KW, else the stored week sharing most of its days (≥ 4) with the plan
+// (weeks imported before the KW rule changed sit under their start-date KW). A week that only touches the plan's
+// leading Sunday is a different week and must not be replaced.
+function planPickExistingWeek(weeks, parsed) {
+  var same = weeks.find(function(w) { return w.year === parsed.year && w.kw === parsed.kw; });
+  if (same) return same;
+  var day = function(iso) { var p = iso.split('-').map(Number); return Date.UTC(p[0], p[1] - 1, p[2]) / 86400000; };
+  var best = null, bestDays = 0;
+  weeks.forEach(function(w) {
+    var days = Math.min(day(w.week_end), day(parsed.weekEnd)) - Math.max(day(w.week_start), day(parsed.weekStart)) + 1;
+    if (days > bestDays) { best = w; bestDays = days; }
+  });
+  return bestDays >= 4 ? best : null;
+}
+
 function planDiff(oldShifts, newShifts) {
   // Field by field, never whole objects: jsonb hands back open slots with its own key order
   var fp = function(s) {
@@ -449,6 +464,6 @@ function planShiftFromDb(r) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
     planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planShiftKey: planShiftKey,
-    planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek,
+    planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek,
     planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb };
 }

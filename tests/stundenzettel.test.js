@@ -62,6 +62,25 @@ test('mergeWeekParts: loading one dept card edits the whole week', () => {
   assert.equal(mergeWeekParts(all, '2026-W45'), all['2026-W45']);
 });
 
+test('mergeWeekParts: a legacy plain key next to its part keys does not duplicate shifts', () => {
+  const { mergeWeekParts } = load(['mergeWeekParts']);
+  const all = {
+    '2026-W44': week('AL frei', [[sh('08:00', '12:00', 'AL frei'), sh('13:00', '17:00', 'MA frei')], [], [], [], [], [], []]),
+    '2026-W44:AL frei': week('AL frei', [[sh('08:00', '12:00', 'AL frei', { sig: 'SIG' })], [], [], [], [], [], []]),
+    '2026-W44:MA frei': week('MA frei', [[sh('13:00', '17:00', 'MA frei')], [], [], [], [], [], []]),
+  };
+  const w = mergeWeekParts(all, '2026-W44');
+  assert.deepEqual(w.days[0].shifts.map(s => [s.von, s.dept]), [['08:00', 'AL frei'], ['13:00', 'MA frei']]);
+  assert.equal(w.days[0].shifts[0].sig, 'SIG', 'the copy with the signature is kept');
+});
+
+test('unsyncedWeekKeys: each waiting week once, parts collapsed to their week', () => {
+  const { unsyncedWeekKeys } = load(['unsyncedWeekKeys']);
+  const all = { '2026-W44:AL frei': { unsynced: true }, '2026-W44:MA frei': { unsynced: true }, '2026-W45': { unsynced: true }, '2026-W46': {} };
+  assert.deepEqual(unsyncedWeekKeys(all), ['2026-W44', '2026-W45']);
+  assert.deepEqual(unsyncedWeekKeys({}), []);
+});
+
 test('weekHasUnsynced / clearUnsyncedFlag', () => {
   const { weekHasUnsynced, clearUnsyncedFlag } = load(['weekHasUnsynced', 'clearUnsyncedFlag']);
   const all = { '2026-W44:AL frei': { saved: 'T1', unsynced: true }, '2026-W44:MA frei': { saved: 'T1', unsynced: true }, '2026-W45': { saved: 'T0' } };

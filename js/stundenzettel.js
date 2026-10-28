@@ -82,6 +82,16 @@ async function fetchSupabaseShifts() {
   _shiftsSyncRunning = true;
 
   try {
+    // Weeks whose last save didn't reach the server (offline, failed check) are retried first —
+    // like protocols, instead of waiting for the user to save again
+    if (navigator.onLine !== false) {
+      var pending = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+      for (var pw of unsyncedWeekKeys(pending)) {
+        var pData = mergeWeekParts(pending, pw);
+        if (pData) { try { await syncWeekToSupabase(pData); } catch (e) { console.warn('Woche erneut synchronisieren:', pw, e); } }
+      }
+    }
+
     var { data, error } = await supabaseClient
       .from('shifts')
       .select(`
@@ -707,7 +717,13 @@ function mergeWeekParts(all, weekStart) {
     (part.days || []).forEach(function (dd, i) {
       if (!days[i]) days[i] = { day: dd.day, date: dd.date, isoDate: dd.isoDate, shifts: [] };
       (dd.shifts || []).forEach(function (s) {
-        days[i].shifts.push(Object.assign({}, s, { dept: s.dept || part.abt }));
+        var shift = Object.assign({}, s, { dept: s.dept || part.abt });
+        // An old plain week key can sit next to its department keys with the same shifts (pre-fix double count):
+        // keep one copy (the signed one), or the next save would write the duplicates to the server
+        var dupKey = [shift.von, shift.bis, shift.pause, shift.dept].join('|');
+        var j = days[i].shifts.findIndex(function (x) { return [x.von, x.bis, x.pause, x.dept].join('|') === dupKey; });
+        if (j === -1) days[i].shifts.push(shift);
+        else if (!days[i].shifts[j].sig && shift.sig) days[i].shifts[j] = shift;
       });
     });
   });
@@ -721,6 +737,17 @@ function weekHasUnsynced(all, weekStart) {
   return Object.keys(all).some(function (k) {
     return (k === weekStart || k.indexOf(weekStart + ':') === 0) && all[k] && all[k].unsynced;
   });
+}
+
+// Week keys (without the ':dept' part) that still have a local save waiting for the server
+function unsyncedWeekKeys(all) {
+  var out = [];
+  Object.keys(all).forEach(function (k) {
+    if (!all[k] || !all[k].unsynced) return;
+    var wk = k.split(':')[0];
+    if (out.indexOf(wk) === -1) out.push(wk);
+  });
+  return out.sort();
 }
 
 // Clears the flag after a successful sync — only on entries of that exact save (a newer save keeps its flag)

@@ -276,3 +276,17 @@ test('planUnassigned: users taken off a matched shift are listed; moved-in and n
   const d = P.planDiff(old, neu);
   assert.deepEqual(P.planUnassigned(neu, d), [{ date: '2026-11-03', venue: 'Messe', title: 'Bar', user_ids: ['ub'], kind: 'unassigned' }]);
 });
+
+test('planPickExistingWeek: same KW wins, otherwise the stored week the plan overlaps most', () => {
+  const parsed = { year: 2026, kw: 45, weekStart: '2026-11-01', weekEnd: '2026-11-08' };
+  const weeks = [
+    { id: 'a', year: 2026, kw: 44, week_start: '2026-11-01', week_end: '2026-11-07' },
+    { id: 'b', year: 2026, kw: 43, week_start: '2026-10-19', week_end: '2026-10-25' },
+  ];
+  assert.equal(P.planPickExistingWeek(weeks, parsed).id, 'a', 'stored under the old start-date KW');
+  assert.equal(P.planPickExistingWeek(weeks.concat([{ id: 'c', year: 2026, kw: 45, week_start: '2026-11-02', week_end: '2026-11-08' }]), parsed).id, 'c');
+  assert.equal(P.planPickExistingWeek([weeks[1]], parsed), null);
+  assert.equal(P.planPickExistingWeek([], parsed), null);
+  // the previous week touching only the plan's leading Sunday is a different week
+  assert.equal(P.planPickExistingWeek([{ id: 'd', year: 2026, kw: 44, week_start: '2026-10-26', week_end: '2026-11-01' }], parsed), null);
+});

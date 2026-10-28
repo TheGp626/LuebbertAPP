@@ -387,8 +387,18 @@ async function wpFileChosen(input) {
     return;
   }
   if (!parsed.shifts.length) { showToast(parsed.warnings[0] || 'Keine Einsätze erkannt.', 'danger'); return; }
-  var { data: ex, error } = await supabaseClient.from('plan_weeks')
-    .select('*, plan_shifts(*, plan_assignments(*))').eq('year', parsed.year).eq('kw', parsed.kw).maybeSingle();
+  // Same KW, or a stored week covering most of the same days (imported under an older KW rule)
+  var { data: cand, error } = await supabaseClient.from('plan_weeks')
+    .select('id, year, kw, week_start, week_end')
+    .or('and(year.eq.' + parsed.year + ',kw.eq.' + parsed.kw + '),and(week_start.lte.' + parsed.weekEnd + ',week_end.gte.' + parsed.weekStart + ')');
+  var ex = null;
+  if (!error) {
+    var pick = planPickExistingWeek(cand || [], parsed);
+    if (pick) {
+      var full = await supabaseClient.from('plan_weeks').select('*, plan_shifts(*, plan_assignments(*))').eq('id', pick.id).maybeSingle();
+      error = full.error; ex = full.data || null;
+    }
+  }
   if (error) { console.error('Woche prüfen:', error); showToast('Server nicht erreichbar.', 'danger'); return; }
 
   // Names that could not be matched automatically (agency workers are never matched)
