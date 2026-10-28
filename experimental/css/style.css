@@ -995,6 +995,8 @@ canvas#historyChart {
 
 #page-dashboard { overflow-y: auto; -webkit-overflow-scrolling: touch; }
 #page-produkte  { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+/* main menu: reminder banner + all modules can be taller than the window */
+#page-startup   { overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .dash-container { max-width: 1200px; margin: 0 auto; padding: 24px; animation: fadeIn 0.4s ease-out; }
 
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; margin-bottom: 32px; }
