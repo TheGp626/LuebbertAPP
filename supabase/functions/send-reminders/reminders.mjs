@@ -176,6 +176,20 @@ export function buildEveningPushes(items) {
   return out;
 }
 
+// ── Test push (admin settings tab, body {mode:'test', user_id, pin}) ──
+// The Berlin time in the text tells several tests apart
+export function testPush(nowIso) {
+  const time = new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit' }).format(new Date(nowIso));
+  return { title: 'Test-Push', body: `Push-Benachrichtigungen funktionieren auf diesem Gerät (${time} Uhr).`, url: './index.html' };
+}
+
+// pushTo result → answer for the app
+export function testPushResult(r) {
+  if (r.ok > 0) return { status: 'sent', devices: r.ok, ...(r.failed ? { failed: r.failed } : {}) };
+  if (r.failed > 0) return { status: 'failed', devices: 0, failed: r.failed };
+  return { status: 'no_device', devices: 0, ...(r.removed ? { removed: r.removed } : {}) };
+}
+
 // Day-6 mail to one PL listing all of their overdue jobs
 export function plMail(items) {
   const sorted = [...items].sort((a, b) => a.einsatz.date.localeCompare(b.einsatz.date));

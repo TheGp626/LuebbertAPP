@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { berlinDate, isBerlinNineAm, daysSince, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys } from './reminders.mjs';
+import { berlinDate, isBerlinNineAm, daysSince, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, testPush, testPushResult } from './reminders.mjs';
 
 // ── Plan jobs (Wochenplan → reminders) ──
 const row = (o) => Object.assign({ al_id: 'A', date: '2026-10-26', venue: 'Estrel', title: 'CH I', wann: 'Aufbau: 8 Uhr', ap_user_id: 'P1' }, o);
@@ -173,4 +173,19 @@ test('planMailLogKeys: a plan job counts as mailed only when all of its PL mails
 test('evening: an equipment line as title ("7 Loungesessel …") is left out', () => {
   const [p] = buildEveningPushes([ev({ title: '7 Loungesessel Cube dunkelblau' })]);
   assert.equal(p.title, 'Morgen: VBKI');
+});
+
+// ── Test push (admin settings tab) ──
+test('testPush: fixed message that opens the app', () => {
+  const p = testPush('2026-10-28T17:05:00Z');
+  assert.equal(p.title, 'Test-Push');
+  assert.match(p.body, /18:05/); // Berlin time, so several tests can be told apart
+  assert.equal(p.url, './index.html');
+});
+
+test('testPushResult: no device, reached, or failed', () => {
+  assert.deepEqual(testPushResult({ ok: 0, failed: 0, removed: 0 }), { status: 'no_device', devices: 0 });
+  assert.deepEqual(testPushResult({ ok: 0, failed: 0, removed: 2 }), { status: 'no_device', devices: 0, removed: 2 });
+  assert.deepEqual(testPushResult({ ok: 2, failed: 1, removed: 0 }), { status: 'sent', devices: 2, failed: 1 });
+  assert.deepEqual(testPushResult({ ok: 0, failed: 1, removed: 0 }), { status: 'failed', devices: 0, failed: 1 });
 });

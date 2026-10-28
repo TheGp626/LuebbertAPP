@@ -2,10 +2,10 @@
 // Day 1–5 after the job → Web Push to the AL; from day 6 one mail to the PL (retried until day 10).
 // Jobs come from project folders (einsaetze) and, when switched on, from the Wochenplan (AL + date).
 // Cron runs several times in the 9:00 hour; reminder_log / plan_reminder_log make later runs no-ops and retry failures.
-// Body: { mode? ("evening" → evening push), force?, only_user_id?, dry_run? (list only, send/log nothing), plan_override? (daily dry runs: treat plan reminders as on) }
+// Body: { mode? ("evening" → evening push), force?, only_user_id?, dry_run? (list only, send/log nothing), plan_override? (daily dry runs: treat plan reminders as on) } or { mode: "test", user_id, pin } (test push)
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import webpush from 'npm:web-push@3.6.7';
-import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, LOOKBACK_DAYS } from './reminders.mjs';
+import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, testPush, testPushResult, LOOKBACK_DAYS } from './reminders.mjs';
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { loadSettings } from '../_shared/settings.ts';
 import { chooseRecipient } from '../_shared/recipient.mjs';
@@ -26,7 +26,7 @@ function shiftDate(iso: string, days: number) {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
-type Input = { force?: boolean; only_user_id?: string; dry_run?: boolean; plan_override?: boolean; mode?: string };
+type Input = { force?: boolean; only_user_id?: string; dry_run?: boolean; plan_override?: boolean; mode?: string; user_id?: string; pin?: string };
 // deno-lint-ignore no-explicit-any
 type Db = any;
 type Push = { al_id: string; title: string; body: string; url: string };
@@ -300,6 +300,17 @@ async function runEvening(db: Db, input: Input, settings: Record<string, unknown
   return json({ pushed, users: pushes.length, removed_subscriptions: removed });
 }
 
+// Test push from the admin settings tab: one fixed message to all devices of one user, nothing logged.
+// Needs the admin password (checked by verify_admin_pin), so the anon key alone can't push to people.
+async function runTest(db: Db, input: Input, now: Date) {
+  if (!input.user_id || !input.pin) return json({ error: 'missing_input' }, 400);
+  const { data: okPin, error: pinErr } = await db.rpc('verify_admin_pin', { input_pin: input.pin });
+  if (pinErr) { console.error('send-reminders: pin check failed', pinErr); return json({ error: 'db_error' }, 500); }
+  if (!okPin) return json({ error: 'invalid_pin' }, 403);
+  if (!vapidReady()) return json({ error: 'vapid_not_configured' }, 500);
+  return json(testPushResult(await pushTo(db, input.user_id, testPush(now.toISOString()))));
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
@@ -307,7 +318,8 @@ Deno.serve(async (req) => {
   try { input = await req.json(); } catch { /* empty body from cron */ }
 
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-  const settings = await loadSettings(db);
   const now = new Date();
+  if (input.mode === 'test') return runTest(db, input, now);
+  const settings = await loadSettings(db);
   return input.mode === 'evening' ? runEvening(db, input, settings, now) : runDaily(db, input, settings, now);
 });

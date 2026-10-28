@@ -57,3 +57,11 @@ test('changedSettings: only keys that differ from what the form was rendered wit
   assert.deepEqual(S.changedSettings(rendered, { reminders_enabled: true, mail_test_mode: false, billing_cutoff: 21 }), { billing_cutoff: 21 });
   assert.deepEqual(S.changedSettings(rendered, { reminders_enabled: true, mail_test_mode: false, billing_cutoff: 20 }), {});
 });
+
+test('testPushMessage: device count, no device, failure', () => {
+  assert.equal(S.testPushMessage({ status: 'sent', devices: 1 }), 'Test-Push an 1 Gerät gesendet.');
+  assert.equal(S.testPushMessage({ status: 'sent', devices: 3, failed: 1 }), 'Test-Push an 3 Geräte gesendet.');
+  assert.match(S.testPushMessage({ status: 'no_device', devices: 0 }), /Kein Gerät/);
+  assert.match(S.testPushMessage({ status: 'failed', devices: 0 }), /fehlgeschlagen/);
+  assert.match(S.testPushMessage(null), /fehlgeschlagen/);
+});

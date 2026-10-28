@@ -120,6 +120,9 @@ async function renderSettingsTab() {
   html += '<div class="set-group"><div class="set-group-title">Abrechnung</div>' +
     '<label class="set-row"><span class="set-text"><b>Abrechnungsstichtag</b><small>Tag im Monat, ab dem Stunden zum nächsten Abrechnungsmonat zählen (gilt auf allen Geräten)</small></span>' +
     '<input type="number" min="1" max="31" step="1" id="set-billing_cutoff" class="meta-input set-num" value="' + appSetting('billing_cutoff') + '"></label></div>';
+  html += '<div class="set-group"><div class="set-group-title">Push testen</div>' +
+    '<div class="set-row"><span class="set-text"><b>Test-Push an mich</b><small>Schickt eine Testnachricht an alle Geräte, auf denen du Benachrichtigungen erlaubt hast</small></span>' +
+    '<button type="button" class="btn" id="set-testpush-btn" style="flex:none; width:auto; padding:8px 18px;" onclick="sendTestPush()">Senden</button></div></div>';
   var meta = '';
   if (_appSettingsMeta && _appSettingsMeta.updated_by) {
     var who = (typeof allUsers !== 'undefined' && allUsers.find(function(u) { return u.id === _appSettingsMeta.updated_by; })) || null;
@@ -180,7 +183,43 @@ async function saveSettingsTab() {
   }
 }
 
+// Answer of send-reminders {mode:'test'} → toast text
+function testPushMessage(data) {
+  if (!data) return 'Test-Push fehlgeschlagen.';
+  if (data.status === 'sent') return 'Test-Push an ' + data.devices + (data.devices === 1 ? ' Gerät' : ' Geräte') + ' gesendet.';
+  if (data.status === 'no_device') return 'Kein Gerät mit erlaubten Benachrichtigungen gefunden. Erlaube sie zuerst im Wochenplan („Bei Planänderungen benachrichtigen“).';
+  return 'Test-Push fehlgeschlagen. Versuch es später erneut.';
+}
+
+async function sendTestPush() {
+  var err = document.getElementById('set-error'), btn = document.getElementById('set-testpush-btn');
+  var me = (typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null;
+  if (!me || !btn) return;
+  err.textContent = '';
+  if (!_settingsPin) {
+    var pin = prompt('Admin-Passwort für den Test-Push:');
+    if (!pin) return;
+    _settingsPin = pin;
+  }
+  btn.disabled = true; btn.textContent = 'Sendet…';
+  try {
+    var r = await supabaseClient.functions.invoke('send-reminders', { body: { mode: 'test', user_id: me, pin: _settingsPin } });
+    if (r.error) {
+      // non-2xx: the body holds the reason
+      var body = null;
+      try { body = r.error.context && await r.error.context.json(); } catch (e) { /* no JSON body */ }
+      if (body && body.error === 'invalid_pin') { _settingsPin = null; err.textContent = 'Passwort falsch.'; return; }
+      console.error('Test-Push:', r.error, body);
+      err.textContent = testPushMessage(null);
+      return;
+    }
+    showToast(testPushMessage(r.data));
+  } finally {
+    btn.disabled = false; btn.textContent = 'Senden';
+  }
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { APP_SETTINGS_DEFAULTS: APP_SETTINGS_DEFAULTS, appSetting: appSetting, appSettingsFromCache: appSettingsFromCache,
-    validateSettings: validateSettings, changedSettings: changedSettings };
+    validateSettings: validateSettings, changedSettings: changedSettings, testPushMessage: testPushMessage };
 }
