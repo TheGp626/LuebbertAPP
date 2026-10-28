@@ -87,3 +87,12 @@ test('storagePathFromUrl: object key after the bucket segment', () => {
   assert.equal(P.storagePathFromUrl('https://x/other/A_1.pdf', 'product-pdfs'), null);
   assert.equal(P.storagePathFromUrl(null, 'product-pdfs'), null);
 });
+
+test('produktCoverOrder: chosen picture first, the rest keep their order, only changed rows returned', () => {
+  const imgs = [{ id: 'a', sort_order: 0 }, { id: 'b', sort_order: 1 }, { id: 'c', sort_order: 2 }];
+  assert.deepEqual(P.produktCoverOrder(imgs, 'c'), [{ id: 'c', sort_order: 0 }, { id: 'a', sort_order: 1 }, { id: 'b', sort_order: 2 }]);
+  assert.deepEqual(P.produktCoverOrder(imgs, 'a'), [], 'already the cover');
+  // gaps/duplicates from older uploads are normalised too
+  assert.deepEqual(P.produktCoverOrder([{ id: 'x', sort_order: 3 }, { id: 'y', sort_order: 3 }], 'y'), [{ id: 'y', sort_order: 0 }, { id: 'x', sort_order: 1 }]);
+  assert.deepEqual(P.produktCoverOrder(imgs, 'nope'), []);
+});

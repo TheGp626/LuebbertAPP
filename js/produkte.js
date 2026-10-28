@@ -196,20 +196,29 @@ function openProduktForm(id, keepFiles) {
       var imgs = (prod.product_images || []).slice().sort(function(a, b) { return a.sort_order - b.sort_order; });
       if (imgs.length > 0) {
         existingImgs.style.display = 'block';
-        existingImgs.innerHTML = '<div style="font-size:12px;color:var(--text3);margin-bottom:6px;">Vorhandene Medien:</div>' +
-          '<div style="display:flex;flex-wrap:wrap;gap:8px;">' +
-          imgs.map(function(img) {
+        existingImgs.innerHTML = '<div style="font-size:12px;color:var(--text3);margin-bottom:6px;">Vorhandene Medien' +
+            (imgs.length > 1 ? ' – „Titelbild“ antippen, um das Bild für die Karte festzulegen' : '') + ':</div>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:10px;">' +
+          imgs.map(function(img, n) {
             var mediaType = img.media_type || 'image';
+            var url = escHtml(img.image_url);
             var thumb = mediaType === 'video'
               ? '<div class="produkt-video-thumb-wrap" style="width:80px;height:60px;">' +
-                  '<video src="' + img.image_url + '" muted preload="metadata" playsinline style="pointer-events:none;"></video>' +
+                  '<video src="' + url + '" muted preload="metadata" playsinline style="pointer-events:none;"></video>' +
                   '<div class="produkt-video-play-icon" style="pointer-events:none;"></div>' +
                 '</div>'
-              : '<img src="' + img.image_url + '" style="width:80px;height:60px;object-fit:cover;border-radius:6px;display:block;" />';
-            return '<div style="position:relative;">' +
+              : '<img src="' + url + '" class="produkt-form-media" />';
+            var isCover = n === 0;
+            var coverCtl = imgs.length > 1
+              ? (isCover
+                  ? '<div class="produkt-cover-badge">★ Titelbild</div>'
+                  : '<button type="button" class="produkt-cover-btn" onclick="setProduktCover(\'' + jsAttrArg(id) + '\',\'' + jsAttrArg(img.id) + '\')">Titelbild</button>')
+              : '';
+            return '<div style="position:relative;width:80px;">' +
               thumb +
-              '<button onclick="deleteProduktMedia(\'' + img.id + '\',\'' + img.image_url + '\',\'' + mediaType + '\')" ' +
+              '<button onclick="deleteProduktMedia(\'' + jsAttrArg(img.id) + '\',\'' + jsAttrArg(img.image_url) + '\',\'' + jsAttrArg(mediaType) + '\')" aria-label="Medium löschen" ' +
               'style="position:absolute;top:-6px;right:-6px;background:var(--danger);color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;">✕</button>' +
+              coverCtl +
               '</div>';
           }).join('') +
           '</div>';
@@ -821,8 +830,45 @@ function isMobilePdfDevice() {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || iPadOS;
 }
 
+// New sort_order values when `coverId` becomes the cover (= lowest sort_order): cover 0, the others 1..n in their
+// current order. Only rows whose value changes are returned.
+function produktCoverOrder(images, coverId) {
+  if (!images.some(function(i) { return i.id === coverId; })) return [];
+  var ordered = images.slice().sort(function(a, b) { return a.sort_order - b.sort_order; });
+  var cover = ordered.filter(function(i) { return i.id === coverId; });
+  var rest = ordered.filter(function(i) { return i.id !== coverId; });
+  return cover.concat(rest)
+    .map(function(i, n) { return { id: i.id, sort_order: n, old: i.sort_order }; })
+    .filter(function(r) { return r.sort_order !== r.old; })
+    .map(function(r) { return { id: r.id, sort_order: r.sort_order }; });
+}
+
+// Makes one picture/video the product's cover (first on the card and in the viewer)
+async function setProduktCover(productId, imageId) {
+  var prod = alleProdukte.find(function(p) { return p.id === productId; });
+  if (!prod) return;
+  var updates = produktCoverOrder(prod.product_images || [], imageId);
+  if (!updates.length) return;
+  for (var i = 0; i < updates.length; i++) {
+    var res = await supabaseClient.from('product_images').update({ sort_order: updates[i].sort_order }).eq('id', updates[i].id).select('id');
+    if (res.error || !res.data || !res.data.length) {
+      console.error('Titelbild setzen:', res.error);
+      showToast('Titelbild konnte nicht gespeichert werden.', 'danger');
+      return;
+    }
+  }
+  updates.forEach(function(u) {
+    var img = prod.product_images.find(function(x) { return x.id === u.id; });
+    if (img) img.sort_order = u.sort_order;
+  });
+  showToast('Titelbild gespeichert');
+  renderProdukte(alleProdukte);
+  openProduktForm(productId, true);
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { fileExtension: fileExtension, sanitizeStorageName: sanitizeStorageName, produktFileKey: produktFileKey,
     contentTypeFor: contentTypeFor, isPdfMagic: isPdfMagic, isBucketImageType: isBucketImageType,
-    uploadErrorMessage: uploadErrorMessage, aufbauFileKind: aufbauFileKind, storagePathFromUrl: storagePathFromUrl };
+    uploadErrorMessage: uploadErrorMessage, aufbauFileKind: aufbauFileKind, storagePathFromUrl: storagePathFromUrl,
+    produktCoverOrder: produktCoverOrder };
 }
