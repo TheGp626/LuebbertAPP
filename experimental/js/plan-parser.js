@@ -208,6 +208,18 @@ function planShiftKey(s) {
   return [s.date, (s.venue || '').toLowerCase(), (s.title || '').toLowerCase()].join('|');
 }
 
+// The ISO week most days fall in (a plan starting on Sunday belongs to the following week).
+// Ties go to the later week: plans look ahead.
+function planMainWeek(dates) {
+  var count = {}, best = null;
+  dates.forEach(function(d) {
+    var w = planIsoWeek(d), k = w.year * 100 + w.week;
+    count[k] = (count[k] || 0) + 1;
+    if (!best || count[k] > count[best.k] || (count[k] === count[best.k] && k > best.k)) best = { k: k, week: w.week, year: w.year };
+  });
+  return best;
+}
+
 // Whole document → { weekStart, weekEnd, kw, year, shifts, warnings }
 function planParse(pages) {
   var res = planBands(pages), warnings = [], shifts = [], date = null, days = [];
@@ -260,20 +272,41 @@ function planParse(pages) {
   });
   var dates = (days.length ? days : shifts.map(function(s) { return s.date; })).slice().sort();
   var start = dates[0] || null, end = dates[dates.length - 1] || null;
-  var wk = start ? planIsoWeek(start) : null;
+  var wk = planMainWeek(dates);
   if (!shifts.length) warnings.push('Keine Einsätze erkannt.');
   return { weekStart: start, weekEnd: end, kw: wk && wk.week, year: wk && wk.year, shifts: shifts, warnings: warnings };
+}
+
+var PLAN_PL_ROLES = ['PL', 'Admin', 'Buchhaltung'];
+
+// Plan name → normalised form used for matching ("  Julian   H. " → "julian h")
+function planNormName(name) {
+  return String(name || '').toLowerCase().replace(/\s+/g, ' ').trim().replace(/\.$/, '').trim();
+}
+
+// Key of plan_name_aliases, used for saving AND lookup. AP (PL column) names get an "ap:" prefix so
+// picking the PL for "Sabine" never maps a team member "Sabine" to that PL. Stored keys keep their prefix.
+function planAliasKey(name, isAp) {
+  var s = String(name || '').trim();
+  if (/^ap:/i.test(s)) { isAp = true; s = s.slice(3); }
+  return (isAp ? 'ap:' : '') + planNormName(s);
 }
 
 // Plan name → app user. Aliases (remembered from earlier imports) win, then the full name,
 // then a unique first name among active users. Agency workers are never matched.
 function planMatchPerson(person, users, aliases) {
   if (person.role === 'Zenjob' || person.role === 'ROCKiT') return { userId: null, candidates: [] };
-  var n = person.name.toLowerCase().replace(/\.$/, '').trim();
-  if (aliases && aliases[n]) return { userId: aliases[n], candidates: [], via: 'alias' };
+  var n = planNormName(person.name);
   var active = users.filter(function(u) { return u.is_active !== false && u.role !== 'Gast'; });
   // The AP column names the PL: an MA with the same first name must never get the PL's mails
-  if (person.role === 'PL') active = active.filter(function(u) { return ['PL', 'Admin', 'Buchhaltung'].indexOf(u.role) !== -1; });
+  if (person.role === 'PL') {
+    active = active.filter(function(u) { return PLAN_PL_ROLES.indexOf(u.role) !== -1; });
+    // AP alias first, then a legacy plain alias - both only if they point to a PL/Admin/Buchhaltung
+    var apAlias = [aliases && aliases[planAliasKey(n, true)], aliases && aliases[n]].find(function(id) {
+      return id && active.some(function(u) { return u.id === id; });
+    });
+    if (apAlias) return { userId: apAlias, candidates: [], via: 'alias' };
+  } else if (aliases && aliases[n]) return { userId: aliases[n], candidates: [], via: 'alias' };
   var full = active.filter(function(u) { return (u.full_name || '').toLowerCase() === n; });
   if (full.length === 1) return { userId: full[0].id, candidates: [], via: 'name' };
   var words = n.split(' '), rest = words.slice(1).join(' ').replace(/\.$/, '');
@@ -287,22 +320,85 @@ function planMatchPerson(person, users, aliases) {
   return { userId: null, candidates: byFirst.map(function(u) { return u.id; }) };
 }
 
-// Old vs new shifts of the same week → status per new shift + removed old shifts
+// Old vs new shifts of the same week → status per new shift, the matched old shift per new shift
+// (null for new ones) and the removed old shifts.
+// Same day + location + title twice gets numbered keys (k, k#2); when the first row disappears the
+// second becomes k. So shifts are paired within the group of their base key: identical content first,
+// then same first "Wann" line, then most shared team names, then the remaining ones in order.
+// Stored week this upload replaces: same year+KW, else the stored week sharing most of its days (≥ 4) with the plan
+// (weeks imported before the KW rule changed sit under their start-date KW). A week that only touches the plan's
+// leading Sunday is a different week and must not be replaced.
+function planPickExistingWeek(weeks, parsed) {
+  var same = weeks.find(function(w) { return w.year === parsed.year && w.kw === parsed.kw; });
+  if (same) return same;
+  var day = function(iso) { var p = iso.split('-').map(Number); return Date.UTC(p[0], p[1] - 1, p[2]) / 86400000; };
+  var best = null, bestDays = 0;
+  weeks.forEach(function(w) {
+    var days = Math.min(day(w.week_end), day(parsed.weekEnd)) - Math.max(day(w.week_start), day(parsed.weekStart)) + 1;
+    if (days > bestDays) { best = w; bestDays = days; }
+  });
+  return bestDays >= 4 ? best : null;
+}
+
 function planDiff(oldShifts, newShifts) {
-  var oldByKey = {};
-  oldShifts.forEach(function(s) { oldByKey[s.key] = s; });
   // Field by field, never whole objects: jsonb hands back open slots with its own key order
   var fp = function(s) {
     return JSON.stringify([s.wann, (s.people || []).map(function(p) { return p.name + '/' + p.role; }).sort(),
-      (s.open || []).map(function(o) { return o.count + '/' + o.role + '/' + (o.note || ''); }), s.ap || null, s.details]);
+      (s.open || []).map(function(o) { return o.count + '/' + o.role + '/' + (o.note || ''); }), s.ap || null, s.details,
+      s.location || [], s.notes || []]);
   };
-  var status = newShifts.map(function(s) {
-    var o = oldByKey[s.key];
-    if (!o) return 'neu';
-    delete oldByKey[s.key];
-    return fp(o) === fp(s) ? null : 'geändert';
+  var base = function(k) { return String(k).replace(/#\d+$/, ''); };
+  var groups = {};
+  oldShifts.forEach(function(s) { (groups[base(s.key)] = groups[base(s.key)] || []).push(s); });
+  var matched = newShifts.map(function() { return null; });
+  var taken = [];
+  var free = function(o) { return taken.indexOf(o) === -1; };
+  var pass = function(test) {
+    newShifts.forEach(function(s, i) {
+      if (matched[i]) return;
+      var o = (groups[base(s.key)] || []).find(function(x) { return free(x) && test(x, s); });
+      if (o) { matched[i] = o; taken.push(o); }
+    });
+  };
+  var firstWann = function(s) { return (s.wann || [])[0] || ''; };
+  var shared = function(a, b) {
+    var names = (a.people || []).map(function(p) { return p.name.toLowerCase(); });
+    return (b.people || []).filter(function(p) { return names.indexOf(p.name.toLowerCase()) !== -1; }).length;
+  };
+  pass(function(o, s) { return o.key === s.key && fp(o) === fp(s); });
+  pass(function(o, s) { return fp(o) === fp(s); });
+  pass(function(o, s) { return firstWann(o) && firstWann(o) === firstWann(s); });
+  newShifts.forEach(function(s, i) {
+    if (matched[i]) return;
+    var best = null, bestN = 0;
+    (groups[base(s.key)] || []).forEach(function(o) {
+      var n = free(o) ? shared(o, s) : 0;
+      if (n > bestN) { best = o; bestN = n; }
+    });
+    if (best) { matched[i] = best; taken.push(best); }
   });
-  return { status: status, removed: Object.keys(oldByKey).map(function(k) { return oldByKey[k]; }) };
+  pass(function(o, s) { return o.key === s.key; });
+  pass(function() { return true; });
+  var status = newShifts.map(function(s, i) {
+    if (!matched[i]) return 'neu';
+    return fp(matched[i]) === fp(s) ? null : 'geändert';
+  });
+  return { status: status, matched: matched, removed: oldShifts.filter(free) };
+}
+
+// Users that were on a matched old shift but are missing on its new version → "nicht mehr eingeteilt".
+// diff = planDiff(old, new); people need resolved userIds. Returns [{date, venue, title, user_ids, kind}].
+function planUnassigned(newShifts, diff) {
+  var out = [];
+  newShifts.forEach(function(s, i) {
+    var o = diff.matched && diff.matched[i];
+    if (!o) return;
+    var now = (s.people || []).map(function(p) { return p.userId; }).filter(Boolean);
+    var gone = (o.people || []).map(function(p) { return p.userId; })
+      .filter(function(id, j, a) { return id && now.indexOf(id) === -1 && a.indexOf(id) === j; });
+    if (gone.length) out.push({ date: s.date, venue: s.venue, title: s.title, user_ids: gone, kind: 'unassigned' });
+  });
+  return out;
 }
 
 var PLAN_WHEN_LABELS = ['Teilaufbau', 'Teilabbau', 'Aufbau', 'Abbau', 'Umbau', 'Umstellen', 'Anlieferung', 'Abholung', 'Lieferung'];
@@ -368,5 +464,6 @@ function planShiftFromDb(r) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
     planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planShiftKey: planShiftKey,
+    planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek,
     planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb };
 }

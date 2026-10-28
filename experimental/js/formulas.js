@@ -99,7 +99,8 @@ function calcSplitShiftCosts(basePos, dateStr, isHoliday, startMins, endMins, pa
     var dayOffset = Math.floor(m / 1440);
     var isSun = (dayOffset === 0) ? isSunToday : isSunTomorrow;
     
-    if (isHoliday && basePos === 'Rockit') {
+    // Both agencies define a Feiertag rate (Zenjob Feiertag / Rockit Feiertag)
+    if (isHoliday) {
       counts.holiday++;
     } else if (isSun) {
       counts.sun++;

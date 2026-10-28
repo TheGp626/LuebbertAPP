@@ -64,16 +64,11 @@ function selectMode(m) {
   // Role-based guards (only once a user is logged in — during module restore
   // on page load the role is not resolved yet and the auth overlay blocks input)
   var loggedIn = typeof currentUser !== 'undefined' && currentUser;
-  if (loggedIn && userRole === 'Gast' && GAST_MODULES.indexOf(m) === -1) {
-    showToast('Zugriff verweigert: Gastzugang nur für Produktdatenbank und Projektordner.');
-    return;
-  }
-  if (loggedIn && m === 'protokoll' && userRole === 'MA') {
-    showToast('Zugriff verweigert: Nur für AL/PL.');
-    return;
-  }
-  if (loggedIn && m === 'dashboard' && ['AL', 'PL', 'Buchhaltung', 'Admin'].indexOf(userRole) === -1) {
-    showToast('Zugriff verweigert: Nur für AL/PL/Buchhaltung.');
+  // (moduleAllowedForRole in auth.js — enforceUI uses the same check after a login)
+  if (loggedIn && !moduleAllowedForRole(m, userRole)) {
+    showToast(userRole === 'Gast' ? 'Zugriff verweigert: Gastzugang nur für Produktdatenbank und Projektordner.'
+      : m === 'protokoll' ? 'Zugriff verweigert: Nur für AL/PL.'
+      : 'Zugriff verweigert: Nur für AL/PL/Buchhaltung.');
     return;
   }
 
@@ -454,9 +449,9 @@ function renderSettingsDepts() {
     var safeId = 'inp-dept-wage-' + d.replace(/[^a-zA-Z0-9]/g, '_');
     var wage = deptWages[d] || '';
     return '<div class="dept-item" style="cursor:pointer;' + (act ? 'background:var(--accent-bg);border-radius:var(--radius);padding:8px 10px;margin:0 -10px;' : '') + '">' +
-           '<div style="display:flex;align-items:center;gap:8px;flex:1;" onclick="selectDepartment(\'' + d.replace(/'/g, "\\'") + '\')">' +
+           '<div style="display:flex;align-items:center;gap:8px;flex:1;" onclick="selectDepartment(\'' + jsAttrArg(d) + '\')">' +
            '<span>' + (act ? '✓' : '') + '</span>' +
-           '<span style="' + (act ? 'font-weight:600;color:var(--accent-text);' : '') + '">' + deptLabel(d) + '</span>' +
+           '<span style="' + (act ? 'font-weight:600;color:var(--accent-text);' : '') + '">' + escapeHtml(deptLabel(d)) + '</span>' +
            '</div>' +
            '<div style="display:flex;align-items:center;gap:6px;">' +
            '<input type="number" id="' + safeId + '" step="0.50" min="0" value="' + wage + '" placeholder="€/h" ' +
@@ -480,8 +475,7 @@ function renderDeptChips() {
   var c = document.getElementById('chips-abt');
   if (!c) return;
   c.innerHTML = departments.map(function (d) {
-    var safe = d.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    return '<div class="chip' + (d === selectedAbt ? ' active' : '') + '" onclick="selectDepartment(\'' + safe + '\')">' + deptLabel(d) + '</div>';
+    return '<div class="chip' + (d === selectedAbt ? ' active' : '') + '" onclick="selectDepartment(\'' + jsAttrArg(d) + '\')">' + escapeHtml(deptLabel(d)) + '</div>';
   }).join('');
 }
 

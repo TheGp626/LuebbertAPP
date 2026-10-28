@@ -33,6 +33,13 @@ async function fetchAppUsers() {
   if (data) {
     // The guest login never works shifts → keep it out of AL/PL/staff pickers
     appUsers = data.filter(function(u) { return u.role !== 'Gast'; });
+    // Rows resolved before the list was available get their fest flag now
+    protState.personnel.forEach(function(p) {
+      if (p.userId && (p.fest === undefined || p.fest === null)) {
+        var u = appUsers.find(function(x) { return x.id === p.userId; });
+        if (u) p.fest = !!u.is_fest;
+      }
+    });
     renderProtPersonnel();
     populateAlPlSelects();
   }
@@ -52,6 +59,122 @@ function getEffectivePersonnelRate(basePos, userId) {
   return undefined;
 }
 
+// Value for jsPDF doc.text, which throws on numbers and null
+function pdfStr(v, fallback) {
+  if (v === null || v === undefined || v === '') return fallback === undefined ? '' : fallback;
+  return String(v);
+}
+
+// Billing position incl. fest/frei for AL/MA/Fahrer. The fest flag stored on the row wins
+// (set when the name is resolved, or from the server), so an offline start before the
+// user list has loaded doesn't bill fest staff as frei.
+function protBasePos(p, users) {
+  var basePos = p.pos;
+  if (['AL', 'MA', 'Fahrer'].indexOf(p.pos) === -1) return basePos;
+  if (p.isTemp || !p.userId) return basePos + ' frei';
+  var fest = p.fest;
+  if (fest === undefined || fest === null) {
+    var u = (users || []).find(function(x) { return x.id === p.userId; });
+    fest = !!(u && u.is_fest);
+  }
+  return basePos + (fest ? ' fest' : ' frei');
+}
+
+// AL/PL id from its <select>: before the user list has loaded the select is empty → keep the known id
+function protSelectedId(selValue, stateId, usersLoaded) {
+  if (selValue) return selValue;
+  return usersLoaded ? null : (stateId || null);
+}
+
+// A draft belongs to the user who wrote it (shared devices); legacy drafts without owner are kept
+function protDraftBelongsTo(draft, userId) {
+  return !draft || !draft.ownerId || !userId || draft.ownerId === userId;
+}
+
+// Server protocol row (with joins) → history entry shape. Shared by the history re-sync and the dashboard PDF.
+function protRowToEntry(r) {
+  var catMap = {};
+  (r.protocol_equipments || []).forEach(function(eq) {
+    catMap[eq.category_id] = { active: true, status: eq.status || 'okay', note: eq.note || '',
+      hussenDelivered: eq.hussen_delivered || null, hussenReturned: eq.hussen_returned || null };
+  });
+  // Deduplicate identical shifts (same user + times + role) caused by prior save bugs
+  var seen = {};
+  var personnel = (r.shifts || []).filter(function(s) {
+    var key = (s.user_id || s.temp_worker_name || '') + '|' + s.position_role + '|' + s.start_time + '|' + s.end_time;
+    if (seen[key]) return false;
+    seen[key] = true;
+    return true;
+  }).map(function(s) {
+    var rKey = ratingKeyForShift(s);
+    var rat = rKey ? (r.worker_ratings || []).find(function(w) {
+      return (w.temp_worker_name || '').trim().toLowerCase() === rKey;
+    }) : null;
+    return {
+      rating: rat ? rat.rating : null,
+      isStar: rat ? !!rat.is_star : false,
+      shiftId: s.id || null,
+      name: (s.app_users && s.app_users.full_name) || s.temp_worker_name || '—',
+      userId: s.user_id || null,
+      isTemp: !s.user_id,
+      tempName: s.user_id ? null : (s.temp_worker_name || null),
+      pos: (s.position_role || '').replace(/ (fest|frei)$/, ''),
+      fest: / fest$/.test(s.position_role || ''),
+      start: (s.start_time || '').substring(0, 5),
+      end: (s.end_time || '').substring(0, 5),
+      pause: s.pause_mins || 0
+    };
+  });
+  return {
+    id: r.id,
+    supabaseId: r.id,
+    savedAt: r.created_at || r.date,
+    event: (r.projects && r.projects.name) || '—',
+    location: (r.projects && r.projects.location) || '—',
+    date: r.date || '—',
+    action: r.action || '—',
+    al: (r.al && r.al.full_name) || r.al_name_fallback || '—',
+    pl: (r.pl && r.pl.full_name) || r.pl_name_fallback || '—',
+    alId: r.al_id || null,
+    plId: r.pl_id || null,
+    totalCost: (Number(r.total_cost) || 0).toFixed(2).replace('.', ',') + ' €',
+    transports: (r.protocol_transports || []).map(function(t) {
+      return { type: t.vehicle_type, driver: t.driver_name, punctuality: t.punctuality, delay: t.delay_mins };
+    }),
+    personnel: personnel,
+    categories: catMap,
+    damages: r.notes_damages || 'nein',
+    incidents: r.notes_incidents || 'nein',
+    feedback: r.notes_feedback || '—',
+    holiday: !!r.is_holiday,
+    signature: r.signature_text || null,
+    synced: true
+  };
+}
+
+// Merges fresh server entries into the local archive (in place). A local entry that is still
+// unsynced holds an edit the server doesn't have yet → it is kept until the retry pushes it.
+function mergeProtHistory(archive, freshList) {
+  freshList.forEach(function(fresh) {
+    var idx = archive.findIndex(function(e) { return e.supabaseId === fresh.supabaseId; });
+    // Server signatures stay out of localStorage (quota); only a locally drawn one is kept
+    if (idx === -1) {
+      fresh.signature = null;
+      fresh.mailed = true; // never mail older protocols retroactively
+      archive.push(fresh);
+      return;
+    }
+    var old = archive[idx];
+    if (old.synced === false) return;
+    fresh.signature = old.signature || null;
+    // Keep a pending mail retry; older entries without the flag never get mailed retroactively
+    fresh.mailed = old.mailed !== false;
+    fresh.isUpdate = !!old.isUpdate;
+    archive[idx] = fresh;
+  });
+  return archive;
+}
+
 function populateAlPlSelects() {
   var alSel = document.getElementById('prot-al');
   var plSel = document.getElementById('prot-pl');
@@ -67,14 +190,14 @@ function populateAlPlSelects() {
   if (alSel) {
     var alUsers = appUsers.filter(function(u) { return u.role === 'AL' || u.role === 'Admin'; });
     alSel.innerHTML = '<option value="">— AL auswählen —</option>' +
-      alUsers.map(function(u) { return '<option value="' + u.id + '">' + (u.full_name || u.email) + '</option>'; }).join('');
+      alUsers.map(function(u) { return '<option value="' + escapeHtml(u.id) + '">' + escapeHtml(u.full_name || u.email) + '</option>'; }).join('');
     if (protState.alId) alSel.value = protState.alId;
   }
 
   if (plSel) {
     var plUsers = appUsers.filter(function(u) { return u.role === 'PL' || u.role === 'Admin'; });
     plSel.innerHTML = '<option value="">— PL auswählen —</option>' +
-      plUsers.map(function(u) { return '<option value="' + u.id + '">' + (u.full_name || u.email) + '</option>'; }).join('');
+      plUsers.map(function(u) { return '<option value="' + escapeHtml(u.id) + '">' + escapeHtml(u.full_name || u.email) + '</option>'; }).join('');
     if (protState.plId) plSel.value = protState.plId;
   }
 }
@@ -176,7 +299,7 @@ function renderProtTransport() {
       delayHtml = 
         '    <div class="meta-field">' +
         '      <span class="meta-label">Dauer (Min)</span>' +
-        '      <input type="number" class="meta-input" placeholder="0" value="' + (t.delay || '') + '" oninput="updateProtTransport(' + i + ', \'delay\', this.value)"/>' +
+        '      <input type="number" class="meta-input" placeholder="0" value="' + escapeHtml(t.delay || '') + '" oninput="updateProtTransport(' + i + ', \'delay\', this.value)"/>' +
         '    </div>';
     }
 
@@ -196,7 +319,7 @@ function renderProtTransport() {
            '    </div>' +
            '    <div class="meta-field">' +
            '      <span class="meta-label">Fahrer</span>' +
-           '      <input type="text" class="meta-input" placeholder="Name" value="' + (t.driver || '') + '" oninput="updateProtTransport(' + i + ', \'driver\', this.value)"/>' +
+           '      <input type="text" class="meta-input" placeholder="Name" value="' + escapeHtml(t.driver || '') + '" oninput="updateProtTransport(' + i + ', \'driver\', this.value)"/>' +
            '    </div>' +
            '  </div>' +
            '  <div class="meta-fields" style="margin-top: 8px;">' +
@@ -237,12 +360,7 @@ function updateProtRating(idx, field, val) {
 }
 
 function removeProtPersonnel(idx) {
-  var removed = protState.personnel[idx];
-  // If this shift already exists in the DB, delete it immediately so it doesn't come back on history re-sync
-  if (removed && removed.shiftId && typeof supabaseClient !== 'undefined') {
-    supabaseClient.from('shifts').delete().eq('id', removed.shiftId)
-      .then(function(res) { if (res.error) console.error('Shift delete error:', res.error); });
-  }
+  // No server delete here: Senden replaces all shifts of the protocol, and abandoning the edit must keep them
   protState.personnel.splice(idx, 1);
   renderProtPersonnel();
   saveProtDraft();
@@ -322,9 +440,11 @@ function onProtPersonnelName(idx, val) {
   if (match) {
     protState.personnel[idx].userId = match.id;
     protState.personnel[idx].name = match.full_name || match.email;
+    protState.personnel[idx].fest = !!match.is_fest; // kept on the row for offline saves
   } else {
     protState.personnel[idx].userId = '';
     protState.personnel[idx].name = typed;
+    delete protState.personnel[idx].fest;
   }
   renderProtPersonnel();
   saveProtDraft();
@@ -337,7 +457,8 @@ function updateProtPersonnel(idx, field, val) {
   
   if (field === 'userId') {
     var u = appUsers.find(x => x.id === val);
-    if (u) protState.personnel[idx].name = u.full_name || u.email;
+    if (u) { protState.personnel[idx].name = u.full_name || u.email; protState.personnel[idx].fest = !!u.is_fest; }
+    else delete protState.personnel[idx].fest;
   }
   if (field === 'tempName') {
     protState.personnel[idx].name = val;
@@ -412,7 +533,7 @@ function renderProtCategories() {
                   }).join('') +
            '    </div>' +
            '    <div class="field">' +
-           '      <input type="text" class="meta-input" placeholder="Anmerkungen / Details" value="' + (state.note || '') + '" oninput="updateProtCategory(\'' + cat.id + '\', \'note\', this.value)"/>' +
+           '      <input type="text" class="meta-input" placeholder="Anmerkungen / Details" value="' + escapeHtml(state.note || '') + '" oninput="updateProtCategory(\'' + cat.id + '\', \'note\', this.value)"/>' +
            '    </div>' +
            hussenFields +
            '  </div>' +
@@ -452,11 +573,7 @@ function calcProtCosts() {
     var v = timeToMins(p.start), b = timeToMins(p.end), pa = parseInt(p.pause) || 0;
     var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
     if (v !== null && b !== null && effB > v) {
-      var basePos = p.pos;
-      if (['AL', 'MA', 'Fahrer'].includes(p.pos)) {
-        var u = appUsers.find(function(x) { return x.id === p.userId; });
-        basePos += (u && u.is_fest ? ' fest' : ' frei');
-      }
+      var basePos = protBasePos(p, appUsers);
       var customRate = (!p.isTemp && p.userId) ? getEffectivePersonnelRate(basePos, p.userId) : undefined;
       var costs = calcSplitShiftCosts(basePos, currentDate, currentHoliday, v, effB, pa, customRate);
       costs.forEach(function(c) {
@@ -471,16 +588,21 @@ function calcProtCosts() {
 
 // ── PERSISTENCE ──
 function saveProtDraft() {
+  // Offline start: the AL/PL selects are still empty → keep the known ids instead of storing ''
+  var usersLoaded = appUsers.length > 0;
+  var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded) || '';
+  var plId = protSelectedId((document.getElementById('prot-pl') || {}).value, protState.plId, usersLoaded) || '';
   var data = {
+    ownerId: protDraftOwner(),
     event: (document.getElementById('prot-event') || {}).value || '',
     location: (document.getElementById('prot-location') || {}).value || '',
     date: (document.getElementById('prot-date') || {}).value || '',
     holiday: (document.getElementById('prot-isholiday') || {}).checked || false,
     action: (document.getElementById('prot-action') || {}).value || 'Aufbau',
-    al: (document.getElementById('prot-al') || {}).value || '',
-    pl: (document.getElementById('prot-pl') || {}).value || '',
-    alId: (document.getElementById('prot-al') || {}).value || '',
-    plId: (document.getElementById('prot-pl') || {}).value || '',
+    al: alId,
+    pl: plId,
+    alId: alId,
+    plId: plId,
     damages: (document.getElementById('prot-damages') || {}).value || '',
     incidents: (document.getElementById('prot-incidents') || {}).value || '',
     feedback: (document.getElementById('prot-feedback') || {}).value || '',
@@ -496,11 +618,38 @@ function saveProtDraft() {
   updateTopBarSub();
 }
 
+// Owner for the stored draft; before the login is restored the previous owner is kept
+function protDraftOwner() {
+  if (typeof currentUser !== 'undefined' && currentUser) return currentUser.id;
+  try { return (JSON.parse(localStorage.getItem('luebbert_protokoll_draft') || '{}') || {}).ownerId || null; }
+  catch (e) { return null; }
+}
+
+// Empties the form state and fields without touching localStorage (used when a foreign draft is discarded)
+function resetProtFormState() {
+  protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null, editingId: null, editingLocalId: null, signature: null };
+  ['prot-event', 'prot-location', 'prot-date', 'prot-damages', 'prot-incidents', 'prot-feedback', 'prot-al', 'prot-pl'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  var act = document.getElementById('prot-action');
+  if (act) act.value = 'Aufbau';
+  var hol = document.getElementById('prot-isholiday');
+  if (hol) hol.checked = false;
+}
+
 function loadProtDraft() {
   var saved = localStorage.getItem('luebbert_protokoll_draft');
   if (!saved) return false;
   try {
     var data = JSON.parse(saved);
+    // Shared device: another user's draft (incl. its editingId) must never be sent under this login
+    var uid = (typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null;
+    if (!protDraftBelongsTo(data, uid)) {
+      localStorage.removeItem('luebbert_protokoll_draft');
+      resetProtFormState();
+      return false;
+    }
     if (document.getElementById('prot-event')) document.getElementById('prot-event').value = data.event || '';
     if (document.getElementById('prot-location')) document.getElementById('prot-location').value = data.location || '';
     if (document.getElementById('prot-date')) document.getElementById('prot-date').value = data.date || '';
@@ -551,15 +700,29 @@ function clearProtForm(skipConfirm) {
 
 // ── PROTOKOLL SAVE (replaces PDF Export) ──
 async function saveProtokoll() {
+  var usersLoaded = appUsers.length > 0;
+  var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded);
+  var plId = protSelectedId((document.getElementById('prot-pl') || {}).value, protState.plId, usersLoaded);
+  // Before the user list has loaded the name comes from the protocol being edited (never a raw UUID)
+  var editedEntry = protState.editingLocalId
+    ? JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]').find(function(x) { return x.id === protState.editingLocalId; })
+    : null;
+  var personName = function(id, key) {
+    if (!id) return '—';
+    var u = appUsers.find(function(u) { return u.id === id; });
+    if (u) return u.full_name || u.email || '—';
+    return (editedEntry && editedEntry[key + 'Id'] === id && editedEntry[key]) || '—';
+  };
   var data = {
     event: (document.getElementById('prot-event') || {}).value || '—',
     location: (document.getElementById('prot-location') || {}).value || '—',
     date: (document.getElementById('prot-date') || {}).value || '—',
     action: (document.getElementById('prot-action') || {}).value || '—',
-    alId: (document.getElementById('prot-al') || {}).value || null,
-    plId: (document.getElementById('prot-pl') || {}).value || null,
-    al: (function() { var id = (document.getElementById('prot-al') || {}).value; var u = appUsers.find(function(u) { return u.id === id; }); return u ? u.full_name : (id || '—'); })(),
-    pl: (function() { var id = (document.getElementById('prot-pl') || {}).value; var u = appUsers.find(function(u) { return u.id === id; }); return u ? u.full_name : (id || '—'); })(),
+    holiday: !!(document.getElementById('prot-isholiday') || {}).checked,
+    alId: alId,
+    plId: plId,
+    al: personName(alId, 'al'),
+    pl: personName(plId, 'pl'),
     damages: (document.getElementById('prot-damages') || {}).value || 'nein',
     incidents: (document.getElementById('prot-incidents') || {}).value || 'nein',
     feedback: (document.getElementById('prot-feedback') || {}).value || '—',
@@ -575,14 +738,16 @@ async function saveProtokoll() {
 
   // ── PUSH TO SUPABASE ──
   var isUpdate = !!protState.editingId;
-  var supabaseId = await syncProtokollToSupabase(data);
+  var syncOut = {};
+  var supabaseId = await syncProtokollToSupabase(data, undefined, syncOut);
   var isSynced = !!supabaseId;
-  
+
   // ── ARCHIVE TO HISTORY ──
   var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
   var entry = {
     id: protState.editingLocalId || Date.now().toString(),
-    supabaseId: supabaseId || (protState.editingLocalId ? (archive.find(x => x.id === protState.editingLocalId)?.supabaseId) : null),
+    // A row created by a partly failed sync is kept so the retry updates it instead of inserting again
+    supabaseId: supabaseId || syncOut.protId || (protState.editingLocalId ? (archive.find(x => x.id === protState.editingLocalId)?.supabaseId) : null),
     savedAt: new Date().toISOString(),
     event: data.event,
     location: data.location,
@@ -602,7 +767,7 @@ async function saveProtokoll() {
     signature: protState.signature || null,
     synced: isSynced,
     isUpdate: isUpdate,
-    holiday: !!(document.getElementById('prot-isholiday') || {}).checked
+    holiday: data.holiday
   };
   entry.mailed = false; // flipped by sendMailForEntry once the mail went out
 
@@ -637,7 +802,9 @@ async function saveProtokoll() {
 }
 
 // targetId: Supabase id to update (null = insert). Omitted → the protocol currently open in the form.
-async function syncProtokollToSupabase(data, targetId) {
+// out (optional): out.protId is set as soon as the protocols row exists, also when a later step fails,
+// so the caller can retry as an update instead of inserting the protocol twice.
+async function syncProtokollToSupabase(data, targetId, out) {
   var editId = (targetId === undefined) ? protState.editingId : targetId;
   if (typeof supabaseClient === 'undefined') return false;
   try {
@@ -663,7 +830,7 @@ async function syncProtokollToSupabase(data, targetId) {
       project_id: projId,
       date: parsedDate,
       action: data.action === '—' ? null : data.action,
-      is_holiday: protState.holiday || false,
+      is_holiday: (data.holiday !== undefined) ? !!data.holiday : !!(document.getElementById('prot-isholiday') || {}).checked,
       al_id: data.alId || null,
       pl_id: data.plId || null,
       al_name_fallback: data.al === '—' ? null : data.al,
@@ -695,6 +862,9 @@ async function syncProtokollToSupabase(data, targetId) {
       if (protError) throw protError;
       protId = protData.id;
     }
+    if (out) out.protId = protId;
+
+    // From here on every failure throws: the entry stays unsynced and the retry replaces all child rows
 
     // 3. Insert Transports
     if (data.transports.length > 0) {
@@ -708,7 +878,7 @@ async function syncProtokollToSupabase(data, targetId) {
         };
       });
       var { error: trErr } = await supabaseClient.from('protocol_transports').insert(transInserts);
-      if (trErr) console.error("Transports Insert Error:", trErr);
+      if (trErr) throw trErr;
     }
 
     // 4. Insert Categories
@@ -726,7 +896,7 @@ async function syncProtokollToSupabase(data, targetId) {
         };
       });
       var { error: catErr } = await supabaseClient.from('protocol_equipments').insert(catInserts);
-      if (catErr) console.error("Categories Insert Error:", catErr);
+      if (catErr) throw catErr;
     }
 
     // 5. Insert Shifts (CRITICAL PIECE)
@@ -734,12 +904,8 @@ async function syncProtokollToSupabase(data, targetId) {
       var shiftInserts = [];
       data.personnel.forEach(function(p) {
         if (!p.start || !p.end) return; // Skip incomplete shifts
-        var basePos = p.pos;
-        if (['AL', 'MA', 'Fahrer'].includes(p.pos)) {
-          var su = (!p.isTemp && p.userId) ? appUsers.find(function(x) { return x.id === p.userId; }) : null;
-          basePos += (su && su.is_fest ? ' fest' : ' frei');
-        }
-        
+        var basePos = protBasePos(p, appUsers);
+
         var uId = (p.isTemp || !p.userId) ? null : p.userId;
         var tName = (p.isTemp || !p.userId) ? (p.tempName || p.name || null) : null;
         
@@ -757,7 +923,7 @@ async function syncProtokollToSupabase(data, targetId) {
       });
       if (shiftInserts.length > 0) {
         var { error: shErr } = await supabaseClient.from('shifts').insert(shiftInserts);
-        if (shErr) console.error("Shifts Insert Error:", shErr);
+        if (shErr) throw shErr;
       }
     }
 
@@ -780,11 +946,11 @@ async function syncProtokollToSupabase(data, targetId) {
     // On edits old ratings go first, also when all of them were removed
     if (editId) {
       var { error: ratDelErr } = await supabaseClient.from('worker_ratings').delete().eq('protocol_id', protId);
-      if (ratDelErr) console.error("Ratings Delete Error:", ratDelErr);
+      if (ratDelErr) throw ratDelErr;
     }
     if (ratingInserts.length > 0) {
       var { error: ratErr } = await supabaseClient.from('worker_ratings').insert(ratingInserts);
-      if (ratErr) console.error("Ratings Insert Error:", ratErr);
+      if (ratErr) throw ratErr;
     }
 
     showToast('✅ Protokoll erfolgreich synchronisiert und gespeichert!');
@@ -804,12 +970,19 @@ async function retrySyncAllProtocols() {
 
   if (unsynced.length) showToast(`Synchronisiere ${unsynced.length} Protokolle...`, 'info');
   let successCount = 0;
+  let rowIdLearned = false;
   const newlySynced = [];
 
   for (let entry of archive) {
     if (!entry.synced) {
-      // Edits target their original row; never the protocol currently open in the form
-      const ok = await syncProtokollToSupabase(entry, entry.isUpdate ? (entry.supabaseId || null) : null);
+      // Edits (and protocols whose row was created by an earlier, partly failed try) target their
+      // row; never the protocol currently open in the form
+      const out = {};
+      const ok = await syncProtokollToSupabase(entry, entry.supabaseId || null, out);
+      if (!ok && out.protId && !entry.supabaseId) {
+        entry.supabaseId = out.protId;
+        rowIdLearned = true;
+      }
       if (ok) {
         entry.synced = true;
         entry.supabaseId = ok;
@@ -820,8 +993,8 @@ async function retrySyncAllProtocols() {
     }
   }
 
+  if (successCount > 0 || rowIdLearned) localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
   if (successCount > 0) {
-    localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
     showToast(`✅ ${successCount} Protokolle erfolgreich synchronisiert!`);
   }
   for (const entry of newlySynced) await sendMailForEntry(entry, true);
@@ -969,84 +1142,11 @@ async function renderProtHistory() {
 
       if (rows && rows.length) {
         var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
-        var changed = false;
-        rows.forEach(function(r) {
-          changed = true;
-          var catMap = {};
-          (r.protocol_equipments || []).forEach(function(eq) {
-            catMap[eq.category_id] = { active: true, status: eq.status || 'okay', note: eq.note || '',
-              hussenDelivered: eq.hussen_delivered || null, hussenReturned: eq.hussen_returned || null };
-          });
-          var fresh = {
-            id: r.id,
-            supabaseId: r.id,
-            savedAt: r.created_at || r.date,
-            event: (r.projects && r.projects.name) || '—',
-            location: (r.projects && r.projects.location) || '—',
-            date: r.date || '—',
-            action: r.action || '—',
-            al: (r.al && r.al.full_name) || r.al_name_fallback || '—',
-            pl: (r.pl && r.pl.full_name) || r.pl_name_fallback || '—',
-            alId: r.al_id || null,
-            plId: r.pl_id || null,
-            totalCost: (r.total_cost || 0).toFixed(2).replace('.', ',') + ' €',
-            transports: (r.protocol_transports || []).map(function(t) {
-              return { type: t.vehicle_type, driver: t.driver_name, punctuality: t.punctuality, delay: t.delay_mins };
-            }),
-            personnel: (function(shifts) {
-              // Deduplicate identical shifts (same user + times + role) caused by prior save bugs
-              var seen = {};
-              return shifts.filter(function(s) {
-                var key = (s.user_id || s.temp_worker_name || '') + '|' + s.position_role + '|' + s.start_time + '|' + s.end_time;
-                if (seen[key]) return false;
-                seen[key] = true;
-                return true;
-              }).map(function(s) {
-                var rKey = ratingKeyForShift(s);
-                var rat = rKey ? (r.worker_ratings || []).find(function(w) {
-                  return (w.temp_worker_name || '').trim().toLowerCase() === rKey;
-                }) : null;
-                return {
-                  rating: rat ? rat.rating : null,
-                  isStar: rat ? !!rat.is_star : false,
-                  shiftId: s.id || null,
-                  name: (s.app_users && s.app_users.full_name) || s.temp_worker_name || '—',
-                  userId: s.user_id || null,
-                  isTemp: !s.user_id,
-                  tempName: s.user_id ? null : (s.temp_worker_name || null),
-                  pos: (s.position_role || '').replace(/ (fest|frei)$/, ''),
-                  fest: / fest$/.test(s.position_role || ''),
-                  start: (s.start_time || '').substring(0, 5),
-                  end: (s.end_time || '').substring(0, 5),
-                  pause: s.pause_mins || 0
-                };
-              });
-            })(r.shifts || []),
-            categories: catMap,
-            damages: r.notes_damages || 'nein',
-            incidents: r.notes_incidents || 'nein',
-            feedback: r.notes_feedback || '—',
-            holiday: !!r.is_holiday,
-            synced: true
-          };
-          var existingIdx = archive.findIndex(function(e) { return e.supabaseId === r.id; });
-          if (existingIdx !== -1) {
-            // Preserve local-only fields (signature, editingLocalId) but refresh Supabase data
-            fresh.signature = archive[existingIdx].signature || null;
-            // Keep a pending mail retry; older entries without the flag never get mailed retroactively
-            fresh.mailed = archive[existingIdx].mailed !== false;
-            fresh.isUpdate = !!archive[existingIdx].isUpdate;
-            archive[existingIdx] = fresh;
-          } else {
-            fresh.mailed = true;
-            archive.push(fresh);
-          }
-        });
-        if (changed) {
-          archive.sort(function(a, b) { return new Date(b.savedAt) - new Date(a.savedAt); });
-          if (archive.length > 100) archive = archive.slice(0, 100);
-          localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
-        }
+        // Unsynced local edits are kept (see mergeProtHistory)
+        mergeProtHistory(archive, rows.map(protRowToEntry));
+        archive.sort(function(a, b) { return new Date(b.savedAt) - new Date(a.savedAt); });
+        if (archive.length > 100) archive = archive.slice(0, 100);
+        localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
       }
     } catch(e) { console.warn('Verlauf Supabase fetch failed:', e); }
     retryPendingMails(); // fire-and-forget
@@ -1070,15 +1170,15 @@ async function renderProtHistory() {
     return '<div class="card">' +
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;">' +
         '<div style="flex:1;min-width:0;">' +
-          '<div class="history-week" style="font-size:15px;">' + (e.event || '—') + '</div>' +
-          '<div class="history-sub">' + (e.date || '—') + ' · ' + (e.location || '—') + '</div>' +
+          '<div class="history-week" style="font-size:15px;">' + escapeHtml(e.event || '—') + '</div>' +
+          '<div class="history-sub">' + escapeHtml(e.date || '—') + ' · ' + escapeHtml(e.location || '—') + '</div>' +
           '<div class="history-sub" style="margin-top:3px;">' +
-            '<span class="badge">' + (e.action || '—') + '</span> ' +
-            (e.al ? '· AL: ' + e.al : '') +
+            '<span class="badge">' + escapeHtml(e.action || '—') + '</span> ' +
+            (e.al ? '· AL: ' + escapeHtml(e.al) : '') +
           '</div>' +
         '</div>' +
         '<div style="text-align:right;flex-shrink:0;margin-left:10px;">' +
-          '<div class="history-hours" style="font-size:16px;">' + (e.totalCost || '—') + '</div>' +
+          '<div class="history-hours" style="font-size:16px;">' + escapeHtml(e.totalCost || '—') + '</div>' +
           '<div style="font-size:11px;color:var(--text3);margin-top:2px;">' + personCount + ' Personal · ' + transportCount + ' Fzg</div>' +
           '<div style="margin-top:4px;">' + syncStatus + '</div>' +
         '</div>' +
@@ -1143,6 +1243,8 @@ function loadProtFromHistory(id) {
   protState.personnel  = (entry.personnel  || []).map(function(p) { return Object.assign({}, p); });
   protState.categories = JSON.parse(JSON.stringify(entry.categories || {}));
   protState.signature  = entry.signature || null;
+  var holEl = document.getElementById('prot-isholiday');
+  if (holEl) holEl.checked = !!entry.holiday;
   // Resolve AL/PL UUIDs: prefer stored ID, fall back to name lookup for legacy entries
   var findUserByName = function(name) {
     if (!name || name === '—' || !appUsers.length) return null;
@@ -1200,15 +1302,16 @@ function protPdfFileName(entry) {
 
 // Builds the protocol PDF from an archived history entry (shared by download and mail)
 function buildProtPdfDoc(entry) {
+  // Everything that reaches doc.text is a string (jsPDF throws on numbers/null)
   var data = {
-    event: entry.event || '—', location: entry.location || '—',
-    date: entry.date || '—', action: entry.action || '—',
-    al: entry.al || '—', pl: entry.pl || '—',
-    damages: entry.damages || 'nein', incidents: entry.incidents || 'nein',
-    feedback: entry.feedback || '—',
+    event: pdfStr(entry.event, '—'), location: pdfStr(entry.location, '—'),
+    date: pdfStr(entry.date, '—'), action: pdfStr(entry.action, '—'),
+    al: pdfStr(entry.al, '—'), pl: pdfStr(entry.pl, '—'),
+    damages: pdfStr(entry.damages, 'nein'), incidents: pdfStr(entry.incidents, 'nein'),
+    feedback: pdfStr(entry.feedback, '—'),
     transports: entry.transports || [], personnel: entry.personnel || [],
     categories: entry.categories || {},
-    totalCost: entry.totalCost || '0,00 €'
+    totalCost: pdfStr(entry.totalCost, '0,00 €')
   };
   var savedProtState = protState;
   protState = { transports: data.transports, personnel: data.personnel, categories: data.categories, signature: entry.signature || null };
@@ -1242,7 +1345,7 @@ function buildProtPdfDoc(entry) {
     doc.setTextColor(0); y += 8;
     data.transports.forEach(function(t,i) {
       if (i%2===1){doc.setFillColor(248,248,246);doc.rect(ml,y,cw,8,'F');}
-      doc.text(t.type,ml+2,y+5.5); doc.text(t.driver||'—',ml+40,y+5.5); doc.text(t.punctuality,ml+80,y+5.5); doc.text(t.delay?t.delay+' Min':'—',ml+120,y+5.5); y += 8;
+      doc.text(pdfStr(t.type,'—'),ml+2,y+5.5); doc.text(pdfStr(t.driver,'—'),ml+40,y+5.5); doc.text(pdfStr(t.punctuality,'—'),ml+80,y+5.5); doc.text(t.delay?t.delay+' Min':'—',ml+120,y+5.5); y += 8;
     }); y += 4;
   }
 
@@ -1252,7 +1355,7 @@ function buildProtPdfDoc(entry) {
   activeCats.forEach(function(cat) {
     var s = data.categories[cat.id];
     doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text(cat.label+':', ml, y);
-    doc.setFont('helvetica','normal'); doc.text(s.status.toUpperCase(), ml+40, y);
+    doc.setFont('helvetica','normal'); doc.text(pdfStr(s.status, 'okay').toUpperCase(), ml+40, y);
     if (s.note) {
       doc.setFontSize(8); doc.setTextColor(100);
       doc.splitTextToSize(String(s.note), cw - 5).forEach(function(line) { y += 4; if (y > 280) { doc.addPage(); y = 20; } doc.text(line, ml+5, y); });
@@ -1262,8 +1365,8 @@ function buildProtPdfDoc(entry) {
       y += 5;
       doc.setFontSize(8); doc.setFont('helvetica', 'normal');
       doc.text('Rücklauf Estrel-Hussen:', ml + 5, y);
-      var val1 = s.hussenDelivered || '0';
-      var val2 = s.hussenReturned || '0';
+      var val1 = pdfStr(s.hussenDelivered, '0');
+      var val2 = pdfStr(s.hussenReturned, '0');
       doc.setFont('helvetica', 'bold');
       doc.text(val1, ml + 45, y);
       doc.setFont('helvetica', 'normal');
@@ -1290,9 +1393,9 @@ function buildProtPdfDoc(entry) {
       var v=timeToMins(p.start),b=timeToMins(p.end),pa=parseInt(p.pause)||0;
       var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
       var netStr='—'; if(v!==null&&b!==null&&effB>v){var n=Math.max(3,(effB-v-pa)/60);netStr=n.toFixed(2)+' h';}
-      var posLabel = p.pos;
-      if (['AL', 'MA', 'Fahrer'].includes(p.pos)) posLabel += (p.fest ? ' fest' : ' frei');
-      doc.text(truncatePdf(doc,posLabel,22),ml+2,y+5.5); doc.text(truncatePdf(doc,p.name||'—',45),ml+25,y+5.5); doc.text(p.start+' - '+p.end,ml+72,y+5.5); doc.text(pa+' Min',ml+100,y+5.5); doc.text(netStr,ml+118,y+5.5);
+      // Same fest/frei rule as the cost lines below
+      var posLabel = pdfStr(protBasePos(p, appUsers), '—');
+      doc.text(truncatePdf(doc,posLabel,22),ml+2,y+5.5); doc.text(truncatePdf(doc,pdfStr(p.name,'—'),45),ml+25,y+5.5); doc.text(pdfStr(p.start,'—')+' - '+pdfStr(p.end,'—'),ml+72,y+5.5); doc.text(pa+' Min',ml+100,y+5.5); doc.text(netStr,ml+118,y+5.5);
       if (p.pos === 'Zenjob' || p.pos === 'Rockit') doc.text(ratingPdfLabel(p.rating, p.isStar),ml+138,y+5.5);
       y+=8; if(y>270){doc.addPage();y=20;}
     }); y += 4;
@@ -1322,12 +1425,7 @@ function buildProtPdfDoc(entry) {
     var v = timeToMins(p.start), b = timeToMins(p.end), pa = parseInt(p.pause) || 0;
     var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
     if (v === null || b === null || effB <= v) return;
-    var basePos = p.pos;
-    if (['AL', 'MA', 'Fahrer'].includes(p.pos)) {
-      var u = p.userId ? appUsers.find(function(x) { return x.id === p.userId; }) : null;
-      var fest = (p.fest !== undefined) ? p.fest : !!(u && u.is_fest);
-      basePos += (fest ? ' fest' : ' frei');
-    }
+    var basePos = protBasePos(p, appUsers);
     var customRate = (!p.isTemp && p.userId) ? getEffectivePersonnelRate(basePos, p.userId) : undefined;
     calcSplitShiftCosts(basePos, calcDate, !!entry.holiday, v, effB, pa, customRate).forEach(function(c) {
       var sub = c.hrs * c.rate;

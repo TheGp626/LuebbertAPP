@@ -82,18 +82,20 @@ function renderProdukte(list) {
       var first = images[0];
       if (first.media_type === 'video') {
         preview = '<div class="produkt-video-thumb-wrap" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')">' +
-          '<video src="' + first.image_url + '" muted preload="metadata" playsinline></video>' +
+          '<video src="' + escHtml(first.image_url) + '" muted preload="metadata" playsinline></video>' +
           '<div class="produkt-video-play-icon"></div>' +
           '</div>';
       } else {
-        preview = '<img src="' + first.image_url + '" class="produkt-thumb" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')" />';
+        preview = '<img src="' + escHtml(first.image_url) + '" class="produkt-thumb" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')" />';
       }
     } else if (p.pdf_url) {
-      var isImage = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(p.pdf_url);
-      if (isImage) {
-        preview = '<img src="' + p.pdf_url + '" class="produkt-thumb" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')" />';
+      var pdfKind = aufbauFileKind(p.pdf_url);
+      if (pdfKind === 'image') {
+        preview = '<img src="' + escHtml(p.pdf_url) + '" class="produkt-thumb" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')" />';
+      } else if (pdfKind === 'pdf') {
+        preview = '<canvas class="produkt-thumb produkt-pdf-canvas" data-url="' + escHtml(p.pdf_url) + '" data-id="' + p.id + '" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')"></canvas>';
       } else {
-        preview = '<canvas class="produkt-thumb produkt-pdf-canvas" data-url="' + p.pdf_url + '" data-id="' + p.id + '" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')"></canvas>';
+        preview = '<div class="produkt-pdf-thumb" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')">📄<span>Aufbau-Datei</span></div>';
       }
     } else {
       preview = '<div class="produkt-pdf-thumb" style="opacity:0.3; cursor:default;">📄<span>Keine Datei</span></div>';
@@ -109,6 +111,7 @@ function renderProdukte(list) {
       preview +
       '<div class="produkt-name" style="margin-top:10px;">' + escHtml(p.name) + '</div>' +
       (p.description ? '<div class="produkt-desc">' + escHtml(p.description) + '</div>' : '') +
+      (p.pdf_url ? '<div style="font-size:12px;color:var(--text3);margin-top:6px;">📄 Aufbau-Datei vorhanden</div>' : '') +
       fileBtn +
       editBtn +
       '</div>';
@@ -162,14 +165,14 @@ function filterProdukte() {
 }
 
 // ── FORM ──
-function openProduktForm(id) {
+// keepFiles: re-render after a media delete without dropping files the user already picked
+function openProduktForm(id, keepFiles) {
   editingProduktId = id || null;
   var form = document.getElementById('produkt-form');
   var title = document.getElementById('produkt-form-title');
   var nameInp = document.getElementById('inp-prod-name');
   var descInp = document.getElementById('inp-prod-desc');
   var contentInp = document.getElementById('inp-prod-content');
-  var pdfInp = document.getElementById('inp-prod-pdf');
   var pdfCurrent = document.getElementById('inp-prod-pdf-current');
   var deleteBtn = document.getElementById('btn-delete-produkt');
   var existingImgs = document.getElementById('prod-existing-images');
@@ -181,10 +184,11 @@ function openProduktForm(id) {
     if (nameInp) nameInp.value = prod.name || '';
     if (descInp) descInp.value = prod.description || '';
     if (contentInp) contentInp.value = prod.content_text || '';
-    if (pdfInp) pdfInp.value = '';
     if (pdfCurrent) {
       pdfCurrent.style.display = prod.pdf_url ? 'block' : 'none';
-      pdfCurrent.textContent = prod.pdf_url ? 'Aktuell: Datei vorhanden (neu hochladen zum Ersetzen)' : '';
+      pdfCurrent.innerHTML = prod.pdf_url
+        ? 'Aktuell: <a href="' + escHtml(prod.pdf_url) + '" target="_blank" rel="noopener" style="color:var(--accent, #60a5fa);">Aufbau-Datei öffnen</a> (neue Datei wählen zum Ersetzen)'
+        : '';
     }
     if (deleteBtn) deleteBtn.style.display = 'inline-flex';
     // Show existing media with delete buttons
@@ -219,12 +223,13 @@ function openProduktForm(id) {
     if (nameInp) nameInp.value = '';
     if (descInp) descInp.value = '';
     if (contentInp) contentInp.value = '';
-    if (pdfInp) pdfInp.value = '';
-    if (pdfCurrent) pdfCurrent.style.display = 'none';
+    if (pdfCurrent) { pdfCurrent.style.display = 'none'; pdfCurrent.innerHTML = ''; }
     if (deleteBtn) deleteBtn.style.display = 'none';
     if (existingImgs) { existingImgs.style.display = 'none'; existingImgs.innerHTML = ''; }
   }
 
+  if (!keepFiles) resetProduktFileInputs();
+  setProduktFormError('');
   if (form) form.style.display = 'block';
   if (nameInp) nameInp.focus();
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -232,8 +237,40 @@ function openProduktForm(id) {
 
 function closeProduktForm() {
   editingProduktId = null;
+  resetProduktFileInputs();
+  setProduktFormError('');
   var form = document.getElementById('produkt-form');
   if (form) form.style.display = 'none';
+}
+
+// Clear every file input so files never carry over to the next product
+function resetProduktFileInputs() {
+  ['inp-prod-images', 'inp-prod-pdf'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  var sel = document.getElementById('inp-prod-pdf-selected');
+  if (sel) { sel.textContent = ''; sel.style.display = 'none'; }
+}
+
+function setProduktFormError(msg) {
+  var el = document.getElementById('produkt-form-error');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.style.display = msg ? 'block' : 'none';
+}
+
+// Show which Aufbau-Datei was picked so a wrong pick is visible before saving
+function produktPdfSelected() {
+  var inp = document.getElementById('inp-prod-pdf');
+  var sel = document.getElementById('inp-prod-pdf-selected');
+  if (!inp || !sel) return;
+  var f = inp.files && inp.files[0];
+  if (!f) { sel.textContent = ''; sel.style.display = 'none'; return; }
+  var kb = f.size / 1024;
+  var size = kb >= 1024 ? (kb / 1024).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(kb)) + ' KB';
+  sel.textContent = 'Ausgewählt: ' + (f.name || 'Datei') + ' (' + size + ')';
+  sel.style.display = 'block';
 }
 
 // ── SAVE ──
@@ -244,43 +281,43 @@ async function saveProdukt() {
   var pdfFile = (document.getElementById('inp-prod-pdf') || {}).files && document.getElementById('inp-prod-pdf').files[0];
   var imageFiles = Array.from(((document.getElementById('inp-prod-images') || {}).files) || []);
 
+  setProduktFormError('');
   if (!name.trim()) {
     showToast('Bitte einen Produktnamen eingeben.', 'danger');
+    setProduktFormError('Bitte einen Produktnamen eingeben.');
     return;
   }
 
   if (typeof supabaseClient === 'undefined') {
     showToast('Keine Server-Verbindung.', 'danger');
+    setProduktFormError('Keine Server-Verbindung.');
     return;
   }
 
   var saveBtn = document.querySelector('#produkt-form .btn.primary');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Speichert...'; }
 
+  var wasEditing = !!editingProduktId;
   try {
     var pdfUrl = null;
+    var oldPdfUrl = null;
 
     // If editing, keep existing URL unless a new file is chosen
     if (editingProduktId) {
       var existing = alleProdukte.find(function(p) { return p.id === editingProduktId; });
-      if (existing) pdfUrl = existing.pdf_url;
+      if (existing) pdfUrl = oldPdfUrl = existing.pdf_url;
     }
 
-    // Upload PDF/file if provided
+    // Upload Aufbau-Datei if provided
     if (pdfFile) {
-      var safeName = name.trim()
-        .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
-        .replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue')
-        .replace(/ß/g, 'ss')
-        .replace(/[^a-zA-Z0-9\-_]/g, '_');
-      var fileExt = pdfFile.name.split('.').pop() || 'pdf';
-      var filePath = safeName + '_' + Date.now() + '.' + fileExt;
+      var prepared = await prepareProduktUpload(pdfFile, false);
+      var filePath = produktFileKey({ name: prepared.name, type: prepared.type }, name.trim(), Date.now());
 
       var { error: uploadErr } = await supabaseClient.storage
         .from('product-pdfs')
-        .upload(filePath, pdfFile, { upsert: false, contentType: pdfFile.type || 'application/octet-stream' });
+        .upload(filePath, prepared.file, { upsert: false, contentType: prepared.type || 'application/octet-stream' });
 
-      if (uploadErr) throw uploadErr;
+      if (uploadErr) throw new Error('Aufbau-Datei: ' + uploadErrorMessage(uploadErr));
 
       var { data: urlData } = supabaseClient.storage
         .from('product-pdfs')
@@ -308,8 +345,17 @@ async function saveProdukt() {
       productId = inserted.id;
     }
 
+    // The new Aufbau-Datei is saved; drop the replaced one from storage (best effort)
+    if (pdfFile && oldPdfUrl && oldPdfUrl !== pdfUrl) {
+      var oldKey = storagePathFromUrl(oldPdfUrl, 'product-pdfs');
+      if (oldKey) {
+        try { await supabaseClient.storage.from('product-pdfs').remove([oldKey]); }
+        catch (e) { console.warn('Old Aufbau-Datei not removed:', e); }
+      }
+    }
+
     // Upload new media files (images + videos)
-    var mediaFailCount = 0;
+    var mediaFailures = [];
     if (imageFiles.length > 0 && productId) {
       var existingCount = 0;
       if (editingProduktId) {
@@ -318,45 +364,57 @@ async function saveProdukt() {
       }
       for (var i = 0; i < imageFiles.length; i++) {
         var mediaFile = imageFiles[i];
-        var isVideo = mediaFile.type.startsWith('video/');
+        var mType = contentTypeFor(mediaFile.name, mediaFile.type);
+        var isVideo = mType.indexOf('video/') === 0;
         var bucketName = isVideo ? 'product-videos' : 'product-images';
         var mediaType = isVideo ? 'video' : 'image';
 
-        var safeMedia = mediaFile.name
-          .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
-          .replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue')
-          .replace(/ß/g, 'ss')
-          .replace(/[^a-zA-Z0-9\-_.]/g, '_');
-        var mediaPath = productId + '/' + Date.now() + '_' + i + '_' + safeMedia;
+        try {
+          var prep = isVideo
+            ? { file: mediaFile, name: mediaFile.name, type: mType }
+            : await prepareProduktUpload(mediaFile, true);
+          var baseName = String(prep.name || '').replace(/\.[^.]*$/, '');
+          var mediaPath = produktFileKey({ name: prep.name, type: prep.type }, baseName, Date.now() + '_' + i, productId + '/');
 
-        var { error: mediaUpErr } = await supabaseClient.storage
-          .from(bucketName)
-          .upload(mediaPath, mediaFile, { upsert: false, contentType: mediaFile.type || 'application/octet-stream' });
-        if (mediaUpErr) { console.error('Media upload error:', mediaUpErr); mediaFailCount++; continue; }
+          var { error: mediaUpErr } = await supabaseClient.storage
+            .from(bucketName)
+            .upload(mediaPath, prep.file, { upsert: false, contentType: prep.type || 'application/octet-stream' });
+          if (mediaUpErr) throw new Error(uploadErrorMessage(mediaUpErr));
 
-        var { data: mediaUrlData } = supabaseClient.storage.from(bucketName).getPublicUrl(mediaPath);
-        var mediaUrl = mediaUrlData && mediaUrlData.publicUrl ? mediaUrlData.publicUrl : null;
-        if (mediaUrl) {
-          await supabaseClient.from('product_images').insert({
+          var { data: mediaUrlData } = supabaseClient.storage.from(bucketName).getPublicUrl(mediaPath);
+          var mediaUrl = mediaUrlData && mediaUrlData.publicUrl ? mediaUrlData.publicUrl : null;
+          if (!mediaUrl) throw new Error('Keine URL erhalten');
+          var { error: rowErr } = await supabaseClient.from('product_images').insert({
             product_id: productId,
             image_url: mediaUrl,
             media_type: mediaType,
             sort_order: existingCount + i
           });
+          if (rowErr) throw new Error(uploadErrorMessage(rowErr));
+        } catch (mediaErr) {
+          console.error('Media upload error:', mediaErr);
+          mediaFailures.push((mediaFile.name || 'Datei') + ': ' + (mediaErr && mediaErr.message ? mediaErr.message : uploadErrorMessage(mediaErr)));
         }
       }
     }
 
-    if (mediaFailCount > 0) {
-      showToast('⚠️ Produkt gespeichert, aber ' + mediaFailCount + ' Datei(en) konnten nicht hochgeladen werden. Bitte erneut versuchen.', 'danger');
+    resetProduktFileInputs();
+    if (mediaFailures.length > 0) {
+      showToast('⚠️ Produkt gespeichert, aber ' + mediaFailures.length + ' Datei(en) nicht hochgeladen.', 'danger');
+      await fetchProdukte();
+      // Keep the form open on this product so the reason stays visible
+      openProduktForm(productId);
+      setProduktFormError('Produkt gespeichert, aber nicht hochgeladen:\n' + mediaFailures.join('\n'));
     } else {
-      showToast(editingProduktId ? '✅ Produkt aktualisiert!' : '✅ Produkt gespeichert!');
+      showToast(wasEditing ? '✅ Produkt aktualisiert!' : '✅ Produkt gespeichert!');
+      closeProduktForm();
+      await fetchProdukte();
     }
-    closeProduktForm();
-    await fetchProdukte();
   } catch(e) {
     console.error('Produkt save error:', e);
-    showToast('Fehler beim Speichern: ' + (e.message || e), 'danger');
+    var reason = e && e.message ? e.message : uploadErrorMessage(e);
+    showToast('Fehler beim Speichern: ' + reason, 'danger');
+    setProduktFormError('Fehler beim Speichern: ' + reason);
   } finally {
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Speichern'; }
   }
@@ -368,17 +426,14 @@ async function deleteProduktMedia(mediaId, mediaUrl, mediaType) {
   if (!confirm(label + ' löschen?')) return;
   try {
     var bucketName = mediaType === 'video' ? 'product-videos' : 'product-images';
-    if (mediaUrl) {
-      var marker = '/' + bucketName + '/';
-      var parts = mediaUrl.split(marker);
-      if (parts.length > 1) await supabaseClient.storage.from(bucketName).remove([parts[1]]);
-    }
+    var mediaKey = storagePathFromUrl(mediaUrl, bucketName);
+    if (mediaKey) await supabaseClient.storage.from(bucketName).remove([mediaKey]);
     var { error } = await supabaseClient.from('product_images').delete().eq('id', mediaId);
     if (error) throw error;
     showToast(label + ' gelöscht.');
     if (editingProduktId) {
       await fetchProdukte();
-      openProduktForm(editingProduktId);
+      openProduktForm(editingProduktId, true);
     }
   } catch(e) { showToast('Fehler beim Löschen.', 'danger'); }
 }
@@ -396,17 +451,14 @@ async function deleteProdukt() {
     for (var i = 0; i < imgs.length; i++) {
       if (imgs[i].image_url) {
         var bucketName = imgs[i].media_type === 'video' ? 'product-videos' : 'product-images';
-        var marker = '/' + bucketName + '/';
-        var parts = imgs[i].image_url.split(marker);
-        if (parts.length > 1) await supabaseClient.storage.from(bucketName).remove([parts[1]]);
+        var imgKey = storagePathFromUrl(imgs[i].image_url, bucketName);
+        if (imgKey) await supabaseClient.storage.from(bucketName).remove([imgKey]);
       }
     }
     // Delete PDF from storage if exists
     if (prod && prod.pdf_url) {
-      var pdfParts = prod.pdf_url.split('/product-pdfs/');
-      if (pdfParts.length > 1) {
-        await supabaseClient.storage.from('product-pdfs').remove([pdfParts[1]]);
-      }
+      var pdfKey = storagePathFromUrl(prod.pdf_url, 'product-pdfs');
+      if (pdfKey) await supabaseClient.storage.from('product-pdfs').remove([pdfKey]);
     }
     var { error } = await supabaseClient.from('products').delete().eq('id', editingProduktId);
     if (error) throw error;
@@ -420,6 +472,17 @@ async function deleteProdukt() {
 }
 
 // ── VIEWER ──
+// Prominent bar with an always-visible link to the Aufbau-Datei (iframes stay blank on Android, iOS shows page 1 only)
+function aufbauDateiBarHtml(url, kind) {
+  var label = kind === 'pdf' ? 'PDF öffnen' : 'Aufbau-Datei öffnen';
+  return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;' +
+      'background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:12px 14px;margin-bottom:16px;">' +
+    '<div style="color:#e0e0e0;font-size:14px;font-weight:600;">📄 Aufbau-Datei' + (kind === 'pdf' ? ' (PDF)' : kind === 'image' ? ' (Bild)' : '') + '</div>' +
+    '<a href="' + escHtml(url) + '" target="_blank" rel="noopener" class="btn primary" ' +
+      'style="width:auto;padding:8px 16px;font-size:13px;text-decoration:none;">' + label + '</a>' +
+    '</div>';
+}
+
 function openProduktViewer(id) {
   var p = alleProdukte.find(function(x) { return x.id === id; });
   if (!p) return;
@@ -430,9 +493,23 @@ function openProduktViewer(id) {
   var body = document.getElementById('viewer-body');
   var dlBtn = document.getElementById('viewer-download-btn');
 
+  var images = (p.product_images || []).slice().sort(function(a, b) { return a.sort_order - b.sort_order; });
+  var kind = aufbauFileKind(p.pdf_url);
+  if (images.length === 0 && !p.pdf_url && !p.content_text) return; // Nothing to show
+
   if (titleEl) titleEl.textContent = p.name;
 
-  var images = (p.product_images || []).slice().sort(function(a, b) { return a.sort_order - b.sort_order; });
+  // Download button: the Aufbau-Datei wins over the first photo
+  if (dlBtn) {
+    if (p.pdf_url) { dlBtn.href = p.pdf_url; dlBtn.textContent = '⬇ Aufbau-Datei'; dlBtn.style.display = 'inline-flex'; }
+    else if (images.length > 0) { dlBtn.href = images[0].image_url; dlBtn.textContent = '⬇ Download'; dlBtn.style.display = 'inline-flex'; }
+    else { dlBtn.removeAttribute('href'); dlBtn.style.display = 'none'; }
+  }
+
+  var textHtml = p.content_text
+    ? '<div style="color:#e0e0e0;font-size:14px;line-height:1.6;white-space:pre-wrap;background:rgba(255,255,255,0.05);padding:16px;border-radius:8px;margin-top:16px;">' + escHtml(p.content_text) + '</div>'
+    : '';
+  var wrapOpen = '<div style="width:100%;height:100%;overflow-y:auto;padding:16px;box-sizing:border-box;display:flex;flex-direction:column;">';
 
   if (images.length > 0) {
     // Build mediaList for lightbox
@@ -444,63 +521,52 @@ function openProduktViewer(id) {
     var imgCount = images.filter(function(m) { return m.media_type !== 'video'; }).length;
     var vidCount = images.length - imgCount;
     var subtitleParts = [];
+    if (p.pdf_url) subtitleParts.push('Aufbau-Datei');
     if (imgCount > 0) subtitleParts.push(imgCount + ' Bild' + (imgCount > 1 ? 'er' : ''));
     if (vidCount > 0) subtitleParts.push(vidCount + ' Video' + (vidCount > 1 ? 's' : ''));
     if (subtitle) subtitle.textContent = subtitleParts.join(', ');
 
-    if (dlBtn) { dlBtn.href = images[0].image_url; dlBtn.style.display = 'inline-flex'; }
-
     if (body) {
-      var galleryHtml = '<div style="width:100%;height:100%;overflow-y:auto;padding:16px;box-sizing:border-box;">' +
-        '<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-bottom:' + (p.content_text ? '16px' : '0') + ';">' +
+      body.innerHTML = wrapOpen +
+        (p.pdf_url ? aufbauDateiBarHtml(p.pdf_url, kind) : '') +
+        '<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">' +
         images.map(function(img, idx) {
           if (img.media_type === 'video') {
             return '<div class="viewer-media-item" onclick="openLightbox(currentViewerMediaList,' + idx + ')">' +
-              '<video src="' + img.image_url + '" muted preload="metadata" playsinline style="max-height:200px;"></video>' +
+              '<video src="' + escHtml(img.image_url) + '" muted preload="metadata" playsinline style="max-height:200px;"></video>' +
               '<div class="viewer-video-badge">&#x25B6; Video</div>' +
               '</div>';
-          } else {
-            return '<div class="viewer-media-item" onclick="openLightbox(currentViewerMediaList,' + idx + ')">' +
-              '<img src="' + img.image_url + '" />' +
-              '</div>';
           }
+          return '<div class="viewer-media-item" onclick="openLightbox(currentViewerMediaList,' + idx + ')">' +
+            '<img src="' + escHtml(img.image_url) + '" />' +
+            '</div>';
         }).join('') +
         '</div>' +
-        (p.content_text
-          ? '<div style="color:#e0e0e0;font-size:14px;line-height:1.6;white-space:pre-wrap;background:rgba(255,255,255,0.05);padding:16px;border-radius:8px;">' + escHtml(p.content_text) + '</div>'
-          : '') +
+        textHtml +
         '</div>';
-      body.innerHTML = galleryHtml;
     }
   } else if (p.pdf_url) {
-    // Fallback: PDF or single image file
-    var isImage = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(p.pdf_url);
-    var isPdf = /\.pdf(\?|$)/i.test(p.pdf_url);
-    if (subtitle) subtitle.textContent = isImage ? 'Bild' : 'PDF';
-    if (dlBtn) { dlBtn.href = p.pdf_url; dlBtn.style.display = 'inline-flex'; }
-    if (body) {
-      if (isImage) {
-        body.innerHTML = '<img src="' + p.pdf_url + '" style="max-width:100%; max-height:100%; object-fit:contain; display:block;" />';
-      } else if (isPdf) {
-        body.innerHTML =
-          '<iframe src="' + p.pdf_url + '" style="width:100%; height:100%; border:none; min-height:70vh;" allowfullscreen>' +
-            '<p style="color:#fff;padding:20px;">PDF kann nicht angezeigt werden. ' +
-            '<a href="' + p.pdf_url + '" target="_blank" style="color:#60a5fa;">Herunterladen</a></p>' +
-          '</iframe>';
-      } else {
-        body.innerHTML = '<p style="color:#fff;padding:20px;">Datei kann nicht angezeigt werden. ' +
-          '<a href="' + p.pdf_url + '" target="_blank" style="color:#60a5fa;">Herunterladen</a></p>';
-      }
+    // Only the Aufbau-Datei (PDF, image or unknown type)
+    if (subtitle) subtitle.textContent = kind === 'image' ? 'Aufbau-Datei (Bild)' : kind === 'pdf' ? 'Aufbau-Datei (PDF)' : 'Aufbau-Datei';
+    var url = escHtml(p.pdf_url);
+    var content;
+    if (kind === 'image') {
+      content = '<img src="' + url + '" style="max-width:100%;max-height:75vh;object-fit:contain;display:block;margin:0 auto;" />';
+    } else if (kind === 'pdf' && !isMobilePdfDevice()) {
+      content = '<iframe src="' + url + '" style="width:100%;flex:1;border:none;min-height:70vh;background:#fff;" allowfullscreen></iframe>';
+    } else {
+      // Mobile browsers can't show PDFs inline reliably; the bar above has the link
+      content = '<p style="color:#bbb;font-size:13px;text-align:center;margin:8px 0;">' +
+        (kind === 'pdf' ? 'Tippe auf „PDF öffnen“, um die Anleitung anzuzeigen.' : 'Diese Datei kann hier nicht angezeigt werden. Bitte über „Aufbau-Datei öffnen“ ansehen.') +
+        '</p>';
     }
-  } else if (p.content_text) {
+    if (body) body.innerHTML = wrapOpen + aufbauDateiBarHtml(p.pdf_url, kind) + content + textHtml + '</div>';
+  } else {
     // Only text content
     if (subtitle) subtitle.textContent = 'Aufbauanleitung';
-    if (dlBtn) dlBtn.style.display = 'none';
     if (body) {
       body.innerHTML = '<div style="color:#e0e0e0;font-size:14px;line-height:1.6;white-space:pre-wrap;padding:24px;max-width:720px;margin:0 auto;">' + escHtml(p.content_text) + '</div>';
     }
-  } else {
-    return; // Nothing to show
   }
 
   if (modal) modal.style.display = 'flex';
@@ -592,5 +658,171 @@ function lightboxKeyHandler(e) {
 
 // ── UTIL ──
 function escHtml(str) {
-  return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+// ── FILE HELPERS (pure, unit-tested in tests/produkte.test.js) ──
+var PRODUKT_MIME_EXT = {
+  'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/gif': 'gif',
+  'image/webp': 'webp', 'image/svg+xml': 'svg', 'image/heic': 'heic', 'image/heif': 'heif',
+  'image/tiff': 'tif', 'image/bmp': 'bmp', 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm'
+};
+var PRODUKT_EXT_MIME = {
+  pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+  webp: 'image/webp', svg: 'image/svg+xml', heic: 'image/heic', heif: 'image/heif', tif: 'image/tiff',
+  tiff: 'image/tiff', bmp: 'image/bmp', mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm'
+};
+// MIME types the product-images bucket accepts
+var PRODUKT_BUCKET_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+var PRODUKT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
+// Extension from the file name if it looks like a real one, otherwise from the MIME type; '' if unknown.
+function fileExtension(name, type) {
+  var n = String(name || '').trim();
+  var dot = n.lastIndexOf('.');
+  if (dot > -1 && dot < n.length - 1) {
+    var ext = n.slice(dot + 1);
+    if (/^[a-z0-9]{1,5}$/i.test(ext)) return ext.toLowerCase();
+  }
+  return PRODUKT_MIME_EXT[String(type || '').toLowerCase()] || '';
+}
+
+// ASCII-only storage name: umlauts transliterated, accents stripped, everything else -> '_'.
+function sanitizeStorageName(str) {
+  var s = String(str || '')
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
+    .replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue')
+    .replace(/ß/g, 'ss');
+  if (s.normalize) s = s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+  s = s.replace(/[^A-Za-z0-9\-_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60).replace(/_+$/, '');
+  return s || 'datei';
+}
+
+// Storage key: [prefix]<sanitised base>_<stamp>[.ext]
+function produktFileKey(file, baseName, stamp, prefix) {
+  var ext = fileExtension(file && file.name, file && file.type);
+  return (prefix || '') + sanitizeStorageName(baseName) + '_' + stamp + (ext ? '.' + ext : '');
+}
+
+// Real MIME if the browser gave one, else derived from the extension.
+function contentTypeFor(name, type) {
+  var t = String(type || '').toLowerCase();
+  if (t && t !== 'application/octet-stream') return t;
+  return PRODUKT_EXT_MIME[fileExtension(name, '')] || 'application/octet-stream';
+}
+
+function isPdfMagic(bytes) {
+  if (!bytes || bytes.length < 5) return false;
+  return bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 && bytes[4] === 0x2d; // %PDF-
+}
+
+function isBucketImageType(type) {
+  return PRODUKT_BUCKET_IMAGE_TYPES.indexOf(String(type || '').toLowerCase()) > -1;
+}
+
+// German, user-facing reason for a failed storage/DB call.
+function uploadErrorMessage(err) {
+  var msg = String((err && (err.message || err.error)) || err || '');
+  var code = String((err && (err.statusCode || err.status)) || '');
+  if (/mime type|not supported|invalid_mime/i.test(msg) || code === '415') return 'Format nicht unterstützt – bitte als JPG/PNG speichern';
+  if (/maximum allowed size|too large|payload/i.test(msg) || code === '413') return 'Datei zu groß (max. 10 MB für Bilder)';
+  if (/failed to fetch|network|load failed|timeout/i.test(msg)) return 'Keine Verbindung zum Server – bitte erneut versuchen';
+  if (/row-level security|permission|unauthori[sz]ed|403/i.test(msg) || code === '403') return 'Keine Berechtigung zum Hochladen';
+  return 'Upload fehlgeschlagen' + (msg ? ': ' + msg : '');
+}
+
+// Kind of the stored Aufbau-Datei, judged by its URL.
+function aufbauFileKind(url) {
+  if (!url) return 'none';
+  var path = String(url).split('?')[0];
+  if (/\.(jpe?g|png|gif|webp|svg)$/i.test(path)) return 'image';
+  if (/\.pdf$/i.test(path)) return 'pdf';
+  return 'other';
+}
+
+// Object key inside a bucket from its public URL, or null.
+function storagePathFromUrl(url, bucket) {
+  if (!url) return null;
+  var parts = String(url).split('/' + bucket + '/');
+  if (parts.length < 2) return null;
+  var key = parts.slice(1).join('/' + bucket + '/').split('?')[0];
+  try { return decodeURIComponent(key); } catch (e) { return key; }
+}
+
+// ── FILE PREPARATION (browser only) ──
+async function readFileHead(file, n) {
+  try {
+    var buf = await file.slice(0, n).arrayBuffer();
+    return new Uint8Array(buf);
+  } catch (e) { return null; }
+}
+
+// Re-encode any browser-decodable image (e.g. HEIC on Safari) as JPEG. Resolves null if it can't decode.
+function convertImageToJpeg(file, maxDim) {
+  maxDim = maxDim || 3000;
+  return new Promise(function(resolve) {
+    var url;
+    try { url = URL.createObjectURL(file); } catch (e) { resolve(null); return; }
+    var img = new Image();
+    img.onload = function() {
+      try {
+        var scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.naturalWidth * scale);
+        canvas.height = Math.round(img.naturalHeight * scale);
+        var ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff'; // JPEG has no alpha
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        canvas.toBlob(function(blob) {
+          if (!blob) { resolve(null); return; }
+          var base = String(file.name || 'bild').replace(/\.[^.]*$/, '') || 'bild';
+          var name = base + '.jpg';
+          try { resolve(new File([blob], name, { type: 'image/jpeg' })); }
+          catch (e) { blob.name = name; resolve(blob); }
+        }, 'image/jpeg', 0.85);
+      } catch (e) { URL.revokeObjectURL(url); resolve(null); }
+    };
+    img.onerror = function() { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+
+// Returns { file, name, type } ready for upload, or throws an Error with a German message.
+// forImageBucket: the target bucket only accepts PRODUKT_BUCKET_IMAGE_TYPES up to 10 MB.
+async function prepareProduktUpload(file, forImageBucket) {
+  var name = file.name || '';
+  var type = String(file.type || '').toLowerCase();
+  if (!type || type === 'application/octet-stream') {
+    if (isPdfMagic(await readFileHead(file, 5))) type = 'application/pdf';
+    else type = contentTypeFor(name, type);
+  }
+  if (type === 'application/pdf' && fileExtension(name, '') !== 'pdf') name = (name || 'datei') + '.pdf';
+
+  var isRaster = type.indexOf('image/') === 0 && type !== 'image/svg+xml' && type !== 'image/gif';
+  var needsConvert = isRaster && (!isBucketImageType(type) || (forImageBucket && file.size > PRODUKT_IMAGE_MAX_BYTES));
+  if (needsConvert) {
+    var jpg = await convertImageToJpeg(file);
+    if (jpg) return { file: jpg, name: jpg.name, type: 'image/jpeg' };
+    if (forImageBucket) throw new Error(!isBucketImageType(type)
+      ? 'Format nicht unterstützt – bitte als JPG/PNG speichern'
+      : 'Datei zu groß (max. 10 MB für Bilder)');
+  }
+  if (forImageBucket && !isBucketImageType(type)) throw new Error('Format nicht unterstützt – bitte als JPG/PNG speichern');
+  if (forImageBucket && file.size > PRODUKT_IMAGE_MAX_BYTES) throw new Error('Datei zu groß (max. 10 MB für Bilder)');
+  return { file: file, name: name, type: type };
+}
+
+function isMobilePdfDevice() {
+  var ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  // iPadOS reports as Mac; detect via touch points
+  var iPadOS = /Macintosh/.test(ua) && typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || iPadOS;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { fileExtension: fileExtension, sanitizeStorageName: sanitizeStorageName, produktFileKey: produktFileKey,
+    contentTypeFor: contentTypeFor, isPdfMagic: isPdfMagic, isBucketImageType: isBucketImageType,
+    uploadErrorMessage: uploadErrorMessage, aufbauFileKind: aufbauFileKind, storagePathFromUrl: storagePathFromUrl };
 }
