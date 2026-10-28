@@ -107,3 +107,13 @@ test('aufbauPageScale: page fills the viewer width, sharp on high-density screen
   // unknown width falls back to 320px
   assert.equal(P.aufbauPageScale(595, 0, 1).cssWidth, 320);
 });
+
+test('produktNextSortOrder: after the highest existing value, never a number already in use', () => {
+  const { produktNextSortOrder } = require('../js/produkte.js');
+  assert.equal(produktNextSortOrder([]), 0);
+  assert.equal(produktNextSortOrder(undefined), 0);
+  // 0, 1, 2 with 1 deleted → the count (2) would collide with the existing 2
+  assert.equal(produktNextSortOrder([{ sort_order: 0 }, { sort_order: 2 }]), 3);
+  assert.equal(produktNextSortOrder([{ sort_order: 5 }]), 6);
+  assert.equal(produktNextSortOrder([{ sort_order: null }]), 1);
+});

@@ -366,10 +366,10 @@ async function saveProdukt() {
     // Upload new media files (images + videos)
     var mediaFailures = [];
     if (imageFiles.length > 0 && productId) {
-      var existingCount = 0;
+      var nextSort = 0;
       if (editingProduktId) {
         var ep = alleProdukte.find(function(p) { return p.id === editingProduktId; });
-        existingCount = ep && ep.product_images ? ep.product_images.length : 0;
+        nextSort = produktNextSortOrder(ep && ep.product_images);
       }
       for (var i = 0; i < imageFiles.length; i++) {
         var mediaFile = imageFiles[i];
@@ -397,7 +397,7 @@ async function saveProdukt() {
             product_id: productId,
             image_url: mediaUrl,
             media_type: mediaType,
-            sort_order: existingCount + i
+            sort_order: nextSort + i
           });
           if (rowErr) throw new Error(uploadErrorMessage(rowErr));
         } catch (mediaErr) {
@@ -514,8 +514,9 @@ async function renderAufbauPdfPages(box) {
   if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
+  var pdf = null;
   try {
-    var pdf = await pdfjsLib.getDocument({ url: box.dataset.url }).promise;
+    pdf = await pdfjsLib.getDocument({ url: box.dataset.url }).promise;
     if (!box.isConnected) return;
     box.innerHTML = '';
     var pages = Math.min(pdf.numPages, AUFBAU_MAX_PAGES);
@@ -542,6 +543,9 @@ async function renderAufbauPdfPages(box) {
   } catch (e) {
     console.warn('Aufbau-Datei anzeigen:', e);
     if (box.isConnected) box.innerHTML = '<div class="aufbau-pdf-loading">Die Vorschau konnte nicht geladen werden. Bitte über „PDF öffnen“ ansehen.</div>';
+  } finally {
+    // The canvases keep their pixels; the document and its worker memory are not needed any more
+    if (pdf) pdf.destroy();
   }
 }
 
@@ -881,25 +885,37 @@ function produktCoverOrder(images, coverId) {
     .map(function(r) { return { id: r.id, sort_order: r.sort_order }; });
 }
 
+// sort_order for the next uploaded file: after the highest one in use (the count collides after a deletion)
+function produktNextSortOrder(images) {
+  return (images || []).reduce(function(max, i) { return Math.max(max, (Number(i.sort_order) || 0) + 1); }, 0);
+}
+
+var _produktCoverBusy = false;
+
 // Makes one picture/video the product's cover (first on the card and in the viewer)
 async function setProduktCover(productId, imageId) {
   var prod = alleProdukte.find(function(p) { return p.id === productId; });
-  if (!prod) return;
+  if (!prod || _produktCoverBusy) return;
   var updates = produktCoverOrder(prod.product_images || [], imageId);
   if (!updates.length) return;
-  for (var i = 0; i < updates.length; i++) {
-    var res = await supabaseClient.from('product_images').update({ sort_order: updates[i].sort_order }).eq('id', updates[i].id).select('id');
-    if (res.error || !res.data || !res.data.length) {
-      console.error('Titelbild setzen:', res.error);
-      showToast('Titelbild konnte nicht gespeichert werden.', 'danger');
-      return;
+  _produktCoverBusy = true;
+  var failed = false;
+  try {
+    for (var i = 0; i < updates.length; i++) {
+      var res = await supabaseClient.from('product_images').update({ sort_order: updates[i].sort_order }).eq('id', updates[i].id).select('id');
+      if (res.error || !res.data || !res.data.length) {
+        console.error('Titelbild setzen:', res.error);
+        failed = true;
+        break;
+      }
+      // Local copy follows each saved row, so a retry after a failure starts from what the server has
+      var img = prod.product_images.find(function(x) { return x.id === updates[i].id; });
+      if (img) img.sort_order = updates[i].sort_order;
     }
+  } finally {
+    _produktCoverBusy = false;
   }
-  updates.forEach(function(u) {
-    var img = prod.product_images.find(function(x) { return x.id === u.id; });
-    if (img) img.sort_order = u.sort_order;
-  });
-  showToast('Titelbild gespeichert');
+  showToast(failed ? 'Titelbild konnte nicht gespeichert werden.' : 'Titelbild gespeichert');
   renderProdukte(alleProdukte);
   openProduktForm(productId, true);
 }
@@ -908,5 +924,5 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { fileExtension: fileExtension, sanitizeStorageName: sanitizeStorageName, produktFileKey: produktFileKey,
     contentTypeFor: contentTypeFor, isPdfMagic: isPdfMagic, isBucketImageType: isBucketImageType,
     uploadErrorMessage: uploadErrorMessage, aufbauFileKind: aufbauFileKind, storagePathFromUrl: storagePathFromUrl,
-    produktCoverOrder: produktCoverOrder, aufbauPageScale: aufbauPageScale };
+    produktCoverOrder: produktCoverOrder, produktNextSortOrder: produktNextSortOrder, aufbauPageScale: aufbauPageScale };
 }
