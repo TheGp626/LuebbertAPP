@@ -96,3 +96,14 @@ test('produktCoverOrder: chosen picture first, the rest keep their order, only c
   assert.deepEqual(P.produktCoverOrder([{ id: 'x', sort_order: 3 }, { id: 'y', sort_order: 3 }], 'y'), [{ id: 'y', sort_order: 0 }, { id: 'x', sort_order: 1 }]);
   assert.deepEqual(P.produktCoverOrder(imgs, 'nope'), []);
 });
+
+test('aufbauPageScale: page fills the viewer width, sharp on high-density screens, capped', () => {
+  // A4 page 595pt wide in a 343px viewer on a 2x phone
+  assert.deepEqual(P.aufbauPageScale(595, 343, 2), { cssWidth: 343, renderScale: 343 / 595 * 2 });
+  // desktop: never wider than 900px, density 1
+  assert.deepEqual(P.aufbauPageScale(595, 1400, 1), { cssWidth: 900, renderScale: 900 / 595 });
+  // huge density is capped at 2.5 so big plans don't blow up phone memory
+  assert.equal(P.aufbauPageScale(595, 343, 4).renderScale, 343 / 595 * 2.5);
+  // unknown width falls back to 320px
+  assert.equal(P.aufbauPageScale(595, 0, 1).cssWidth, 320);
+});
