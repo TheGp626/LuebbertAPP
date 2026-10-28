@@ -65,8 +65,18 @@ function planCellLines(items) {
       last.parts.push(it);
     } else lines.push({ y: it.y, parts: [it] });
   });
+  // Excel splits a word into pieces where the formatting changes mid-word ("Holz" + bold "hoch" + "tisch"):
+  // pieces that touch (no gap, no space at the seam) belong together, everything else gets a space
   return lines.map(function(l) {
-    return l.parts.sort(function(a, b) { return a.x - b.x; }).map(function(p) { return p.s.trim(); }).join(' ').replace(/\s+/g, ' ').trim();
+    var parts = l.parts.sort(function(a, b) { return a.x - b.x; });
+    var out = '';
+    parts.forEach(function(p, i) {
+      var prev = parts[i - 1];
+      var gap = prev ? p.x - (prev.x + (prev.w || 0)) : 0;
+      var touching = prev && gap > -1 && gap < 0.8 && !/\s$/.test(prev.s) && !/^\s/.test(p.s);
+      out += (i === 0 || touching ? '' : ' ') + p.s.trim();
+    });
+    return out.replace(/\s+/g, ' ').trim();
   }).filter(Boolean);
 }
 
@@ -464,6 +474,6 @@ function planShiftFromDb(r) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
     planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planShiftKey: planShiftKey,
-    planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek,
+    planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek, planCellLines: planCellLines,
     planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb };
 }

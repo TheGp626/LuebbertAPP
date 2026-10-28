@@ -290,3 +290,20 @@ test('planPickExistingWeek: same KW wins, otherwise the stored week the plan ove
   // the previous week touching only the plan's leading Sunday is a different week
   assert.equal(P.planPickExistingWeek([{ id: 'd', year: 2026, kw: 44, week_start: '2026-10-26', week_end: '2026-11-01' }], parsed), null);
 });
+
+test('planCellLines: pieces of one word (formatting change mid-word) are joined without a space', () => {
+  const it = (s, x, w) => ({ s, x, y: 100, w, h: 8 });
+  assert.deepEqual(P.planCellLines([it('3 Holz', 0, 20), it('hoch', 19.95, 12), it('tisch Rhodos', 31.97, 30)]), ['3 Holzhochtisch Rhodos']);
+  assert.deepEqual(P.planCellLines([it('B', 0, 5), it('azaar', 4.95, 20)]), ['Bazaar']);
+  // a real gap or an explicit space keeps the words apart
+  assert.deepEqual(P.planCellLines([it('2 Bar', 0, 20), it('weiß', 23, 15)]), ['2 Bar weiß']);
+  assert.deepEqual(P.planCellLines([it('10 Stehtisch ', 0, 40), it('Kris', 40, 12)]), ['10 Stehtisch Kris']);
+});
+
+test('real plans: no words torn apart in the material lists', { skip: !fixture('kw42') && 'no local fixture' }, () => {
+  const all = ['kw42', 'kw43', 'kw45'].map(k => JSON.stringify(P.planParse(fixture(k)).shifts)).join(' ');
+  assert.match(all, /3 Holzhochtisch Rhodos/);
+  assert.match(all, /Brückenhochtisch/);
+  assert.match(all, /Bazaar/);
+  assert.doesNotMatch(all, /Holz hoch tisch|B azaar/);
+});
