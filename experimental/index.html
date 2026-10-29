@@ -16,116 +16,83 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=16">
+  <link rel="stylesheet" href="css/style.css?v=18">
+  <link rel="stylesheet" href="css/ui.css?v=4">
 </head>
 
 <body>
   <div style="position:fixed; left:0; right:0; bottom:0; z-index:99999; background:#d97706; color:#fff; font:600 11px/1.6 system-ui,sans-serif; text-align:center; pointer-events:none;">TESTVERSION – experimental</div>
   <!-- ── AUTH OVERLAY ── -->
-  <div id="auth-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg); z-index: 10000; flex-direction: column; align-items: center; justify-content: center; padding: 20px;">
-    <div class="card" style="width: 100%; max-width: 400px; text-align: center;">
-      <h2 id="auth-title" style="margin-bottom: 20px;">Login</h2>
-      <p id="auth-sub" style="margin-bottom: 20px; color: var(--text2); font-size: 14px;">Wähle deinen Namen aus.</p>
-
+  <div id="auth-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg); z-index: 10000; flex-direction: column; align-items: center; justify-content: center; padding: 20px; overflow-y: auto;">
+    <div class="ui-card" style="width: 100%; max-width: 400px; padding: 24px 20px; margin: 0; cursor: default; text-align: center;">
+      <img src="icons/logo.png" alt="Lübbert" style="display: block; width: 120px; height: auto; margin: 0 auto 16px;">
+      <h2 id="auth-title" class="ui-title" style="margin-bottom: 6px;">Login</h2>
+      <p id="auth-sub" class="ui-sub" style="margin-bottom: 18px;">Wähle deinen Namen aus.</p>
       <div id="auth-error" style="color: var(--danger); font-size: 13px; margin-bottom: 12px; display: none;"></div>
-
-      <div class="field" style="margin-bottom: 12px; position: relative;">
-        <input type="text" id="auth-name-input" placeholder="Name tippen oder auswählen…" autocomplete="off" autocapitalize="words"
-          style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 16px; background: var(--bg2); color: var(--text); box-sizing: border-box;" />
+      <div class="ui-field" style="position: relative;">
+        <input type="text" id="auth-name-input" placeholder="Name tippen oder auswählen…" autocomplete="off" autocapitalize="words" />
         <div id="auth-name-list" class="combo-list" style="display: none;"></div>
       </div>
-
-      <div id="auth-password-wrapper" class="field" style="margin-bottom: 20px; display: none;">
-        <input type="password" id="auth-password" placeholder="Admin-Passwort" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 16px; background: var(--bg2); color: var(--text);" />
-        <p style="font-size: 12px; color: var(--text3); margin-top: 6px; text-align: left;">Nur für AL / PL / Admin erforderlich</p>
+      <div id="auth-password-wrapper" class="ui-field" style="display: none;">
+        <input type="password" id="auth-password" placeholder="Admin-Passwort" />
+        <p class="ui-sub" style="margin-top: 6px; text-align: left;">Nur für AL / PL / Admin erforderlich</p>
       </div>
-      
-      <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; cursor: pointer; font-size: 14px; color: var(--text2); justify-content: center;">
-        <input type="checkbox" id="auth-remember" style="width: 16px; height: 16px; cursor: pointer;" />
+      <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; cursor: pointer; font-size: 14px; color: var(--text2); justify-content: center; min-height: 32px;">
+        <input type="checkbox" id="auth-remember" style="width: 18px; height: 18px; cursor: pointer;" />
         Eingeloggt bleiben
       </label>
-
-      <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="btn primary" style="width: 100%; padding: 14px; font-size: 16px; margin-bottom: 12px;">Anmelden</button>
-
-      <div style="font-size: 12px; color: var(--text3);">Powered by Supabase</div>
+      <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="ui-btn ui-btn-primary ui-btn-block" style="margin-bottom: 12px;">Anmelden</button>
+      <div class="ui-sub" style="font-size: 12px;">Powered by Supabase</div>
     </div>
   </div>
 
   <div class="app">
-    <!-- ── GLOBAL TOP BAR ── -->
-    <div class="top-bar">
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <button class="icon-btn" id="back-to-menu-btn" style="display: none;" onclick="exitToMenu()"
-          title="Zum Hauptmenü">Menu</button>
-        <div>
-          <div class="app-title" id="app-title" onclick="titleTap()">LÜBBERT APP</div>
-          <div class="app-sub" id="top-bar-sub">Event Interiors & Logistics</div>
-        </div>
+    <!-- ── MODULE TOP BAR (hidden on the start page) ── -->
+    <div class="ui-topbar" id="topbar" style="display: none;">
+      <button type="button" class="ui-topbar-back" id="back-to-menu-btn" onclick="exitToMenu()" title="Zum Hauptmenü">
+        <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>Menü
+      </button>
+      <div class="ui-topbar-mid">
+        <div class="ui-topbar-title" id="topbar-title"></div>
+        <div class="ui-topbar-sub" id="top-bar-sub"></div>
       </div>
-      <div>
-        <button class="settings-btn" id="settings-btn" onclick="openSettingsModal()">Optionen</button>
+      <div class="ui-topbar-end">
+        <button type="button" class="ui-icon-btn" id="settings-btn" onclick="openSettingsModal()" aria-label="Optionen">
+          <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+        </button>
       </div>
     </div>
 
-    <!-- ── TOP NAVIGATION TABS (Stundenzettel) ── -->
-    <div class="top-tabs" id="main-nav" style="display: none;">
-      <button class="top-tab active" id="nav-home" onclick="navigate('home')">
-        <span class="tab-icon"></span>Erfassen
-      </button>
-      <button class="top-tab" id="nav-history" onclick="navigate('history')">
-        <span class="tab-icon"></span>Verlauf
-      </button>
+    <!-- ── SEGMENT SWITCH (Stundenzettel) ── -->
+    <div class="ui-topnav" id="main-nav" style="display: none;">
+      <div class="ui-seg">
+        <button class="top-tab active" id="nav-home" onclick="navigate('home')">Erfassen</button>
+        <button class="top-tab" id="nav-history" onclick="navigate('history')">Verlauf</button>
+      </div>
     </div>
 
-    <!-- ── TOP NAVIGATION TABS (Protokoll) ── -->
-    <div class="top-tabs" id="prot-nav" style="display: none;">
-      <button class="top-tab active" id="nav-protokoll" onclick="navigateProt('protokoll')">
-        <span class="tab-icon"></span>Erfassen
-      </button>
-      <button class="top-tab" id="nav-protokoll-history" onclick="navigateProt('protokoll-history')">
-        <span class="tab-icon"></span>Verlauf
-      </button>
+    <!-- ── SEGMENT SWITCH (Protokoll) ── -->
+    <div class="ui-topnav" id="prot-nav" style="display: none;">
+      <div class="ui-seg">
+        <button class="top-tab active" id="nav-protokoll" onclick="navigateProt('protokoll')">Erfassen</button>
+        <button class="top-tab" id="nav-protokoll-history" onclick="navigateProt('protokoll-history')">Verlauf</button>
+      </div>
     </div>
 
     <!-- ══════════ STARTUP PAGE ══════════ -->
     <div class="page active" id="page-startup">
-      <div
-        style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; text-align: center;">
-        <div id="erinnerung-banner" style="display:none; width:100%; max-width:320px; margin-bottom:24px; text-align:left;"></div>
-        <img src="icons/logo.png" id="app-logo" alt="Lübbert Logo"
-          style="width: 180px; height: auto; margin-bottom: 40px; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.1));">
-        <h1 style="font-size: 24px; font-weight: 700; margin-bottom: 8px;">Willkommen</h1>
-        <p style="color: var(--text2); font-size: 14px; margin-bottom: 48px;">Bitte wählen Sie ein Modul aus</p>
-
-        <div style="width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 16px;">
-          <button id="btn-select-stunden" class="btn primary" style="padding: 18px; font-size: 16px; font-weight: 600;"
-            onclick="selectMode('stunden')">
-            Stundenzettel
-          </button>
-          <button id="btn-select-protokoll" class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px;"
-            onclick="selectMode('protokoll')">
-            Protokoll
-          </button>
-          <button id="btn-select-dashboard" class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px; display: none;"
-            onclick="selectMode('dashboard')">
-            Office Dashboard
-          </button>
-          <button id="btn-select-wochenplan" class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px;"
-            onclick="selectMode('wochenplan')">
-            Wochenplan
-          </button>
-          <button class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px;"
-            onclick="selectMode('produkte')">
-            Produktdatenbank
-          </button>
-          <button class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px;"
-            onclick="selectMode('ordner')">
-            Projektordner
+      <div class="ui-home">
+        <div class="ui-home-head">
+          <div class="ui-sub" id="home-date"></div>
+          <button type="button" class="ui-icon-btn" onclick="openSettingsModal()" aria-label="Optionen">
+            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
           </button>
         </div>
-      </div>
-      <div style="padding: 24px; text-align: center; color: var(--text3); font-size: 11px;">
-        Lübbert App v2.0
+        <h1 class="ui-title ui-home-hello" id="home-hello" onclick="titleTap()">Hallo</h1>
+        <div id="home-next"></div>
+        <div id="erinnerung-banner" style="display:none;"></div>
+        <div class="ui-tiles" id="home-tiles"></div>
+        <div class="ui-sub" style="text-align:center; margin-top:24px;">Lübbert App v2.0</div>
       </div>
     </div>
 
@@ -506,7 +473,7 @@
           </div>
           <div id="wp-push-hint"></div>
           <div class="wp-sticky" id="wp-sticky">
-            <div class="wp-seg" role="tablist">
+            <div class="ui-seg" role="tablist">
               <button type="button" class="active" id="wp-tab-mine" role="tab" aria-selected="true" onclick="wpSetView('mine')">Meine Schichten</button>
               <button type="button" id="wp-tab-all" role="tab" aria-selected="false" onclick="wpSetView('all')">Ganze Woche</button>
             </div>
@@ -649,8 +616,8 @@
   <div class="toast" id="toast"></div>
 
   <!-- DASHBOARD DETAIL MODAL -->
-  <div id="dash-detail-modal" class="sig-modal">
-    <div class="sig-modal-inner" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+  <div id="dash-detail-modal" class="sig-modal ui-sheet" style="--sheet-w:800px">
+    <div class="sig-modal-inner" style="max-height: 90vh; overflow-y: auto;">
       <div class="sig-modal-head">
         <div>
           <div class="sig-modal-title" id="det-title">Protokoll-Details</div>
@@ -684,8 +651,8 @@
   </div>
 
   <!-- DASHBOARD PROTOCOL EDIT MODAL -->
-  <div id="dash-prot-edit-modal" class="sig-modal">
-    <div class="sig-modal-inner" style="max-width:700px; width:95%; padding:24px; max-height:92vh; overflow-y:auto;">
+  <div id="dash-prot-edit-modal" class="sig-modal ui-sheet" style="--sheet-w:700px">
+    <div class="sig-modal-inner" style="padding:24px; max-height:92vh; overflow-y:auto;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
         <h3 style="margin:0; font-size:17px;">Protokoll bearbeiten</h3>
         <button onclick="closeDashProtEdit()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2);">✕</button>
@@ -783,7 +750,7 @@
   </div>
 
   <!-- ── SETTINGS MODAL ── -->
-  <div class="sig-modal" id="settings-modal">
+  <div class="sig-modal ui-sheet" id="settings-modal" style="--sheet-w:560px">
     <div class="sig-modal-inner" style="max-height: 90vh; overflow-y: auto;">
       <div class="sig-modal-head">
         <div class="sig-modal-title">Einstellungen</div>
@@ -831,8 +798,8 @@
   </div>
 
   <!-- ══════════ SCHICHT BEARBEITEN MODAL ══════════ -->
-  <div id="shift-edit-modal" class="sig-modal">
-    <div class="sig-modal-inner" style="max-width:420px; width:90%; padding:24px; max-height:90vh; overflow-y:auto;">
+  <div id="shift-edit-modal" class="sig-modal ui-sheet" style="--sheet-w:420px">
+    <div class="sig-modal-inner" style="padding:24px; max-height:90vh; overflow-y:auto;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
         <h3 id="shift-edit-title" style="margin:0; font-size:17px;">Schicht bearbeiten</h3>
         <button onclick="closeShiftEditModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2);">✕</button>
@@ -896,8 +863,8 @@
   </div>
 
   <!-- ══════════ MITARBEITER BEARBEITEN MODAL ══════════ -->
-  <div id="edit-worker-modal" class="sig-modal">
-    <div class="sig-modal-inner" style="max-width:460px; width:90%; padding:24px; max-height:90vh; display:flex; flex-direction:column;">
+  <div id="edit-worker-modal" class="sig-modal ui-sheet" style="--sheet-w:460px">
+    <div class="sig-modal-inner" style="padding:24px; max-height:90vh; display:flex; flex-direction:column;">
       <div style="overflow-y:auto; flex:1; padding-bottom:8px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
           <h3 style="margin:0; font-size:17px;">Mitarbeiter bearbeiten</h3>
@@ -975,21 +942,22 @@
 
   <!-- Scripts -->
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=15"></script>
+  <script src="js/auth.js?v=17"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=10"></script>
   <script src="js/utils.js?v=17"></script>
   <script src="js/settings.js?v=3"></script>
   <script src="js/stundenzettel.js?v=11"></script>
   <script src="js/protokoll.js?v=23"></script>
-  <script src="js/erinnerung.js?v=7"></script>
+  <script src="js/erinnerung.js?v=8"></script>
   <script src="js/plan-pdf.js?v=1"></script>
-  <script src="js/plan-parser.js?v=8"></script>
-  <script src="js/wochenplan.js?v=6"></script>
+  <script src="js/plan-parser.js?v=9"></script>
+  <script src="js/wochenplan.js?v=8"></script>
+  <script src="js/home.js?v=2"></script>
   <script src="js/dashboard.js?v=16"></script>
   <script src="js/produkte.js?v=14"></script>
   <script src="js/ordner.js?v=14"></script>
-  <script src="js/app.js?v=14"></script>
+  <script src="js/app.js?v=17"></script>
 </body>
 
 </html>

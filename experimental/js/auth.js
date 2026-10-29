@@ -168,7 +168,7 @@ function handleSession(user) {
   if (!overlay) return;
 
   if (user) {
-    currentUser = { id: user.id, email: '' }; // Mock basic GoTrue object for backwards compatibility
+    currentUser = { id: user.id, email: '', full_name: user.full_name || '' }; // Mock basic GoTrue object for backwards compatibility (+ name for the start page greeting)
     userRole = user.role;
     
     // Auto-sync the user's name across the app (Stundenzettel tracking)
@@ -237,26 +237,12 @@ function moduleAllowedForRole(m, role) {
 }
 
 function enforceUI() {
-  const stundenBtn = document.getElementById('btn-select-stunden');
-  const protBtn = document.getElementById('btn-select-protokoll');
-  const dashBtn = document.getElementById('btn-select-dashboard');
-
-  if (stundenBtn) {
-    stundenBtn.style.display = (userRole === 'Gast') ? 'none' : 'block';
-  }
-  if (protBtn) {
-    protBtn.style.display = (userRole === 'MA' || userRole === 'Gast') ? 'none' : 'block';
-  }
-  const planBtn = document.getElementById('btn-select-wochenplan');
-  if (planBtn) planBtn.style.display = (userRole === 'Gast') ? 'none' : 'block';
+  // Start page: tiles per role, greeting and next shift (home.js)
+  if (typeof renderHome === 'function') renderHome();
   // A module restored from before the login (or left open by the previous user) may be off-limits for this role
   if (typeof activeModule !== 'undefined' && activeModule && !moduleAllowedForRole(activeModule, userRole) &&
       typeof exitToMenu === 'function') {
     exitToMenu();
-  }
-  if (dashBtn) {
-    const isAdmin = ['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole);
-    dashBtn.style.display = isAdmin ? 'block' : 'none';
   }
   // Settings tab only for the Admin role (saving additionally needs the admin password)
   const setTab = document.getElementById('dash-tab-settings');

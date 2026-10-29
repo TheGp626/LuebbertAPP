@@ -60,6 +60,9 @@ try {
 }
 
 // ── MODE SELECTION & NAVIGATION ──
+var MODULE_TITLES = { stunden: 'Stundenzettel', protokoll: 'Protokoll', dashboard: 'Office Dashboard',
+  produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan' };
+
 function selectMode(m) {
   // Role-based guards (only once a user is logged in — during module restore
   // on page load the role is not resolved yet and the auth overlay blocks input)
@@ -82,9 +85,11 @@ function selectMode(m) {
   var startup = document.getElementById('page-startup');
   if (startup) startup.classList.remove('active');
   
-  // Show navigation buttons (Back to Menu)
-  var backBtn = document.getElementById('back-to-menu-btn');
-  if (backBtn) backBtn.style.display = 'flex';
+  // Module top bar (Back to Menu, title, Optionen)
+  var topbar = document.getElementById('topbar'), topTitle = document.getElementById('topbar-title');
+  if (topTitle) topTitle.textContent = MODULE_TITLES[m] || '';
+  if (topbar) topbar.style.display = 'flex';
+  updateTopBarSub();
 
   if (m === 'stunden') {
     document.getElementById('main-nav').style.display = 'flex';
@@ -136,10 +141,11 @@ function exitToMenu() {
   var pn = document.getElementById('prot-nav');
   if (pn) pn.style.display = 'none';
   
-  var backBtn = document.getElementById('back-to-menu-btn');
-  if (backBtn) backBtn.style.display = 'none';
-  
+  var topbar = document.getElementById('topbar');
+  if (topbar) topbar.style.display = 'none';
+
   updateTopBarSub();
+  if (typeof renderHome === 'function') renderHome();
 }
 
 function navigate(page) {
@@ -187,7 +193,7 @@ function updateTopBarSub() {
   } else if (activeModule === 'protokoll') {
     sub.textContent = 'Auf- & Abbauprotokoll';
   } else {
-    sub.textContent = 'Event Interiors & Logistics';
+    sub.textContent = '';
   }
 }
 
