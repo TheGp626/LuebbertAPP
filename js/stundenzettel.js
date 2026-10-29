@@ -251,13 +251,57 @@ function getWeekString(d) {
 }
 
 // ── UI RENDERING ──
+// ISO week `delta` weeks away from 'YYYY-Www' (via the Thursday of the target week)
+function shiftWeekVal(val, delta) {
+  var mon = getMondayFromWeekVal(val);
+  var thu = new Date(Date.UTC(mon.getFullYear(), mon.getMonth(), mon.getDate() + delta * 7 + 3));
+  var year = thu.getUTCFullYear();
+  var week = Math.ceil(((thu - Date.UTC(year, 0, 1)) / 86400000 + 1) / 7);
+  return year + '-W' + pad(week);
+}
+
+// Day tile state: empty / partial (a shift lacks Von or Bis) / done / signed (all done + a signature)
+function dayStatus(shifts, signedCount) {
+  var filled = (shifts || []).filter(function (s) { return s && (s.von || s.bis); });
+  if (!filled.length) return 'empty';
+  if (filled.some(function (s) { return !s.von || !s.bis; })) return 'partial';
+  return signedCount > 0 ? 'signed' : 'done';
+}
+
+// Week arrows: the hidden #inp-week stays the source of truth (buildDays listens to its change event)
+function stundenWeekStep(delta) {
+  var inp = document.getElementById('inp-week');
+  inp.value = shiftWeekVal(inp.value || currentWeekVal(), delta);
+  inp.dispatchEvent(new Event('change'));
+}
+
+function openStundenWeekPicker() {
+  var inp = document.getElementById('inp-week');
+  try { if (inp.showPicker) { inp.showPicker(); return; } } catch (e) { /* not allowed here */ }
+  inp.focus();
+}
+
+// Name comes from the login; "Ändern" reveals the old field
+function syncStundenName() {
+  var inp = document.getElementById('inp-name'), txt = document.getElementById('stunden-name-text');
+  if (inp && txt) txt.textContent = inp.value || 'Name fehlt';
+}
+
+function editStundenName() {
+  var wrap = document.getElementById('stunden-name-field');
+  if (!wrap) return;
+  wrap.style.display = wrap.style.display === 'none' ? '' : 'none';
+  if (wrap.style.display === '') document.getElementById('inp-name').focus();
+}
+
 function renderWeekStrip() {
   var val = document.getElementById('inp-week').value || currentWeekVal();
   var mon = getMondayFromWeekVal(val);
   var sun = new Date(mon.getTime() + 6 * 86400000);
   var parts = val.split('-W');
   var lbl = document.getElementById('week-strip-label');
-  if (lbl) lbl.textContent = 'KW ' + parseInt(parts[1]) + '  ·  ' + fmtDate(mon) + ' – ' + fmtDateFull(sun);
+  if (lbl) lbl.textContent = 'KW ' + parseInt(parts[1]) + ' · ' + fmtDate(mon) + '.–' + fmtDate(sun) + '.';
+  syncStundenName();
 
   var strip = document.getElementById('week-strip');
   if (!strip) return;
@@ -265,14 +309,13 @@ function renderWeekStrip() {
   for (var i = 0; i < DAYS.length; i++) {
     (function (i) {
       var d = new Date(mon.getTime() + i * 86400000);
-      var wrap = document.createElement('div');
-      wrap.className = 'day-bubble-wrap';
-      wrap.onclick = (function (idx) { return function () { selectDay(idx); }; })(i);
-      wrap.innerHTML =
-        '<span class="day-bubble-name">' + DAY_SHORT[i] + '</span>' +
-        '<div class="day-bubble" id="bubble-' + i + '">—</div>' +
-        '<span class="day-bubble-date">' + fmtDate(d) + '</span>';
-      strip.appendChild(wrap);
+      var tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = 'ui-day';
+      tile.id = 'dayw-' + i;
+      tile.onclick = function () { selectDay(i); };
+      tile.innerHTML = '<span>' + DAY_SHORT[i] + '</span><b id="bubble-' + i + '">–</b><span>' + fmtDate(d) + '</span><i></i>';
+      strip.appendChild(tile);
     })(i);
   }
 }
@@ -286,8 +329,8 @@ function selectDay(i) {
   }
   activeDayIdx = i;
   for (var j = 0; j < DAYS.length; j++) {
-    var b = document.getElementById('bubble-' + j);
-    if (b) b.classList.toggle('active', j === i);
+    var t = document.getElementById('dayw-' + j);
+    if (t) t.classList.toggle('ui-day-active', j === i);
   }
   renderDayEditorArea();
 }
@@ -295,26 +338,24 @@ function selectDay(i) {
 function updateBubble(dayIdx) {
   var bubble = document.getElementById('bubble-' + dayIdx);
   if (!bubble) return;
-  var totalMins = 0, hasInput = false;
+  var totalMins = 0, shifts = [], signed = 0;
   for (var s = 0; s < (shiftCounts[dayIdx] || 1); s++) {
     var data = getShiftData(dayIdx, s);
-    if (data.von || data.bis) hasInput = true;
+    shifts.push(data);
+    if (shiftSigData[dayIdx + '-' + s]) signed++;
     var von = timeToMins(data.von), bis = timeToMins(data.bis);
     var pause = parseInt(data.pause) || 0;
     var effB = (bis < von) ? bis + 1440 : bis;
     if (von !== null && bis !== null && effB > von) totalMins += Math.max(180, effB - von - pause);
   }
-  var isActive = (activeDayIdx === dayIdx);
-  bubble.className = 'day-bubble' + (isActive ? ' active' : '');
+  var status = dayStatus(shifts, signed);
+  var tile = document.getElementById('dayw-' + dayIdx);
+  if (tile) tile.className = 'ui-day' + (activeDayIdx === dayIdx ? ' ui-day-active' : '') + (status !== 'empty' ? ' ui-dot-' + status : '');
   if (totalMins > 0) {
     var h = totalMins / 60;
-    bubble.textContent = (h % 1 === 0 ? h.toFixed(0) : h.toFixed(1)) + 'h';
-    bubble.classList.add('done');
-  } else if (hasInput) {
-    bubble.textContent = '?';
-    bubble.classList.add('partial');
+    bubble.textContent = h % 1 === 0 ? h.toFixed(0) : h.toFixed(1).replace('.', ',');
   } else {
-    bubble.textContent = '—';
+    bubble.textContent = status === 'partial' ? '?' : '–';
   }
 }
 

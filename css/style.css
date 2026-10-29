@@ -175,86 +175,6 @@ body {
 }
 
 /* ── WEEK STRIP ── */
-.week-strip-section {
-  padding: 10px 16px 4px;
-  flex-shrink: 0
-}
-
-.week-strip-header {
-  font-size: 11px;
-  color: var(--text2);
-  font-weight: 500;
-  letter-spacing: .01em;
-  margin-bottom: 8px
-}
-
-.week-strip {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start
-}
-
-.day-bubble-wrap {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  cursor: pointer;
-  flex: 1;
-  padding: 0 2px;
-  user-select: none
-}
-
-.day-bubble-name {
-  font-size: 9px;
-  text-transform: uppercase;
-  color: var(--text3);
-  font-weight: 600;
-  letter-spacing: .04em
-}
-
-.day-bubble {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 1.5px solid var(--border2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text3);
-  background: var(--bg);
-  transition: box-shadow .15s, background .15s, color .15s, border-color .15s
-}
-
-.day-bubble.partial {
-  background: var(--bg2);
-  color: var(--text2)
-}
-
-.day-bubble.done {
-  background: var(--accent-bg);
-  color: var(--accent-text);
-  border-color: var(--accent)
-}
-
-.day-bubble.active {
-  box-shadow: 0 0 0 2.5px var(--accent);
-  border-color: var(--accent)
-}
-
-.day-bubble-date {
-  font-size: 9px;
-  color: var(--text3)
-}
-
-.day-bubble-wrap:active .day-bubble {
-  opacity: .7;
-  transform: scale(.92)
-}
-
-/* ── WEEK TOTAL CHIP ── */
 .week-total-chip {
   display: flex;
   justify-content: space-between;
@@ -1376,3 +1296,13 @@ canvas#historyChart {
 .set-actions { display: flex; justify-content: flex-end; margin-top: 6px; }
 .set-actions .btn { flex: 0 0 auto; width: auto; padding: 10px 22px; }
 .set-meta { margin-top: 12px; font-size: 12px; color: var(--text2); text-align: right; }
+
+/* ── Stundenzettel (redesign) ── */
+.stunden-head { padding-bottom: 4px; }
+.stunden-head .ui-weeknav { position: relative; }
+/* kept for the native picker and as the data source; invisible but rendered (showPicker needs that) */
+.stunden-week-input { position: absolute; left: 50%; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0; }
+.stunden-name-row { display: flex; align-items: center; gap: 8px; margin: 10px 2px 0; }
+.stunden-link { border: 0; background: none; color: var(--accent-text); font-size: 13px; font-weight: 500; padding: 4px; cursor: pointer; }
+.stunden-total { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 16px 2px 0; }
+.stunden-total .ui-sub { text-align: right; }

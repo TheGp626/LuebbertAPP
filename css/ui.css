@@ -16,6 +16,7 @@
 .ui-title { font-size: 22px; font-weight: 700; line-height: 1.2; margin: 0; }
 .ui-num { font-size: 34px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .ui-num span { font-size: 15px; font-weight: 500; color: var(--text2); }
+.ui-num b { font-weight: inherit; }
 .ui-sub { font-size: 13px; color: var(--text2); line-height: 1.4; }
 .ui-label { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .05em; margin: 18px 2px 8px; }
 

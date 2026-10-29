@@ -15,8 +15,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=18">
-  <link rel="stylesheet" href="css/ui.css?v=5">
+  <link rel="stylesheet" href="css/style.css?v=19">
+  <link rel="stylesheet" href="css/ui.css?v=6">
 </head>
 
 <body>
@@ -96,35 +96,32 @@
 
     <!-- ══════════ ERFASSEN PAGE ══════════ -->
     <div class="page" id="page-home">
-      <div class="meta-section">
-        <div class="meta-fields">
-          <div class="meta-field">
-            <span class="meta-label">Name</span>
-            <input type="text" id="inp-name" class="meta-input" placeholder="Vorname Nachname" />
-          </div>
-          <div class="meta-field">
-            <span class="meta-label">Woche auswählen</span>
-            <input type="week" id="inp-week" class="meta-input" />
-          </div>
+      <div class="ui-page stunden-head">
+        <div class="ui-weeknav">
+          <button type="button" class="ui-icon-btn" onclick="stundenWeekStep(-1)" aria-label="Vorige Woche">
+            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <button type="button" class="ui-weeknav-label" id="week-strip-label" onclick="openStundenWeekPicker()">–</button>
+          <button type="button" class="ui-icon-btn" onclick="stundenWeekStep(1)" aria-label="Nächste Woche">
+            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <!-- source of truth for the week (buildDays listens to its change event); arrows and the label write into it -->
+          <input type="week" id="inp-week" class="stunden-week-input" tabindex="-1" aria-label="Woche auswählen" />
         </div>
-        <div class="dept-label">Abteilung</div>
-        <div class="chips" id="chips-abt">
-          <!-- Chips generated via JS -->
+        <div class="stunden-name-row">
+          <span class="ui-sub" id="stunden-name-text"></span>
+          <button type="button" class="stunden-link" onclick="editStundenName()">Ändern</button>
         </div>
-      </div>
-
-      <div class="week-strip-section">
-        <div class="week-strip-header" id="week-strip-label">—</div>
-        <div class="week-strip" id="week-strip">
-          <!-- Bubbles generated via JS -->
-        </div>
-      </div>
-
-      <div class="week-total-chip">
-        <div class="wtc-label">Gesamtstunden dieser Woche</div>
-        <div style="text-align: right;">
-          <div class="wtc-val"><span id="total-hours">0</span><span class="wtc-unit">h</span></div>
-          <div id="total-earnings" class="wtc-earnings"></div>
+        <label class="ui-field" id="stunden-name-field" style="display:none;">
+          <span>Name</span>
+          <input type="text" id="inp-name" placeholder="Vorname Nachname" oninput="syncStundenName()" />
+        </label>
+        <div class="ui-label" style="margin-top:12px;">Abteilung</div>
+        <div class="ui-chipbar" id="chips-abt"></div>
+        <div class="ui-daystrip" id="week-strip" style="margin-top:14px;"></div>
+        <div class="stunden-total">
+          <div class="ui-num"><b id="total-hours">0</b> <span>h</span></div>
+          <div id="total-earnings" class="ui-sub"></div>
         </div>
       </div>
 
@@ -945,7 +942,7 @@
   <script src="js/formulas.js?v=10"></script>
   <script src="js/utils.js?v=17"></script>
   <script src="js/settings.js?v=3"></script>
-  <script src="js/stundenzettel.js?v=11"></script>
+  <script src="js/stundenzettel.js?v=12"></script>
   <script src="js/protokoll.js?v=23"></script>
   <script src="js/erinnerung.js?v=8"></script>
   <script src="js/plan-pdf.js?v=1"></script>
@@ -956,7 +953,7 @@
   <script src="js/dashboard.js?v=16"></script>
   <script src="js/produkte.js?v=14"></script>
   <script src="js/ordner.js?v=14"></script>
-  <script src="js/app.js?v=17"></script>
+  <script src="js/app.js?v=18"></script>
 </body>
 
 </html>

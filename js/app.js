@@ -481,7 +481,7 @@ function renderDeptChips() {
   var c = document.getElementById('chips-abt');
   if (!c) return;
   c.innerHTML = departments.map(function (d) {
-    return '<div class="chip' + (d === selectedAbt ? ' active' : '') + '" onclick="selectDepartment(\'' + jsAttrArg(d) + '\')">' + escapeHtml(deptLabel(d)) + '</div>';
+    return '<button type="button" class="ui-chip' + (d === selectedAbt ? ' ui-chip-on' : '') + '" onclick="selectDepartment(\'' + jsAttrArg(d) + '\')">' + escapeHtml(deptLabel(d)) + '</button>';
   }).join('');
 }
 

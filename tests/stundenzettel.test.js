@@ -122,3 +122,23 @@ test('planWeekSync: a booked shift removed locally stays; duplicates are matched
   assert.equal(p.insert.length, 1);
   assert.deepEqual(planWeekSync([], []), { deleteIds: [], insert: [] });
 });
+
+test('shiftWeekVal: ISO weeks across year boundaries', () => {
+  const { shiftWeekVal } = load(['shiftWeekVal'], ['pad', 'getMondayFromWeekVal']);
+  assert.equal(shiftWeekVal('2026-W44', 1), '2026-W45');
+  assert.equal(shiftWeekVal('2026-W44', -1), '2026-W43');
+  assert.equal(shiftWeekVal('2026-W53', 1), '2027-W01');
+  assert.equal(shiftWeekVal('2027-W01', -1), '2026-W53');
+  assert.equal(shiftWeekVal('2025-W01', -1), '2024-W52');
+  assert.equal(shiftWeekVal('2026-W01', 0), '2026-W01');
+});
+
+test('dayStatus: empty / partial / done / signed', () => {
+  const { dayStatus } = load(['dayStatus']);
+  assert.equal(dayStatus([{ von: '', bis: '' }], 0), 'empty');
+  assert.equal(dayStatus([], 0), 'empty');
+  assert.equal(dayStatus([{ von: '08:00', bis: '' }], 0), 'partial');
+  assert.equal(dayStatus([{ von: '08:00', bis: '16:00' }, { von: '17:00', bis: '' }], 0), 'partial');
+  assert.equal(dayStatus([{ von: '08:00', bis: '16:00' }], 0), 'done');
+  assert.equal(dayStatus([{ von: '08:00', bis: '16:00' }], 1), 'signed');
+});
