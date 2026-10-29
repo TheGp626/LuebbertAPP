@@ -1348,3 +1348,9 @@ canvas#historyChart {
 .dash-worker-head { margin-bottom: 12px; }
 .dash-shift-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-bottom: 12px; }
 .dash-shift-table td { vertical-align: middle; }
+/* Settings tab (redesign): groups as cards */
+#dash-view-settings.set-card { background: none; border: 0; box-shadow: none; padding: 0; }
+.set-group { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--r-card); padding: 4px 14px; }
+.set-group-title { margin: 10px 0 2px; }
+.set-group .set-row:first-of-type { border-top: 0; }
+.set-actions .btn { border-radius: var(--r-control); min-height: 44px; }
