@@ -470,18 +470,22 @@ function planMaterialLines(s) {
 }
 
 // Order of a person's upcoming shifts: by date, same day timed shifts by time, then untimed ones by sort.
-// Shifts from earlier days are dropped, and so are today's whose start is more than 2 h behind `now`.
-function planShiftOrder(shifts, now) {
+// Shifts from earlier days are dropped, and so are today's whose start is more than 2 h behind `now`
+// (keepStarted: keep all of today, for the "Meine Schichten" list with its "Protokoll starten" button).
+// Times before 4:00 ("Abbau: 0.30 Uhr") are the night after the listed day.
+function planShiftOrder(shifts, now, keepStarted) {
   var pad = function(n) { return (n < 10 ? '0' : '') + n; };
   var today = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
   var nowMin = now.getHours() * 60 + now.getMinutes();
   var minutes = function(s) {
     var t = planWhen(s.wann ? String(s.wann).split('\n') : []).time;
-    return t ? parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10) : null;
+    if (!t) return null;
+    var m = parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10);
+    return m < 240 ? m + 1440 : m;
   };
   return (shifts || [])
     .map(function(s) { return { s: s, min: minutes(s) }; })
-    .filter(function(x) { return x.s.date > today || (x.s.date === today && (x.min === null || nowMin - x.min <= 120)); })
+    .filter(function(x) { return x.s.date > today || (x.s.date === today && (keepStarted || x.min === null || nowMin - x.min <= 120)); })
     .sort(function(a, b) {
       if (a.s.date !== b.s.date) return a.s.date < b.s.date ? -1 : 1;
       if ((a.min === null) !== (b.min === null)) return a.min === null ? 1 : -1;
