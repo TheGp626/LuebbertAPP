@@ -363,7 +363,7 @@ function renderDayEditorArea() {
   var area = document.getElementById('day-editor-area');
   if (!area) return;
   if (activeDayIdx === null) {
-    area.innerHTML = '<div class="day-empty-state"><div class="day-empty-icon">☝️</div><div>Tag im Wochenstreifen antippen,<br/>um Stunden einzutragen.</div></div>';
+    area.innerHTML = uiEmptyHtml('Tag antippen', 'Wähle oben einen Tag, um Stunden einzutragen.');
     return;
   }
   var i = activeDayIdx;
@@ -371,9 +371,9 @@ function renderDayEditorArea() {
   var mon = getMondayFromWeekVal(val);
   var d = new Date(mon.getTime() + i * 86400000);
   area.innerHTML =
-    '<div class="day-editor-head"><div class="day-editor-title">' + DAYS[i] + '</div><div class="day-editor-date">' + fmtDateFull(d) + '</div></div>' +
+    '<div class="ui-section-head"><span class="ui-title" style="font-size:18px;">' + DAYS[i] + '</span><span class="ui-sub">' + fmtDateFull(d) + '</span></div>' +
     '<div id="shifts-' + i + '"></div>' +
-    '<button class="add-shift-btn" onclick="addShift(' + i + ')">＋ Schicht hinzufügen</button>';
+    '<button type="button" class="ui-add-row" onclick="addShift(' + i + ')">' + uiIcon('plus') + ' Schicht hinzufügen</button>';
 
   for (var s = 0; s < (shiftCounts[i] || 1); s++) renderShift(i, s);
 
@@ -399,29 +399,30 @@ function renderDayEditorArea() {
 function renderShift(dayIdx, shiftIdx) {
   var container = document.getElementById('shifts-' + dayIdx);
   if (!container) return;
+  var key = dayIdx + '-' + shiftIdx;
   var block = document.createElement('div');
-  block.className = 'shift-block';
-  block.id = 'shift-' + dayIdx + '-' + shiftIdx;
-  var removeBtn = shiftIdx > 0 ? '<button class="shift-remove" onclick="removeShift(' + dayIdx + ',' + shiftIdx + ')">×</button>' : '';
-  // Build dept options
+  block.className = 'ui-card stunden-shift';
+  block.id = 'shift-' + key;
+  var removeBtn = shiftIdx > 0 ? '<button type="button" class="ui-icon-btn shift-remove" onclick="removeShift(' + dayIdx + ',' + shiftIdx + ')" aria-label="Schicht entfernen">' + uiIcon('trash') + '</button>' : '';
   var deptOpts = (typeof departments !== 'undefined' ? departments : []).map(function(d) {
     return '<option value="' + escapeHtml(d) + '">' + escapeHtml(typeof deptLabel === 'function' ? deptLabel(d) : d) + '</option>';
   }).join('');
   block.innerHTML =
-    '<div class="shift-label">Schicht ' + (shiftIdx + 1) + removeBtn + '</div>' +
-    '<div class="field"><label>Abteilung (diese Schicht)</label>' +
-    '<select id="dept-' + dayIdx + '-' + shiftIdx + '" class="meta-input" style="margin-bottom:0" onchange="calcTotal()">' + deptOpts + '</select></div>' +
-    '<div class="time-pair">' +
-    ' <div class="field"><label>Von</label><input type="time" id="von-' + dayIdx + '-' + shiftIdx + '" oninput="calcDay(' + dayIdx + ')"/></div>' +
-    ' <div class="field"><label>Bis</label><input type="time" id="bis-' + dayIdx + '-' + shiftIdx + '" oninput="calcDay(' + dayIdx + ')"/></div>' +
+    '<div class="stunden-shift-head"><span class="ui-label">Schicht ' + (shiftIdx + 1) + ' · ' + DAYS[dayIdx] + '</span>' + removeBtn + '</div>' +
+    '<div class="stunden-times">' +
+      '<label class="ui-field"><span>Von</span><input type="time" id="von-' + key + '" oninput="calcDay(' + dayIdx + ')"/></label>' +
+      '<span class="stunden-dash" aria-hidden="true">–</span>' +
+      '<label class="ui-field"><span>Bis</span><input type="time" id="bis-' + key + '" oninput="calcDay(' + dayIdx + ')"/></label>' +
     '</div>' +
-    '<div class="field"><label>Pause</label><div class="pause-badge" id="pbadge-' + dayIdx + '-' + shiftIdx + '">wird automatisch berechnet</div><input type="hidden" id="pause-' + dayIdx + '-' + shiftIdx + '" value="0"/></div>' +
-    '<div class="field"><label>Ort</label><input type="text" id="ort-' + dayIdx + '-' + shiftIdx + '" placeholder="Einsatzort"/></div>' +
-    '<div class="field"><label>Name AL</label><input type="text" id="al-' + dayIdx + '-' + shiftIdx + '" placeholder="Vorname Nachname"/></div>' +
-    '<div class="field"><label>Unterschrift AL</label>' +
-    ' <button class="sig-full-btn" type="button" onclick="openSignaturePad(' + dayIdx + ',' + shiftIdx + ')">🖊️ Vollbild-Unterschrift öffnen</button>' +
-    ' <div class="sig-wrap" onclick="openSignaturePad(' + dayIdx + ',' + shiftIdx + ')"><canvas id="sigc-' + dayIdx + '-' + shiftIdx + '"></canvas><div class="sig-placeholder" id="sigph-' + dayIdx + '-' + shiftIdx + '">Tippen für Unterschrift</div><button class="sig-clear" type="button" onclick="event.stopPropagation();clearShiftSig(' + dayIdx + ',' + shiftIdx + ')">löschen</button></div>' +
-    '</div>';
+    '<div class="ui-sub stunden-summary" id="pbadge-' + key + '">Von und Bis eintragen – die Pause wird automatisch berechnet</div>' +
+    '<input type="hidden" id="pause-' + key + '" value="0"/>' +
+    '<div class="stunden-grid">' +
+      '<label class="ui-field"><span>Ort</span><input type="text" id="ort-' + key + '" placeholder="Einsatzort"/></label>' +
+      '<label class="ui-field"><span>Name AL</span><input type="text" id="al-' + key + '" placeholder="Vorname Nachname"/></label>' +
+    '</div>' +
+    '<label class="ui-field"><span>Abteilung (diese Schicht)</span><select id="dept-' + key + '" onchange="calcTotal()">' + deptOpts + '</select></label>' +
+    '<div class="stunden-sig-head"><span>Unterschrift AL</span><span class="ui-pill ui-pill-warn" id="sigpill-' + key + '">fehlt</span></div>' +
+    '<div class="sig-wrap" onclick="openSignaturePad(' + dayIdx + ',' + shiftIdx + ')"><canvas id="sigc-' + key + '"></canvas><div class="sig-placeholder" id="sigph-' + key + '">Tippen für Unterschrift</div><button class="sig-clear" type="button" onclick="event.stopPropagation();clearShiftSig(' + dayIdx + ',' + shiftIdx + ')">löschen</button></div>';
   container.appendChild(block);
   setTimeout(function () { initShiftSig(dayIdx, shiftIdx); }, 0);
 }
@@ -451,6 +452,16 @@ function removeShift(dayIdx, shiftIdx) {
 }
 
 // ── CALC ──
+// "7,5 h netto · 30 min Pause"; same rules as the day tiles (minimum 3 h, over midnight). '' while Von/Bis is missing
+function shiftSummaryLine(von, bis, pauseMins) {
+  var v = timeToMins(von), b = timeToMins(bis);
+  if (v === null || b === null) return '';
+  var effB = b < v ? b + 1440 : b;
+  if (effB <= v) return '';
+  var pause = parseInt(pauseMins) || 0, h = Math.max(180, effB - v - pause) / 60;
+  return (h % 1 === 0 ? h.toFixed(0) : h.toFixed(1).replace('.', ',')) + ' h netto' + (pause > 0 ? ' · ' + pause + ' min Pause' : '');
+}
+
 function calcDay(dayIdx) {
   var totalMins = 0;
   for (var s = 0; s < shiftCounts[dayIdx]; s++) {
@@ -462,11 +473,11 @@ function calcDay(dayIdx) {
     if (von !== null && bis !== null && effB > von) {
       var raw = effB - von, pause = autoPause(raw), net = Math.max(180, raw - pause);
       if (pauseEl) pauseEl.value = pause;
-      if (badge) { badge.textContent = pause > 0 ? pause + ' min (automatisch)' : 'keine Pause'; badge.className = 'pause-badge' + (pause > 0 ? ' auto' : ''); }
+      if (badge) badge.textContent = shiftSummaryLine(vonEl.value, bisEl.value, pause);
       totalMins += net;
     } else {
       if (pauseEl) pauseEl.value = 0;
-      if (badge) { badge.textContent = 'wird automatisch berechnet'; badge.className = 'pause-badge'; }
+      if (badge) badge.textContent = 'Von und Bis eintragen – die Pause wird automatisch berechnet';
     }
   }
   updateBubble(dayIdx);
@@ -604,17 +615,24 @@ function updateShiftLockState(key) {
     if (sigWrap) sigWrap.style.pointerEvents = locked ? 'none' : '';
     var hint = block.querySelector('.shift-lock-hint');
     if (locked && !hint) {
-      hint = document.createElement('div');
-      hint.className = 'shift-lock-hint';
-      hint.style.cssText = 'font-size:11px;color:var(--text3);margin-top:6px;';
-      hint.textContent = sv.isProtocol && !shiftSigData[key]
-        ? '🔒 Aus Protokoll übernommen – Änderungen nur durch AL/PL möglich.'
-        : '🔒 Vom AL abgezeichnet – Zeiten können nicht mehr geändert werden.';
-      block.appendChild(hint);
+      hint = document.createElement('span');
+      hint.className = 'shift-lock-hint ui-pill';
+      var fromProtocol = sv.isProtocol && !shiftSigData[key];
+      hint.textContent = fromProtocol ? 'aus Protokoll' : 'abgezeichnet';
+      hint.title = fromProtocol ? 'Aus Protokoll übernommen – Änderungen nur durch AL/PL möglich.'
+        : 'Vom AL abgezeichnet – Zeiten können nicht mehr geändert werden.';
+      (block.querySelector('.stunden-shift-head') || block).appendChild(hint);
     } else if (!locked && hint) {
       hint.remove();
     }
+    // Signature status pill next to "Unterschrift AL"
+    var pill = document.getElementById('sigpill-' + key);
+    if (pill) {
+      pill.className = 'ui-pill ' + (shiftSigData[key] ? 'ui-pill-ok' : 'ui-pill-warn');
+      pill.textContent = shiftSigData[key] ? 'unterschrieben' : 'fehlt';
+    }
   }
+  if (!isNaN(dayIdx)) updateBubble(dayIdx);
 }
 
 function redrawSigModalFromState() {

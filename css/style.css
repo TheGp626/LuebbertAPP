@@ -1306,3 +1306,16 @@ canvas#historyChart {
 .stunden-link { border: 0; background: none; color: var(--accent-text); font-size: 13px; font-weight: 500; padding: 4px; cursor: pointer; }
 .stunden-total { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 16px 2px 0; }
 .stunden-total .ui-sub { text-align: right; }
+.stunden-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+#page-home .day-editor-area { flex: none; overflow: visible; max-width: 720px; margin: 0 auto; padding: 4px 16px 16px; box-sizing: border-box; width: 100%; }
+.stunden-shift { padding: 14px; }
+.stunden-shift-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; min-height: 40px; }
+.stunden-shift-head .ui-label { margin: 0; flex: 1; }
+.stunden-times { display: flex; align-items: flex-end; gap: 8px; }
+.stunden-times .ui-field { flex: 1; margin-bottom: 6px; }
+.stunden-times input[type=time] { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; min-height: 52px; }
+.stunden-dash { padding-bottom: 20px; color: var(--text3); font-size: 18px; }
+.stunden-summary { margin: 0 2px 12px; }
+.stunden-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+@media (max-width: 359px) { .stunden-grid { grid-template-columns: 1fr; } }
+.stunden-sig-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--text2); margin: 4px 2px 6px; }

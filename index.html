@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=19">
+  <link rel="stylesheet" href="css/style.css?v=20">
   <link rel="stylesheet" href="css/ui.css?v=6">
 </head>
 
@@ -96,6 +96,7 @@
 
     <!-- ══════════ ERFASSEN PAGE ══════════ -->
     <div class="page" id="page-home">
+      <div class="stunden-scroll">
       <div class="ui-page stunden-head">
         <div class="ui-weeknav">
           <button type="button" class="ui-icon-btn" onclick="stundenWeekStep(-1)" aria-label="Vorige Woche">
@@ -129,9 +130,11 @@
         <!-- Day editor generated via JS -->
       </div>
 
-      <div class="fab-area">
-        <button class="btn primary" onclick="saveWeek()">Speichern</button>
-        <button class="btn send" onclick="downloadWeekPDF()">PDF herunterladen</button>
+      </div>
+
+      <div class="ui-actionbar">
+        <button type="button" class="ui-btn" onclick="downloadWeekPDF()">PDF</button>
+        <button type="button" class="ui-btn ui-btn-primary" onclick="saveWeek()">Speichern</button>
       </div>
     </div>
 
@@ -942,7 +945,7 @@
   <script src="js/formulas.js?v=10"></script>
   <script src="js/utils.js?v=17"></script>
   <script src="js/settings.js?v=3"></script>
-  <script src="js/stundenzettel.js?v=12"></script>
+  <script src="js/stundenzettel.js?v=13"></script>
   <script src="js/protokoll.js?v=23"></script>
   <script src="js/erinnerung.js?v=8"></script>
   <script src="js/plan-pdf.js?v=1"></script>

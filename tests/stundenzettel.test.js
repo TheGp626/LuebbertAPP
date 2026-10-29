@@ -142,3 +142,13 @@ test('dayStatus: empty / partial / done / signed', () => {
   assert.equal(dayStatus([{ von: '08:00', bis: '16:00' }], 0), 'done');
   assert.equal(dayStatus([{ von: '08:00', bis: '16:00' }], 1), 'signed');
 });
+
+test('shiftSummaryLine: net hours (minimum 3 h, over midnight) and pause', () => {
+  const { shiftSummaryLine } = load(['shiftSummaryLine'], ['timeToMins']);
+  assert.equal(shiftSummaryLine('16:00', '23:30', 0), '7,5 h netto');
+  assert.equal(shiftSummaryLine('08:00', '17:00', 30), '8,5 h netto · 30 min Pause');
+  assert.equal(shiftSummaryLine('22:00', '02:00', 0), '4 h netto');
+  assert.equal(shiftSummaryLine('08:00', '09:00', 0), '3 h netto');
+  assert.equal(shiftSummaryLine('08:00', '', 0), '');
+  assert.equal(shiftSummaryLine('', '16:00', 0), '');
+});
