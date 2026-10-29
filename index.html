@@ -15,8 +15,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=17">
-  <link rel="stylesheet" href="css/ui.css?v=1">
+  <link rel="stylesheet" href="css/style.css?v=18">
+  <link rel="stylesheet" href="css/ui.css?v=3">
 </head>
 
 <body>
@@ -51,39 +51,36 @@
   </div>
 
   <div class="app">
-    <!-- ── GLOBAL TOP BAR ── -->
-    <div class="top-bar">
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <button class="icon-btn" id="back-to-menu-btn" style="display: none;" onclick="exitToMenu()"
-          title="Zum Hauptmenü">Menu</button>
-        <div>
-          <div class="app-title" id="app-title" onclick="titleTap()">LÜBBERT APP</div>
-          <div class="app-sub" id="top-bar-sub">Event Interiors & Logistics</div>
-        </div>
+    <!-- ── MODULE TOP BAR (hidden on the start page) ── -->
+    <div class="ui-topbar" id="topbar" style="display: none;">
+      <button type="button" class="ui-topbar-back" id="back-to-menu-btn" onclick="exitToMenu()" title="Zum Hauptmenü">
+        <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>Menü
+      </button>
+      <div class="ui-topbar-mid">
+        <div class="ui-topbar-title" id="topbar-title"></div>
+        <div class="ui-topbar-sub" id="top-bar-sub"></div>
       </div>
-      <div>
-        <button class="settings-btn" id="settings-btn" onclick="openSettingsModal()">Optionen</button>
+      <div class="ui-topbar-end">
+        <button type="button" class="ui-icon-btn" id="settings-btn" onclick="openSettingsModal()" aria-label="Optionen">
+          <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+        </button>
       </div>
     </div>
 
-    <!-- ── TOP NAVIGATION TABS (Stundenzettel) ── -->
-    <div class="top-tabs" id="main-nav" style="display: none;">
-      <button class="top-tab active" id="nav-home" onclick="navigate('home')">
-        <span class="tab-icon"></span>Erfassen
-      </button>
-      <button class="top-tab" id="nav-history" onclick="navigate('history')">
-        <span class="tab-icon"></span>Verlauf
-      </button>
+    <!-- ── SEGMENT SWITCH (Stundenzettel) ── -->
+    <div class="ui-topnav" id="main-nav" style="display: none;">
+      <div class="ui-seg">
+        <button class="top-tab active" id="nav-home" onclick="navigate('home')">Erfassen</button>
+        <button class="top-tab" id="nav-history" onclick="navigate('history')">Verlauf</button>
+      </div>
     </div>
 
-    <!-- ── TOP NAVIGATION TABS (Protokoll) ── -->
-    <div class="top-tabs" id="prot-nav" style="display: none;">
-      <button class="top-tab active" id="nav-protokoll" onclick="navigateProt('protokoll')">
-        <span class="tab-icon"></span>Erfassen
-      </button>
-      <button class="top-tab" id="nav-protokoll-history" onclick="navigateProt('protokoll-history')">
-        <span class="tab-icon"></span>Verlauf
-      </button>
+    <!-- ── SEGMENT SWITCH (Protokoll) ── -->
+    <div class="ui-topnav" id="prot-nav" style="display: none;">
+      <div class="ui-seg">
+        <button class="top-tab active" id="nav-protokoll" onclick="navigateProt('protokoll')">Erfassen</button>
+        <button class="top-tab" id="nav-protokoll-history" onclick="navigateProt('protokoll-history')">Verlauf</button>
+      </div>
     </div>
 
     <!-- ══════════ STARTUP PAGE ══════════ -->
@@ -964,7 +961,7 @@
   <script src="js/dashboard.js?v=16"></script>
   <script src="js/produkte.js?v=14"></script>
   <script src="js/ordner.js?v=14"></script>
-  <script src="js/app.js?v=15"></script>
+  <script src="js/app.js?v=17"></script>
 </body>
 
 </html>

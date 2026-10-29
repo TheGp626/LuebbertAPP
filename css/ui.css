@@ -58,13 +58,14 @@
 .ui-seg > button.active { background: var(--bg); color: var(--text); box-shadow: 0 0 0 0.5px var(--border2); }
 
 /* ── Module top bar ── */
-.ui-topbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--bg); border-bottom: 0.5px solid var(--border); position: sticky; top: 0; z-index: 50; }
+.ui-topbar { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--bg); border-bottom: 0.5px solid var(--border); position: sticky; top: 0; z-index: 50; }
 .ui-topbar-back { display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; color: var(--accent-text); font-size: 15px; font-weight: 500; padding: 8px 6px; cursor: pointer; flex: 0 0 auto; min-width: 72px; }
 .ui-topbar-mid { flex: 1; min-width: 0; text-align: center; }
 .ui-topbar-title { font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ui-topbar-sub { font-size: 11px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ui-topbar-end { flex: 0 0 auto; min-width: 72px; display: flex; justify-content: flex-end; }
-.ui-topnav { padding: 8px 12px 4px; background: var(--bg); }
+.ui-topnav { flex-shrink: 0; padding: 8px 12px 4px; background: var(--bg); }
+.ui-topnav > .ui-seg { flex: 1; min-width: 0; }
 
 /* ── Start page ── */
 .ui-home { width: 100%; max-width: 520px; margin: 0 auto; padding: 16px 16px 32px; box-sizing: border-box; }
