@@ -324,7 +324,7 @@ async function saveProdukt() {
     return;
   }
 
-  var saveBtn = document.querySelector('#produkt-form .btn.primary');
+  var saveBtn = document.querySelector('#produkt-form .ui-btn-primary');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Speichert...'; }
 
   var wasEditing = !!editingProduktId;

@@ -30,3 +30,16 @@ test('uiIcon returns an svg for known names and empty svg for unknown', () => {
   ['clock', 'clipboard', 'calendar', 'box', 'folder', 'chart', 'chevron-left', 'chevron-right', 'dots', 'plus', 'search', 'file', 'image', 'video', 'trash', 'edit', 'download', 'upload', 'check']
     .forEach(n => assert.ok(U.UI_ICONS[n], n));
 });
+
+// Send/save buttons are disabled while a request runs (double-submit protection); their selectors must match the markup
+test('buttons disabled during Senden / Speichern are found by the JS selectors', () => {
+  const fs = require('fs'), path = require('path');
+  const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const html = read('index.html'), prot = read('js/protokoll.js'), prod = read('js/produkte.js');
+  assert.match(prot, /querySelector\('#page-protokoll \.ui-actionbar \.ui-btn-primary'\)/);
+  assert.match(prod, /querySelector\('#produkt-form \.ui-btn-primary'\)/);
+  const protPage = html.slice(html.indexOf('id="page-protokoll"'), html.indexOf('id="page-protokoll-history"'));
+  assert.match(protPage, /class="ui-actionbar"[\s\S]*class="ui-btn ui-btn-primary"[^>]*onclick="saveProtokoll\(\)"/);
+  const prodForm = html.slice(html.indexOf('id="produkt-form"'), html.indexOf('PRODUKT VIEWER MODAL'));
+  assert.match(prodForm, /class="ui-btn ui-btn-primary" onclick="saveProdukt\(\)"/);
+});

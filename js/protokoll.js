@@ -844,7 +844,7 @@ async function saveProtokoll() {
   };
 
   showToast('Speichere & Sende an Server...', 'info');
-  var btn = document.querySelector('#page-protokoll .fab-area .btn.primary');
+  var btn = document.querySelector('#page-protokoll .ui-actionbar .ui-btn-primary');
   if (btn) { btn.disabled = true; btn.textContent = 'Lädt...'; }
 
   // ── PUSH TO SUPABASE ──
