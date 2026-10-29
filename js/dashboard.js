@@ -48,9 +48,9 @@ const BUCHHALTUNG_MIN_HOURS = 3;         // Minimum booking floor in hours
 const BUCHHALTUNG_MIN_HOURS_ENABLED = true; // Set to false to show raw hours
 
 function switchDashTab(tab) {
-  document.getElementById('dash-tab-prot').classList.toggle('primary', tab === 'prot');
-  document.getElementById('dash-tab-work').classList.toggle('primary', tab === 'work');
-  document.getElementById('dash-tab-settings').classList.toggle('primary', tab === 'settings');
+  document.getElementById('dash-tab-prot').classList.toggle('active', tab === 'prot');
+  document.getElementById('dash-tab-work').classList.toggle('active', tab === 'work');
+  document.getElementById('dash-tab-settings').classList.toggle('active', tab === 'settings');
 
   document.getElementById('dash-view-prot').style.display = tab === 'prot' ? 'block' : 'none';
   document.getElementById('dash-view-work').style.display = tab === 'work' ? 'block' : 'none';
@@ -302,29 +302,56 @@ function renderDashboardTable() {
     const alName = p.al ? p.al.full_name : (p.al_name_fallback || '—');
     const plName = p.pl ? p.pl.full_name : (p.pl_name_fallback || '');
     const costStr = (p.total_cost || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €';
-    const holidayTag = p.is_holiday
-      ? ' <span style="font-size:10px;background:#f59e0b;color:#fff;padding:1px 5px;border-radius:8px;vertical-align:middle;margin-left:4px;">Feiertag</span>'
-      : '';
-    const plLine = plName
-      ? `<div style="font-size:11px; color:var(--text3);">PL: ${escapeHtml(plName)}</div>`
-      : '';
+    const holidayTag = p.is_holiday ? ' <span class="ui-pill ui-pill-warn">Feiertag</span>' : '';
+    const plLine = plName ? `<div class="ui-sub">PL ${escapeHtml(plName)}</div>` : '';
 
     tr.innerHTML = `
-      <td data-label="Datum">${new Date(p.date).toLocaleDateString('de-DE')}</td>
-      <td data-label="Projekt" style="font-weight:600;">${escapeHtml(projName)}</td>
-      <td data-label="Aktion"><span class="badge ${p.action === 'Abbau' ? 'badge-al' : 'badge-pl'}">${escapeHtml(p.action)}</span>${holidayTag}</td>
-      <td data-label="AL/PL" style="font-size: 13px; color: var(--text2);">
-        <div>${escapeHtml(alName)}</div>
-        ${plLine}
-      </td>
-      <td data-label="Kosten" style="font-weight:700; color: var(--accent);">${escapeHtml(costStr)}</td>
-      <td data-label="" style="text-align:right; display:flex; gap:8px; justify-content:flex-end;">
-        <button class="view-btn" data-action="pdf" data-id="${escapeHtml(p.id)}">PDF</button>
-        <button class="view-btn" data-action="detail" data-id="${escapeHtml(p.id)}">Details</button>
+      <td data-label="Datum" class="dash-num">${new Date(p.date).toLocaleDateString('de-DE')}</td>
+      <td data-label="Projekt"><span class="ui-row-title">${escapeHtml(projName)}</span></td>
+      <td data-label="Aktion"><span class="ui-pill ui-pill-info">${escapeHtml(p.action)}</span>${holidayTag}</td>
+      <td data-label="AL / PL"><div>${escapeHtml(alName)}</div>${plLine}</td>
+      <td data-label="Kosten" class="dash-num"><b>${escapeHtml(costStr)}</b></td>
+      <td data-label="" class="dash-actions">
+        <button type="button" class="ui-btn dash-small-btn" data-action="pdf" data-id="${escapeHtml(p.id)}">PDF</button>
+        <button type="button" class="ui-btn dash-small-btn" data-action="detail" data-id="${escapeHtml(p.id)}">Details</button>
       </td>
     `;
     body.appendChild(tr);
   });
+  if (!filtered.length) {
+    body.innerHTML = '<tr><td colspan="6" data-label="">' + uiEmptyHtml(searchTerm ? 'Nichts gefunden' : 'Noch keine Protokolle', searchTerm ? 'Andere Suche versuchen.' : '') + '</td></tr>';
+  }
+  renderDashStats();
+}
+
+// Protocols and costs of the calendar month of `now`
+function dashMonthStats(protocols, now) {
+  var ym = now.getFullYear() + '-' + ('0' + (now.getMonth() + 1)).slice(-2);
+  var count = 0, cost = 0;
+  (protocols || []).forEach(function(p) {
+    if (String(p.date || '').slice(0, 7) !== ym) return;
+    count++;
+    cost += Number(p.total_cost) || 0;
+  });
+  return { count: count, cost: cost };
+}
+
+function renderDashStats() {
+  var box = document.getElementById('dash-stats');
+  if (!box) return;
+  var now = new Date(), s = dashMonthStats(dashboardProtocols, now);
+  var month = now.toLocaleDateString('de-DE', { month: 'long' });
+  box.innerHTML =
+    '<div class="ui-stat"><span>Protokolle im ' + month + '</span><b>' + s.count + '</b></div>' +
+    '<div class="ui-stat"><span>Kosten im ' + month + '</span><b>' + s.cost.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</b></div>';
+}
+
+if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
+  UI_TOPBAR_ITEMS.dashboard = function() {
+    var items = [{ label: 'Kosten aller Protokolle neu berechnen', action: 'recalcAllProtocolCosts' }];
+    if (typeof dashboardCurrentWorker !== 'undefined' && dashboardCurrentWorker) items.push({ label: 'Monat als PDF (' + (dashboardCurrentWorker.full_name || 'Mitarbeiter') + ')', action: 'exportDashboardMonthlyPDF' });
+    return items;
+  };
 }
 
 // ── BUCHHALTUNG SHIFTS LOGIC ──

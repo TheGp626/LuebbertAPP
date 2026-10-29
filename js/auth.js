@@ -248,7 +248,7 @@ function enforceUI() {
   const setTab = document.getElementById('dash-tab-settings');
   if (setTab) {
     setTab.style.display = userRole === 'Admin' ? '' : 'none';
-    if (userRole !== 'Admin' && setTab.classList.contains('primary') && typeof switchDashTab === 'function') switchDashTab('prot');
+    if (userRole !== 'Admin' && setTab.classList.contains('active') && typeof switchDashTab === 'function') switchDashTab('prot');
   }
 }
 

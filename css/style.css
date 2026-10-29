@@ -1321,3 +1321,11 @@ canvas#historyChart {
 .prot-date-block { flex: 0 0 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text2); font-size: 11px; }
 .prot-date-block b { font-size: 20px; font-weight: 700; color: var(--text); line-height: 1.1; }
 #page-protokoll-history .ui-row { align-items: center; }
+
+/* ── Office Dashboard (redesign) ── */
+.dash-tabs { max-width: 520px; margin-bottom: 18px; }
+.dash-search { margin-bottom: 14px; }
+.dash-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dash-actions { text-align: right; white-space: nowrap; }
+.dash-small-btn { min-height: 34px; padding: 6px 12px; font-size: 13px; }
+@media (max-width: 767px) { .dash-actions { justify-content: flex-end; gap: 8px; } }

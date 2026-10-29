@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=25">
+  <link rel="stylesheet" href="css/style.css?v=26">
   <link rel="stylesheet" href="css/ui.css?v=8">
 </head>
 
@@ -257,44 +257,30 @@
     <!-- ══════════ OFFICE DASHBOARD PAGE ══════════ -->
     <div class="page" id="page-dashboard">
       <div class="dash-container">
-        
-        <!-- DASHBOARD NAVIGATION TABS -->
-        <div class="dash-tab-row" style="display: flex; gap: 10px; margin-bottom: 24px;">
-          <button id="dash-tab-prot" class="btn primary" style="flex: 0 0 auto; width: auto; padding: 10px 20px;" onclick="switchDashTab('prot')">Protokolle</button>
-          <button id="dash-tab-work" class="btn" style="flex: 0 0 auto; width: auto; padding: 10px 20px;" onclick="switchDashTab('work')">Buchhaltung (Personal)</button>
-          <button id="dash-tab-settings" class="btn" style="flex: 0 0 auto; width: auto; padding: 10px 20px; display: none;" onclick="switchDashTab('settings')">Einstellungen</button>
+
+        <!-- DASHBOARD TABS -->
+        <div class="ui-seg dash-tabs" role="tablist">
+          <button type="button" id="dash-tab-prot" class="active" onclick="switchDashTab('prot')">Protokolle</button>
+          <button type="button" id="dash-tab-work" onclick="switchDashTab('work')">Buchhaltung</button>
+          <button type="button" id="dash-tab-settings" style="display: none;" onclick="switchDashTab('settings')">Einstellungen</button>
         </div>
 
         <!-- TAB: EINSTELLUNGEN (Admin only, js/settings.js) -->
         <div id="dash-view-settings" class="table-card set-card" style="display: none;"></div>
 
         <!-- TAB: PROTOKOLLE -->
-        <div id="dash-view-prot" class="table-card" style="display: block;">
-          <div class="table-header">
-            <h3 style="margin:0; font-size: 16px;">Verschickte Protokolle</h3>
-            <div style="display:flex; gap:8px; align-items:center;">
-              <input type="text" id="dash-search" placeholder="Suchen..." class="meta-input"
-                style="width: 180px; margin: 0; padding: 8px 12px; font-size: 13px;" oninput="renderDashboardTable()">
-              <button class="btn" id="btn-recalc-costs" style="width:auto; padding:8px 14px; font-size:13px; white-space:nowrap;" onclick="recalcAllProtocolCosts()" title="Gesamtkosten aller Protokolle neu berechnen">↻ Kosten neu berechnen</button>
-            </div>
+        <div id="dash-view-prot" style="display: block;">
+          <div class="ui-stats" id="dash-stats"></div>
+          <div class="ui-search dash-search">
+            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+            <input type="search" id="dash-search" placeholder="Projekt, AL, Ort oder Datum suchen" oninput="renderDashboardTable()">
           </div>
-          <div style="overflow-x: auto;">
-            <table id="protocol-table">
-              <thead>
-                <tr>
-                  <th>Datum</th>
-                  <th>Projekt</th>
-                  <th>Aktion</th>
-                  <th>AL/PL</th>
-                  <th>Kosten</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="protocol-body">
-                <!-- Rows via JS -->
-              </tbody>
-            </table>
-          </div>
+          <table id="protocol-table" class="ui-table">
+            <thead>
+              <tr><th>Datum</th><th>Projekt</th><th>Aktion</th><th>AL / PL</th><th>Kosten</th><th></th></tr>
+            </thead>
+            <tbody id="protocol-body"></tbody>
+          </table>
         </div>
 
         <!-- TAB: PERSONAL/BUCHHALTUNG -->
@@ -886,7 +872,7 @@
 
   <!-- Scripts -->
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=17"></script>
+  <script src="js/auth.js?v=18"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=10"></script>
   <script src="js/utils.js?v=17"></script>
@@ -899,7 +885,7 @@
   <script src="js/plan-parser.js?v=10"></script>
   <script src="js/wochenplan.js?v=9"></script>
   <script src="js/home.js?v=3"></script>
-  <script src="js/dashboard.js?v=16"></script>
+  <script src="js/dashboard.js?v=17"></script>
   <script src="js/produkte.js?v=14"></script>
   <script src="js/ordner.js?v=14"></script>
   <script src="js/app.js?v=18"></script>

@@ -75,3 +75,10 @@ test('dashProtToEntry maps the dashboard row to the archive shape', () => {
   assert.equal(e.personnel[0].fest, true);
   assert.equal(e.alId, 'a');
 });
+
+test('dashMonthStats: protocols and costs of the calendar month of `now`', () => {
+  const r = plain(ctx.dashMonthStats([{ date: '2026-10-03', total_cost: 100 }, { date: '2026-10-29', total_cost: 50.5 }, { date: '2026-09-30', total_cost: 9 }, { date: '2025-10-15', total_cost: 7 }], new Date(2026, 9, 29)));
+  assert.deepEqual(r, { count: 2, cost: 150.5 });
+  assert.deepEqual(plain(ctx.dashMonthStats([], new Date(2026, 9, 29))), { count: 0, cost: 0 });
+  assert.deepEqual(plain(ctx.dashMonthStats([{ date: '2026-10-01', total_cost: null }], new Date(2026, 9, 1))), { count: 1, cost: 0 });
+});
