@@ -53,19 +53,18 @@ function renderOrdner(list) {
   }
   if (empty) empty.style.display = 'none';
 
-  grid.innerHTML = list.map(function(o) {
-    var date = o.created_at ? new Date(o.created_at).toLocaleDateString('de-DE') : '';
-    var editBtn = canManageOrdner
-      ? '<button class="btn" style="width:100%;margin-top:6px;padding:5px;font-size:12px;" onclick="event.stopPropagation();openOrdnerForm(\'' + o.id + '\')">Umbenennen</button>'
-      : '';
-    return '<div class="ordner-card" onclick="openOrdnerDetail(\'' + o.id + '\')">' +
-      '<div style="font-size:40px;margin-bottom:8px;">📁</div>' +
-      '<div class="produkt-name">' + escOrdner(o.name) + '</div>' +
-      (o.description ? '<div class="produkt-desc">' + escOrdner(o.description) + '</div>' : '') +
-      '<div style="font-size:11px;color:var(--text3);margin-top:6px;">' + date + '</div>' +
-      editBtn +
-      '</div>';
-  }).join('');
+  grid.innerHTML = list.map(function(o) { return ordnerFolderRowHtml(o, true); }).join('');
+}
+
+// One folder as a list row (list view and subfolders)
+function ordnerFolderRowHtml(o, showDate) {
+  var date = showDate && o.created_at ? new Date(o.created_at).toLocaleDateString('de-DE') : '';
+  var sub = [o.description || '', date].filter(Boolean).join(' · ');
+  return '<div class="ui-row ordner-row" onclick="openOrdnerDetail(\'' + o.id + '\')">' +
+    '<span class="ui-tile-ico ordner-ico">' + uiIcon('folder') + '</span>' +
+    '<div class="ui-row-main"><div class="ui-row-title">' + escOrdner(o.name) + '</div>' + (sub ? '<div class="ui-sub">' + escOrdner(sub) + '</div>' : '') + '</div>' +
+    (canManageOrdner ? '<div class="ui-row-end"><button type="button" class="ui-icon-btn" aria-label="Ordner-Aktionen" onclick="event.stopPropagation();ordnerFolderMenu(\'' + o.id + '\')">' + uiIcon('dots') + '</button></div>' : '') +
+  '</div>';
 }
 
 function filterOrdner() {
@@ -106,20 +105,13 @@ async function openOrdnerDetail(id) {
   document.getElementById('ordner-detail-view').style.display = 'block';
 
   var titleEl = document.getElementById('ordner-detail-title');
-  if (titleEl) titleEl.textContent = '📁 ' + ordnerBreadcrumb(folder);
+  if (titleEl) titleEl.textContent = ordnerBreadcrumb(folder);
+  ordnerSetTitle(ordnerBreadcrumb(folder));
   initOrdnerDragDrop();
 
-  var uploadBtn = document.getElementById('ordner-upload-btn');
-  if (uploadBtn) uploadBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
-
-  var subBtn = document.getElementById('ordner-add-sub-btn');
-  if (subBtn) subBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
-
-  var delFolderBtn = document.getElementById('ordner-delete-folder-btn');
-  if (delFolderBtn) delFolderBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
-
-  var einsBtn = document.getElementById('ordner-edit-einsaetze-btn');
-  if (einsBtn) einsBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
+  // Upload is the main action; Unterordner, PL & Einsätze and Löschen live in the top bar "…"
+  var uploadBar = document.getElementById('ordner-upload-bar');
+  if (uploadBar) uploadBar.style.display = canManageOrdner ? 'flex' : 'none';
   renderOrdnerEinsaetze(folder);
 
   renderSubfolders(id);
@@ -131,18 +123,8 @@ function renderSubfolders(parentId) {
   if (!grid) return;
   var children = alleOrdner.filter(function(o) { return o.parent_id === parentId; });
   if (!children.length) { grid.innerHTML = ''; grid.style.display = 'none'; return; }
-  grid.style.display = 'grid';
-  grid.innerHTML = children.map(function(o) {
-    var renameBtn = canManageOrdner
-      ? '<button class="btn" style="width:100%;margin-top:6px;padding:4px;font-size:11px;" onclick="event.stopPropagation();renameOrdnerPrompt(\'' + o.id + '\')">Umbenennen</button>'
-      : '';
-    return '<div class="ordner-card" onclick="openOrdnerDetail(\'' + o.id + '\')">' +
-      '<div style="font-size:32px;margin-bottom:6px;">📁</div>' +
-      '<div class="produkt-name">' + escOrdner(o.name) + '</div>' +
-      (o.description ? '<div class="produkt-desc">' + escOrdner(o.description) + '</div>' : '') +
-      renameBtn +
-      '</div>';
-  }).join('');
+  grid.style.display = 'block';
+  grid.innerHTML = '<div class="ui-label">Unterordner</div>' + children.map(function(o) { return ordnerFolderRowHtml(o, false); }).join('');
 }
 
 async function createSubfolder() {
@@ -176,6 +158,7 @@ function closeOrdnerDetail() {
   var detailView = document.getElementById('ordner-detail-view');
   if (listView) listView.style.display = 'block';
   if (detailView) detailView.style.display = 'none';
+  ordnerSetTitle('Projektordner');
   renderOrdner(alleOrdner);
 }
 
@@ -204,7 +187,7 @@ function initOrdnerDragDrop() {
 
 async function fetchOrdnerFiles(folderId) {
   var container = document.getElementById('ordner-files-list');
-  if (container) container.innerHTML = '<div style="color:var(--text3);padding:16px;">Lade Dateien...</div>';
+  if (container) container.innerHTML = '<div class="ui-sub" style="padding:16px 2px;">Dateien werden geladen…</div>';
 
   var { data, error } = await supabaseClient
     .from('folder_files')
@@ -222,25 +205,19 @@ function renderOrdnerFiles(list) {
   if (!container) return;
 
   if (!list || list.length === 0) {
-    container.innerHTML = '<div class="empty-state" style="padding:32px 0;"><div class="empty-icon">📂</div><div>Noch keine Dateien in diesem Ordner.</div></div>';
+    container.innerHTML = uiEmptyHtml('Noch keine Dateien', canManageOrdner ? 'Lade über „Datei hochladen“ die erste Datei hoch.' : 'In diesem Ordner liegen noch keine Dateien.');
     return;
   }
 
-  container.innerHTML = list.map(function(f) {
-    var icon = fileIcon(f.file_type, f.name);
+  container.innerHTML = '<div class="ui-label">Dateien</div>' + list.map(function(f) {
     var size = f.file_size_bytes ? formatBytes(f.file_size_bytes) : '';
     var date = f.created_at ? new Date(f.created_at).toLocaleDateString('de-DE') : '';
-    var delBtn = canManageOrdner
-      ? '<button class="btn" style="width:auto;padding:4px 10px;font-size:12px;color:var(--danger);flex-shrink:0;" onclick="event.stopPropagation();deleteOrdnerFile(\'' + f.id + '\',\'' + f.file_url + '\')">✕</button>'
-      : '';
-    return '<div class="ordner-file-row" onclick="openOrdnerFileById(\'' + f.id + '\')">' +
-      '<span class="ordner-file-icon">' + icon + '</span>' +
-      '<div class="ordner-file-info">' +
-        '<div class="ordner-file-name">' + escOrdner(f.name) + '</div>' +
-        '<div class="ordner-file-meta">' + [size, date].filter(Boolean).join(' · ') + '</div>' +
-      '</div>' +
-      delBtn +
-      '</div>';
+    return '<div class="ui-row ordner-row" onclick="openOrdnerFileById(\'' + f.id + '\')">' +
+      '<span class="ui-tile-ico ordner-ico">' + uiIcon(ordnerFileKind(f.file_type, f.name)) + '</span>' +
+      '<div class="ui-row-main"><div class="ui-row-title">' + escOrdner(f.name) + '</div>' +
+        '<div class="ui-sub">' + [size, date].filter(Boolean).join(' · ') + '</div></div>' +
+      (canManageOrdner ? '<div class="ui-row-end"><button type="button" class="ui-icon-btn" aria-label="Datei-Aktionen" onclick="event.stopPropagation();ordnerFileMenu(\'' + f.id + '\')">' + uiIcon('dots') + '</button></div>' : '') +
+    '</div>';
   }).join('');
 }
 
@@ -425,14 +402,15 @@ async function openOrdnerForm(id) {
   }
 
   if (form) form.style.display = 'block';
+  var fm = document.getElementById('ordner-form-modal'); if (fm) fm.classList.add('open');
   if (nameInp) nameInp.focus();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function closeOrdnerForm() {
   editingOrdnerId = null;
-  var form = document.getElementById('ordner-form');
-  if (form) form.style.display = 'none';
+  var fm = document.getElementById('ordner-form-modal');
+  if (fm) fm.classList.remove('open');
   if (_ordnerFormReturnId) { var back = _ordnerFormReturnId; _ordnerFormReturnId = null; openOrdnerDetail(back); }
 }
 
@@ -533,12 +511,15 @@ async function renderOrdnerEinsaetze(folder) {
   (prots || []).forEach(function(p) { done[p.al_id + '|' + p.date] = true; });
   await loadOrdnerUsers();
   var pl = (_ordnerUsers || []).find(function(u) { return u.id === folder.pl_id; });
-  var ICON = { done: '✅', open: '⏳', future: '🕓', cancelled: '✖' };
+  var PILL = { done: ['ui-pill-ok', 'erledigt'], open: ['ui-pill-warn', 'Protokoll fehlt'], future: ['ui-pill-info', 'geplant'], cancelled: ['ui-pill-danger', 'entfällt'] };
   var today = localDateStr();
-  box.innerHTML = '<div style="font-weight:600; margin-bottom:6px;">Projektleitung: ' + escOrdner(pl ? pl.full_name : '—') + '</div>' +
+  box.className = 'ui-card';
+  box.innerHTML = '<div class="ui-label" style="margin:0 0 4px;">Einsätze</div>' +
+    '<div class="ui-sub" style="margin-bottom:6px;">Projektleitung: ' + escOrdner(pl ? pl.full_name : '—') + '</div>' +
     rows.map(function(r) {
-      var st = einsatzStatus(r, !!done[r.al_id + '|' + r.date], today);
-      return '<div style="padding:2px 0;">' + ICON[st] + ' ' + shortDateDE(r.date) + ' ' + escOrdner(r.action) + ' – ' + escOrdner(r.al ? r.al.full_name : '—') + '</div>';
+      var st = einsatzStatus(r, !!done[r.al_id + '|' + r.date], today), p = PILL[st] || PILL.future;
+      return '<div class="ordner-einsatz"><span>' + shortDateDE(r.date) + ' · ' + escOrdner(r.action) + ' · AL ' + escOrdner(r.al ? r.al.full_name : '—') + '</span>' +
+        '<span class="ui-pill ' + p[0] + '">' + p[1] + '</span></div>';
     }).join('');
   box.style.display = 'block';
 }
@@ -828,7 +809,7 @@ function showOrdnerLoading(show) {
   var el = document.getElementById('ordner-loading');
   var grid = document.getElementById('ordner-grid');
   if (el) el.style.display = show ? 'flex' : 'none';
-  if (grid) grid.style.display = show ? 'none' : 'grid';
+  if (grid) grid.style.display = show ? 'none' : 'block';
 }
 
 function fileIcon(mimeType, name) {
@@ -851,4 +832,47 @@ function formatBytes(bytes) {
 
 function escOrdner(str) {
   return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Redesign helpers ──
+// Folder actions in the top bar "…" (detail view); only with the right to manage folders
+function ordnerMenuItems(canManage, folderId) {
+  if (!canManage) return [];
+  return [
+    { label: 'Unterordner anlegen', action: 'createSubfolder' },
+    { label: 'PL & Einsätze', action: 'openOrdnerForm', args: [folderId] },
+    { label: 'Ordner löschen', action: 'deleteCurrentOrdner', danger: true }
+  ];
+}
+
+// Icon kind of a file row (image / video / file)
+function ordnerFileKind(mimeType, name) {
+  var t = (mimeType || '') + ' ' + (name || '');
+  if (/image/i.test(t) || /\.(jpe?g|png|gif|webp|svg|heic)\b/i.test(t)) return 'image';
+  if (/video/i.test(t) || /\.(mp4|mov|avi|webm)\b/i.test(t)) return 'video';
+  return 'file';
+}
+
+function ordnerFolderMenu(id) {
+  openUiMenu([{ label: 'Umbenennen', action: 'renameOrdnerPrompt', args: [id] }]);
+}
+
+function ordnerFileMenu(id) {
+  var f = (ordnerFiles || []).find(function(x) { return x.id === id; });
+  if (!f) return;
+  openUiMenu([
+    { label: 'Öffnen', action: 'openOrdnerFileById', args: [id] },
+    { label: 'Datei löschen', action: 'deleteOrdnerFile', args: [id, f.file_url], danger: true }
+  ]);
+}
+
+function ordnerSetTitle(text) {
+  var t = document.getElementById('topbar-title');
+  if (t && typeof activeModule !== 'undefined' && activeModule === 'ordner') t.textContent = text;
+}
+
+if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
+  UI_TOPBAR_ITEMS.ordner = function() {
+    return aktuellerOrdner ? ordnerMenuItems(canManageOrdner, aktuellerOrdner.id) : [];
+  };
 }

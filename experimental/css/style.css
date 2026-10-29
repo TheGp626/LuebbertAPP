@@ -1354,3 +1354,31 @@ canvas#historyChart {
 .set-group-title { margin: 10px 0 2px; }
 .set-group .set-row:first-of-type { border-top: 0; }
 .set-actions .btn { border-radius: var(--r-control); min-height: 44px; }
+
+/* ── Produktdatenbank (redesign) ── */
+.produkt-head { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; }
+.produkt-head .ui-search { flex: 1; }
+.produkt-add { flex: 0 0 auto; }
+@media (max-width: 479px) { .produkt-add-label { display: none; } .produkt-add { padding: 10px 12px; } }
+.produkt-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (min-width: 720px) { .produkt-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); } }
+.produkt-card { position: relative; display: flex; flex-direction: column; background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--r-card); padding: 10px; cursor: pointer; box-shadow: none; transform: none; }
+.produkt-card:hover { transform: none; box-shadow: none; border-color: var(--border2); }
+.produkt-card:active { background: var(--bg3); }
+.produkt-card-body { padding: 10px 2px 2px; min-width: 0; text-align: left; }
+.produkt-card .produkt-name { font-size: 15px; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+.produkt-card .produkt-desc { font-size: 13px; color: var(--text2); margin-top: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.produkt-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.produkt-card-menu { position: absolute; top: 14px; right: 14px; background: var(--bg); border: 0.5px solid var(--border2); width: 34px; height: 34px; }
+#produkt-empty, #ordner-empty { flex-direction: column; align-items: center; }
+
+/* ── Projektordner (redesign) ── */
+.ordner-wrap { max-width: 760px; padding-bottom: 0; }
+.ordner-row { align-items: center; }
+.ordner-ico { width: 38px; height: 38px; flex: 0 0 38px; }
+.ordner-back { padding-left: 0; margin-bottom: 4px; }
+.ordner-title { font-size: 20px; margin-bottom: 12px; overflow-wrap: anywhere; }
+.ordner-einsatz { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-top: 0.5px solid var(--border); font-size: 14px; }
+.ordner-upload-bar { margin: 16px -24px 0; }
+@media (max-width: 767px) { .ordner-upload-bar { margin: 16px -16px 0; } }
+#ordner-detail-view.drag-over { outline: 2px dashed var(--accent); outline-offset: 4px; border-radius: var(--r-card); }

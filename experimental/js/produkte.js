@@ -101,19 +101,18 @@ function renderProdukte(list) {
       preview = '<div class="produkt-pdf-thumb" style="opacity:0.3; cursor:default;">📄<span>Keine Datei</span></div>';
     }
 
-    var editBtn = canUpload
-      ? '<button class="btn" style="width:100%; margin-top:6px; padding:6px; font-size:12px;" onclick="event.stopPropagation();openProduktForm(\'' + p.id + '\')">Bearbeiten</button>'
+    var menuBtn = canUpload
+      ? '<button type="button" class="ui-icon-btn produkt-card-menu" aria-label="Produkt-Aktionen" onclick="event.stopPropagation();produktMenu(\'' + p.id + '\')">' + uiIcon('dots') + '</button>'
       : '';
-    var fileBtn = (images.length > 0 || p.pdf_url)
-      ? '<button class="btn primary" style="width:100%; margin-top:10px; padding:8px; font-size:13px;" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')">👁 Anzeigen</button>'
-      : '';
-    return '<div class="produkt-card">' +
+    var badges = produktBadges(p).map(function(b) { return '<span class="ui-pill ui-pill-info">' + escHtml(b) + '</span>'; }).join(' ');
+    return '<div class="produkt-card" role="button" tabindex="0" onclick="openProduktViewer(\'' + p.id + '\')">' +
       preview +
-      '<div class="produkt-name" style="margin-top:10px;">' + escHtml(p.name) + '</div>' +
-      (p.description ? '<div class="produkt-desc">' + escHtml(p.description) + '</div>' : '') +
-      (p.pdf_url ? '<div style="font-size:12px;color:var(--text3);margin-top:6px;">📄 Aufbau-Datei vorhanden</div>' : '') +
-      fileBtn +
-      editBtn +
+      '<div class="produkt-card-body">' +
+        '<div class="produkt-name">' + escHtml(p.name) + '</div>' +
+        (p.description ? '<div class="produkt-desc">' + escHtml(p.description) + '</div>' : '') +
+        (badges ? '<div class="produkt-badges">' + badges + '</div>' : '') +
+      '</div>' +
+      menuBtn +
       '</div>';
   }).join('');
 
@@ -240,16 +239,38 @@ function openProduktForm(id, keepFiles) {
   if (!keepFiles) resetProduktFileInputs();
   setProduktFormError('');
   if (form) form.style.display = 'block';
-  if (nameInp) nameInp.focus();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  var modal = document.getElementById('produkt-form-modal');
+  if (modal) modal.classList.add('open');
+  if (nameInp && !id) nameInp.focus();
 }
 
 function closeProduktForm() {
   editingProduktId = null;
   resetProduktFileInputs();
   setProduktFormError('');
-  var form = document.getElementById('produkt-form');
-  if (form) form.style.display = 'none';
+  var modal = document.getElementById('produkt-form-modal');
+  if (modal) modal.classList.remove('open');
+}
+
+// Pills on a product card
+function produktBadges(p) {
+  var out = [];
+  if (p.pdf_url) out.push('Aufbau-Datei');
+  var n = (p.product_images || []).length;
+  if (n === 1) out.push('1 Medium');
+  else if (n > 1) out.push(n + ' Medien');
+  return out;
+}
+
+// "…" menu of a product card; editing only for AL, PL and Admin
+function produktMenuItems(p, role) {
+  if (['AL', 'PL', 'Admin'].indexOf(role) === -1) return [];
+  return [{ label: 'Bearbeiten', action: 'openProduktForm', args: [p.id] }];
+}
+
+function produktMenu(id) {
+  var p = alleProdukte.find(function(x) { return x.id === id; });
+  if (p) openUiMenu(produktMenuItems(p, typeof userRole !== 'undefined' ? userRole : ''));
 }
 
 // Clear every file input so files never carry over to the next product
@@ -303,7 +324,7 @@ async function saveProdukt() {
     return;
   }
 
-  var saveBtn = document.querySelector('#produkt-form .btn.primary');
+  var saveBtn = document.querySelector('#produkt-form .ui-btn-primary');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Speichert...'; }
 
   var wasEditing = !!editingProduktId;
@@ -924,5 +945,6 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { fileExtension: fileExtension, sanitizeStorageName: sanitizeStorageName, produktFileKey: produktFileKey,
     contentTypeFor: contentTypeFor, isPdfMagic: isPdfMagic, isBucketImageType: isBucketImageType,
     uploadErrorMessage: uploadErrorMessage, aufbauFileKind: aufbauFileKind, storagePathFromUrl: storagePathFromUrl,
-    produktCoverOrder: produktCoverOrder, produktNextSortOrder: produktNextSortOrder, aufbauPageScale: aufbauPageScale };
+    produktCoverOrder: produktCoverOrder, produktNextSortOrder: produktNextSortOrder, aufbauPageScale: aufbauPageScale,
+    produktBadges: produktBadges, produktMenuItems: produktMenuItems };
 }
