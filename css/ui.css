@@ -176,3 +176,12 @@ input[type=checkbox].ui-switch:checked::before { transform: translateX(18px); }
 .ui-chip-on { background: var(--accent-bg); color: var(--accent-text); border-color: var(--accent); }
 .ui-page { width: 100%; max-width: 720px; margin: 0 auto; padding: 12px 16px 24px; box-sizing: border-box; }
 .ui-page-wide { max-width: 1200px; }
+
+/* Sheet header and action row */
+.ui-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.ui-sheet-actions { display: flex; gap: 10px; margin-top: 16px; }
+.ui-sheet-actions .ui-btn { flex: 1; }
+/* Wide screens: segment switch and action bar line up with the 720px content column */
+@media (min-width: 768px) {
+  .ui-topnav, .ui-actionbar { padding-left: max(16px, calc((100% - 720px) / 2)); padding-right: max(16px, calc((100% - 720px) / 2)); }
+}
