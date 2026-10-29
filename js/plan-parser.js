@@ -445,14 +445,28 @@ function planGuessAction(wann) {
   return 'Aufbau';
 }
 
-// Equipment lines ("4 Sitzhocker …") are no event names → the last location line after the postcode
-// (street, "12057 Berlin", room, event) unless that is a hall/room; else the venue
-var PLAN_ROOM_LINE = /^(halle|raum|saal|foyer|stand|\d+\.\s*og)\b/i;
-function planEventName(s) {
-  if (s.title && !/^\d/.test(s.title)) return s.title;
-  var loc = planLines(s.location), i = loc.findIndex(function(l) { return /^\d{5}\b/.test(l); });
+// Rooms, halls and booths ("Saal Europa", "CH II", "Stand 20 | …", "Apollo Saal", "2. OG") – never an event name
+var PLAN_ROOM_LINE = /^(?:halle|raum|saal|foyer|stand|auditorium|ch\s+i+|hub\s*\d+|\d+\.\s*og|\S+\s+saal|pl\s+lager)\b/i;
+
+function planStartsWithStep(line) {
+  var l = (line || '').toLowerCase();
+  return PLAN_WHEN_LABELS.some(function(w) { return l.indexOf(w.toLowerCase()) === 0; });
+}
+
+// Event line of the location: the last line after the postcode (street, "12057 Berlin", room, event), unless a room
+// or a note ("Anlieferung über …!!", "entfällt!")
+function planLocationEvent(location) {
+  var loc = planLines(location), i = loc.findIndex(function(l) { return /^\d{5}\b/.test(l); });
   var last = i < 0 ? '' : (loc.slice(i + 1).filter(Boolean).pop() || '').trim();
-  return last && !PLAN_ROOM_LINE.test(last) ? last : s.venue;
+  return last && !PLAN_ROOM_LINE.test(last) && !planStartsWithStep(last) && last.indexOf('!') === -1 ? last : '';
+}
+
+// Event name for "Protokoll starten". Equipment ("4 STB weiß"), room ("Saal Europa") and work-step ("Abbau")
+// titles are no event names → the location's event line; without one: the title, or the venue for equipment
+function planEventName(s) {
+  var t = (s.title || '').trim(), material = !t || /^\d/.test(t);
+  if (!material && !planStartsWithStep(t) && !PLAN_ROOM_LINE.test(t)) return t;
+  return planLocationEvent(s.location) || (material ? s.venue : t);
 }
 
 // "7 Loungesessel …" is a quantity line; "1. OG" is a floor and stays a heading

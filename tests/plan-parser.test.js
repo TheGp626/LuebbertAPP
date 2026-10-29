@@ -367,3 +367,30 @@ test('planEventName: equipment title → event line after room in the location, 
   // DB shape: location as one string with line breaks
   assert.equal(P.planEventName({ title: '7 Sessel', venue: 'Estrel', location: 'Musterallee 1\n12345 Berlin\nSaal\nFirmenfeier' }), 'Firmenfeier');
 });
+
+test('planEventName: room, booth and work-step titles → event line from the location; real titles stay', () => {
+  const loc = (...tail) => ['Musterallee 1', '12345 Berlin', ...tail];
+  const ev = (title, location, venue) => P.planEventName({ title, venue: venue || 'Estrel', location });
+  assert.equal(ev('Saal Europa', loc('Fachkongress')), 'Fachkongress');
+  assert.equal(ev('CH II', loc('Fachkongress')), 'Fachkongress');
+  assert.equal(ev('CH I | Bar', loc('CH I & Foyers', 'Firma X')), 'Firma X');
+  assert.equal(ev('Stand 20 | Beispiel GmbH', loc('Foyer 3', 'Messe Y')), 'Messe Y');
+  assert.equal(ev('Foyer 4 (bis 18.30 Uhr)', loc('Verband')), 'Verband');
+  assert.equal(ev('Auditorium (bis 16 Uhr)', loc('Verband')), 'Verband');
+  assert.equal(ev('Apollo Saal', loc('Tagung')), 'Tagung');
+  assert.equal(ev('Abbau', loc('CH II', 'Fachkongress')), 'Fachkongress');
+  assert.equal(ev('Umstellen:', loc('CH II', 'Fachkongress')), 'Fachkongress');
+  // No event line in the location → keep the title as before
+  assert.equal(ev('Apollo Saal', loc(), 'Verein'), 'Apollo Saal');
+  assert.equal(ev('Stand 421', loc('Bazaar', 'Halle 17'), 'Messe Berlin'), 'Stand 421');
+  // Real event titles are never replaced
+  assert.equal(ev('Empfang', loc('Meisterkoch-Gala')), 'Empfang');
+  assert.equal(ev('Networking', loc('Saal', 'Kongress')), 'Networking');
+});
+
+test('planEventName: delivery notes and the warehouse are no event lines', () => {
+  const loc = (...tail) => ['Musterallee 1', '12345 Berlin', ...tail];
+  assert.equal(P.planEventName({ title: '2 Toilettendeko', venue: 'Kunde', location: loc('Anlieferung über Hinterhof 6!!') }), 'Kunde');
+  assert.equal(P.planEventName({ title: 'Inventur', venue: 'PL', location: loc('entfällt!') }), 'Inventur');
+  assert.equal(P.planEventName({ title: '1 STB weiß', venue: 'Estrel', location: loc('PL Lager') }), 'Estrel');
+});
