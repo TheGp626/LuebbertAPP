@@ -219,6 +219,10 @@ function initProtokoll() {
   renderProtCategories();
   calcProtCosts();
   setTimeout(redrawProtSig, 50);
+  // Restored draft: action segment, section checks and textarea heights follow the loaded values
+  syncProtActionSeg();
+  renderProtSectionNav();
+  ['prot-damages', 'prot-incidents', 'prot-feedback'].forEach(function(id) { var t = document.getElementById(id); if (t && t.style) growProtText(t); });
 
   fetchAppUsers();
 }
@@ -250,6 +254,7 @@ function redrawProtSig() {
   } else {
     if (ph) ph.style.display = '';
   }
+  renderProtSectionNav(); // signature check mark + pill
 }
 
 function openProtSig() {
@@ -277,14 +282,58 @@ function clearProtSig() {
 
 
 // ── TRANSPORT ──
+// Open/closed rows of the form ('t<i>' transport, 'p<i>' personnel); new entries start open
+var protOpenRows = {};
+
+function toggleProtRow(key) {
+  protOpenRows[key] = !protOpenRows[key];
+  if (key.charAt(0) === 't') { protTransportOpened = true; renderProtTransport(); renderProtSectionNav(); }
+  else renderProtPersonnel();
+}
+
+// After removing row `idx` of kind 't'/'p', the rows behind it move up one place
+function protShiftOpenRows(kind, idx) {
+  var next = {};
+  Object.keys(protOpenRows).forEach(function(k) {
+    if (!protOpenRows[k]) return;
+    if (k.charAt(0) !== kind) { next[k] = true; return; }
+    var n = parseInt(k.slice(1), 10);
+    if (n < idx) next[k] = true;
+    else if (n > idx) next[kind + (n - 1)] = true;
+  });
+  protOpenRows = next;
+}
+
+// "Sprinter · Max · pünktlich" / "LKW · ohne Fahrer · 20 min Verspätung"
+function protTransportSummary(t) {
+  var driver = (t.driver || '').trim() || 'ohne Fahrer';
+  var when = t.punctuality === 'verspätet' ? ((t.delay ? t.delay + ' min ' : '') + 'Verspätung') : 'pünktlich';
+  return (t.type || 'Fahrzeug') + ' · ' + driver + ' · ' + when;
+}
+
+// "08:00–16:30 · 30 min"
+function protPersonSummary(p) {
+  var pause = parseInt(p.pause) || 0;
+  if (p.start && p.end) return p.start + '–' + p.end + (pause > 0 ? ' · ' + pause + ' min' : '');
+  if (p.start) return 'ab ' + p.start + ' · Ende fehlt';
+  if (p.end) return 'bis ' + p.end + ' · Start fehlt';
+  return 'Zeiten fehlen';
+}
+
+function protRowChevron(key) {
+  return '<button type="button" class="ui-icon-btn prot-chev" aria-label="Details" aria-expanded="' + (protOpenRows[key] ? 'true' : 'false') + '" onclick="event.stopPropagation();toggleProtRow(\'' + key + '\')">' + uiIcon('chevron-right') + '</button>';
+}
+
 function addProtTransport() {
   protState.transports.push({ type: 'Sprinter', driver: '', punctuality: 'pünktlich', delay: '' });
+  protOpenRows['t' + (protState.transports.length - 1)] = true;
   renderProtTransport();
   saveProtDraft();
 }
 
 function removeProtTransport(idx) {
   protState.transports.splice(idx, 1);
+  protShiftOpenRows('t', idx);
   renderProtTransport();
   saveProtDraft();
   calcProtCosts();
@@ -294,45 +343,34 @@ function renderProtTransport() {
   var list = document.getElementById('prot-transport-list');
   if (!list) return;
   list.innerHTML = protState.transports.map(function(t, i) {
-    var delayHtml = '';
-    if (t.punctuality === 'verspätet') {
-      delayHtml = 
-        '    <div class="meta-field">' +
-        '      <span class="meta-label">Dauer (Min)</span>' +
-        '      <input type="number" class="meta-input" placeholder="0" value="' + escapeHtml(t.delay || '') + '" oninput="updateProtTransport(' + i + ', \'delay\', this.value)"/>' +
-        '    </div>';
-    }
-
-    return '<div class="shift-block">' +
-           '  <div class="shift-label">Transport ' + (i + 1) + 
-           '    <button class="shift-remove" onclick="removeProtTransport(' + i + ')">×</button>' +
-           '  </div>' +
-           '  <div class="meta-fields">' +
-           '    <div class="meta-field">' +
-           '      <span class="meta-label">Fahrzeugtyp</span>' +
-           '      <select class="meta-input" onchange="updateProtTransport(' + i + ', \'type\', this.value)">' +
-                    Object.keys(PROT_VEHICLE_RATES).map(function(v) {
-                      return '<option value="' + v + '" ' + (t.type === v ? 'selected' : '') + '>' + v + '</option>';
-                    }).join('') +
-           '      </select>' +
-           (t.type === 'Spedition' ? '      <div style="font-size:11px;color:var(--text3);margin-top:3px;">→ Kosten separat per Rechnung erfassen</div>' : '') +
-           '    </div>' +
-           '    <div class="meta-field">' +
-           '      <span class="meta-label">Fahrer</span>' +
-           '      <input type="text" class="meta-input" placeholder="Name" value="' + escapeHtml(t.driver || '') + '" oninput="updateProtTransport(' + i + ', \'driver\', this.value)"/>' +
-           '    </div>' +
-           '  </div>' +
-           '  <div class="meta-fields" style="margin-top: 8px;">' +
-           '    <div class="meta-field">' +
-           '      <span class="meta-label">Pünktlichkeit</span>' +
-           '      <select class="meta-input" onchange="updateProtTransport(' + i + ', \'punctuality\', this.value)">' +
-           '        <option value="pünktlich" ' + (t.punctuality === 'pünktlich' ? 'selected' : '') + '>Pünktlich</option>' +
-           '        <option value="verspätet" ' + (t.punctuality === 'verspätet' ? 'selected' : '') + '>Verspätung</option>' +
-           '      </select>' +
-           '    </div>' +
-           delayHtml +
-           '  </div>' +
-           '</div>';
+    var key = 't' + i;
+    var vehicles = Object.keys(PROT_VEHICLE_RATES).map(function(v) {
+      return '<option value="' + v + '" ' + (t.type === v ? 'selected' : '') + '>' + v + '</option>';
+    }).join('');
+    return '<div class="ui-row ui-row-wrap' + (protOpenRows[key] ? ' ui-row-open' : '') + '">' +
+      '<div class="ui-row-main" onclick="toggleProtRow(\'' + key + '\')">' +
+        '<div class="ui-row-title">Transport ' + (i + 1) + '</div>' +
+        '<div class="ui-sub" id="prot-tsum-' + i + '">' + escapeHtml(protTransportSummary(t)) + '</div>' +
+      '</div>' +
+      '<div class="ui-row-end">' + protRowChevron(key) + '</div>' +
+      '<div class="ui-row-body">' +
+        '<div class="stunden-grid">' +
+          '<label class="ui-field"><span>Fahrzeugtyp</span><select onchange="updateProtTransport(' + i + ', \'type\', this.value)">' + vehicles + '</select></label>' +
+          '<label class="ui-field"><span>Fahrer</span><input type="text" placeholder="Name" value="' + escapeHtml(t.driver || '') + '" oninput="updateProtTransport(' + i + ', \'driver\', this.value)"/></label>' +
+        '</div>' +
+        (t.type === 'Spedition' ? '<div class="ui-sub" style="margin:-4px 2px 10px;">Kosten separat per Rechnung erfassen</div>' : '') +
+        '<div class="stunden-grid">' +
+          '<label class="ui-field"><span>Pünktlichkeit</span><select onchange="updateProtTransport(' + i + ', \'punctuality\', this.value)">' +
+            '<option value="pünktlich" ' + (t.punctuality === 'pünktlich' ? 'selected' : '') + '>Pünktlich</option>' +
+            '<option value="verspätet" ' + (t.punctuality === 'verspätet' ? 'selected' : '') + '>Verspätung</option>' +
+          '</select></label>' +
+          (t.punctuality === 'verspätet'
+            ? '<label class="ui-field"><span>Dauer (Min)</span><input type="number" placeholder="0" value="' + escapeHtml(t.delay || '') + '" oninput="updateProtTransport(' + i + ', \'delay\', this.value)"/></label>'
+            : '') +
+        '</div>' +
+        '<button type="button" class="ui-btn ui-btn-danger prot-remove" onclick="removeProtTransport(' + i + ')">Transport entfernen</button>' +
+      '</div>' +
+    '</div>';
   }).join('');
 }
 
@@ -342,13 +380,16 @@ function updateProtTransport(idx, field, val) {
     if (val !== 'verspätet') protState.transports[idx].delay = '';
     renderProtTransport();
   }
+  var sum = document.getElementById('prot-tsum-' + idx);
+  if (sum) sum.textContent = protTransportSummary(protState.transports[idx]);
   saveProtDraft();
-  if (field === 'type') calcProtCosts();
+  if (field === 'type') { calcProtCosts(); renderProtTransport(); }
 }
 
 // ── PERSONNEL ──
 function addProtPersonnel() {
   protState.personnel.push({ pos: 'MA', isTemp: false, userId: '', tempName: '', name: '', start: '', end: '', pause: '0', rating: null, isStar: false });
+  protOpenRows['p' + (protState.personnel.length - 1)] = true;
   renderProtPersonnel();
   saveProtDraft();
 }
@@ -362,68 +403,54 @@ function updateProtRating(idx, field, val) {
 function removeProtPersonnel(idx) {
   // No server delete here: Senden replaces all shifts of the protocol, and abandoning the edit must keep them
   protState.personnel.splice(idx, 1);
+  protShiftOpenRows('p', idx);
   renderProtPersonnel();
   saveProtDraft();
   calcProtCosts();
+}
+
+function protRatingButtons(p, i) {
+  return '<span class="prot-rating">' +
+    '<button type="button" class="prot-rate' + (p.rating === 'up' ? ' on' : '') + '" onclick="event.stopPropagation();updateProtRating(' + i + ',\'rating\',' + (p.rating === 'up' ? 'null' : '\'up\'') + ')" title="Daumen hoch">👍</button>' +
+    '<button type="button" class="prot-rate' + (p.rating === 'down' ? ' on' : '') + '" onclick="event.stopPropagation();updateProtRating(' + i + ',\'rating\',' + (p.rating === 'down' ? 'null' : '\'down\'') + ')" title="Daumen runter">👎</button>' +
+    '<button type="button" class="prot-rate' + (p.isStar ? ' on' : '') + '" onclick="event.stopPropagation();updateProtRating(' + i + ',\'isStar\',' + (!p.isStar) + ')" title="Besonders gut">⭐</button>' +
+  '</span>';
 }
 
 function renderProtPersonnel() {
   var list = document.getElementById('prot-personnel-list');
   if (!list) return;
   list.innerHTML = protState.personnel.map(function(p, i) {
+    var key = 'p' + i;
     var opts = ['AL', 'MA', 'Fahrer', 'Zenjob', 'Rockit'].map(function(o) {
       return '<option value="' + o + '" ' + (p.pos === o ? 'selected' : '') + '>' + o + '</option>';
     }).join('');
-
-    var nameField = p.isTemp
-      ? '<input type="text" class="meta-input" placeholder="Aushilfe Name" style="margin-bottom:0;" value="' + escapeHtml(p.tempName || '') + '" oninput="updateProtPersonnel(' + i + ', \'tempName\', this.value)"/>'
-      : '<input type="text" class="meta-input" placeholder="Name tippen…" style="margin-bottom:0;" list="prot-users-datalist" autocomplete="off" value="' + escapeHtml(p.name || '') + '" onchange="onProtPersonnelName(' + i + ', this.value)"/>' +
-        (p.userId ? '' : (p.name ? '<div style="font-size:11px;color:var(--danger);margin-top:3px;">⚠ Kein registrierter Mitarbeiter – wird als Externe(r) gespeichert</div>' : ''));
-      
-    var tempCheck = '<label style="display:flex; align-items:center; gap:4px; font-size:12px; margin-top:4px; cursor:pointer;">' +
-      '<input type="checkbox" onchange="updateProtPersonnel(' + i + ',\'isTemp\',this.checked)" ' + (p.isTemp ? 'checked' : '') + ' /> Externe(r) / Aushilfe</label>';
-
     var isAgency = (p.pos === 'Zenjob' || p.pos === 'Rockit');
-    var ratingBlock = isAgency
-      ? '<div class="rating-block">' +
-          '<span class="meta-label" style="display:block;margin-bottom:4px;">Bewertung</span>' +
-          '<div class="rating-btns">' +
-          '<button class="rating-btn' + (p.rating === 'up' ? ' active-up' : '') + '" onclick="updateProtRating(' + i + ',\'rating\',' + (p.rating === 'up' ? 'null' : '\'up\'') + ')" title="Daumen hoch">👍</button>' +
-          '<button class="rating-btn' + (p.rating === 'down' ? ' active-down' : '') + '" onclick="updateProtRating(' + i + ',\'rating\',' + (p.rating === 'down' ? 'null' : '\'down\'') + ')" title="Daumen runter">👎</button>' +
-          '<button class="rating-btn' + (p.isStar ? ' active-star' : '') + '" onclick="updateProtRating(' + i + ',\'isStar\',' + (!p.isStar) + ')" title="Besonders gut">⭐</button>' +
-          '</div>' +
-        '</div>'
-      : '';
-
-    return '<div class="shift-block">' +
-           '  <div class="shift-label">Personal ' + (i + 1) +
-           '    <button class="shift-remove" onclick="removeProtPersonnel(' + i + ')">×</button>' +
-           '  </div>' +
-           '  <div class="meta-fields">' +
-           '    <div class="meta-field">' +
-           '      <span class="meta-label">Position</span>' +
-           '      <select class="meta-input" style="margin-bottom:0" onchange="updateProtPersonnel(' + i + ', \'pos\', this.value)">' + opts + '</select>' +
-           '    </div>' +
-           '    <div class="meta-field">' +
-           '      <span class="meta-label">Name</span>' + nameField + tempCheck +
-           '    </div>' +
-           '  </div>' +
-           '  <div class="meta-fields" style="margin-top: 8px;">' +
-           '    <div class="meta-field">' +
-           '      <span class="meta-label">Start</span>' +
-           '      <input type="time" class="meta-input" value="' + (p.start || '') + '" oninput="updateProtPersonnel(' + i + ', \'start\', this.value)"/>' +
-           '    </div>' +
-           '    <div class="meta-field">' +
-           '      <span class="meta-label">Ende</span>' +
-           '      <input type="time" class="meta-input" value="' + (p.end || '') + '" oninput="updateProtPersonnel(' + i + ', \'end\', this.value)"/>' +
-           '    </div>' +
-           '    <div class="meta-field" style="max-width: 80px;">' +
-           '      <span class="meta-label">Pause</span>' +
-           '      <input type="number" class="meta-input" placeholder="Min" value="' + (p.pause || '0') + '" oninput="updateProtPersonnel(' + i + ', \'pause\', this.value)"/>' +
-           '    </div>' +
-           '  </div>' +
-           (ratingBlock ? '  <div class="meta-fields" style="margin-top: 8px;">' + ratingBlock + '</div>' : '') +
-           '</div>';
+    var unregistered = !p.isTemp && !p.userId && p.name;
+    var nameField = p.isTemp
+      ? '<input type="text" placeholder="Aushilfe Name" value="' + escapeHtml(p.tempName || '') + '" oninput="updateProtPersonnel(' + i + ', \'tempName\', this.value)"/>'
+      : '<input type="text" placeholder="Name tippen…" list="prot-users-datalist" autocomplete="off" value="' + escapeHtml(p.name || '') + '" onchange="onProtPersonnelName(' + i + ', this.value)"/>';
+    return '<div class="ui-row ui-row-wrap' + (protOpenRows[key] ? ' ui-row-open' : '') + '">' +
+      '<div class="ui-row-main" onclick="toggleProtRow(\'' + key + '\')">' +
+        '<div class="ui-row-title">' + escapeHtml(p.name || p.tempName || 'Ohne Name') + ' <span class="ui-pill ui-pill-info">' + escapeHtml(p.pos || '') + '</span></div>' +
+        '<div class="ui-sub" id="prot-psum-' + i + '">' + escapeHtml(protPersonSummary(p)) + '</div>' +
+        (unregistered ? '<span class="ui-pill ui-pill-warn" style="margin-top:4px;" title="Kein registrierter Mitarbeiter – wird als Externe(r) gespeichert">nicht registriert</span>' : '') +
+      '</div>' +
+      '<div class="ui-row-end">' + (isAgency ? protRatingButtons(p, i) : '') + protRowChevron(key) + '</div>' +
+      '<div class="ui-row-body">' +
+        '<div class="stunden-grid">' +
+          '<label class="ui-field"><span>Position</span><select onchange="updateProtPersonnel(' + i + ', \'pos\', this.value)">' + opts + '</select></label>' +
+          '<div class="ui-field"><span>Name</span>' + nameField + '</div>' +
+        '</div>' +
+        '<label class="prot-switch-label" style="margin:-4px 2px 12px;"><input type="checkbox" class="ui-switch" onchange="updateProtPersonnel(' + i + ',\'isTemp\',this.checked)" ' + (p.isTemp ? 'checked' : '') + ' /> Externe(r) / Aushilfe</label>' +
+        '<div class="prot-time-grid">' +
+          '<label class="ui-field"><span>Start</span><input type="time" value="' + (p.start || '') + '" oninput="updateProtPersonnel(' + i + ', \'start\', this.value)"/></label>' +
+          '<label class="ui-field"><span>Ende</span><input type="time" value="' + (p.end || '') + '" oninput="updateProtPersonnel(' + i + ', \'end\', this.value)"/></label>' +
+          '<label class="ui-field"><span>Pause</span><input type="number" placeholder="Min" value="' + (p.pause || '0') + '" oninput="updateProtPersonnel(' + i + ', \'pause\', this.value)"/></label>' +
+        '</div>' +
+        '<button type="button" class="ui-btn ui-btn-danger prot-remove" onclick="removeProtPersonnel(' + i + ')">Person entfernen</button>' +
+      '</div>' +
+    '</div>';
   }).join('');
 }
 
@@ -488,7 +515,9 @@ function updateProtPersonnel(idx, field, val) {
       renderProtPersonnel();
     }
   }
-  
+  var sum = document.getElementById('prot-psum-' + idx);
+  if (sum) sum.textContent = protPersonSummary(protState.personnel[idx]);
+
   saveProtDraft();
   calcProtCosts();
 }
@@ -502,42 +531,26 @@ function renderProtCategories() {
     var active = state.active;
     var hussenFields = '';
     if (cat.id === 'stoffe') {
-      hussenFields = '<div style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">' +
-                     '  <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px;">Rücklauf Estrel-Hussen:</div>' +
-                     '  <div style="display: flex; gap: 12px; align-items: center;">' +
-                     '    <div style="flex: 1;">' +
-                     '      <span class="meta-label">Stück geliefert</span>' +
-                     '      <input type="number" class="meta-input" placeholder="0" value="' + (state.hussenDelivered || '') + '" oninput="updateProtCategory(\'' + cat.id + '\', \'hussenDelivered\', this.value)"/>' +
-                     '    </div>' +
-                     '    <div style="flex: 1;">' +
-                     '      <span class="meta-label">Stück zurück (gezählt)</span>' +
-                     '      <input type="number" class="meta-input" placeholder="0" value="' + (state.hussenReturned || '') + '" oninput="updateProtCategory(\'' + cat.id + '\', \'hussenReturned\', this.value)"/>' +
-                     '    </div>' +
-                     '  </div>' +
-                     '</div>';
+      hussenFields = '<div class="ui-label" style="margin:12px 2px 6px;">Rücklauf Estrel-Hussen</div>' +
+        '<div class="stunden-grid">' +
+          '<label class="ui-field"><span>Stück geliefert</span><input type="number" placeholder="0" value="' + (state.hussenDelivered || '') + '" oninput="updateProtCategory(\'' + cat.id + '\', \'hussenDelivered\', this.value)"/></label>' +
+          '<label class="ui-field"><span>Stück zurück (gezählt)</span><input type="number" placeholder="0" value="' + (state.hussenReturned || '') + '" oninput="updateProtCategory(\'' + cat.id + '\', \'hussenReturned\', this.value)"/></label>' +
+        '</div>';
     }
-
-    return '<div class="shift-block" style="' + (!active ? 'opacity: 0.5; background: var(--bg3);' : '') + '">' +
-           '  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">' +
-           '    <div style="display: flex; align-items: center; gap: 8px;">' +
-           '      <span style="font-size: 20px;">' + cat.icon + '</span>' +
-           '      <span style="font-weight: 600;">' + cat.label + '</span>' +
-           '    </div>' +
-           '    <button class="chip ' + (active ? 'active' : '') + '" onclick="toggleProtCategory(\'' + cat.id + '\')">' + (active ? 'Aktiv' : 'Ausgeblendet') + '</button>' +
-           '  </div>' +
-           '  <div style="' + (!active ? 'display: none;' : '') + '">' +
-           '    <div class="meta-label">Zustand</div>' +
-           '    <div class="chips" style="margin-bottom: 12px;">' +
-                  ['okay', 'unsauber', 'beschädigt', 'unvollständig'].map(function(s) {
-                    return '<div class="chip ' + (state.status === s ? 'active' : '') + '" onclick="updateProtCategory(\'' + cat.id + '\', \'status\', \'' + s + '\')">' + s + '</div>';
-                  }).join('') +
-           '    </div>' +
-           '    <div class="field">' +
-           '      <input type="text" class="meta-input" placeholder="Anmerkungen / Details" value="' + escapeHtml(state.note || '') + '" oninput="updateProtCategory(\'' + cat.id + '\', \'note\', this.value)"/>' +
-           '    </div>' +
-           hussenFields +
-           '  </div>' +
-           '</div>';
+    return '<div class="ui-card prot-cat' + (active ? '' : ' prot-cat-off') + '">' +
+      '<label class="prot-cat-head"><span class="ui-row-title">' + escapeHtml(cat.label) + '</span>' +
+        '<span class="ui-sub">' + (active ? 'vorhanden' : 'nicht vorhanden') + '</span>' +
+        '<input type="checkbox" class="ui-switch" ' + (active ? 'checked' : '') + ' onchange="toggleProtCategory(\'' + cat.id + '\')" aria-label="' + escapeHtml(cat.label) + ' vorhanden"/></label>' +
+      (active
+        ? '<div class="ui-field" style="margin-top:10px;"><span>Zustand</span><div class="ui-seg prot-action-seg">' +
+            ['okay', 'unsauber', 'beschädigt', 'unvollständig'].map(function(s) {
+              return '<button type="button" class="' + (state.status === s ? 'active' : '') + '" onclick="updateProtCategory(\'' + cat.id + '\', \'status\', \'' + s + '\')">' + s + '</button>';
+            }).join('') +
+          '</div></div>' +
+          '<label class="ui-field"><span>Anmerkungen</span><input type="text" placeholder="Details, falls nötig" value="' + escapeHtml(state.note || '') + '" oninput="updateProtCategory(\'' + cat.id + '\', \'note\', this.value)"/></label>' +
+          hussenFields
+        : '') +
+    '</div>';
   }).join('');
 }
 
@@ -554,36 +567,132 @@ function updateProtCategory(id, field, val) {
 }
 
 // ── CALCULATIONS ──
-function calcProtCosts() {
+// Cost lines of a protocol: one per transport and per person with valid times; total = their sum
+function protCostLines(state, date, holiday) {
+  var lines = [];
+  (state.transports || []).forEach(function(t) {
+    lines.push({ label: t.type || 'Fahrzeug', amount: calcTransportCost(t.type, date) });
+  });
+  (state.personnel || []).forEach(function(p) {
+    var v = timeToMins(p.start), b = timeToMins(p.end), pa = parseInt(p.pause) || 0;
+    var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
+    if (v !== null && b !== null && effB > v) {
+      var basePos = protBasePos(p, appUsers);
+      var customRate = (!p.isTemp && p.userId) ? getEffectivePersonnelRate(basePos, p.userId) : undefined;
+      var amount = 0;
+      calcSplitShiftCosts(basePos, date, holiday, v, effB, pa, customRate).forEach(function(c) { amount += c.hrs * c.rate; });
+      lines.push({ label: (p.name || p.tempName || 'Person') + ' (' + (p.pos || '') + ')', amount: amount });
+    }
+  });
   var total = 0;
+  lines.forEach(function(l) { total += l.amount; });
+  return { lines: lines, total: total };
+}
 
+var protLastCost = { lines: [], total: 0 };
+
+function calcProtCosts() {
   // Read date and holiday directly from the DOM so live edits are reflected
   var dateEl    = document.getElementById('prot-date');
   var holidayEl = document.getElementById('prot-isholiday');
   var currentDate    = (dateEl && dateEl.value)       ? dateEl.value    : (protState.date    || localDateStr());
   var currentHoliday = (holidayEl)                    ? holidayEl.checked : (protState.holiday || false);
 
-  // Logistics
-  protState.transports.forEach(function(t) {
-    total += calcTransportCost(t.type, currentDate);
-  });
-
-  // Personnel
-  protState.personnel.forEach(function(p) {
-    var v = timeToMins(p.start), b = timeToMins(p.end), pa = parseInt(p.pause) || 0;
-    var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
-    if (v !== null && b !== null && effB > v) {
-      var basePos = protBasePos(p, appUsers);
-      var customRate = (!p.isTemp && p.userId) ? getEffectivePersonnelRate(basePos, p.userId) : undefined;
-      var costs = calcSplitShiftCosts(basePos, currentDate, currentHoliday, v, effB, pa, customRate);
-      costs.forEach(function(c) {
-        total += c.hrs * c.rate;
-      });
-    }
-  });
-
+  protLastCost = protCostLines(protState, currentDate, currentHoliday);
   var el = document.getElementById('prot-total-cost');
-  if (el) el.textContent = total.toFixed(2).replace('.', ',');
+  if (el) el.textContent = protLastCost.total.toFixed(2).replace('.', ',');
+}
+
+// Tapping the cost in the action bar: the breakdown of the current calculation
+function openProtCostSheet() {
+  calcProtCosts();
+  var fmt = function(n) { return n.toFixed(2).replace('.', ',') + ' €'; };
+  var m = document.getElementById('prot-cost-modal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'prot-cost-modal';
+    m.className = 'sig-modal ui-sheet';
+    m.style.setProperty('--sheet-w', '480px');
+    m.innerHTML = '<div class="sig-modal-inner"></div>';
+    m.addEventListener('click', function(e) { if (e.target === m) m.classList.remove('open'); });
+    document.body.appendChild(m);
+  }
+  m.firstChild.innerHTML =
+    '<div class="ui-sheet-head"><h3 class="ui-title" style="font-size:18px;">Nachkalkulation</h3>' +
+      '<button type="button" class="ui-icon-btn" aria-label="Schließen" onclick="document.getElementById(\'prot-cost-modal\').classList.remove(\'open\')">' +
+      '<svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
+    (protLastCost.lines.length
+      ? protLastCost.lines.map(function(l) { return '<div class="prot-cost-line"><span>' + escapeHtml(l.label) + '</span><b>' + fmt(l.amount) + '</b></div>'; }).join('')
+      : '<div class="ui-sub">Noch keine Kosten: Transport oder Personal mit Zeiten eintragen.</div>') +
+    '<div class="prot-cost-line prot-cost-total"><span>Gesamt</span><b>' + fmt(protLastCost.total) + '</b></div>' +
+    '<div class="ui-sub" style="margin-top:8px;">Logistik + Personal, mit den aktuellen Sätzen.</div>';
+  m.classList.add('open');
+}
+
+// ── SECTIONS (redesign): navigation chips with check marks; hints only, Senden stays allowed ──
+var PROT_SECTIONS = [['basis', 'Basis'], ['transport', 'Transport'], ['equipment', 'Equipment'], ['personal', 'Personal'], ['vorkommnisse', 'Vorkommnisse'], ['unterschrift', 'Unterschrift']];
+var PROT_ACTIONS = ['Aufbau', 'Teilaufbau', 'Umbau', 'Teilabbau', 'Abbau'];
+var protTransportOpened = false;
+
+// state = protState; basis = {event, date, alId}; opened = {transport} (section looked at, "bewusst keiner")
+function protSectionStatus(state, basis, opened) {
+  basis = basis || {}; opened = opened || {};
+  var cats = state.categories || {};
+  return {
+    basis: !!(basis.event && basis.date && basis.alId),
+    transport: (state.transports || []).length > 0 || !!opened.transport,
+    equipment: Object.keys(cats).every(function(k) { return !cats[k].active || !!cats[k].status; }),
+    personal: (state.personnel || []).some(function(p) { return p.start && p.end; }),
+    vorkommnisse: true,
+    unterschrift: !!state.signature
+  };
+}
+
+function protBasisValues() {
+  var v = function(id) { return (document.getElementById(id) || {}).value || ''; };
+  return { event: v('prot-event'), date: v('prot-date'), alId: v('prot-al') || protState.alId || '' };
+}
+
+function renderProtSectionNav() {
+  var nav = document.getElementById('prot-section-nav');
+  if (!nav) return;
+  var st = protSectionStatus(protState, protBasisValues(), { transport: protTransportOpened });
+  nav.innerHTML = PROT_SECTIONS.map(function(s) {
+    return '<button type="button" class="ui-chip' + (st[s[0]] ? ' ui-chip-on' : '') + '" onclick="scrollProtSection(\'' + s[0] + '\')">' +
+      (st[s[0]] ? uiIcon('check') : '') + s[1] + '</button>';
+  }).join('');
+  var pill = document.getElementById('prot-sig-pill');
+  if (pill) {
+    pill.className = 'ui-pill ' + (protState.signature ? 'ui-pill-ok' : 'ui-pill-warn');
+    pill.textContent = protState.signature ? 'unterschrieben' : 'fehlt';
+  }
+}
+
+function scrollProtSection(id) {
+  var el = document.getElementById('prot-sec-' + id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (id === 'transport' && !protTransportOpened) { protTransportOpened = true; renderProtSectionNav(); }
+}
+
+// Aktion as a segmented control; the hidden #prot-action select stays the data source
+function syncProtActionSeg() {
+  var sel = document.getElementById('prot-action'), seg = document.getElementById('prot-action-seg');
+  if (!sel || !seg) return;
+  seg.querySelectorAll('button').forEach(function(b) { b.classList.toggle('active', b.dataset.value === sel.value); });
+}
+
+function setProtAction(v) {
+  var sel = document.getElementById('prot-action');
+  if (!sel) return;
+  sel.value = v;
+  sel.dispatchEvent(new Event('change'));
+  syncProtActionSeg();
+}
+
+// Textareas grow with their content
+function growProtText(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.max(72, el.scrollHeight) + 'px';
 }
 
 // ── PERSISTENCE ──
@@ -616,6 +725,8 @@ function saveProtDraft() {
   };
   localStorage.setItem('luebbert_protokoll_draft', JSON.stringify(data));
   updateTopBarSub();
+  renderProtSectionNav();
+  syncProtActionSeg();
 }
 
 // Owner for the stored draft; before the login is restored the previous owner is kept
@@ -1155,46 +1266,38 @@ async function renderProtHistory() {
   var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
 
   if (!archive.length) {
-    list.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div>Noch keine Protokolle gespeichert.<br/>Sende ein Protokoll, um es hier zu archivieren.</div></div>';
+    list.innerHTML = uiEmptyHtml('Noch keine Protokolle', 'Gesendete Protokolle erscheinen hier.');
     return;
   }
 
   var html = archive.map(function(e) {
-    var savedDate = e.savedAt ? new Date(e.savedAt).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
-    var personCount = (e.personnel || []).length;
-    var transportCount = (e.transports || []).length;
-    var syncStatus = e.synced 
-      ? '<span style="color:var(--safe); font-size:10px;">● Synced</span>' 
-      : '<span style="color:var(--danger); font-size:10px; cursor:pointer;" onclick="retrySyncAllProtocols()">● Nicht synchronisiert (Tippen zum Synchronisieren)</span>';
-
-    return '<div class="card">' +
-      '<div style="display:flex;justify-content:space-between;align-items:flex-start;">' +
-        '<div style="flex:1;min-width:0;">' +
-          '<div class="history-week" style="font-size:15px;">' + escapeHtml(e.event || '—') + '</div>' +
-          '<div class="history-sub">' + escapeHtml(e.date || '—') + ' · ' + escapeHtml(e.location || '—') + '</div>' +
-          '<div class="history-sub" style="margin-top:3px;">' +
-            '<span class="badge">' + escapeHtml(e.action || '—') + '</span> ' +
-            (e.al ? '· AL: ' + escapeHtml(e.al) : '') +
-          '</div>' +
-        '</div>' +
-        '<div style="text-align:right;flex-shrink:0;margin-left:10px;">' +
-          '<div class="history-hours" style="font-size:16px;">' + escapeHtml(e.totalCost || '—') + '</div>' +
-          '<div style="font-size:11px;color:var(--text3);margin-top:2px;">' + personCount + ' Personal · ' + transportCount + ' Fzg</div>' +
-          '<div style="margin-top:4px;">' + syncStatus + '</div>' +
-        '</div>' +
+    var d = /^(\d{4})-(\d{2})-(\d{2})/.exec(e.date || '');
+    var id = jsAttrArg(e.id);
+    var pills = '<span class="ui-pill ui-pill-info">' + escapeHtml(e.action || '—') + '</span>' +
+      (e.synced === false || !e.synced
+        ? ' <span class="ui-pill ui-pill-warn" role="button" title="Tippen zum Synchronisieren" onclick="event.stopPropagation();retrySyncAllProtocols()">nicht synchronisiert</span>'
+        : (e.mailed === false ? ' <span class="ui-pill ui-pill-warn">Mail ausstehend</span>' : ''));
+    return '<div class="ui-row" onclick="loadProtFromHistory(\'' + id + '\')">' +
+      '<div class="prot-date-block">' + (d ? '<b>' + d[3] + '</b><span>' + d[2] + '.' + d[1].slice(2) + '</span>' : '<b>–</b>') + '</div>' +
+      '<div class="ui-row-main">' +
+        '<div class="ui-row-title">' + escapeHtml(e.event || '—') + '</div>' +
+        '<div class="ui-sub">' + escapeHtml(e.location || '—') + (e.al ? ' · AL ' + escapeHtml(e.al) : '') + '</div>' +
+        '<div style="margin-top:4px;">' + pills + '</div>' +
       '</div>' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:8px;border-top:0.5px solid var(--border);">' +
-        '<span style="font-size:11px;color:var(--text3);">' + savedDate + '</span>' +
-        '<div style="display:flex;gap:8px;">' +
-          '<button onclick="loadProtFromHistory(\'' + e.id + '\')" style="font-size:12px;padding:5px 12px;border:0.5px solid var(--accent);border-radius:var(--radius);background:var(--accent-bg);color:var(--accent-text);cursor:pointer;font-weight:600;">Bearbeiten</button>' +
-          '<button onclick="reExportProtPDF(\'' + e.id + '\')" style="font-size:12px;padding:5px 12px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg2);color:var(--text2);cursor:pointer;">PDF</button>' +
-          '<button onclick="deleteProtHistory(\'' + e.id + '\')" style="font-size:12px;padding:5px 12px;border:0.5px solid var(--border2);border-radius:var(--radius);background:none;color:var(--danger);cursor:pointer;">Löschen</button>' +
-        '</div>' +
-      '</div>' +
+      '<div class="ui-row-end"><b class="stunden-h">' + escapeHtml(e.totalCost || '—') + '</b>' +
+        '<button type="button" class="ui-icon-btn" aria-label="Protokoll-Aktionen" onclick="event.stopPropagation();protHistoryMenu(\'' + id + '\')">' + uiIcon('dots') + '</button></div>' +
     '</div>';
   }).join('');
 
   list.innerHTML = html;
+}
+
+function protHistoryMenu(id) {
+  openUiMenu([
+    { label: 'Bearbeiten', action: 'loadProtFromHistory', args: [id] },
+    { label: 'PDF herunterladen', action: 'reExportProtPDF', args: [id] },
+    { label: 'Aus dem Verlauf löschen', action: 'deleteProtHistory', args: [id], danger: true }
+  ]);
 }
 
 async function deleteProtHistory(id) {
@@ -1453,3 +1556,8 @@ function buildProtPdfDoc(entry) {
   }
 }
 
+
+// Top bar "…": rare actions of the form
+if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
+  UI_TOPBAR_ITEMS.protokoll = function() { return [{ label: 'Formular leeren', action: 'clearProtForm', danger: true }]; };
+}

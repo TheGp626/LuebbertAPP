@@ -16,7 +16,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=21">
+  <link rel="stylesheet" href="css/style.css?v=25">
   <link rel="stylesheet" href="css/ui.css?v=8">
 </head>
 
@@ -155,32 +155,32 @@
 
     <!-- ══════════ PROTOKOLL PAGE ══════════ -->
     <div class="page" id="page-protokoll">
-      <div class="day-editor-area" style="padding-top: 16px;">
-        <!-- Section: Basis-Details -->
-        <div class="meta-section" style="padding: 0 0 16px 0;">
-          <div class="field">
-            <label>Veranstaltung / Projekt</label>
-            <input type="text" id="prot-event" class="meta-input" placeholder="Name des Projekts"
-              oninput="saveProtDraft()" />
-          </div>
-          <div class="field">
-            <label>Einsatzort / Location</label>
-            <input type="text" id="prot-location" class="meta-input" placeholder="Ort" oninput="saveProtDraft()" />
-          </div>
-          <div class="meta-fields">
-            <div class="meta-field">
-              <span class="meta-label">Datum</span>
-              <div style="display: flex; gap: 8px; align-items: center;">
-                <input type="date" id="prot-date" class="meta-input" style="flex:1; margin-bottom: 0;" onchange="saveProtDraft(); calcProtCosts()" />
-                <label style="display: flex; align-items: center; gap: 4px; margin: 0; font-size: 13px; font-weight: normal; color: var(--text2); white-space: nowrap; cursor: pointer;">
-                  <input type="checkbox" id="prot-isholiday" style="width: 16px; height: 16px; margin: 0; accent-color: var(--accent);" onchange="saveProtDraft(); calcProtCosts()" />
-                  Feiertag
-                </label>
-              </div>
+      <div class="prot-scroll" id="prot-scroll">
+        <div class="prot-nav-wrap"><div class="ui-chipbar" id="prot-section-nav"></div></div>
+        <div class="ui-page">
+
+          <!-- Section: Basis -->
+          <section class="ui-section" id="prot-sec-basis">
+            <div class="ui-section-head"><span class="ui-label">Basis</span></div>
+            <label class="ui-field"><span>Veranstaltung / Projekt</span>
+              <input type="text" id="prot-event" placeholder="Name des Projekts" oninput="saveProtDraft()" /></label>
+            <label class="ui-field"><span>Einsatzort / Location</span>
+              <input type="text" id="prot-location" placeholder="Ort" oninput="saveProtDraft()" /></label>
+            <div class="prot-date-row">
+              <label class="ui-field"><span>Datum</span>
+                <input type="date" id="prot-date" onchange="saveProtDraft(); calcProtCosts()" /></label>
+              <label class="prot-switch-label"><input type="checkbox" class="ui-switch" id="prot-isholiday" onchange="saveProtDraft(); calcProtCosts()" /> Feiertag</label>
             </div>
-            <div class="meta-field">
-              <span class="meta-label">Aktion</span>
-              <select id="prot-action" class="meta-input" onchange="saveProtDraft()">
+            <div class="ui-field"><span>Aktion</span>
+              <div class="ui-seg prot-action-seg" id="prot-action-seg" role="group" aria-label="Aktion">
+                <button type="button" data-value="Aufbau" onclick="setProtAction('Aufbau')">Aufbau</button>
+                <button type="button" data-value="Teilaufbau" onclick="setProtAction('Teilaufbau')">Teilaufbau</button>
+                <button type="button" data-value="Umbau" onclick="setProtAction('Umbau')">Umbau</button>
+                <button type="button" data-value="Teilabbau" onclick="setProtAction('Teilabbau')">Teilabbau</button>
+                <button type="button" data-value="Abbau" onclick="setProtAction('Abbau')">Abbau</button>
+              </div>
+              <!-- data source for the segment (read by save/load) -->
+              <select id="prot-action" hidden onchange="saveProtDraft()">
                 <option value="Aufbau">Aufbau</option>
                 <option value="Teilaufbau">Teilaufbau</option>
                 <option value="Umbau">Umbau</option>
@@ -188,110 +188,71 @@
                 <option value="Abbau">Abbau</option>
               </select>
             </div>
-          </div>
-          <div class="meta-fields">
-            <div class="meta-field">
-              <span class="meta-label">Aufbauleitung (AL)</span>
-              <select id="prot-al" class="meta-input" onchange="saveProtDraft()">
-                <option value="">— AL auswählen —</option>
-              </select>
+            <div class="stunden-grid">
+              <label class="ui-field"><span>Aufbauleitung (AL)</span>
+                <select id="prot-al" onchange="saveProtDraft()"><option value="">— AL auswählen —</option></select></label>
+              <label class="ui-field"><span>Projektleitung (PL)</span>
+                <select id="prot-pl" onchange="saveProtDraft()"><option value="">— PL auswählen —</option></select></label>
             </div>
-            <div class="meta-field">
-              <span class="meta-label">Projektleitung (PL)</span>
-              <select id="prot-pl" class="meta-input" onchange="saveProtDraft()">
-                <option value="">— PL auswählen —</option>
-              </select>
-            </div>
-          </div>
-        </div>
+          </section>
 
-        <!-- Section: Transport & Logistik -->
-        <div class="day-editor-head" style="padding-top: 0;">
-          <div class="day-editor-title">Transport & Logistik</div>
-        </div>
-        <div id="prot-transport-list">
-          <!-- Transport slots generated via JS -->
-        </div>
-        <button class="add-shift-btn" onclick="addProtTransport()">＋ Transport hinzufügen</button>
+          <!-- Section: Transport -->
+          <section class="ui-section" id="prot-sec-transport">
+            <div class="ui-section-head"><span class="ui-label">Transport &amp; Logistik</span></div>
+            <div id="prot-transport-list"></div>
+            <button type="button" class="ui-add-row" onclick="addProtTransport()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Transport hinzufügen</button>
+          </section>
 
-        <!-- Section: Equipment Status -->
-        <div class="day-editor-head" style="margin-top: 24px;">
-          <div class="day-editor-title">Infos zum Equipment für Anlieferung & Rücklauf</div>
-          <div class="day-editor-date">Kategorien abwählen, falls nicht vorhanden</div>
-        </div>
-        <div id="prot-categories-list">
-          <!-- Category blocks generated via JS -->
-        </div>
+          <!-- Section: Equipment -->
+          <section class="ui-section" id="prot-sec-equipment">
+            <div class="ui-section-head"><span class="ui-label">Equipment für Anlieferung &amp; Rücklauf</span></div>
+            <div class="ui-sub" style="margin:-4px 2px 8px;">Kategorien ausschalten, falls nicht vorhanden</div>
+            <div id="prot-categories-list"></div>
+          </section>
 
-        <!-- Section: Personal -->
-        <div class="day-editor-head" style="margin-top: 24px;">
-          <div class="day-editor-title">Personal-Erfassung</div>
-        </div>
-        <div id="prot-personnel-list">
-          <!-- Personnel slots generated via JS -->
-        </div>
-        <button class="add-shift-btn" onclick="addProtPersonnel()">＋ Personal hinzufügen</button>
+          <!-- Section: Personal -->
+          <section class="ui-section" id="prot-sec-personal">
+            <div class="ui-section-head"><span class="ui-label">Personal</span></div>
+            <div id="prot-personnel-list"></div>
+            <button type="button" class="ui-add-row" onclick="addProtPersonnel()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Personal hinzufügen</button>
+          </section>
 
-        <!-- Section: Vorkommnisse -->
-        <div class="day-editor-head" style="margin-top: 24px;">
-          <div class="day-editor-title">Vorkommnisse & Feedback</div>
-        </div>
-        <div class="shift-block">
-          <div class="field">
-            <label>Beschädigungen / Mängel</label>
-            <textarea id="prot-damages" class="meta-input" style="height: 60px; font-family: inherit;"
-              placeholder="Falls vorhanden, bitte beschreiben..." oninput="saveProtDraft()"></textarea>
-          </div>
-          <div class="field">
-            <label>Besondere Vorkommnisse</label>
-            <textarea id="prot-incidents" class="meta-input" style="height: 60px; font-family: inherit;"
-              placeholder="z. B. Verzögerungen, Probleme vor Ort" oninput="saveProtDraft()"></textarea>
-          </div>
-          <div class="field">
-            <label>Feedback zur Location / Sonstiges</label>
-            <textarea id="prot-feedback" class="meta-input" style="height: 60px; font-family: inherit;"
-              placeholder="Lob, Kritik, Verbesserungsvorschläge" oninput="saveProtDraft()"></textarea>
-          </div>
-        </div>
+          <!-- Section: Vorkommnisse -->
+          <section class="ui-section" id="prot-sec-vorkommnisse">
+            <div class="ui-section-head"><span class="ui-label">Vorkommnisse &amp; Feedback</span></div>
+            <label class="ui-field"><span>Beschädigungen / Mängel</span>
+              <textarea id="prot-damages" class="prot-text" placeholder="Falls vorhanden, bitte beschreiben…" oninput="saveProtDraft(); growProtText(this)"></textarea></label>
+            <label class="ui-field"><span>Besondere Vorkommnisse</span>
+              <textarea id="prot-incidents" class="prot-text" placeholder="z. B. Verzögerungen, Probleme vor Ort" oninput="saveProtDraft(); growProtText(this)"></textarea></label>
+            <label class="ui-field"><span>Feedback zur Location / Sonstiges</span>
+              <textarea id="prot-feedback" class="prot-text" placeholder="Lob, Kritik, Verbesserungsvorschläge" oninput="saveProtDraft(); growProtText(this)"></textarea></label>
+          </section>
 
-        <!-- Section: Signature -->
-        <div class="day-editor-head" style="margin-top: 24px;">
-          <div class="day-editor-title">Unterschrift AL</div>
-        </div>
-        <div class="shift-block">
-          <div class="field">
-            <button class="sig-full-btn" type="button" onclick="openProtSig()">🖊️ Vollbild-Unterschrift öffnen</button>
-            <div class="sig-wrap" style="margin-top:8px;" onclick="openProtSig()">
+          <!-- Section: Unterschrift -->
+          <section class="ui-section" id="prot-sec-unterschrift">
+            <div class="ui-section-head"><span class="ui-label">Unterschrift AL</span><span class="ui-pill ui-pill-warn" id="prot-sig-pill">fehlt</span></div>
+            <div class="sig-wrap" onclick="openProtSig()">
               <canvas id="sigc-prot"></canvas>
               <div class="sig-placeholder" id="sigph-prot">Tippen für Unterschrift</div>
               <button class="sig-clear" type="button" onclick="event.stopPropagation();clearProtSig()">löschen</button>
             </div>
-          </div>
-        </div>
-
-        <!-- Section: Costs -->
-        <div class="week-total-chip" style="margin: 24px 0 0 0;">
-          <div class="wtc-label">Voraussichtliche Nachkalkulation</div>
-          <div style="text-align: right;">
-            <div class="wtc-val"><span id="prot-total-cost">0,00</span><span class="wtc-unit">€</span></div>
-            <div style="font-size: 11px; color: var(--accent-text); opacity: 0.8;">Logistik + Personal</div>
-          </div>
+          </section>
         </div>
       </div>
 
-      <div class="fab-area">
-        <button class="btn" onclick="clearProtForm()">Löschen</button>
-        <button class="btn primary" onclick="saveProtokoll()">Senden</button>
+      <div class="ui-actionbar">
+        <div class="ui-actionbar-info" onclick="openProtCostSheet()" role="button" tabindex="0">
+          <span class="ui-sub">Nachkalkulation</span>
+          <b><span id="prot-total-cost">0,00</span> €</b>
+        </div>
+        <button type="button" class="ui-btn ui-btn-primary" style="flex:0 0 auto; min-width:140px;" onclick="saveProtokoll()">Senden</button>
       </div>
     </div>
 
     <!-- ══════════ PROTOKOLL VERLAUF PAGE ══════════ -->
     <div class="page" id="page-protokoll-history">
       <div class="history-scroll">
-        <div class="history-page-header">
-          <div class="history-page-title">Protokoll-Verlauf</div>
-        </div>
-        <div id="prot-history-list"></div>
+        <div class="ui-page"><div id="prot-history-list"></div></div>
       </div>
     </div>
 
@@ -931,14 +892,14 @@
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=10"></script>
   <script src="js/utils.js?v=17"></script>
+  <script src="js/ui.js?v=1"></script>
   <script src="js/settings.js?v=3"></script>
   <script src="js/stundenzettel.js?v=14"></script>
-  <script src="js/protokoll.js?v=23"></script>
+  <script src="js/protokoll.js?v=26"></script>
   <script src="js/erinnerung.js?v=8"></script>
   <script src="js/plan-pdf.js?v=1"></script>
   <script src="js/plan-parser.js?v=10"></script>
   <script src="js/wochenplan.js?v=9"></script>
-  <script src="js/ui.js?v=1"></script>
   <script src="js/home.js?v=3"></script>
   <script src="js/dashboard.js?v=16"></script>
   <script src="js/produkte.js?v=14"></script>

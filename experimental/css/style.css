@@ -175,45 +175,10 @@ body {
 }
 
 /* ── WEEK STRIP ── */
-.week-total-chip {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin: 8px 16px 0;
-  background: var(--accent-bg);
-  border: 0.5px solid var(--accent);
-  border-radius: var(--radius);
-  padding: 9px 16px;
-  flex-shrink: 0
-}
 
-.wtc-label {
-  font-size: 12px;
-  color: var(--accent-text);
-  font-weight: 500
-}
 
-.wtc-val {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--accent)
-}
 
-.wtc-unit {
-  font-size: 13px;
-  color: var(--accent-text);
-  margin-left: 2px
-}
 
-.wtc-earnings {
-  font-size: 13px;
-  color: var(--accent-text);
-  font-weight: 500;
-  opacity: 0.8;
-  text-align: right;
-  margin-top: 2px;
-  display: none;
-}
 
 /* ── DAY EDITOR AREA ── */
 .day-editor-area {
@@ -1324,4 +1289,35 @@ canvas#historyChart {
 .stunden-kw b { font-size: 20px; font-weight: 700; color: var(--text); line-height: 1.1; }
 .stunden-h { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 #page-history .ui-row { align-items: center; }
-#page-history .history-scroll { padding: 0; }
+#page-history .history-scroll, #page-protokoll-history .history-scroll { padding: 0; }
+
+/* ── Protokoll (redesign) ── */
+.prot-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.prot-nav-wrap { position: sticky; top: 0; z-index: 10; background: var(--bg); padding: 8px 16px; border-bottom: 0.5px solid var(--border); }
+.prot-nav-wrap .ui-chipbar { max-width: 688px; margin: 0 auto; }
+.prot-date-row { display: flex; align-items: flex-end; gap: 12px; }
+.prot-date-row .ui-field { flex: 1; }
+.prot-switch-label { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text2); margin-bottom: 20px; cursor: pointer; white-space: nowrap; }
+.prot-action-seg { overflow-x: auto; scrollbar-width: none; }
+.prot-action-seg::-webkit-scrollbar { display: none; }
+.prot-action-seg > button { flex: 1 0 auto; padding: 0 12px; }
+.prot-text { min-height: 72px; resize: vertical; font-family: inherit; line-height: 1.4; }
+#page-protokoll .ui-row { align-items: center; }
+#page-protokoll .ui-row-body { cursor: default; }
+.prot-chev .ui-ico { transition: transform .15s; }
+.ui-row-open .prot-chev .ui-ico { transform: rotate(90deg); }
+.prot-time-grid { display: grid; grid-template-columns: 1fr 1fr 84px; gap: 0 10px; }
+.prot-remove { width: 100%; border: 0; min-height: 40px; }
+.prot-rating { display: inline-flex; gap: 2px; }
+.prot-rate { width: 34px; height: 34px; border-radius: 10px; border: 0.5px solid var(--border2); background: var(--bg); font-size: 15px; cursor: pointer; padding: 0; opacity: .55; }
+.prot-rate.on { opacity: 1; border-color: var(--accent); background: var(--accent-bg); }
+.prot-cat-head { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.prot-cat-head .ui-row-title { flex: 1; }
+.prot-cat-off { padding-top: 10px; padding-bottom: 10px; }
+.prot-cat-off .ui-row-title { color: var(--text2); }
+.prot-cost-line { display: flex; justify-content: space-between; gap: 12px; padding: 8px 2px; border-bottom: 0.5px solid var(--border); font-size: 15px; }
+.prot-cost-line b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.prot-cost-total { border-bottom: 0; font-size: 17px; font-weight: 700; }
+.prot-date-block { flex: 0 0 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text2); font-size: 11px; }
+.prot-date-block b { font-size: 20px; font-weight: 700; color: var(--text); line-height: 1.1; }
+#page-protokoll-history .ui-row { align-items: center; }
