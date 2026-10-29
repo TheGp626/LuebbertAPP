@@ -356,3 +356,14 @@ test('planShiftOrder: times before 4:00 are the night after the listed day', () 
   // … and still upcoming in the afternoon of the listed day
   assert.deepEqual(P.planShiftOrder([night], new Date(2026, 9, 29, 15, 0)), [night]);
 });
+
+test('planEventName: equipment title → event line after room in the location, never a hall', () => {
+  const loc = (...tail) => ['Musterallee 1', '12345 Berlin', ...tail];
+  assert.equal(P.planEventName({ title: '4 STB weiß', venue: 'Estrel', location: loc('Showtheater', 'Zahnärztetag XY') }), 'Zahnärztetag XY');
+  assert.equal(P.planEventName({ title: '10 Stehtischdeko', venue: 'Estrel', location: loc('Bar', 'Verband | Abendempfang') }), 'Verband | Abendempfang');
+  assert.equal(P.planEventName({ title: '2 Sitzelement Ecke', venue: 'Kunde GmbH', location: loc('Halle 1 | Sektor B') }), 'Kunde GmbH');
+  assert.equal(P.planEventName({ title: '34 Stuhl weiß', venue: 'Hotel', location: loc() }), 'Hotel');
+  assert.equal(P.planEventName({ title: '34 Stuhl weiß', venue: 'Hotel' }), 'Hotel');
+  // DB shape: location as one string with line breaks
+  assert.equal(P.planEventName({ title: '7 Sessel', venue: 'Estrel', location: 'Musterallee 1\n12345 Berlin\nSaal\nFirmenfeier' }), 'Firmenfeier');
+});

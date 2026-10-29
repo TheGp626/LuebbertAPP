@@ -445,9 +445,14 @@ function planGuessAction(wann) {
   return 'Aufbau';
 }
 
-// Equipment lines ("4 Sitzhocker …") are no event names → fall back to the location
+// Equipment lines ("4 Sitzhocker …") are no event names → the last location line after the postcode
+// (street, "12057 Berlin", room, event) unless that is a hall/room; else the venue
+var PLAN_ROOM_LINE = /^(halle|raum|saal|foyer|stand|\d+\.\s*og)\b/i;
 function planEventName(s) {
-  return (s.title && !/^\d/.test(s.title)) ? s.title : s.venue;
+  if (s.title && !/^\d/.test(s.title)) return s.title;
+  var loc = planLines(s.location), i = loc.findIndex(function(l) { return /^\d{5}\b/.test(l); });
+  var last = i < 0 ? '' : (loc.slice(i + 1).filter(Boolean).pop() || '').trim();
+  return last && !PLAN_ROOM_LINE.test(last) ? last : s.venue;
 }
 
 // "7 Loungesessel …" is a quantity line; "1. OG" is a floor and stays a heading
