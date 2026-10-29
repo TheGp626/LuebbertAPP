@@ -92,20 +92,20 @@ function wpPeopleSummary(s) {
 
 function wpOpenPills(s) {
   return (s.open_slots || []).map(function(o) {
-    return '<span class="wp-pill wp-warn">' + o.count + ' ' + wpEsc(o.role) + ' ' + (o.count === 1 ? 'fehlt' : 'fehlen') + '</span>';
+    return '<span class="ui-pill ui-pill-warn">' + o.count + ' ' + wpEsc(o.role) + ' ' + (o.count === 1 ? 'fehlt' : 'fehlen') + '</span>';
   }).join('');
 }
 
 function wpStatusPill(s) {
   if (!s.change_status) return '';
-  return '<span class="wp-pill ' + (s.change_status === 'neu' ? 'wp-new' : 'wp-warn') + '">' + s.change_status + '</span>';
+  return '<span class="ui-pill ' + (s.change_status === 'neu' ? 'ui-pill-ok' : 'ui-pill-warn') + '">' + s.change_status + '</span>';
 }
 
 function wpAvatars(people, max) {
   var shown = people.slice(0, max);
   return shown.map(function(p) {
-    return '<span class="wp-av' + (p.isMe ? ' wp-av-me' : '') + '" title="' + wpEsc(p.label) + '">' + wpEsc(wpInitials(p.label)) + '</span>';
-  }).join('') + (people.length > max ? '<span class="wp-av wp-av-more">+' + (people.length - max) + '</span>' : '');
+    return '<span class="ui-avatar' + (p.isMe ? ' ui-avatar-me' : '') + '" title="' + wpEsc(p.label) + '">' + wpEsc(wpInitials(p.label)) + '</span>';
+  }).join('') + (people.length > max ? '<span class="ui-avatar wp-av-more">+' + (people.length - max) + '</span>' : '');
 }
 
 function wpTeamLine(s) {
@@ -150,11 +150,11 @@ function wpRow(s, opts) {
   opts = opts || {};
   var tc = wpTimeCol(s), mine = wpMyAssignment(s), head = planShiftHeading(s);
   var sub = [head && head !== s.venue ? head : null, s.ap ? 'PL ' + s.ap : null].filter(Boolean).join(' · ');
-  return '<div class="wp-row' + (mine ? ' wp-row-me' : '') + '" onclick="wpToggle(this)" role="button" tabindex="0" aria-expanded="false">' +
+  return '<div class="ui-row' + (mine ? ' ui-row-me' : '') + '" onclick="wpToggle(this)" role="button" tabindex="0" aria-expanded="false">' +
     '<div class="wp-time' + (tc.fuzzy ? ' wp-time-fuzzy' : '') + '"><b>' + wpEsc(tc.big) + '</b><span>' + wpEsc(tc.small) + '</span></div>' +
     '<div class="wp-main">' +
       '<div class="wp-head"><div class="wp-venue">' + (s.color ? '<span class="wp-dot" style="background:' + wpEsc(s.color) + '"></span>' : '') + wpEsc(s.venue || '—') + '</div>' +
-        '<div class="wp-badges">' + wpStatusPill(s) + (mine ? '<span class="wp-pill wp-me">Du' + (mine.role && mine.role !== 'MA' ? ' · ' + wpEsc(mine.role) : '') + '</span>' : '') + WP_ICON.chevron + '</div></div>' +
+        '<div class="wp-badges">' + wpStatusPill(s) + (mine ? '<span class="ui-pill ui-pill-info">Du' + (mine.role && mine.role !== 'MA' ? ' · ' + wpEsc(mine.role) : '') + '</span>' : '') + WP_ICON.chevron + '</div></div>' +
       (opts.showDate ? '<div class="wp-sub">' + wpDayLabel(s.date) + (sub ? ' · ' + wpEsc(sub) : '') + '</div>' : (sub ? '<div class="wp-sub">' + wpEsc(sub) + '</div>' : '')) +
       wpTeamLine(s) +
       wpDetails(s) +
@@ -180,9 +180,9 @@ function wpHero(s) {
   var street = loc.find(function(l) { return /\d/.test(l) && !/^\d{5}\b/.test(l); });
   var addr = [loc[0], street].filter(function(x, i, a) { return x && a.indexOf(x) === i; }).join(', ');
   return '<div class="wp-hero-label">Nächster Einsatz · ' + when + '</div>' +
-    '<div class="wp-hero" onclick="wpToggle(this)" role="button" tabindex="0" aria-expanded="false">' +
+    '<div class="ui-hero" onclick="wpToggle(this)" role="button" tabindex="0" aria-expanded="false">' +
       '<div class="wp-head"><div class="wp-hero-date">' + wpDayLabel(s.date) + '</div><div class="wp-badges">' + wpStatusPill(s) +
-        '<span class="wp-pill wp-me">Du' + (mine && mine.role && mine.role !== 'MA' ? ' · ' + wpEsc(mine.role) : '') + '</span></div></div>' +
+        '<span class="ui-pill ui-pill-info">Du' + (mine && mine.role && mine.role !== 'MA' ? ' · ' + wpEsc(mine.role) : '') + '</span></div></div>' +
       '<div class="wp-hero-time">' + wpEsc(tc.big) + (tc.small ? ' <span>' + wpEsc(tc.small) + '</span>' : '') + '</div>' +
       '<div class="wp-hero-venue">' + wpEsc(s.venue || '—') + (head && head !== s.venue ? ' · ' + wpEsc(head) : '') + '</div>' +
       (addr ? '<div class="wp-sub">' + WP_ICON.pin + ' ' + wpEsc(addr) + '</div>' : '') +
@@ -288,7 +288,7 @@ async function wpRenderMine() {
     return;
   }
   content.innerHTML = wpHero(shifts[0]) +
-    (shifts.length > 1 ? '<div class="wp-section">Danach</div>' + shifts.slice(1).map(function(s) { return wpRow(s, { showDate: true }); }).join('') : '');
+    (shifts.length > 1 ? '<div class="ui-label">Danach</div>' + shifts.slice(1).map(function(s) { return wpRow(s, { showDate: true }); }).join('') : '');
 }
 
 function wpRenderDays(week, byDay) {
@@ -482,15 +482,15 @@ function wpRenderImport() {
   }).join('');
 
   document.getElementById('wp-import-body').innerHTML =
-    '<div class="wp-card">' +
+    '<div class="ui-card">' +
       '<div class="wp-hero-date">KW ' + p.kw + ' <span class="wp-sub-inline">' + wpDayLabel(p.weekStart) + ' – ' + wpDayLabel(p.weekEnd) + '</span></div>' +
       '<div class="wp-sub">' + p.shifts.length + ' Einsätze aus „' + wpEsc(wpImport.fileName) + '“. Telefonnummern werden nicht gespeichert.</div>' +
       diffInfo +
       (p.warnings.length ? '<div class="wp-warn-text">' + p.warnings.map(wpEsc).join('<br>') + '</div>' : '') +
     '</div>' +
-    (names.length ? '<div class="wp-card"><div class="wp-card-title">Namen zuordnen</div>' +
+    (names.length ? '<div class="ui-card"><div class="wp-card-title">Namen zuordnen</div>' +
       '<div class="wp-sub" style="margin-bottom:10px;">Die App merkt sich deine Auswahl für die nächsten Pläne.</div>' + nameRows + '</div>' : '') +
-    '<div class="wp-section">Vorschau</div>' + preview;
+    '<div class="ui-label">Vorschau</div>' + preview;
   document.getElementById('wp-main').style.display = 'none';
   document.getElementById('wp-import').style.display = '';
   document.getElementById('page-wochenplan').scrollTop = 0;

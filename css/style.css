@@ -1350,9 +1350,6 @@ canvas#historyChart {
 .wp-hint-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; padding: 11px; margin-bottom: 12px; }
 
 .wp-sticky { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 4px 0 8px; margin: 0 -2px 4px; }
-.wp-seg { display: flex; background: var(--bg2); border: 0.5px solid var(--border); border-radius: 12px; padding: 3px; }
-.wp-seg button { flex: 1; min-height: 40px; border: 0; background: none; border-radius: 9px; font-size: 14px; font-weight: 500; color: var(--text2); cursor: pointer; }
-.wp-seg button.active { background: var(--bg); color: var(--text); box-shadow: 0 0 0 0.5px var(--border2); }
 .wp-weeknav { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
 .wp-weeknav button { width: 44px; height: 40px; border: 0.5px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .wp-weeknav button .wp-ico { width: 20px; height: 20px; }
@@ -1369,14 +1366,10 @@ canvas#historyChart {
 .wp-today { border-color: var(--accent); }
 .wp-today b { color: var(--accent-text); }
 
-.wp-section { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .05em; margin: 18px 2px 8px; }
 .wp-dayhead { font-size: 15px; font-weight: 700; margin: 18px 2px 8px; scroll-margin-top: 182px; }
 .wp-dayhead span { font-size: 13px; font-weight: 400; color: var(--text2); }
 .wp-dayhead-static { scroll-margin-top: 0; }
 
-.wp-row { display: flex; gap: 12px; background: var(--bg2); border: 0.5px solid var(--border); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; cursor: pointer; }
-.wp-row:active { background: var(--bg3); }
-.wp-row-me { border: 1.5px solid var(--accent); padding: 11px 13px; }
 .wp-time { flex: 0 0 62px; min-width: 0; display: flex; flex-direction: column; padding-top: 1px; }
 .wp-time b { font-size: 17px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
 /* Labels like "Teilaufbau"/"Anlieferung" and fuzzy words ("nachmittags") must wrap inside the column */
@@ -1390,16 +1383,10 @@ canvas#historyChart {
 .wp-sub { font-size: 13px; color: var(--text2); margin-top: 2px; line-height: 1.4; }
 .wp-sub .wp-ico { width: 14px; height: 14px; vertical-align: -2px; }
 .wp-sub-inline { font-size: 13px; font-weight: 400; color: var(--text2); }
-.wp-pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 99px; white-space: nowrap; line-height: 1.2; }
-.wp-warn { background: var(--wp-warn-bg); color: var(--wp-warn-text); }
-.wp-new { background: var(--wp-new-bg); color: var(--wp-new-text); }
-.wp-me { background: var(--accent-bg); color: var(--accent-text); }
 .wp-team { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .wp-team-text { font-size: 13px; color: var(--text2); }
 .wp-avs { display: inline-flex; padding-left: 4px; }
-.wp-av { width: 26px; height: 26px; margin-left: -5px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; background: var(--bg3); color: var(--text2); box-shadow: 0 0 0 2px var(--bg2); }
-.wp-av-me { background: var(--accent); color: #fff; }
-.wp-av-more { background: var(--bg); }
+.ui-avatar.wp-av-more { background: var(--bg); }
 .wp-chev { transition: transform .15s; }
 .wp-open .wp-chev { transform: rotate(180deg); }
 .wp-details { display: none; margin-top: 10px; padding-top: 10px; border-top: 0.5px solid var(--border); font-size: 13px; line-height: 1.5; color: var(--text); }
@@ -1413,7 +1400,6 @@ canvas#historyChart {
 .wp-prot-wide { width: 100%; min-height: 44px; margin-top: 14px; }
 
 .wp-hero-label { font-size: 13px; font-weight: 600; color: var(--text2); margin: 6px 2px 8px; }
-.wp-hero { background: var(--bg2); border: 1.5px solid var(--accent); border-radius: 18px; padding: 16px; cursor: pointer; }
 .wp-hero-date { font-size: 20px; font-weight: 700; }
 .wp-hero-time { font-size: 34px; font-weight: 700; line-height: 1.1; margin-top: 4px; font-variant-numeric: tabular-nums; }
 .wp-hero-time span { font-size: 15px; font-weight: 500; color: var(--text2); }
@@ -1427,7 +1413,6 @@ canvas#historyChart {
 .wp-empty-title { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
 .wp-empty-btn { display: inline-block !important; width: auto; margin-top: 14px; padding: 10px 16px; font-size: 14px; }
 
-.wp-card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: 14px; padding: 14px; margin-bottom: 10px; }
 .wp-card-title { font-weight: 700; font-size: 15px; }
 .wp-stats { display: flex; gap: 8px; margin-top: 12px; }
 .wp-stats div { flex: 1; background: var(--bg); border-radius: 10px; padding: 8px 10px; }
