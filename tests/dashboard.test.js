@@ -82,3 +82,13 @@ test('dashMonthStats: protocols and costs of the calendar month of `now`', () =>
   assert.deepEqual(plain(ctx.dashMonthStats([], new Date(2026, 9, 29))), { count: 0, cost: 0 });
   assert.deepEqual(plain(ctx.dashMonthStats([{ date: '2026-10-01', total_cost: null }], new Date(2026, 9, 1))), { count: 1, cost: 0 });
 });
+
+test('dashWorkerList: people with new hours first, then by name; search by name', () => {
+  const w = [{ id: 'a', full_name: 'Zoe', role: 'MA' }, { id: 'b', full_name: 'Anna', role: 'AL' }, { id: 'c', full_name: 'Ben', role: 'MA' }, { id: 'd', full_name: null, role: 'MA' }];
+  const all = plain(ctx.dashWorkerList(w, { c: 2 }, ''));
+  assert.deepEqual(all.map(x => x.id), ['c', 'b', 'd', 'a']); // 'Unbekannt' sorts by its displayed name
+  assert.deepEqual(all.map(x => x.pending), [2, 0, 0, 0]);
+  assert.equal(all[2].name, 'Unbekannt');
+  assert.deepEqual(plain(ctx.dashWorkerList(w, {}, 'AN')).map(x => x.id), ['b']);
+  assert.deepEqual(plain(ctx.dashWorkerList(w, {}, '  ')).length, 4);
+});

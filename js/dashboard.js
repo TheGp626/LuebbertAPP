@@ -63,9 +63,60 @@ function switchDashTab(tab) {
   }
 }
 
+// Opens/closes the "Mitarbeiter hinzufügen" sheet (name kept: addDashboardUser closes it after saving)
 function toggleAddUserForm() {
-  const form = document.getElementById('add-user-form');
-  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  const m = document.getElementById('add-user-modal');
+  if (m) m.classList.toggle('open');
+}
+
+// Employee list: people with new hours first, then by name; filtered by a name search
+function dashWorkerList(workers, pendingMap, query) {
+  var q = String(query || '').trim().toLowerCase();
+  return (workers || [])
+    .filter(function(w) { return !q || String(w.full_name || '').toLowerCase().indexOf(q) !== -1; }) // real names only, not the placeholder
+    .map(function(w) { return { id: w.id, name: w.full_name || 'Unbekannt', role: w.role || '', pending: (pendingMap || {})[w.id] || 0 }; })
+    .sort(function(a, b) { return (b.pending > 0) - (a.pending > 0) || a.name.localeCompare(b.name, 'de'); });
+}
+
+var dashPendingMap = {};
+
+function dashWorkerRowHtml(w, selectedId) {
+  return '<button type="button" class="ui-row dash-worker-row' + (w.id === selectedId ? ' ui-row-me' : '') + '" onclick="selectDashWorker(\'' + jsAttrArg(w.id) + '\')">' +
+    '<span class="ui-row-main"><span class="ui-row-title">' + escapeHtml(w.name) + '</span><span class="ui-sub">' + escapeHtml(w.role) + '</span></span>' +
+    (w.pending ? '<span class="ui-pill ui-pill-info" title="Neue Stunden">' + w.pending + '</span>' : '') +
+  '</button>';
+}
+
+function renderDashWorkerList() {
+  var listEl = document.getElementById('dash-worker-list');
+  if (!listEl) return;
+  var selected = (document.getElementById('dash-worker-select') || {}).value || '';
+  var query = (document.getElementById('dash-worker-search') || {}).value || '';
+  var rows = dashWorkerList(dashboardWorkers, dashPendingMap, query);
+  listEl.innerHTML = rows.length ? rows.map(function(w) { return dashWorkerRowHtml(w, selected); }).join('') : uiEmptyHtml('Niemand gefunden', '');
+  var panel = document.getElementById('pending-workers-panel'), chips = document.getElementById('pending-workers-chips');
+  var pending = rows.filter(function(w) { return w.pending > 0; });
+  if (panel && chips) {
+    panel.style.display = pending.length && !query.trim() ? 'block' : 'none';
+    chips.innerHTML = pending.map(function(w) { return dashWorkerRowHtml(w, selected); }).join('');
+  }
+}
+
+// Selecting a person: the hidden select stays the source the rest of the dashboard reads
+function selectDashWorker(id) {
+  var sel = document.getElementById('dash-worker-select');
+  if (!sel) return;
+  sel.value = id;
+  renderWorkerShifts();
+  updateEditWorkerBtn();
+  renderDashWorkerList();
+  var work = document.getElementById('dash-work');
+  if (work) work.classList.add('dash-work-detail-open');
+}
+
+function closeDashWorker() {
+  var work = document.getElementById('dash-work');
+  if (work) work.classList.remove('dash-work-detail-open');
 }
 
 function updateEditWorkerBtn() {
@@ -376,23 +427,7 @@ async function loadDashboardWorkers() {
       if (s.user_id) pendingMap[s.user_id] = (pendingMap[s.user_id] || 0) + 1;
     });
     dashboardWorkers = users || [];
-
-    // Render pending-workers panel
-    const panel = document.getElementById('pending-workers-panel');
-    const chips = document.getElementById('pending-workers-chips');
-    const pendingWorkers = dashboardWorkers.filter(w => pendingMap[w.id]);
-    if (panel && chips) {
-      if (pendingWorkers.length > 0) {
-        chips.innerHTML = pendingWorkers.map(w =>
-          `<button class="btn" style="width:auto;padding:6px 14px;font-size:13px;border:2px solid var(--accent);" onclick="document.getElementById('dash-worker-select').value='${escapeHtml(w.id)}';renderWorkerShifts();">` +
-          `${escapeHtml(w.full_name || 'Unbekannt')} <span style="background:var(--accent);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:6px;">${pendingMap[w.id]}</span>` +
-          `</button>`
-        ).join('');
-        panel.style.display = 'block';
-      } else {
-        panel.style.display = 'none';
-      }
-    }
+    dashPendingMap = pendingMap;
 
     const sel = document.getElementById('dash-worker-select');
     sel.innerHTML = '<option value="">-- Mitarbeiter wählen --</option>';
@@ -403,6 +438,7 @@ async function loadDashboardWorkers() {
       opt.textContent = (w.full_name || 'Unbekannt') + ' (' + (w.role || '') + ')' + indicator;
       sel.appendChild(opt);
     });
+    renderDashWorkerList();
   } catch (err) {
     console.error("Worker fetch err:", err);
   }

@@ -1329,3 +1329,19 @@ canvas#historyChart {
 .dash-actions { text-align: right; white-space: nowrap; }
 .dash-small-btn { min-height: 34px; padding: 6px 12px; font-size: 13px; }
 @media (max-width: 767px) { .dash-actions { justify-content: flex-end; gap: 8px; } }
+.dash-work { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; }
+.dash-work-list { position: sticky; top: 0; }
+.dash-worker-row { width: 100%; text-align: left; align-items: center; font: inherit; color: inherit; }
+.dash-worker-row .ui-row-main { display: flex; flex-direction: column; }
+.dash-work-back { display: none; margin: 0 0 8px; padding-left: 0; }
+.dash-worker-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 12px; }
+.dash-month { margin: 0; min-width: 200px; }
+#dash-export-month-btn { display: none !important; } /* export lives in the top bar menu */
+@media (max-width: 899px) {
+  .dash-work { grid-template-columns: 1fr; }
+  .dash-work-list { position: static; }
+  .dash-work .dash-work-detail { display: none; }
+  .dash-work.dash-work-detail-open .dash-work-list { display: none; }
+  .dash-work.dash-work-detail-open .dash-work-detail { display: block; }
+  .dash-work-back { display: inline-flex; }
+}
