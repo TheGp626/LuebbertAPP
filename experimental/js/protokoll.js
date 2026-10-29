@@ -849,8 +849,19 @@ function clearProtForm(skipConfirm) {
   protState.editingLocalId = null;
 }
 
+// Rows that Senden would skip (no start or no end) although someone filled them in; untouched blank rows don't count
+function protIncompleteNames(personnel) {
+  return (personnel || []).filter(function(p) {
+    var used = p.name || p.tempName || p.start || p.end;
+    return used && (!p.start || !p.end);
+  }).map(function(p) { return p.name || p.tempName || 'Ohne Name'; });
+}
+
 // ── PROTOKOLL SAVE (replaces PDF Export) ──
 async function saveProtokoll() {
+  var missing = protIncompleteNames(protState.personnel);
+  if (missing.length && !confirm('Ohne Start- oder Endzeit: ' + missing.join(', ') + '.\n\n' +
+      (missing.length === 1 ? 'Diese Person wird' : 'Diese Personen werden') + ' nicht mitgespeichert und fehlen bei den Stunden. Trotzdem senden?')) return;
   var usersLoaded = appUsers.length > 0;
   var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded);
   var plId = protSelectedId((document.getElementById('prot-pl') || {}).value, protState.plId, usersLoaded);
