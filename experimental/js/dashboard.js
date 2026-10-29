@@ -967,7 +967,14 @@ async function ensureRateUsers() {
   }
 }
 
+var _recalcRunning = false; // the menu item has no button to disable → guard against a second tap
 async function recalcAllProtocolCosts() {
+  if (_recalcRunning) return;
+  _recalcRunning = true;
+  try { await recalcAllProtocolCostsRun(); } finally { _recalcRunning = false; }
+}
+
+async function recalcAllProtocolCostsRun() {
   if (!dashboardProtocols || dashboardProtocols.length === 0) {
     if (typeof showToast === 'function') showToast('Keine Protokolle geladen.', 'danger');
     return;

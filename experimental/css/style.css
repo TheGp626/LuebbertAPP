@@ -1227,6 +1227,8 @@ canvas#historyChart {
 .wp-empty { text-align: center; color: var(--text2); font-size: 14px; line-height: 1.5; padding: 40px 16px; }
 .wp-empty-title { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
 .wp-empty-btn { display: inline-block !important; width: auto; margin-top: 14px; padding: 10px 16px; font-size: 14px; }
+.wp-cal-btn { width: 100%; margin-top: 18px; gap: 8px; }
+.wp-cal-hint { text-align: center; margin-top: 6px; font-size: 12px; }
 
 .wp-card-title { font-weight: 700; font-size: 15px; }
 .wp-stats { display: flex; gap: 8px; margin-top: 12px; }

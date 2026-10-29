@@ -539,10 +539,72 @@ function planShiftFromDb(r) {
   };
 }
 
+// ── Calendar export (.ics) of a person's plan shifts (DB rows with plan_assignments) ──
+// UID comes from the plan key (date|venue|title), not the shift id: ids change with every upload, and the
+// calendar must update an imported entry instead of duplicating it. Times are floating local times.
+function planIcsText(t) {
+  return String(t || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+}
+
+// RFC 5545: lines longer than 75 bytes continue on the next line after a space
+function planIcsFold(line) {
+  var out = [], cur = '', bytes = 0;
+  for (var i = 0; i < line.length; i++) {
+    var ch = line[i], code = line.charCodeAt(i);
+    if (code >= 0xD800 && code <= 0xDBFF) ch += line[++i];
+    var b = code < 0x80 ? 1 : code < 0x800 ? 2 : code >= 0xD800 && code <= 0xDBFF ? 4 : 3;
+    if (bytes + b > (out.length ? 74 : 75)) { out.push(cur); cur = ''; bytes = 0; }
+    cur += ch; bytes += b;
+  }
+  out.push(cur);
+  return out.join('\r\n ');
+}
+
+function planIcsDate(date, addDays) {
+  var d = new Date(date + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + (addDays || 0));
+  return d.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+function planIcsUid(key) {
+  var h = 5381;
+  for (var i = 0; i < key.length; i++) h = ((h * 33) ^ key.charCodeAt(i)) >>> 0;
+  return 'plan-' + h.toString(16) + '-' + key.length + '@luebbert-app';
+}
+
+function planIcs(shifts, userId, stamp) {
+  var lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Luebbert//Stundenzettel//DE', 'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH', 'X-WR-CALNAME:Lübbert Schichten'];
+  (shifts || []).forEach(function(s) {
+    var wann = planLines(s.wann), when = planWhen(wann);
+    var loc = planLines(s.location), plz = loc.findIndex(function(l) { return /^\d{5}\b/.test(l); });
+    var place = [s.venue].concat(plz < 0 ? loc.slice(0, 1) : loc.slice(0, plz + 1)).filter(Boolean).join(', ');
+    var mine = (s.plan_assignments || []).find(function(a) { return a.user_id === userId; });
+    var desc = wann.concat(mine && mine.role ? ['Rolle: ' + mine.role] : []).join('\n');
+    var key = s.key || [s.date, s.venue, s.title].join('|').toLowerCase();
+    var ev = ['BEGIN:VEVENT', 'UID:' + planIcsUid(key), 'DTSTAMP:' + stamp];
+    if (when.time && when.prefix !== 'bis') {
+      var mins = function(t) { return parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10); };
+      var startDay = mins(when.time) < 240 ? 1 : 0, hm = function(t) { return t.replace(':', '') + '00'; };
+      ev.push('DTSTART:' + planIcsDate(s.date, startDay) + 'T' + hm(when.time));
+      if (when.end) ev.push('DTEND:' + planIcsDate(s.date, startDay + (mins(when.end) < mins(when.time) ? 1 : 0)) + 'T' + hm(when.end));
+    } else {
+      ev.push('DTSTART;VALUE=DATE:' + planIcsDate(s.date), 'DTEND;VALUE=DATE:' + planIcsDate(s.date, 1));
+    }
+    ev.push('SUMMARY:' + planIcsText((when.label ? when.label + ' – ' : '') + planEventName(s)));
+    if (place) ev.push('LOCATION:' + planIcsText(place));
+    if (desc) ev.push('DESCRIPTION:' + planIcsText(desc));
+    ev.push('END:VEVENT');
+    lines = lines.concat(ev);
+  });
+  lines.push('END:VCALENDAR');
+  return lines.map(planIcsFold).join('\r\n') + '\r\n';
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
     planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planShiftKey: planShiftKey,
     planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek, planCellLines: planCellLines,
     planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName,
-    planShiftOrder: planShiftOrder, nextOwnShift: nextOwnShift, planShiftHeading: planShiftHeading, planMaterialLines: planMaterialLines, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb };
+    planShiftOrder: planShiftOrder, nextOwnShift: nextOwnShift, planShiftHeading: planShiftHeading, planMaterialLines: planMaterialLines, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb, planIcs: planIcs };
 }

@@ -21,6 +21,11 @@ function homeTiles(role, allowed) {
   return HOME_TILES.filter(function(t) { return allowed(t.mode, role); });
 }
 
+// The card opens the Wochenplan: a role without access (Gast) gets no card instead of "Zugriff verweigert"
+function homeNextAllowed(role, allowed) {
+  return allowed('wochenplan', role);
+}
+
 // The cache belongs to one person: on a shared device another login must never see it
 function nextShiftCacheValue(userId, shift) {
   return JSON.stringify({ u: userId, s: shift, at: Date.now() });
@@ -64,7 +69,7 @@ function homeShowNext(shift) {
   var box = document.getElementById('home-next');
   if (!box) return;
   // A cached shift can be outdated by now: run it through the same filter as the live list
-  var s = shift ? nextOwnShift([shift], new Date()) : null;
+  var s = shift && homeNextAllowed(userRole, moduleAllowedForRole) ? nextOwnShift([shift], new Date()) : null;
   box.innerHTML = s ? homeNextHtml(s) : '';
 }
 
@@ -72,7 +77,7 @@ var _homeSeq = 0, _homeFetchedAt = 0, _homeFetchedFor = null;
 
 async function refreshHomeNextShift(force) {
   var me = (typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null;
-  if (!me || typeof supabaseClient === 'undefined') return;
+  if (!me || typeof supabaseClient === 'undefined' || !homeNextAllowed(userRole, moduleAllowedForRole)) return;
   // enforceUI and exitToMenu both render: one query per 30 s per person is enough
   if (!force && _homeFetchedFor === me && Date.now() - _homeFetchedAt < 30000) return;
   _homeFetchedFor = me; _homeFetchedAt = Date.now();
@@ -112,6 +117,6 @@ function renderHome() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { HOME_TILES: HOME_TILES, firstName: firstName, homeTiles: homeTiles,
+  module.exports = { HOME_TILES: HOME_TILES, firstName: firstName, homeTiles: homeTiles, homeNextAllowed: homeNextAllowed,
     nextShiftCacheValue: nextShiftCacheValue, readNextShiftCache: readNextShiftCache };
 }
