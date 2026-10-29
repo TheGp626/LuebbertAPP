@@ -1,0 +1,32 @@
+// Run from the repo root: node --test tests/ui.test.js
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const U = require('../js/ui.js');
+
+test('uiEmptyHtml escapes title and text', () => {
+  assert.match(U.uiEmptyHtml('<b>', 'x'), /&lt;b&gt;/);
+  assert.match(U.uiEmptyHtml('T', 'a & b'), /a &amp; b/);
+  assert.match(U.uiEmptyHtml('T', 'x', '<button>Go</button>'), /<button>Go<\/button>/);
+});
+
+test('uiMenuHtml: buttons call closeUiMenu then the action with args, danger class', () => {
+  const h = U.uiMenuHtml([{ label: 'Löschen', action: 'deleteWeek', args: ['2026-W44'], danger: true }, { label: 'Zeile', action: 'toggleRow', args: [3] }]);
+  assert.match(h, /onclick="closeUiMenu\(\);deleteWeek\('2026-W44'\)"/);
+  assert.match(h, /onclick="closeUiMenu\(\);toggleRow\(3\)"/);
+  assert.match(h, /ui-btn-danger/);
+  // quotes in args cannot break out of the attribute
+  assert.doesNotMatch(U.uiMenuHtml([{ label: 'x', action: 'f', args: ["a'\"b"] }]), /f\('a'"/);
+});
+
+test('topbarMenuItems: module items first, Optionen always last', () => {
+  U.UI_TOPBAR_ITEMS.protokoll = () => [{ label: 'Formular leeren', action: 'clearProtForm' }];
+  assert.deepEqual(U.topbarMenuItems('protokoll').map(i => i.label), ['Formular leeren', 'Optionen']);
+  assert.deepEqual(U.topbarMenuItems('ordner').map(i => i.label), ['Optionen']);
+  assert.deepEqual(U.topbarMenuItems(null).map(i => i.action), ['openSettingsModal']);
+});
+
+test('uiIcon returns an svg for known names and empty svg for unknown', () => {
+  assert.match(U.uiIcon('clock'), /^<svg class="ui-ico"/);
+  ['clock', 'clipboard', 'calendar', 'box', 'folder', 'chart', 'chevron-left', 'chevron-right', 'dots', 'plus', 'search', 'file', 'image', 'video', 'trash', 'edit', 'download', 'upload', 'check']
+    .forEach(n => assert.ok(U.UI_ICONS[n], n));
+});
