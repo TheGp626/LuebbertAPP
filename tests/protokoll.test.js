@@ -279,3 +279,18 @@ test('protSectionStatus: check marks per section (hints only)', () => {
   assert.equal(protSectionStatus({ transports: [{}], personnel: [], categories: {}, signature: null }, {}, {}).transport, true);
   assert.equal(protSectionStatus({ transports: [], personnel: [], categories: {}, signature: null }, {}, {}).equipment, true);
 });
+
+test('protTransportSummary / protPersonSummary: one-line row summaries', () => {
+  assert.equal(ctx.protTransportSummary({ type: 'Sprinter', driver: 'Max', punctuality: 'pünktlich' }), 'Sprinter · Max · pünktlich');
+  assert.equal(ctx.protTransportSummary({ type: 'LKW', driver: '', punctuality: 'verspätet', delay: '20' }), 'LKW · ohne Fahrer · 20 min Verspätung');
+  assert.equal(ctx.protTransportSummary({ type: 'LKW', driver: ' ', punctuality: 'verspätet', delay: '' }), 'LKW · ohne Fahrer · Verspätung');
+  assert.equal(ctx.protPersonSummary({ start: '08:00', end: '16:30', pause: '30' }), '08:00–16:30 · 30 min');
+  assert.equal(ctx.protPersonSummary({ start: '08:00', end: '16:30', pause: '0' }), '08:00–16:30');
+  assert.equal(ctx.protPersonSummary({ start: '', end: '', pause: '0' }), 'Zeiten fehlen');
+  assert.equal(ctx.protPersonSummary({ start: '08:00', end: '', pause: '0' }), 'ab 08:00 · Ende fehlt');
+});
+
+test('protShiftOpenRows: removing a row moves the open state of the rows after it', () => {
+  run("protOpenRows = { t0: true, t2: true, p1: true }; protShiftOpenRows('t', 1);");
+  assert.deepEqual(plain(ctx.protOpenRows), { t0: true, t1: true, p1: true });
+});

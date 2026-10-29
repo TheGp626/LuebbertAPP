@@ -1337,3 +1337,12 @@ canvas#historyChart {
 .prot-action-seg::-webkit-scrollbar { display: none; }
 .prot-action-seg > button { flex: 1 0 auto; padding: 0 12px; }
 .prot-text { min-height: 72px; resize: vertical; font-family: inherit; line-height: 1.4; }
+#page-protokoll .ui-row { align-items: center; }
+#page-protokoll .ui-row-body { cursor: default; }
+.prot-chev .ui-ico { transition: transform .15s; }
+.ui-row-open .prot-chev .ui-ico { transform: rotate(90deg); }
+.prot-time-grid { display: grid; grid-template-columns: 1fr 1fr 84px; gap: 0 10px; }
+.prot-remove { width: 100%; border: 0; min-height: 40px; }
+.prot-rating { display: inline-flex; gap: 2px; }
+.prot-rate { width: 34px; height: 34px; border-radius: 10px; border: 0.5px solid var(--border2); background: var(--bg); font-size: 15px; cursor: pointer; padding: 0; opacity: .55; }
+.prot-rate.on { opacity: 1; border-color: var(--accent); background: var(--accent-bg); }

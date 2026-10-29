@@ -282,14 +282,58 @@ function clearProtSig() {
 
 
 // ── TRANSPORT ──
+// Open/closed rows of the form ('t<i>' transport, 'p<i>' personnel); new entries start open
+var protOpenRows = {};
+
+function toggleProtRow(key) {
+  protOpenRows[key] = !protOpenRows[key];
+  if (key.charAt(0) === 't') { protTransportOpened = true; renderProtTransport(); renderProtSectionNav(); }
+  else renderProtPersonnel();
+}
+
+// After removing row `idx` of kind 't'/'p', the rows behind it move up one place
+function protShiftOpenRows(kind, idx) {
+  var next = {};
+  Object.keys(protOpenRows).forEach(function(k) {
+    if (!protOpenRows[k]) return;
+    if (k.charAt(0) !== kind) { next[k] = true; return; }
+    var n = parseInt(k.slice(1), 10);
+    if (n < idx) next[k] = true;
+    else if (n > idx) next[kind + (n - 1)] = true;
+  });
+  protOpenRows = next;
+}
+
+// "Sprinter · Max · pünktlich" / "LKW · ohne Fahrer · 20 min Verspätung"
+function protTransportSummary(t) {
+  var driver = (t.driver || '').trim() || 'ohne Fahrer';
+  var when = t.punctuality === 'verspätet' ? ((t.delay ? t.delay + ' min ' : '') + 'Verspätung') : 'pünktlich';
+  return (t.type || 'Fahrzeug') + ' · ' + driver + ' · ' + when;
+}
+
+// "08:00–16:30 · 30 min"
+function protPersonSummary(p) {
+  var pause = parseInt(p.pause) || 0;
+  if (p.start && p.end) return p.start + '–' + p.end + (pause > 0 ? ' · ' + pause + ' min' : '');
+  if (p.start) return 'ab ' + p.start + ' · Ende fehlt';
+  if (p.end) return 'bis ' + p.end + ' · Start fehlt';
+  return 'Zeiten fehlen';
+}
+
+function protRowChevron(key) {
+  return '<button type="button" class="ui-icon-btn prot-chev" aria-label="Details" aria-expanded="' + (protOpenRows[key] ? 'true' : 'false') + '" onclick="event.stopPropagation();toggleProtRow(\'' + key + '\')">' + uiIcon('chevron-right') + '</button>';
+}
+
 function addProtTransport() {
   protState.transports.push({ type: 'Sprinter', driver: '', punctuality: 'pünktlich', delay: '' });
+  protOpenRows['t' + (protState.transports.length - 1)] = true;
   renderProtTransport();
   saveProtDraft();
 }
 
 function removeProtTransport(idx) {
   protState.transports.splice(idx, 1);
+  protShiftOpenRows('t', idx);
   renderProtTransport();
   saveProtDraft();
   calcProtCosts();
@@ -299,45 +343,34 @@ function renderProtTransport() {
   var list = document.getElementById('prot-transport-list');
   if (!list) return;
   list.innerHTML = protState.transports.map(function(t, i) {
-    var delayHtml = '';
-    if (t.punctuality === 'verspätet') {
-      delayHtml = 
-        '    <div class="meta-field">' +
-        '      <span class="meta-label">Dauer (Min)</span>' +
-        '      <input type="number" class="meta-input" placeholder="0" value="' + escapeHtml(t.delay || '') + '" oninput="updateProtTransport(' + i + ', \'delay\', this.value)"/>' +
-        '    </div>';
-    }
-
-    return '<div class="shift-block">' +
-           '  <div class="shift-label">Transport ' + (i + 1) + 
-           '    <button class="shift-remove" onclick="removeProtTransport(' + i + ')">×</button>' +
-           '  </div>' +
-           '  <div class="meta-fields">' +
-           '    <div class="meta-field">' +
-           '      <span class="meta-label">Fahrzeugtyp</span>' +
-           '      <select class="meta-input" onchange="updateProtTransport(' + i + ', \'type\', this.value)">' +
-                    Object.keys(PROT_VEHICLE_RATES).map(function(v) {
-                      return '<option value="' + v + '" ' + (t.type === v ? 'selected' : '') + '>' + v + '</option>';
-                    }).join('') +
-           '      </select>' +
-           (t.type === 'Spedition' ? '      <div style="font-size:11px;color:var(--text3);margin-top:3px;">→ Kosten separat per Rechnung erfassen</div>' : '') +
-           '    </div>' +
-           '    <div class="meta-field">' +
-           '      <span class="meta-label">Fahrer</span>' +
-           '      <input type="text" class="meta-input" placeholder="Name" value="' + escapeHtml(t.driver || '') + '" oninput="updateProtTransport(' + i + ', \'driver\', this.value)"/>' +
-           '    </div>' +
-           '  </div>' +
-           '  <div class="meta-fields" style="margin-top: 8px;">' +
-           '    <div class="meta-field">' +
-           '      <span class="meta-label">Pünktlichkeit</span>' +
-           '      <select class="meta-input" onchange="updateProtTransport(' + i + ', \'punctuality\', this.value)">' +
-           '        <option value="pünktlich" ' + (t.punctuality === 'pünktlich' ? 'selected' : '') + '>Pünktlich</option>' +
-           '        <option value="verspätet" ' + (t.punctuality === 'verspätet' ? 'selected' : '') + '>Verspätung</option>' +
-           '      </select>' +
-           '    </div>' +
-           delayHtml +
-           '  </div>' +
-           '</div>';
+    var key = 't' + i;
+    var vehicles = Object.keys(PROT_VEHICLE_RATES).map(function(v) {
+      return '<option value="' + v + '" ' + (t.type === v ? 'selected' : '') + '>' + v + '</option>';
+    }).join('');
+    return '<div class="ui-row ui-row-wrap' + (protOpenRows[key] ? ' ui-row-open' : '') + '">' +
+      '<div class="ui-row-main" onclick="toggleProtRow(\'' + key + '\')">' +
+        '<div class="ui-row-title">Transport ' + (i + 1) + '</div>' +
+        '<div class="ui-sub" id="prot-tsum-' + i + '">' + escapeHtml(protTransportSummary(t)) + '</div>' +
+      '</div>' +
+      '<div class="ui-row-end">' + protRowChevron(key) + '</div>' +
+      '<div class="ui-row-body">' +
+        '<div class="stunden-grid">' +
+          '<label class="ui-field"><span>Fahrzeugtyp</span><select onchange="updateProtTransport(' + i + ', \'type\', this.value)">' + vehicles + '</select></label>' +
+          '<label class="ui-field"><span>Fahrer</span><input type="text" placeholder="Name" value="' + escapeHtml(t.driver || '') + '" oninput="updateProtTransport(' + i + ', \'driver\', this.value)"/></label>' +
+        '</div>' +
+        (t.type === 'Spedition' ? '<div class="ui-sub" style="margin:-4px 2px 10px;">Kosten separat per Rechnung erfassen</div>' : '') +
+        '<div class="stunden-grid">' +
+          '<label class="ui-field"><span>Pünktlichkeit</span><select onchange="updateProtTransport(' + i + ', \'punctuality\', this.value)">' +
+            '<option value="pünktlich" ' + (t.punctuality === 'pünktlich' ? 'selected' : '') + '>Pünktlich</option>' +
+            '<option value="verspätet" ' + (t.punctuality === 'verspätet' ? 'selected' : '') + '>Verspätung</option>' +
+          '</select></label>' +
+          (t.punctuality === 'verspätet'
+            ? '<label class="ui-field"><span>Dauer (Min)</span><input type="number" placeholder="0" value="' + escapeHtml(t.delay || '') + '" oninput="updateProtTransport(' + i + ', \'delay\', this.value)"/></label>'
+            : '') +
+        '</div>' +
+        '<button type="button" class="ui-btn ui-btn-danger prot-remove" onclick="removeProtTransport(' + i + ')">Transport entfernen</button>' +
+      '</div>' +
+    '</div>';
   }).join('');
 }
 
@@ -347,13 +380,16 @@ function updateProtTransport(idx, field, val) {
     if (val !== 'verspätet') protState.transports[idx].delay = '';
     renderProtTransport();
   }
+  var sum = document.getElementById('prot-tsum-' + idx);
+  if (sum) sum.textContent = protTransportSummary(protState.transports[idx]);
   saveProtDraft();
-  if (field === 'type') calcProtCosts();
+  if (field === 'type') { calcProtCosts(); renderProtTransport(); }
 }
 
 // ── PERSONNEL ──
 function addProtPersonnel() {
   protState.personnel.push({ pos: 'MA', isTemp: false, userId: '', tempName: '', name: '', start: '', end: '', pause: '0', rating: null, isStar: false });
+  protOpenRows['p' + (protState.personnel.length - 1)] = true;
   renderProtPersonnel();
   saveProtDraft();
 }
@@ -367,68 +403,54 @@ function updateProtRating(idx, field, val) {
 function removeProtPersonnel(idx) {
   // No server delete here: Senden replaces all shifts of the protocol, and abandoning the edit must keep them
   protState.personnel.splice(idx, 1);
+  protShiftOpenRows('p', idx);
   renderProtPersonnel();
   saveProtDraft();
   calcProtCosts();
+}
+
+function protRatingButtons(p, i) {
+  return '<span class="prot-rating">' +
+    '<button type="button" class="prot-rate' + (p.rating === 'up' ? ' on' : '') + '" onclick="event.stopPropagation();updateProtRating(' + i + ',\'rating\',' + (p.rating === 'up' ? 'null' : '\'up\'') + ')" title="Daumen hoch">👍</button>' +
+    '<button type="button" class="prot-rate' + (p.rating === 'down' ? ' on' : '') + '" onclick="event.stopPropagation();updateProtRating(' + i + ',\'rating\',' + (p.rating === 'down' ? 'null' : '\'down\'') + ')" title="Daumen runter">👎</button>' +
+    '<button type="button" class="prot-rate' + (p.isStar ? ' on' : '') + '" onclick="event.stopPropagation();updateProtRating(' + i + ',\'isStar\',' + (!p.isStar) + ')" title="Besonders gut">⭐</button>' +
+  '</span>';
 }
 
 function renderProtPersonnel() {
   var list = document.getElementById('prot-personnel-list');
   if (!list) return;
   list.innerHTML = protState.personnel.map(function(p, i) {
+    var key = 'p' + i;
     var opts = ['AL', 'MA', 'Fahrer', 'Zenjob', 'Rockit'].map(function(o) {
       return '<option value="' + o + '" ' + (p.pos === o ? 'selected' : '') + '>' + o + '</option>';
     }).join('');
-
-    var nameField = p.isTemp
-      ? '<input type="text" class="meta-input" placeholder="Aushilfe Name" style="margin-bottom:0;" value="' + escapeHtml(p.tempName || '') + '" oninput="updateProtPersonnel(' + i + ', \'tempName\', this.value)"/>'
-      : '<input type="text" class="meta-input" placeholder="Name tippen…" style="margin-bottom:0;" list="prot-users-datalist" autocomplete="off" value="' + escapeHtml(p.name || '') + '" onchange="onProtPersonnelName(' + i + ', this.value)"/>' +
-        (p.userId ? '' : (p.name ? '<div style="font-size:11px;color:var(--danger);margin-top:3px;">⚠ Kein registrierter Mitarbeiter – wird als Externe(r) gespeichert</div>' : ''));
-      
-    var tempCheck = '<label style="display:flex; align-items:center; gap:4px; font-size:12px; margin-top:4px; cursor:pointer;">' +
-      '<input type="checkbox" onchange="updateProtPersonnel(' + i + ',\'isTemp\',this.checked)" ' + (p.isTemp ? 'checked' : '') + ' /> Externe(r) / Aushilfe</label>';
-
     var isAgency = (p.pos === 'Zenjob' || p.pos === 'Rockit');
-    var ratingBlock = isAgency
-      ? '<div class="rating-block">' +
-          '<span class="meta-label" style="display:block;margin-bottom:4px;">Bewertung</span>' +
-          '<div class="rating-btns">' +
-          '<button class="rating-btn' + (p.rating === 'up' ? ' active-up' : '') + '" onclick="updateProtRating(' + i + ',\'rating\',' + (p.rating === 'up' ? 'null' : '\'up\'') + ')" title="Daumen hoch">👍</button>' +
-          '<button class="rating-btn' + (p.rating === 'down' ? ' active-down' : '') + '" onclick="updateProtRating(' + i + ',\'rating\',' + (p.rating === 'down' ? 'null' : '\'down\'') + ')" title="Daumen runter">👎</button>' +
-          '<button class="rating-btn' + (p.isStar ? ' active-star' : '') + '" onclick="updateProtRating(' + i + ',\'isStar\',' + (!p.isStar) + ')" title="Besonders gut">⭐</button>' +
-          '</div>' +
-        '</div>'
-      : '';
-
-    return '<div class="shift-block">' +
-           '  <div class="shift-label">Personal ' + (i + 1) +
-           '    <button class="shift-remove" onclick="removeProtPersonnel(' + i + ')">×</button>' +
-           '  </div>' +
-           '  <div class="meta-fields">' +
-           '    <div class="meta-field">' +
-           '      <span class="meta-label">Position</span>' +
-           '      <select class="meta-input" style="margin-bottom:0" onchange="updateProtPersonnel(' + i + ', \'pos\', this.value)">' + opts + '</select>' +
-           '    </div>' +
-           '    <div class="meta-field">' +
-           '      <span class="meta-label">Name</span>' + nameField + tempCheck +
-           '    </div>' +
-           '  </div>' +
-           '  <div class="meta-fields" style="margin-top: 8px;">' +
-           '    <div class="meta-field">' +
-           '      <span class="meta-label">Start</span>' +
-           '      <input type="time" class="meta-input" value="' + (p.start || '') + '" oninput="updateProtPersonnel(' + i + ', \'start\', this.value)"/>' +
-           '    </div>' +
-           '    <div class="meta-field">' +
-           '      <span class="meta-label">Ende</span>' +
-           '      <input type="time" class="meta-input" value="' + (p.end || '') + '" oninput="updateProtPersonnel(' + i + ', \'end\', this.value)"/>' +
-           '    </div>' +
-           '    <div class="meta-field" style="max-width: 80px;">' +
-           '      <span class="meta-label">Pause</span>' +
-           '      <input type="number" class="meta-input" placeholder="Min" value="' + (p.pause || '0') + '" oninput="updateProtPersonnel(' + i + ', \'pause\', this.value)"/>' +
-           '    </div>' +
-           '  </div>' +
-           (ratingBlock ? '  <div class="meta-fields" style="margin-top: 8px;">' + ratingBlock + '</div>' : '') +
-           '</div>';
+    var unregistered = !p.isTemp && !p.userId && p.name;
+    var nameField = p.isTemp
+      ? '<input type="text" placeholder="Aushilfe Name" value="' + escapeHtml(p.tempName || '') + '" oninput="updateProtPersonnel(' + i + ', \'tempName\', this.value)"/>'
+      : '<input type="text" placeholder="Name tippen…" list="prot-users-datalist" autocomplete="off" value="' + escapeHtml(p.name || '') + '" onchange="onProtPersonnelName(' + i + ', this.value)"/>';
+    return '<div class="ui-row ui-row-wrap' + (protOpenRows[key] ? ' ui-row-open' : '') + '">' +
+      '<div class="ui-row-main" onclick="toggleProtRow(\'' + key + '\')">' +
+        '<div class="ui-row-title">' + escapeHtml(p.name || p.tempName || 'Ohne Name') + ' <span class="ui-pill ui-pill-info">' + escapeHtml(p.pos || '') + '</span></div>' +
+        '<div class="ui-sub" id="prot-psum-' + i + '">' + escapeHtml(protPersonSummary(p)) + '</div>' +
+        (unregistered ? '<span class="ui-pill ui-pill-warn" style="margin-top:4px;" title="Kein registrierter Mitarbeiter – wird als Externe(r) gespeichert">nicht registriert</span>' : '') +
+      '</div>' +
+      '<div class="ui-row-end">' + (isAgency ? protRatingButtons(p, i) : '') + protRowChevron(key) + '</div>' +
+      '<div class="ui-row-body">' +
+        '<div class="stunden-grid">' +
+          '<label class="ui-field"><span>Position</span><select onchange="updateProtPersonnel(' + i + ', \'pos\', this.value)">' + opts + '</select></label>' +
+          '<div class="ui-field"><span>Name</span>' + nameField + '</div>' +
+        '</div>' +
+        '<label class="prot-switch-label" style="margin:-4px 2px 12px;"><input type="checkbox" class="ui-switch" onchange="updateProtPersonnel(' + i + ',\'isTemp\',this.checked)" ' + (p.isTemp ? 'checked' : '') + ' /> Externe(r) / Aushilfe</label>' +
+        '<div class="prot-time-grid">' +
+          '<label class="ui-field"><span>Start</span><input type="time" value="' + (p.start || '') + '" oninput="updateProtPersonnel(' + i + ', \'start\', this.value)"/></label>' +
+          '<label class="ui-field"><span>Ende</span><input type="time" value="' + (p.end || '') + '" oninput="updateProtPersonnel(' + i + ', \'end\', this.value)"/></label>' +
+          '<label class="ui-field"><span>Pause</span><input type="number" placeholder="Min" value="' + (p.pause || '0') + '" oninput="updateProtPersonnel(' + i + ', \'pause\', this.value)"/></label>' +
+        '</div>' +
+        '<button type="button" class="ui-btn ui-btn-danger prot-remove" onclick="removeProtPersonnel(' + i + ')">Person entfernen</button>' +
+      '</div>' +
+    '</div>';
   }).join('');
 }
 
@@ -493,7 +515,9 @@ function updateProtPersonnel(idx, field, val) {
       renderProtPersonnel();
     }
   }
-  
+  var sum = document.getElementById('prot-psum-' + idx);
+  if (sum) sum.textContent = protPersonSummary(protState.personnel[idx]);
+
   saveProtDraft();
   calcProtCosts();
 }
