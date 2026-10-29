@@ -339,3 +339,20 @@ test('planShiftOrder / nextOwnShift: date, then time, untimed last, today long p
   // a shift without time is never dropped by the 2 h rule; yesterday's leftovers are not "next"
   assert.deepEqual(P.planShiftOrder([s('2026-10-28', 'Aufbau: 9 Uhr', 0), untimed], now), [untimed]);
 });
+
+test('planShiftOrder keepStarted: "Meine Schichten" keeps all of today, only the start-page card drops started ones', () => {
+  const now = new Date(2026, 9, 29, 15, 0);
+  const past = { date: '2026-10-29', wann: 'Aufbau: 8 Uhr', sort: 1 };
+  const later = { date: '2026-10-29', wann: 'Abbau: 18 Uhr', sort: 2 };
+  assert.deepEqual(P.planShiftOrder([later, past], now, true), [past, later]);
+  assert.deepEqual(P.planShiftOrder([later, past], now), [later]);
+});
+
+test('planShiftOrder: times before 4:00 are the night after the listed day', () => {
+  const s = (wann) => ({ date: '2026-10-29', wann, sort: 0 });
+  const night = s('Abbau: 0.30 Uhr'), morning = s('Aufbau: 9 Uhr');
+  // sorted after the day's shifts …
+  assert.deepEqual(P.planShiftOrder([night, morning], new Date(2026, 9, 29, 7, 0)), [morning, night]);
+  // … and still upcoming in the afternoon of the listed day
+  assert.deepEqual(P.planShiftOrder([night], new Date(2026, 9, 29, 15, 0)), [night]);
+});

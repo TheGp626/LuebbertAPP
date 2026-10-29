@@ -278,7 +278,7 @@ async function wpRenderMine() {
   if (error) { console.error('Meine Schichten:', error); content.innerHTML = '<div class="wp-empty">Deine Schichten konnten nicht geladen werden.</div>'; return; }
   var seen = {};
   var shifts = planShiftOrder((data || []).map(function(r) { return r.shift; })
-    .filter(function(s) { if (!s || seen[s.id]) return false; seen[s.id] = true; return true; }), new Date());
+    .filter(function(s) { if (!s || seen[s.id]) return false; seen[s.id] = true; return true; }), new Date(), true);
   shifts.forEach(function(s) { _wpShiftCache[s.id] = s; });
   if (!shifts.length) {
     content.innerHTML = '<div class="wp-empty"><div class="wp-empty-title">Keine anstehenden Schichten</div>' +
