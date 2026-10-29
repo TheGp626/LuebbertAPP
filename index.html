@@ -88,43 +88,18 @@
 
     <!-- ══════════ STARTUP PAGE ══════════ -->
     <div class="page active" id="page-startup">
-      <div
-        style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; text-align: center;">
-        <div id="erinnerung-banner" style="display:none; width:100%; max-width:320px; margin-bottom:24px; text-align:left;"></div>
-        <img src="icons/logo.png" id="app-logo" alt="Lübbert Logo"
-          style="width: 180px; height: auto; margin-bottom: 40px; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.1));">
-        <h1 style="font-size: 24px; font-weight: 700; margin-bottom: 8px;">Willkommen</h1>
-        <p style="color: var(--text2); font-size: 14px; margin-bottom: 48px;">Bitte wählen Sie ein Modul aus</p>
-
-        <div style="width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 16px;">
-          <button id="btn-select-stunden" class="btn primary" style="padding: 18px; font-size: 16px; font-weight: 600;"
-            onclick="selectMode('stunden')">
-            Stundenzettel
-          </button>
-          <button id="btn-select-protokoll" class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px;"
-            onclick="selectMode('protokoll')">
-            Protokoll
-          </button>
-          <button id="btn-select-dashboard" class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px; display: none;"
-            onclick="selectMode('dashboard')">
-            Office Dashboard
-          </button>
-          <button id="btn-select-wochenplan" class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px;"
-            onclick="selectMode('wochenplan')">
-            Wochenplan
-          </button>
-          <button class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px;"
-            onclick="selectMode('produkte')">
-            Produktdatenbank
-          </button>
-          <button class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px;"
-            onclick="selectMode('ordner')">
-            Projektordner
+      <div class="ui-home">
+        <div class="ui-home-head">
+          <div class="ui-sub" id="home-date"></div>
+          <button type="button" class="ui-icon-btn" onclick="openSettingsModal()" aria-label="Optionen">
+            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
           </button>
         </div>
-      </div>
-      <div style="padding: 24px; text-align: center; color: var(--text3); font-size: 11px;">
-        Lübbert App v2.0
+        <h1 class="ui-title ui-home-hello" id="home-hello" onclick="titleTap()">Hallo</h1>
+        <div id="home-next"></div>
+        <div id="erinnerung-banner" style="display:none;"></div>
+        <div class="ui-tiles" id="home-tiles"></div>
+        <div class="ui-sub" style="text-align:center; margin-top:24px;">Lübbert App v2.0</div>
       </div>
     </div>
 
@@ -974,21 +949,22 @@
 
   <!-- Scripts -->
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=15"></script>
+  <script src="js/auth.js?v=17"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=10"></script>
   <script src="js/utils.js?v=17"></script>
   <script src="js/settings.js?v=3"></script>
   <script src="js/stundenzettel.js?v=11"></script>
   <script src="js/protokoll.js?v=23"></script>
-  <script src="js/erinnerung.js?v=7"></script>
+  <script src="js/erinnerung.js?v=8"></script>
   <script src="js/plan-pdf.js?v=1"></script>
   <script src="js/plan-parser.js?v=9"></script>
   <script src="js/wochenplan.js?v=8"></script>
+  <script src="js/home.js?v=2"></script>
   <script src="js/dashboard.js?v=16"></script>
   <script src="js/produkte.js?v=14"></script>
   <script src="js/ordner.js?v=14"></script>
-  <script src="js/app.js?v=14"></script>
+  <script src="js/app.js?v=15"></script>
 </body>
 
 </html>

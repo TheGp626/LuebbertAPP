@@ -138,8 +138,9 @@ function exitToMenu() {
   
   var backBtn = document.getElementById('back-to-menu-btn');
   if (backBtn) backBtn.style.display = 'none';
-  
+
   updateTopBarSub();
+  if (typeof renderHome === 'function') renderHome();
 }
 
 function navigate(page) {

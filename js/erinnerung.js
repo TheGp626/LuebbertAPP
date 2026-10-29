@@ -64,12 +64,13 @@ async function loadErinnerungen() {
   _erinnerungOpen = await fetchOpenEinsaetze(currentUser.id);
   var html = '';
   if (_erinnerungOpen.length) {
-    html += '<div style="background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.5); border-radius:12px; padding:12px 14px; margin-bottom:10px;">' +
-      '<div style="font-weight:700; margin-bottom:6px;">📋 Du hast ' + _erinnerungOpen.length + ' offene' + (_erinnerungOpen.length === 1 ? 's Protokoll' : ' Protokolle') + '</div>' +
+    html += '<div class="ui-card">' +
+      '<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;"><span class="ui-pill ui-pill-warn">Protokoll fehlt</span>' +
+      '<b>' + _erinnerungOpen.length + ' offene' + (_erinnerungOpen.length === 1 ? 's Protokoll' : ' Protokolle') + '</b></div>' +
       _erinnerungOpen.map(function(e) {
-        return '<button type="button" class="btn" style="width:100%; text-align:left; padding:8px 10px; margin-top:6px; font-size:13px;" ' +
-          (e.id ? 'data-einsatz="' + e.id + '"' : 'data-datum="' + e.date + '"') + '>' +
-          escapeHtml(e.folderName) + ' – ' + escapeHtml(e.action) + ' am ' + shortDateDE(e.date) + ' →</button>';
+        return '<button type="button" class="ui-btn ui-btn-block" style="justify-content:space-between; text-align:left; min-height:40px; margin-top:6px; font-size:14px;" ' +
+          (e.id ? 'data-einsatz="' + e.id + '"' : 'data-datum="' + e.date + '"') + '><span>' +
+          escapeHtml(e.folderName) + ' – ' + escapeHtml(e.action) + ' am ' + shortDateDE(e.date) + '</span><span aria-hidden="true">›</span></button>';
       }).join('') +
       '</div>';
   }
@@ -78,11 +79,11 @@ async function loadErinnerungen() {
 
   // Push opt-in (only for users who can get reminders, i.e. not MA/Gast)
   if (isIosWithoutHomescreen()) {
-    html += '<div style="font-size:12px; color:var(--text3); margin-bottom:10px;">🔔 Für Benachrichtigungen: Teilen → „Zum Home-Bildschirm“, dann die App von dort öffnen.</div>';
+    html += '<div class="ui-sub" style="margin-bottom:10px;">Für Benachrichtigungen: Teilen → „Zum Home-Bildschirm“, dann die App von dort öffnen.</div>';
   } else if (pushSupported() && Notification.permission === 'denied') {
-    html += '<div style="font-size:12px; color:var(--text3); margin-bottom:10px;">🔕 Benachrichtigungen sind für diese App blockiert. In den Browser-/Handy-Einstellungen erlauben, um Erinnerungen zu bekommen.</div>';
+    html += '<div class="ui-sub" style="margin-bottom:10px;">Benachrichtigungen sind für diese App blockiert. In den Browser-/Handy-Einstellungen erlauben, um Erinnerungen zu bekommen.</div>';
   } else if (pushSupported() && !(await hasPushSubscription())) {
-    html += '<button type="button" class="btn" id="btn-enable-push" style="width:100%; padding:10px; font-size:13px; margin-bottom:10px;">🔔 Erinnerungen aufs Handy aktivieren</button>';
+    html += '<button type="button" class="ui-btn ui-btn-block" id="btn-enable-push" style="min-height:40px; font-size:14px; margin-bottom:10px;">Erinnerungen aufs Handy aktivieren</button>';
   }
 
   if (!html) return;
