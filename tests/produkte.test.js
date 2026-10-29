@@ -117,3 +117,20 @@ test('produktNextSortOrder: after the highest existing value, never a number alr
   assert.equal(produktNextSortOrder([{ sort_order: 5 }]), 6);
   assert.equal(produktNextSortOrder([{ sort_order: null }]), 1);
 });
+
+test('produktBadges: Aufbau-Datei and media count', () => {
+  assert.deepEqual(P.produktBadges({ pdf_url: 'x', product_images: [{}, {}, {}] }), ['Aufbau-Datei', '3 Medien']);
+  assert.deepEqual(P.produktBadges({ product_images: [{}] }), ['1 Medium']);
+  assert.deepEqual(P.produktBadges({ pdf_url: 'x' }), ['Aufbau-Datei']);
+  assert.deepEqual(P.produktBadges({}), []);
+});
+
+test('produktMenuItems: editing only for AL, PL and Admin', () => {
+  assert.deepEqual(P.produktMenuItems({ id: 'p1' }, 'MA'), []);
+  assert.deepEqual(P.produktMenuItems({ id: 'p1' }, 'Gast'), []);
+  for (const r of ['AL', 'PL', 'Admin']) {
+    const items = P.produktMenuItems({ id: 'p1' }, r);
+    assert.deepEqual(items.map(i => i.action), ['openProduktForm'], r);
+    assert.deepEqual(items[0].args, ['p1']);
+  }
+});
