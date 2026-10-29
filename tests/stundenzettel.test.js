@@ -152,3 +152,21 @@ test('shiftSummaryLine: net hours (minimum 3 h, over midnight) and pause', () =>
   assert.equal(shiftSummaryLine('08:00', '', 0), '');
   assert.equal(shiftSummaryLine('', '16:00', 0), '');
 });
+
+test('openStundenWeekPicker: no invisible keyboard where type=week is unsupported (iPhone Safari)', () => {
+  const calls = [];
+  const input = type => ({ type, showPicker() { calls.push('picker'); }, focus() { calls.push('focus'); } });
+  global.document = { getElementById: () => input('text') };
+  const { openStundenWeekPicker } = load(['openStundenWeekPicker']);
+  openStundenWeekPicker();
+  assert.deepEqual(calls, []);
+  global.document = { getElementById: () => input('week') };
+  openStundenWeekPicker();
+  assert.deepEqual(calls, ['picker']);
+  delete global.document;
+});
+
+test('login refreshes the Stundenzettel name label (shared device: no stale name)', () => {
+  const auth = fs.readFileSync(path.join(__dirname, '../js/auth.js'), 'utf8');
+  assert.match(auth, /snInput\.value = user\.full_name;[\s\S]{0,200}syncStundenName\(\)/);
+});

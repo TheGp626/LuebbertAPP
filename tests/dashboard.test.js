@@ -102,3 +102,22 @@ test('incomeLimitShare: share of the income limit, null without pay or limit', (
   assert.equal(ctx.incomeLimitShare(100, null), null);
   assert.equal(ctx.incomeLimitShare(100, 0), null);
 });
+
+test('loadDashboardWorkers keeps the selected employee (the list rebuild must not drop the selection)', async () => {
+  const sel = {
+    _v: 'w1', options: [],
+    get value() { return this._v; },
+    set value(v) { this._v = this.options.some(o => o.value === v) ? v : ''; },
+    set innerHTML(h) { this.options = []; this._v = ''; },
+    appendChild(o) { this.options.push(o); }
+  };
+  ctx.document.getElementById = id => (id === 'dash-worker-select' ? sel : null);
+  ctx.document.createElement = () => ({});
+  ctx.supabaseClient = { from: t => ({
+    select() { return this; },
+    eq() { return t === 'app_users' ? this : Promise.resolve({ data: [{ user_id: 'w1' }], error: null }); },
+    order() { return Promise.resolve({ data: [{ id: 'w1', full_name: 'A' }, { id: 'w2', full_name: 'B' }], error: null }); }
+  }) };
+  await ctx.loadDashboardWorkers();
+  assert.equal(sel.value, 'w1');
+});

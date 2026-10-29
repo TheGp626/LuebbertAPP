@@ -277,6 +277,8 @@ function stundenWeekStep(delta) {
 
 function openStundenWeekPicker() {
   var inp = document.getElementById('inp-week');
+  // Safari has no week picker: the field is plain text there, and focusing it would open a keyboard for an invisible field
+  if (inp.type !== 'week') return;
   try { if (inp.showPicker) { inp.showPicker(); return; } } catch (e) { /* not allowed here */ }
   inp.focus();
 }

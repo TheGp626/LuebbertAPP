@@ -457,6 +457,7 @@ async function loadDashboardWorkers() {
     dashPendingMap = pendingMap;
 
     const sel = document.getElementById('dash-worker-select');
+    const prevSelected = sel.value; // the rebuild below would drop the open employee
     sel.innerHTML = '<option value="">-- Mitarbeiter wählen --</option>';
     dashboardWorkers.forEach(w => {
       const indicator = pendingMap[w.id] ? ' 🔴' : '';
@@ -465,6 +466,7 @@ async function loadDashboardWorkers() {
       opt.textContent = (w.full_name || 'Unbekannt') + ' (' + (w.role || '') + ')' + indicator;
       sel.appendChild(opt);
     });
+    if (prevSelected) sel.value = prevSelected;
     renderDashWorkerList();
   } catch (err) {
     console.error("Worker fetch err:", err);
