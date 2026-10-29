@@ -175,6 +175,7 @@ function handleSession(user) {
     const snInput = document.getElementById('inp-name');
     if (snInput) {
       snInput.value = user.full_name;
+      if (typeof syncStundenName === 'function') syncStundenName(); // label above the week (shared device: no stale name)
     }
     localStorage.setItem('stundenzettel_name', user.full_name);
     window.currentUserRateConni    = parseFloat(user.hourly_rate_conni)    || 0;
