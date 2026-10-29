@@ -85,7 +85,7 @@
 @keyframes ui-sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (min-width: 768px) {
   .sig-modal.ui-sheet { padding: 14px; align-items: center; }
-  .sig-modal.ui-sheet > .sig-modal-inner { width: min(640px, 100%); border-radius: var(--r-hero); }
+  .sig-modal.ui-sheet > .sig-modal-inner { width: min(var(--sheet-w, 640px), 100%); border-radius: var(--r-hero); }
 }
 
 /* ── Toast ── */
