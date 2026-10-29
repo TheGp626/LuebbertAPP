@@ -1,0 +1,91 @@
+/* ══ UI design layer (redesign 2026-10): tokens + shared components in the Wochenplan look.
+   Loaded after style.css. Modules move over to these classes one sub-project at a time. ══ */
+
+:root {
+  --info: var(--accent-text); --info-bg: var(--accent-bg);
+  --warn: #854F0B; --warn-bg: #FAEEDA;
+  --ok: #3B6D11; --ok-bg: #EAF3DE;
+  --danger-bg: #FCEBEB;
+  --r-control: 10px; --r-card: 14px; --r-hero: 18px;
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px;
+}
+[data-theme="dark"] { --warn: #f2b85c; --warn-bg: #3a2a0c; --ok: #9fd06a; --ok-bg: #1e3310; --danger-bg: #3a1616; }
+@media(prefers-color-scheme:dark) { [data-theme="auto"] { --warn: #f2b85c; --warn-bg: #3a2a0c; --ok: #9fd06a; --ok-bg: #1e3310; --danger-bg: #3a1616; } }
+
+/* ── Type ── */
+.ui-title { font-size: 22px; font-weight: 700; line-height: 1.2; margin: 0; }
+.ui-num { font-size: 34px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.ui-num span { font-size: 15px; font-weight: 500; color: var(--text2); }
+.ui-sub { font-size: 13px; color: var(--text2); line-height: 1.4; }
+.ui-label { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .05em; margin: 18px 2px 8px; }
+
+/* ── Surfaces ── */
+.ui-card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--r-card); padding: 14px; margin-bottom: 10px; }
+.ui-hero { background: var(--bg2); border: 1.5px solid var(--accent); border-radius: var(--r-hero); padding: 16px; cursor: pointer; }
+.ui-row { display: flex; gap: 12px; background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--r-card); padding: 12px 14px; margin-bottom: 8px; cursor: pointer; }
+.ui-row:active, .ui-hero:active { background: var(--bg3); }
+.ui-row-me { border: 1.5px solid var(--accent); padding: 11px 13px; }
+
+/* ── Buttons ── */
+.ui-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 10px 16px; border: 0.5px solid var(--border2); border-radius: var(--r-control); background: var(--bg); color: var(--text); font-size: 15px; font-weight: 500; cursor: pointer; text-decoration: none; }
+.ui-btn:active { background: var(--bg3); }
+.ui-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ui-btn-primary:active { background: var(--accent); opacity: .85; }
+.ui-btn-danger { color: var(--danger); }
+.ui-btn-block { display: flex; width: 100%; }
+.ui-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border: 0; border-radius: var(--r-control); background: none; color: var(--text2); cursor: pointer; padding: 0; }
+.ui-icon-btn:active { background: var(--bg3); }
+.ui-ico { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+
+/* ── Form fields ── */
+.ui-field { display: block; margin-bottom: 12px; text-align: left; }
+.ui-field > span { display: block; font-size: 13px; color: var(--text2); margin-bottom: 4px; }
+.ui-field input, .ui-field select, .ui-field textarea { width: 100%; min-height: 44px; padding: 10px 12px; border: 0.5px solid var(--border2); border-radius: var(--r-control); background: var(--bg); color: var(--text); font-size: 16px; box-sizing: border-box; }
+.ui-field input:focus, .ui-field select:focus, .ui-field textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+
+/* ── Pills, avatars ── */
+.ui-pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 99px; white-space: nowrap; line-height: 1.2; }
+.ui-pill-info { background: var(--info-bg); color: var(--info); }
+.ui-pill-warn { background: var(--warn-bg); color: var(--warn); }
+.ui-pill-ok { background: var(--ok-bg); color: var(--ok); }
+.ui-pill-danger { background: var(--danger-bg); color: var(--danger); }
+.ui-avatar { width: 26px; height: 26px; margin-left: -5px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; background: var(--bg3); color: var(--text2); box-shadow: 0 0 0 2px var(--bg2); }
+.ui-avatar-me { background: var(--accent); color: #fff; }
+
+/* ── Segmented control ── */
+.ui-seg { display: flex; background: var(--bg2); border: 0.5px solid var(--border); border-radius: 12px; padding: 3px; }
+.ui-seg > button { flex: 1; min-height: 40px; border: 0; background: none; border-radius: 9px; font-size: 14px; font-weight: 500; color: var(--text2); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.ui-seg > button.active { background: var(--bg); color: var(--text); box-shadow: 0 0 0 0.5px var(--border2); }
+
+/* ── Module top bar ── */
+.ui-topbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--bg); border-bottom: 0.5px solid var(--border); position: sticky; top: 0; z-index: 50; }
+.ui-topbar-back { display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; color: var(--accent-text); font-size: 15px; font-weight: 500; padding: 8px 6px; cursor: pointer; flex: 0 0 auto; min-width: 72px; }
+.ui-topbar-mid { flex: 1; min-width: 0; text-align: center; }
+.ui-topbar-title { font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-topbar-sub { font-size: 11px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-topbar-end { flex: 0 0 auto; min-width: 72px; display: flex; justify-content: flex-end; }
+.ui-topnav { padding: 8px 12px 4px; background: var(--bg); }
+
+/* ── Start page ── */
+.ui-home { width: 100%; max-width: 520px; margin: 0 auto; padding: 16px 16px 32px; box-sizing: border-box; }
+.ui-home-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ui-home-hello { margin: 2px 0 14px; cursor: default; -webkit-user-select: none; user-select: none; overflow-wrap: anywhere; }
+.ui-home .ui-hero { margin-bottom: 10px; }
+.ui-hero-when { font-size: 13px; font-weight: 600; color: var(--text2); }
+.ui-hero-place { font-size: 17px; font-weight: 600; margin-top: 8px; overflow-wrap: anywhere; }
+.ui-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 4px; }
+.ui-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; min-height: 92px; padding: 14px; background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--r-card); color: var(--text); font-size: 15px; font-weight: 600; text-align: left; cursor: pointer; }
+.ui-tile:active { background: var(--bg3); }
+.ui-tile-ico { width: 36px; height: 36px; border-radius: 10px; background: var(--accent-bg); color: var(--accent-text); display: flex; align-items: center; justify-content: center; }
+
+/* ── Sheets (popups): from the bottom on phones, centred from 768px ── */
+.sig-modal.ui-sheet { padding: 0; align-items: flex-end; background: rgba(0, 0, 0, .5); }
+.sig-modal.ui-sheet > .sig-modal-inner { width: 100%; max-width: none; max-height: 90vh; overflow-y: auto; border-radius: var(--r-hero) var(--r-hero) 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); animation: ui-sheet-in .2s ease-out; }
+@keyframes ui-sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (min-width: 768px) {
+  .sig-modal.ui-sheet { padding: 14px; align-items: center; }
+  .sig-modal.ui-sheet > .sig-modal-inner { width: min(640px, 100%); border-radius: var(--r-hero); }
+}
+
+/* ── Toast ── */
+.toast { background: var(--bg2); color: var(--text); border: 0.5px solid var(--border2); border-radius: var(--r-card); padding: 12px 16px; font-size: 14px; white-space: normal; text-align: center; max-width: calc(100vw - 32px); width: max-content; box-sizing: border-box; bottom: calc(20px + env(safe-area-inset-bottom)); }
