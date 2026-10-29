@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=20">
+  <link rel="stylesheet" href="css/style.css?v=21">
   <link rel="stylesheet" href="css/ui.css?v=6">
 </head>
 
@@ -141,13 +141,13 @@
     <!-- ══════════ VERLAUF PAGE ══════════ -->
     <div class="page" id="page-history">
       <div class="history-scroll">
-        <div class="history-page-header">
-          <div class="history-page-title">Verlauf</div>
+        <div class="ui-page">
+          <div class="ui-card stunden-chart">
+            <div class="ui-label" style="margin:0 0 8px;">Letzte 10 Wochen</div>
+            <div class="stunden-chart-box"><canvas id="historyChart"></canvas></div>
+          </div>
+          <div id="history-list"></div>
         </div>
-        <div class="chart-container">
-          <canvas id="historyChart"></canvas>
-        </div>
-        <div id="history-list"></div>
       </div>
     </div>
 
@@ -945,7 +945,7 @@
   <script src="js/formulas.js?v=10"></script>
   <script src="js/utils.js?v=17"></script>
   <script src="js/settings.js?v=3"></script>
-  <script src="js/stundenzettel.js?v=13"></script>
+  <script src="js/stundenzettel.js?v=14"></script>
   <script src="js/protokoll.js?v=23"></script>
   <script src="js/erinnerung.js?v=8"></script>
   <script src="js/plan-pdf.js?v=1"></script>

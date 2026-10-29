@@ -680,7 +680,7 @@ function renderHistory(skipSync) {
   var list = document.getElementById('history-list');
   var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
   var keys = Object.keys(all).sort().reverse();
-  if (!keys.length) { list.innerHTML = '<div class="empty-state"><div class="empty-icon"></div><div>Noch keine Wochen gespeichert</div></div>'; return; }
+  if (!keys.length) { list.innerHTML = uiEmptyHtml('Noch keine Wochen', 'Gespeicherte Wochen erscheinen hier.'); return; }
   var months = {};
   keys.forEach(function (k) {
     var w = all[k];
@@ -696,19 +696,27 @@ function renderHistory(skipSync) {
     var m = months[mKey];
     var hrs = m.totalHours % 1 === 0 ? m.totalHours.toFixed(0) : m.totalHours.toFixed(2);
     var bilRange = getBillingPeriodLabel(mKey, billingCutoff);
-    html += '<div class="month-group"><div class="month-header"><div><div class="month-title">' + m.label + '</div><div class="month-stats">' + bilRange + ' · ' + hrs + ' h</div></div><button class="month-export-btn" onclick="exportMonthlyPDF(\'' + mKey + '\')">⤵ Monat exportieren</button></div>';
+    html += '<div class="ui-section"><div class="ui-section-head"><div><div class="ui-row-title">' + escapeHtml(m.label) + '</div>' +
+      '<div class="ui-sub">' + bilRange + ' · ' + hrs.replace('.', ',') + ' h</div></div>' +
+      '<button type="button" class="ui-icon-btn" aria-label="Monat-Aktionen" onclick="historyMonthMenu(\'' + jsAttrArg(mKey) + '\')">' + uiIcon('dots') + '</button></div>';
     html += m.weeks.map(function (w) {
       var hKey = w.histKey || w.weekStart;
       var earnW = formatEarnings(parseFloat((w.total || '0').replace(',', '.')), w.abt);
-      return '<div class="card" onclick="loadWeek(\'' + jsAttrArg(hKey) + '\')">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center">' +
-        '<div><div class="history-week">' + escapeHtml(w.weekLabel) + '</div>' +
-        '<div class="history-sub">' + escapeHtml(w.name) + ' · <span class="badge">' + escapeHtml(w.abt) + '</span></div>' +
-        (w.unsynced ? '<div style="font-size:11px;color:var(--danger);margin-top:2px">⚠ nicht mit Server synchronisiert</div>' : '') + '</div>' +
-        '<div style="text-align:right"><div class="history-hours">' + escapeHtml(w.total) + 'h</div>' +
-        (earnW ? '<div class="history-earnings" style="display:block">' + earnW + '</div>' : '') +
-        '<button onclick="deleteWeek(event,\'' + jsAttrArg(hKey) + '\')" style="font-size:11px;color:var(--danger);background:none;border:none;cursor:pointer;margin-top:4px">löschen</button>' +
-        '</div></div></div>';
+      var kw = w.weekStart ? parseInt(String(w.weekStart).split('-W')[1]) : '';
+      var range = '';
+      if (w.weekStart) {
+        var mon = getMondayFromWeekVal(String(w.weekStart).split(':')[0]);
+        range = fmtDate(mon) + '.–' + fmtDate(new Date(mon.getTime() + 6 * 86400000)) + '.';
+      }
+      return '<div class="ui-row" onclick="loadWeek(\'' + jsAttrArg(hKey) + '\')">' +
+        '<div class="stunden-kw"><span>KW</span><b>' + kw + '</b></div>' +
+        '<div class="ui-row-main"><div class="ui-row-title">' + escapeHtml(range || w.weekLabel || '') + '</div>' +
+          '<div class="ui-sub">' + escapeHtml(w.name || '') + (w.abt ? ' <span class="ui-pill ui-pill-info">' + escapeHtml(w.abt) + '</span>' : '') + '</div>' +
+          (w.unsynced ? '<span class="ui-pill ui-pill-warn" style="margin-top:4px;">nicht synchronisiert</span>' : '') + '</div>' +
+        '<div class="ui-row-end"><div><b class="stunden-h">' + escapeHtml(String(w.total || '0').replace('.', ',')) + ' h</b>' +
+          (earnW ? '<div class="ui-sub">' + earnW + '</div>' : '') + '</div>' +
+          '<button type="button" class="ui-icon-btn" aria-label="Woche-Aktionen" onclick="event.stopPropagation();historyWeekMenu(\'' + jsAttrArg(hKey) + '\')">' + uiIcon('dots') + '</button></div>' +
+        '</div>';
     }).join('') + '</div>';
   });
   list.innerHTML = html;
@@ -728,10 +736,28 @@ function renderHistoryChart() {
   var labels = keys.map(function(k) { return 'KW ' + parseInt(k.split('-W')[1]); });
   var data = keys.map(function(k) { return weekTotals[k]; });
   if (historyChart) historyChart.destroy();
+  // Colours from the theme tokens so the chart follows light/dark
+  var css = getComputedStyle(document.documentElement);
+  var accent = (css.getPropertyValue('--accent') || '#185FA5').trim(), muted = (css.getPropertyValue('--text2') || '#888').trim();
   historyChart = new Chart(ctx, {
-    type: 'bar', data: { labels: labels, datasets: [{ label: 'Wochenstunden', data: data, backgroundColor: 'rgba(24, 95, 165, 0.4)', borderColor: 'rgba(24, 95, 165, 1)', borderWidth: 1, borderRadius: 6 }] },
-    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } }, x: { grid: { display: false } } }, plugins: { legend: { display: false } } }
+    type: 'bar', data: { labels: labels, datasets: [{ label: 'Wochenstunden', data: data, backgroundColor: accent, borderRadius: 6, maxBarThickness: 28 }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      scales: { y: { beginAtZero: true, grid: { color: 'rgba(128,128,128,0.15)' }, ticks: { color: muted } }, x: { grid: { display: false }, ticks: { color: muted } } },
+      plugins: { legend: { display: false } } }
   });
+}
+
+function historyMonthMenu(mKey) {
+  openUiMenu([{ label: 'Monat als PDF exportieren', action: 'exportMonthlyPDF', args: [mKey] }]);
+}
+
+function historyWeekMenu(key) {
+  openUiMenu([{ label: 'Woche öffnen', action: 'loadWeek', args: [key] }, { label: 'Woche löschen', action: 'deleteWeekFromMenu', args: [key], danger: true }]);
+}
+
+// The old delete expects a click event (stopPropagation); the menu has none
+function deleteWeekFromMenu(key) {
+  deleteWeek({ stopPropagation: function () {} }, key);
 }
 
 // ── WEEK STORAGE HELPERS ──
