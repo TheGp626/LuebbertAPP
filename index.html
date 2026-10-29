@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=31">
+  <link rel="stylesheet" href="css/style.css?v=32">
   <link rel="stylesheet" href="css/ui.css?v=9">
 </head>
 
@@ -383,86 +383,37 @@
     </div>
 
     <div class="page" id="page-ordner" style="overflow-y:auto; -webkit-overflow-scrolling:touch;">
-      <div class="dash-container">
+      <div class="dash-container ordner-wrap">
 
         <!-- ── ORDNER LIST VIEW ── -->
         <div id="ordner-list-view">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:12px;">
-            <h2 style="margin:0; font-size:20px;">Projektordner</h2>
-            <button id="btn-add-ordner" class="btn primary" style="width:auto; padding:10px 18px; display:none;" onclick="openOrdnerForm()">
-              + Neuer Ordner
+          <div class="produkt-head">
+            <div class="ui-search">
+              <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+              <input type="search" id="ordner-search" placeholder="Ordner suchen" oninput="filterOrdner()">
+            </div>
+            <button id="btn-add-ordner" type="button" class="ui-btn ui-btn-primary produkt-add" style="display:none;" onclick="openOrdnerForm()" aria-label="Neuer Ordner">
+              <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="produkt-add-label">Ordner</span>
             </button>
           </div>
-          <div style="position:relative; margin-bottom:20px;">
-            <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:16px; pointer-events:none;">🔍</span>
-            <input type="text" id="ordner-search" placeholder="Ordner suchen..." class="meta-input"
-              style="margin:0; padding:10px 12px 10px 36px; font-size:14px; width:100%; box-sizing:border-box;" oninput="filterOrdner()">
-          </div>
-
-          <!-- CREATE/EDIT FORM -->
-          <div id="ordner-form" style="display:none; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:20px;">
-            <h3 style="margin:0 0 16px; font-size:15px;" id="ordner-form-title">Neuer Ordner</h3>
-            <div style="display:flex; flex-direction:column; gap:12px;">
-              <div class="field">
-                <label>Ordnername *</label>
-                <input type="text" id="inp-ordner-name" class="meta-input" placeholder="z. B. Projekt Berlin 2024" />
-              </div>
-              <div class="field">
-                <label>Beschreibung</label>
-                <input type="text" id="inp-ordner-desc" class="meta-input" placeholder="Kurze Beschreibung..." />
-              </div>
-              <div class="field">
-                <label>Projektleitung (PL)</label>
-                <select id="inp-ordner-pl" class="meta-input"></select>
-              </div>
-              <div class="field">
-                <label>Einsätze (für die Protokoll-Erinnerung an die AL)</label>
-                <div id="ordner-einsatz-rows" style="display:flex; flex-direction:column; gap:8px;"></div>
-                <button type="button" class="btn" style="width:auto; padding:6px 14px; margin-top:8px; font-size:13px;" onclick="addEinsatzRow()">+ Einsatz</button>
-              </div>
-            </div>
-            <div style="display:flex; gap:10px; margin-top:16px;">
-              <button class="btn primary" style="width:auto; padding:10px 20px;" onclick="saveOrdner()">Speichern</button>
-              <button class="btn" style="width:auto; padding:10px 20px;" onclick="closeOrdnerForm()">Abbrechen</button>
-            </div>
-          </div>
-
-          <!-- FOLDER GRID -->
-          <div id="ordner-loading" style="display:none;" class="empty-state">
-            <div class="empty-icon" style="animation:spin 1s linear infinite;">⟳</div>
-            <div>Lade Ordner...</div>
-          </div>
-          <div id="ordner-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:16px;">
-          </div>
-          <div id="ordner-empty" class="empty-state" style="display:none;">
-            <div class="empty-icon">📁</div>
-            <div>Noch keine Ordner vorhanden.</div>
+          <div id="ordner-loading" style="display:none;" class="ui-empty"><div class="ui-sub">Ordner werden geladen…</div></div>
+          <div id="ordner-grid" class="ui-list"></div>
+          <div id="ordner-empty" class="ui-empty" style="display:none;">
+            <div class="ui-empty-title">Noch keine Ordner</div>
+            <div class="ui-sub">Neue Projektordner erscheinen hier.</div>
           </div>
         </div>
 
-        <!-- ── ORDNER DETAIL VIEW (file list) ── -->
+        <!-- ── ORDNER DETAIL VIEW ── -->
         <div id="ordner-detail-view" style="display:none;">
-          <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
-            <button class="btn" style="width:auto; padding:8px 16px;" onclick="ordnerGoBack()">← Zurück</button>
-            <h2 id="ordner-detail-title" style="margin:0; font-size:18px; flex:1;">📁 Ordner</h2>
-            <button id="ordner-add-sub-btn" class="btn" style="width:auto; padding:8px 16px; display:none;" onclick="createSubfolder()">
-              + Unterordner
-            </button>
-            <button id="ordner-upload-btn" class="btn primary" style="width:auto; padding:8px 16px; display:none;" onclick="triggerOrdnerUpload()">
-              + Datei hochladen
-            </button>
-            <button id="ordner-edit-einsaetze-btn" class="btn" style="width:auto; padding:8px 16px; display:none;" onclick="openOrdnerForm(aktuellerOrdner && aktuellerOrdner.id)">
-              PL &amp; Einsätze
-            </button>
-            <button id="ordner-delete-folder-btn" class="btn" style="width:auto; padding:8px 16px; color:var(--danger); display:none;" onclick="deleteCurrentOrdner()">
-              Ordner löschen
-            </button>
-          </div>
-          <div id="ordner-einsaetze" style="display:none; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:12px 16px; margin-bottom:16px; font-size:13px;"></div>
+          <button type="button" class="stunden-link ordner-back" onclick="ordnerGoBack()">‹ Zurück</button>
+          <h2 id="ordner-detail-title" class="ui-title ordner-title">Ordner</h2>
+          <div id="ordner-einsaetze" style="display:none;"></div>
           <input type="file" id="ordner-file-input" multiple style="display:none;" onchange="handleOrdnerFileInput(this)">
-          <div id="ordner-subfolder-grid" style="display:none; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:12px; margin-bottom:16px;"></div>
-          <div id="ordner-files-list">
-            <!-- Rendered by JS -->
+          <div id="ordner-subfolder-grid" style="display:none;"></div>
+          <div id="ordner-files-list"></div>
+          <div class="ui-actionbar ordner-upload-bar" id="ordner-upload-bar" style="display:none;">
+            <button id="ordner-upload-btn" type="button" class="ui-btn ui-btn-primary" onclick="triggerOrdnerUpload()">+ Datei hochladen</button>
           </div>
         </div>
 
@@ -528,6 +479,27 @@
       </div>
       <div style="text-align:center; margin-top:8px;">
         <button id="btn-delete-produkt" type="button" class="ui-btn ui-btn-danger" style="border:0; display: none;" onclick="deleteProdukt()">Produkt löschen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── ORDNER FORMULAR (Sheet) ── -->
+  <div id="ordner-form-modal" class="sig-modal ui-sheet" style="--sheet-w:520px">
+    <div class="sig-modal-inner" id="ordner-form">
+      <div class="ui-sheet-head">
+        <h3 class="ui-title" style="font-size:18px;" id="ordner-form-title">Neuer Ordner</h3>
+        <button type="button" class="ui-icon-btn" onclick="closeOrdnerForm()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <label class="ui-field"><span>Ordnername *</span><input type="text" id="inp-ordner-name" placeholder="z. B. Projekt Berlin 2024" /></label>
+      <label class="ui-field"><span>Beschreibung</span><input type="text" id="inp-ordner-desc" placeholder="Kurze Beschreibung…" /></label>
+      <label class="ui-field"><span>Projektleitung (PL)</span><select id="inp-ordner-pl"></select></label>
+      <div class="ui-field"><span>Einsätze (für die Protokoll-Erinnerung an die AL)</span>
+        <div id="ordner-einsatz-rows" style="display:flex; flex-direction:column; gap:8px;"></div>
+        <button type="button" class="ui-add-row" style="margin-top:8px;" onclick="addEinsatzRow()">+ Einsatz</button>
+      </div>
+      <div class="ui-sheet-actions">
+        <button type="button" class="ui-btn" onclick="closeOrdnerForm()">Abbrechen</button>
+        <button type="button" class="ui-btn ui-btn-primary" onclick="saveOrdner()">Speichern</button>
       </div>
     </div>
   </div>
@@ -890,7 +862,7 @@
   <script src="js/home.js?v=3"></script>
   <script src="js/dashboard.js?v=20"></script>
   <script src="js/produkte.js?v=15"></script>
-  <script src="js/ordner.js?v=14"></script>
+  <script src="js/ordner.js?v=15"></script>
   <script src="js/app.js?v=18"></script>
 </body>
 

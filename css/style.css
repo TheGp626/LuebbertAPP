@@ -1371,3 +1371,14 @@ canvas#historyChart {
 .produkt-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 .produkt-card-menu { position: absolute; top: 14px; right: 14px; background: var(--bg); border: 0.5px solid var(--border2); width: 34px; height: 34px; }
 #produkt-empty, #ordner-empty { flex-direction: column; align-items: center; }
+
+/* ── Projektordner (redesign) ── */
+.ordner-wrap { max-width: 760px; padding-bottom: 0; }
+.ordner-row { align-items: center; }
+.ordner-ico { width: 38px; height: 38px; flex: 0 0 38px; }
+.ordner-back { padding-left: 0; margin-bottom: 4px; }
+.ordner-title { font-size: 20px; margin-bottom: 12px; overflow-wrap: anywhere; }
+.ordner-einsatz { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-top: 0.5px solid var(--border); font-size: 14px; }
+.ordner-upload-bar { margin: 16px -24px 0; }
+@media (max-width: 767px) { .ordner-upload-bar { margin: 16px -16px 0; } }
+#ordner-detail-view.drag-over { outline: 2px dashed var(--accent); outline-offset: 4px; border-radius: var(--r-card); }
