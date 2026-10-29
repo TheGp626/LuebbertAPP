@@ -294,3 +294,34 @@ test('protShiftOpenRows: removing a row moves the open state of the rows after i
   run("protOpenRows = { t0: true, t2: true, p1: true }; protShiftOpenRows('t', 1);");
   assert.deepEqual(plain(ctx.protOpenRows), { t0: true, t1: true, p1: true });
 });
+
+// Characterization: the total of the unchanged calcProtCosts for a fixed protocol (Sprinter + AL + 2 MA, 28.10.2026, no holiday)
+const COST_FIXTURE = {
+  transports: [{ type: 'Sprinter', driver: 'Tom', punctuality: 'pünktlich', delay: '' }],
+  personnel: [
+    { pos: 'AL', isTemp: true, tempName: 'Anna', name: 'Anna', start: '08:00', end: '16:30', pause: '30' },
+    { pos: 'MA', isTemp: true, tempName: 'Max', name: 'Max', start: '08:00', end: '16:30', pause: '30' },
+    { pos: 'Zenjob', isTemp: true, tempName: 'Z1', name: 'Z1', start: '22:00', end: '02:00', pause: '0' }
+  ],
+  categories: {}, signature: null
+};
+
+test('calcProtCosts total is pinned (characterization before extracting protCostLines)', () => {
+  dom['prot-date'] = { value: '2026-10-28' };
+  dom['prot-isholiday'] = { checked: false };
+  dom['prot-total-cost'] = { textContent: '' };
+  run('protState = ' + JSON.stringify(COST_FIXTURE) + '; calcProtCosts();');
+  assert.equal(dom['prot-total-cost'].textContent, '529,52');
+});
+
+test('protCostLines: same total as calcProtCosts, one line per transport and person', () => {
+  const r = plain(ctx.protCostLines(JSON.parse(JSON.stringify(COST_FIXTURE)), '2026-10-28', false));
+  assert.equal(r.total.toFixed(2), '529.52');
+  assert.equal(r.lines.length, 4);
+  assert.equal(r.lines[0].label, 'Sprinter');
+  assert.equal(r.lines[1].label, 'Anna (AL)');
+  assert.equal(r.lines.reduce((s, l) => s + l.amount, 0).toFixed(2), '529.52');
+  // a person without end time costs nothing and gets no line
+  const r2 = plain(ctx.protCostLines({ transports: [], personnel: [{ pos: 'MA', isTemp: true, name: 'X', start: '08:00', end: '' }] }, '2026-10-28', false));
+  assert.deepEqual(r2, { lines: [], total: 0 });
+});

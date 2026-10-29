@@ -531,42 +531,26 @@ function renderProtCategories() {
     var active = state.active;
     var hussenFields = '';
     if (cat.id === 'stoffe') {
-      hussenFields = '<div style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">' +
-                     '  <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px;">Rücklauf Estrel-Hussen:</div>' +
-                     '  <div style="display: flex; gap: 12px; align-items: center;">' +
-                     '    <div style="flex: 1;">' +
-                     '      <span class="meta-label">Stück geliefert</span>' +
-                     '      <input type="number" class="meta-input" placeholder="0" value="' + (state.hussenDelivered || '') + '" oninput="updateProtCategory(\'' + cat.id + '\', \'hussenDelivered\', this.value)"/>' +
-                     '    </div>' +
-                     '    <div style="flex: 1;">' +
-                     '      <span class="meta-label">Stück zurück (gezählt)</span>' +
-                     '      <input type="number" class="meta-input" placeholder="0" value="' + (state.hussenReturned || '') + '" oninput="updateProtCategory(\'' + cat.id + '\', \'hussenReturned\', this.value)"/>' +
-                     '    </div>' +
-                     '  </div>' +
-                     '</div>';
+      hussenFields = '<div class="ui-label" style="margin:12px 2px 6px;">Rücklauf Estrel-Hussen</div>' +
+        '<div class="stunden-grid">' +
+          '<label class="ui-field"><span>Stück geliefert</span><input type="number" placeholder="0" value="' + (state.hussenDelivered || '') + '" oninput="updateProtCategory(\'' + cat.id + '\', \'hussenDelivered\', this.value)"/></label>' +
+          '<label class="ui-field"><span>Stück zurück (gezählt)</span><input type="number" placeholder="0" value="' + (state.hussenReturned || '') + '" oninput="updateProtCategory(\'' + cat.id + '\', \'hussenReturned\', this.value)"/></label>' +
+        '</div>';
     }
-
-    return '<div class="shift-block" style="' + (!active ? 'opacity: 0.5; background: var(--bg3);' : '') + '">' +
-           '  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">' +
-           '    <div style="display: flex; align-items: center; gap: 8px;">' +
-           '      <span style="font-size: 20px;">' + cat.icon + '</span>' +
-           '      <span style="font-weight: 600;">' + cat.label + '</span>' +
-           '    </div>' +
-           '    <button class="chip ' + (active ? 'active' : '') + '" onclick="toggleProtCategory(\'' + cat.id + '\')">' + (active ? 'Aktiv' : 'Ausgeblendet') + '</button>' +
-           '  </div>' +
-           '  <div style="' + (!active ? 'display: none;' : '') + '">' +
-           '    <div class="meta-label">Zustand</div>' +
-           '    <div class="chips" style="margin-bottom: 12px;">' +
-                  ['okay', 'unsauber', 'beschädigt', 'unvollständig'].map(function(s) {
-                    return '<div class="chip ' + (state.status === s ? 'active' : '') + '" onclick="updateProtCategory(\'' + cat.id + '\', \'status\', \'' + s + '\')">' + s + '</div>';
-                  }).join('') +
-           '    </div>' +
-           '    <div class="field">' +
-           '      <input type="text" class="meta-input" placeholder="Anmerkungen / Details" value="' + escapeHtml(state.note || '') + '" oninput="updateProtCategory(\'' + cat.id + '\', \'note\', this.value)"/>' +
-           '    </div>' +
-           hussenFields +
-           '  </div>' +
-           '</div>';
+    return '<div class="ui-card prot-cat' + (active ? '' : ' prot-cat-off') + '">' +
+      '<label class="prot-cat-head"><span class="ui-row-title">' + escapeHtml(cat.label) + '</span>' +
+        '<span class="ui-sub">' + (active ? 'vorhanden' : 'nicht vorhanden') + '</span>' +
+        '<input type="checkbox" class="ui-switch" ' + (active ? 'checked' : '') + ' onchange="toggleProtCategory(\'' + cat.id + '\')" aria-label="' + escapeHtml(cat.label) + ' vorhanden"/></label>' +
+      (active
+        ? '<div class="ui-field" style="margin-top:10px;"><span>Zustand</span><div class="ui-seg prot-action-seg">' +
+            ['okay', 'unsauber', 'beschädigt', 'unvollständig'].map(function(s) {
+              return '<button type="button" class="' + (state.status === s ? 'active' : '') + '" onclick="updateProtCategory(\'' + cat.id + '\', \'status\', \'' + s + '\')">' + s + '</button>';
+            }).join('') +
+          '</div></div>' +
+          '<label class="ui-field"><span>Anmerkungen</span><input type="text" placeholder="Details, falls nötig" value="' + escapeHtml(state.note || '') + '" oninput="updateProtCategory(\'' + cat.id + '\', \'note\', this.value)"/></label>' +
+          hussenFields
+        : '') +
+    '</div>';
   }).join('');
 }
 
@@ -583,36 +567,66 @@ function updateProtCategory(id, field, val) {
 }
 
 // ── CALCULATIONS ──
-function calcProtCosts() {
+// Cost lines of a protocol: one per transport and per person with valid times; total = their sum
+function protCostLines(state, date, holiday) {
+  var lines = [];
+  (state.transports || []).forEach(function(t) {
+    lines.push({ label: t.type || 'Fahrzeug', amount: calcTransportCost(t.type, date) });
+  });
+  (state.personnel || []).forEach(function(p) {
+    var v = timeToMins(p.start), b = timeToMins(p.end), pa = parseInt(p.pause) || 0;
+    var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
+    if (v !== null && b !== null && effB > v) {
+      var basePos = protBasePos(p, appUsers);
+      var customRate = (!p.isTemp && p.userId) ? getEffectivePersonnelRate(basePos, p.userId) : undefined;
+      var amount = 0;
+      calcSplitShiftCosts(basePos, date, holiday, v, effB, pa, customRate).forEach(function(c) { amount += c.hrs * c.rate; });
+      lines.push({ label: (p.name || p.tempName || 'Person') + ' (' + (p.pos || '') + ')', amount: amount });
+    }
+  });
   var total = 0;
+  lines.forEach(function(l) { total += l.amount; });
+  return { lines: lines, total: total };
+}
 
+var protLastCost = { lines: [], total: 0 };
+
+function calcProtCosts() {
   // Read date and holiday directly from the DOM so live edits are reflected
   var dateEl    = document.getElementById('prot-date');
   var holidayEl = document.getElementById('prot-isholiday');
   var currentDate    = (dateEl && dateEl.value)       ? dateEl.value    : (protState.date    || localDateStr());
   var currentHoliday = (holidayEl)                    ? holidayEl.checked : (protState.holiday || false);
 
-  // Logistics
-  protState.transports.forEach(function(t) {
-    total += calcTransportCost(t.type, currentDate);
-  });
-
-  // Personnel
-  protState.personnel.forEach(function(p) {
-    var v = timeToMins(p.start), b = timeToMins(p.end), pa = parseInt(p.pause) || 0;
-    var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
-    if (v !== null && b !== null && effB > v) {
-      var basePos = protBasePos(p, appUsers);
-      var customRate = (!p.isTemp && p.userId) ? getEffectivePersonnelRate(basePos, p.userId) : undefined;
-      var costs = calcSplitShiftCosts(basePos, currentDate, currentHoliday, v, effB, pa, customRate);
-      costs.forEach(function(c) {
-        total += c.hrs * c.rate;
-      });
-    }
-  });
-
+  protLastCost = protCostLines(protState, currentDate, currentHoliday);
   var el = document.getElementById('prot-total-cost');
-  if (el) el.textContent = total.toFixed(2).replace('.', ',');
+  if (el) el.textContent = protLastCost.total.toFixed(2).replace('.', ',');
+}
+
+// Tapping the cost in the action bar: the breakdown of the current calculation
+function openProtCostSheet() {
+  calcProtCosts();
+  var fmt = function(n) { return n.toFixed(2).replace('.', ',') + ' €'; };
+  var m = document.getElementById('prot-cost-modal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'prot-cost-modal';
+    m.className = 'sig-modal ui-sheet';
+    m.style.setProperty('--sheet-w', '480px');
+    m.innerHTML = '<div class="sig-modal-inner"></div>';
+    m.addEventListener('click', function(e) { if (e.target === m) m.classList.remove('open'); });
+    document.body.appendChild(m);
+  }
+  m.firstChild.innerHTML =
+    '<div class="ui-sheet-head"><h3 class="ui-title" style="font-size:18px;">Nachkalkulation</h3>' +
+      '<button type="button" class="ui-icon-btn" aria-label="Schließen" onclick="document.getElementById(\'prot-cost-modal\').classList.remove(\'open\')">' +
+      '<svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
+    (protLastCost.lines.length
+      ? protLastCost.lines.map(function(l) { return '<div class="prot-cost-line"><span>' + escapeHtml(l.label) + '</span><b>' + fmt(l.amount) + '</b></div>'; }).join('')
+      : '<div class="ui-sub">Noch keine Kosten: Transport oder Personal mit Zeiten eintragen.</div>') +
+    '<div class="prot-cost-line prot-cost-total"><span>Gesamt</span><b>' + fmt(protLastCost.total) + '</b></div>' +
+    '<div class="ui-sub" style="margin-top:8px;">Logistik + Personal, mit den aktuellen Sätzen.</div>';
+  m.classList.add('open');
 }
 
 // ── SECTIONS (redesign): navigation chips with check marks; hints only, Senden stays allowed ──
@@ -1252,46 +1266,38 @@ async function renderProtHistory() {
   var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
 
   if (!archive.length) {
-    list.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div>Noch keine Protokolle gespeichert.<br/>Sende ein Protokoll, um es hier zu archivieren.</div></div>';
+    list.innerHTML = uiEmptyHtml('Noch keine Protokolle', 'Gesendete Protokolle erscheinen hier.');
     return;
   }
 
   var html = archive.map(function(e) {
-    var savedDate = e.savedAt ? new Date(e.savedAt).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
-    var personCount = (e.personnel || []).length;
-    var transportCount = (e.transports || []).length;
-    var syncStatus = e.synced 
-      ? '<span style="color:var(--safe); font-size:10px;">● Synced</span>' 
-      : '<span style="color:var(--danger); font-size:10px; cursor:pointer;" onclick="retrySyncAllProtocols()">● Nicht synchronisiert (Tippen zum Synchronisieren)</span>';
-
-    return '<div class="card">' +
-      '<div style="display:flex;justify-content:space-between;align-items:flex-start;">' +
-        '<div style="flex:1;min-width:0;">' +
-          '<div class="history-week" style="font-size:15px;">' + escapeHtml(e.event || '—') + '</div>' +
-          '<div class="history-sub">' + escapeHtml(e.date || '—') + ' · ' + escapeHtml(e.location || '—') + '</div>' +
-          '<div class="history-sub" style="margin-top:3px;">' +
-            '<span class="badge">' + escapeHtml(e.action || '—') + '</span> ' +
-            (e.al ? '· AL: ' + escapeHtml(e.al) : '') +
-          '</div>' +
-        '</div>' +
-        '<div style="text-align:right;flex-shrink:0;margin-left:10px;">' +
-          '<div class="history-hours" style="font-size:16px;">' + escapeHtml(e.totalCost || '—') + '</div>' +
-          '<div style="font-size:11px;color:var(--text3);margin-top:2px;">' + personCount + ' Personal · ' + transportCount + ' Fzg</div>' +
-          '<div style="margin-top:4px;">' + syncStatus + '</div>' +
-        '</div>' +
+    var d = /^(\d{4})-(\d{2})-(\d{2})/.exec(e.date || '');
+    var id = jsAttrArg(e.id);
+    var pills = '<span class="ui-pill ui-pill-info">' + escapeHtml(e.action || '—') + '</span>' +
+      (e.synced === false || !e.synced
+        ? ' <span class="ui-pill ui-pill-warn" role="button" title="Tippen zum Synchronisieren" onclick="event.stopPropagation();retrySyncAllProtocols()">nicht synchronisiert</span>'
+        : (e.mailed === false ? ' <span class="ui-pill ui-pill-warn">Mail ausstehend</span>' : ''));
+    return '<div class="ui-row" onclick="loadProtFromHistory(\'' + id + '\')">' +
+      '<div class="prot-date-block">' + (d ? '<b>' + d[3] + '</b><span>' + d[2] + '.' + d[1].slice(2) + '</span>' : '<b>–</b>') + '</div>' +
+      '<div class="ui-row-main">' +
+        '<div class="ui-row-title">' + escapeHtml(e.event || '—') + '</div>' +
+        '<div class="ui-sub">' + escapeHtml(e.location || '—') + (e.al ? ' · AL ' + escapeHtml(e.al) : '') + '</div>' +
+        '<div style="margin-top:4px;">' + pills + '</div>' +
       '</div>' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:8px;border-top:0.5px solid var(--border);">' +
-        '<span style="font-size:11px;color:var(--text3);">' + savedDate + '</span>' +
-        '<div style="display:flex;gap:8px;">' +
-          '<button onclick="loadProtFromHistory(\'' + e.id + '\')" style="font-size:12px;padding:5px 12px;border:0.5px solid var(--accent);border-radius:var(--radius);background:var(--accent-bg);color:var(--accent-text);cursor:pointer;font-weight:600;">Bearbeiten</button>' +
-          '<button onclick="reExportProtPDF(\'' + e.id + '\')" style="font-size:12px;padding:5px 12px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg2);color:var(--text2);cursor:pointer;">PDF</button>' +
-          '<button onclick="deleteProtHistory(\'' + e.id + '\')" style="font-size:12px;padding:5px 12px;border:0.5px solid var(--border2);border-radius:var(--radius);background:none;color:var(--danger);cursor:pointer;">Löschen</button>' +
-        '</div>' +
-      '</div>' +
+      '<div class="ui-row-end"><b class="stunden-h">' + escapeHtml(e.totalCost || '—') + '</b>' +
+        '<button type="button" class="ui-icon-btn" aria-label="Protokoll-Aktionen" onclick="event.stopPropagation();protHistoryMenu(\'' + id + '\')">' + uiIcon('dots') + '</button></div>' +
     '</div>';
   }).join('');
 
   list.innerHTML = html;
+}
+
+function protHistoryMenu(id) {
+  openUiMenu([
+    { label: 'Bearbeiten', action: 'loadProtFromHistory', args: [id] },
+    { label: 'PDF herunterladen', action: 'reExportProtPDF', args: [id] },
+    { label: 'Aus dem Verlauf löschen', action: 'deleteProtHistory', args: [id], danger: true }
+  ]);
 }
 
 async function deleteProtHistory(id) {
