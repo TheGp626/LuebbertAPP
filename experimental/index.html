@@ -16,8 +16,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=18">
-  <link rel="stylesheet" href="css/ui.css?v=4">
+  <link rel="stylesheet" href="css/style.css?v=21">
+  <link rel="stylesheet" href="css/ui.css?v=8">
 </head>
 
 <body>
@@ -57,7 +57,7 @@
         <div class="ui-topbar-sub" id="top-bar-sub"></div>
       </div>
       <div class="ui-topbar-end">
-        <button type="button" class="ui-icon-btn" id="settings-btn" onclick="openSettingsModal()" aria-label="Optionen">
+        <button type="button" class="ui-icon-btn" id="settings-btn" onclick="openTopbarMenu()" aria-label="Optionen">
           <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
         </button>
       </div>
@@ -98,35 +98,33 @@
 
     <!-- ══════════ ERFASSEN PAGE ══════════ -->
     <div class="page" id="page-home">
-      <div class="meta-section">
-        <div class="meta-fields">
-          <div class="meta-field">
-            <span class="meta-label">Name</span>
-            <input type="text" id="inp-name" class="meta-input" placeholder="Vorname Nachname" />
-          </div>
-          <div class="meta-field">
-            <span class="meta-label">Woche auswählen</span>
-            <input type="week" id="inp-week" class="meta-input" />
-          </div>
+      <div class="stunden-scroll">
+      <div class="ui-page stunden-head">
+        <div class="ui-weeknav">
+          <button type="button" class="ui-icon-btn" onclick="stundenWeekStep(-1)" aria-label="Vorige Woche">
+            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <button type="button" class="ui-weeknav-label" id="week-strip-label" onclick="openStundenWeekPicker()">–</button>
+          <button type="button" class="ui-icon-btn" onclick="stundenWeekStep(1)" aria-label="Nächste Woche">
+            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <!-- source of truth for the week (buildDays listens to its change event); arrows and the label write into it -->
+          <input type="week" id="inp-week" class="stunden-week-input" tabindex="-1" aria-label="Woche auswählen" />
         </div>
-        <div class="dept-label">Abteilung</div>
-        <div class="chips" id="chips-abt">
-          <!-- Chips generated via JS -->
+        <div class="stunden-name-row">
+          <span class="ui-sub" id="stunden-name-text"></span>
+          <button type="button" class="stunden-link" onclick="editStundenName()">Ändern</button>
         </div>
-      </div>
-
-      <div class="week-strip-section">
-        <div class="week-strip-header" id="week-strip-label">—</div>
-        <div class="week-strip" id="week-strip">
-          <!-- Bubbles generated via JS -->
-        </div>
-      </div>
-
-      <div class="week-total-chip">
-        <div class="wtc-label">Gesamtstunden dieser Woche</div>
-        <div style="text-align: right;">
-          <div class="wtc-val"><span id="total-hours">0</span><span class="wtc-unit">h</span></div>
-          <div id="total-earnings" class="wtc-earnings"></div>
+        <label class="ui-field" id="stunden-name-field" style="display:none;">
+          <span>Name</span>
+          <input type="text" id="inp-name" placeholder="Vorname Nachname" oninput="syncStundenName()" />
+        </label>
+        <div class="ui-label" style="margin-top:12px;">Abteilung</div>
+        <div class="ui-chipbar" id="chips-abt"></div>
+        <div class="ui-daystrip" id="week-strip" style="margin-top:14px;"></div>
+        <div class="stunden-total">
+          <div class="ui-num"><b id="total-hours">0</b> <span>h</span></div>
+          <div id="total-earnings" class="ui-sub"></div>
         </div>
       </div>
 
@@ -134,22 +132,24 @@
         <!-- Day editor generated via JS -->
       </div>
 
-      <div class="fab-area">
-        <button class="btn primary" onclick="saveWeek()">Speichern</button>
-        <button class="btn send" onclick="downloadWeekPDF()">PDF herunterladen</button>
+      </div>
+
+      <div class="ui-actionbar">
+        <button type="button" class="ui-btn" onclick="downloadWeekPDF()">PDF</button>
+        <button type="button" class="ui-btn ui-btn-primary" onclick="saveWeek()">Speichern</button>
       </div>
     </div>
 
     <!-- ══════════ VERLAUF PAGE ══════════ -->
     <div class="page" id="page-history">
       <div class="history-scroll">
-        <div class="history-page-header">
-          <div class="history-page-title">Verlauf</div>
+        <div class="ui-page">
+          <div class="ui-card stunden-chart">
+            <div class="ui-label" style="margin:0 0 8px;">Letzte 10 Wochen</div>
+            <div class="stunden-chart-box"><canvas id="historyChart"></canvas></div>
+          </div>
+          <div id="history-list"></div>
         </div>
-        <div class="chart-container">
-          <canvas id="historyChart"></canvas>
-        </div>
-        <div id="history-list"></div>
       </div>
     </div>
 
@@ -799,65 +799,50 @@
 
   <!-- ══════════ SCHICHT BEARBEITEN MODAL ══════════ -->
   <div id="shift-edit-modal" class="sig-modal ui-sheet" style="--sheet-w:420px">
-    <div class="sig-modal-inner" style="padding:24px; max-height:90vh; overflow-y:auto;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-        <h3 id="shift-edit-title" style="margin:0; font-size:17px;">Schicht bearbeiten</h3>
-        <button onclick="closeShiftEditModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2);">✕</button>
+    <div class="sig-modal-inner">
+      <div class="ui-sheet-head">
+        <h3 id="shift-edit-title" class="ui-title" style="font-size:18px;">Schicht bearbeiten</h3>
+        <button type="button" class="ui-icon-btn" onclick="closeShiftEditModal()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
-      <div style="display:flex; flex-direction:column; gap:14px;">
-        <div id="shift-edit-person-row" class="field" style="display:none;">
-          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Person</label>
-          <select id="shift-edit-worker-select" class="meta-input" onchange="onShiftWorkerSelect(this.value)">
-            <option value="">— Temp / Agentur (Name eingeben) —</option>
-          </select>
-          <input type="text" id="shift-edit-temp-name" class="meta-input" placeholder="Name (Zenjob, Rockit, ...)" style="margin-top:6px;">
-        </div>
-        <div class="field">
-          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Datum</label>
-          <input type="date" id="shift-edit-date" class="meta-input">
-        </div>
-        <div class="field">
-          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Einsatzort</label>
-          <input type="text" id="shift-edit-ort" class="meta-input" placeholder="z.B. Estrel Berlin">
-        </div>
-        <div class="field">
-          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Rolle / Position</label>
-          <select id="shift-edit-role" class="meta-input">
-            <option value="MA frei">Mitarbeiter für Auf-/ Abbau</option>
-            <option value="AL frei">Aufbauleitung</option>
-            <option value="Fahrer frei">Fahrer</option>
-            <option value="MA fest">Mitarbeiter für Auf-/ Abbau (fest)</option>
-            <option value="AL fest">Aufbauleitung (fest)</option>
-            <option value="Fahrer fest">Fahrer (fest)</option>
-            <option value="Floristik">Floristik</option>
-            <option value="Lager">Lager</option>
-            <option value="Stoffe">Stoffe</option>
-            <option value="Tischlerei">Tischlerei</option>
-            <option value="Zenjob">Zenjob</option>
-            <option value="Rockit">Rockit</option>
-          </select>
-        </div>
-        <div style="display:flex; gap:10px;">
-          <div class="field" style="flex:1;">
-            <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Von</label>
-            <input type="time" id="shift-edit-start" class="meta-input">
-          </div>
-          <div class="field" style="flex:1;">
-            <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Bis</label>
-            <input type="time" id="shift-edit-end" class="meta-input">
-          </div>
-        </div>
-        <div class="field">
-          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Hinweis (z.B. Urlaub, Sonderauszahlung)</label>
-          <input type="text" id="shift-edit-note" class="meta-input" placeholder="Optional">
-        </div>
+      <div id="shift-edit-person-row" class="ui-field" style="display:none;">
+        <span>Person</span>
+        <select id="shift-edit-worker-select" onchange="onShiftWorkerSelect(this.value)">
+          <option value="">— Temp / Agentur (Name eingeben) —</option>
+        </select>
+        <input type="text" id="shift-edit-temp-name" placeholder="Name (Zenjob, Rockit, ...)" style="margin-top:6px;">
       </div>
-      <div style="display:flex; gap:10px; margin-top:20px;">
-        <button class="btn primary" style="flex:1;" onclick="saveShiftEdit()">Speichern</button>
-        <button class="btn" style="flex:1;" onclick="closeShiftEditModal()">Abbrechen</button>
+      <div class="stunden-grid">
+        <label class="ui-field"><span>Datum</span><input type="date" id="shift-edit-date"></label>
+        <label class="ui-field"><span>Einsatzort</span><input type="text" id="shift-edit-ort" placeholder="z.B. Estrel Berlin"></label>
       </div>
-      <div id="shift-edit-delete-row" style="margin-top:12px; text-align:center; display:none;">
-        <button onclick="deleteShiftFromModal()" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:13px;">Schicht löschen</button>
+      <label class="ui-field"><span>Rolle / Position</span>
+        <select id="shift-edit-role">
+          <option value="MA frei">Mitarbeiter für Auf-/ Abbau</option>
+          <option value="AL frei">Aufbauleitung</option>
+          <option value="Fahrer frei">Fahrer</option>
+          <option value="MA fest">Mitarbeiter für Auf-/ Abbau (fest)</option>
+          <option value="AL fest">Aufbauleitung (fest)</option>
+          <option value="Fahrer fest">Fahrer (fest)</option>
+          <option value="Floristik">Floristik</option>
+          <option value="Lager">Lager</option>
+          <option value="Stoffe">Stoffe</option>
+          <option value="Tischlerei">Tischlerei</option>
+          <option value="Zenjob">Zenjob</option>
+          <option value="Rockit">Rockit</option>
+        </select>
+      </label>
+      <div class="stunden-times">
+        <label class="ui-field"><span>Von</span><input type="time" id="shift-edit-start"></label>
+        <span class="stunden-dash" aria-hidden="true">–</span>
+        <label class="ui-field"><span>Bis</span><input type="time" id="shift-edit-end"></label>
+      </div>
+      <label class="ui-field"><span>Hinweis (z.B. Urlaub, Sonderauszahlung)</span><input type="text" id="shift-edit-note" placeholder="Optional"></label>
+      <div class="ui-sheet-actions">
+        <button type="button" class="ui-btn" onclick="closeShiftEditModal()">Abbrechen</button>
+        <button type="button" class="ui-btn ui-btn-primary" onclick="saveShiftEdit()">Speichern</button>
+      </div>
+      <div id="shift-edit-delete-row" style="margin-top:8px; text-align:center; display:none;">
+        <button type="button" class="ui-btn ui-btn-danger" style="border:0;" onclick="deleteShiftFromModal()">Schicht löschen</button>
       </div>
     </div>
   </div>
@@ -947,17 +932,18 @@
   <script src="js/formulas.js?v=10"></script>
   <script src="js/utils.js?v=17"></script>
   <script src="js/settings.js?v=3"></script>
-  <script src="js/stundenzettel.js?v=11"></script>
+  <script src="js/stundenzettel.js?v=14"></script>
   <script src="js/protokoll.js?v=23"></script>
   <script src="js/erinnerung.js?v=8"></script>
   <script src="js/plan-pdf.js?v=1"></script>
   <script src="js/plan-parser.js?v=10"></script>
   <script src="js/wochenplan.js?v=9"></script>
-  <script src="js/home.js?v=2"></script>
+  <script src="js/ui.js?v=1"></script>
+  <script src="js/home.js?v=3"></script>
   <script src="js/dashboard.js?v=16"></script>
   <script src="js/produkte.js?v=14"></script>
   <script src="js/ordner.js?v=14"></script>
-  <script src="js/app.js?v=17"></script>
+  <script src="js/app.js?v=18"></script>
 </body>
 
 </html>

@@ -251,13 +251,57 @@ function getWeekString(d) {
 }
 
 // ── UI RENDERING ──
+// ISO week `delta` weeks away from 'YYYY-Www' (via the Thursday of the target week)
+function shiftWeekVal(val, delta) {
+  var mon = getMondayFromWeekVal(val);
+  var thu = new Date(Date.UTC(mon.getFullYear(), mon.getMonth(), mon.getDate() + delta * 7 + 3));
+  var year = thu.getUTCFullYear();
+  var week = Math.ceil(((thu - Date.UTC(year, 0, 1)) / 86400000 + 1) / 7);
+  return year + '-W' + pad(week);
+}
+
+// Day tile state: empty / partial (a shift lacks Von or Bis) / done / signed (all done + a signature)
+function dayStatus(shifts, signedCount) {
+  var filled = (shifts || []).filter(function (s) { return s && (s.von || s.bis); });
+  if (!filled.length) return 'empty';
+  if (filled.some(function (s) { return !s.von || !s.bis; })) return 'partial';
+  return signedCount > 0 ? 'signed' : 'done';
+}
+
+// Week arrows: the hidden #inp-week stays the source of truth (buildDays listens to its change event)
+function stundenWeekStep(delta) {
+  var inp = document.getElementById('inp-week');
+  inp.value = shiftWeekVal(inp.value || currentWeekVal(), delta);
+  inp.dispatchEvent(new Event('change'));
+}
+
+function openStundenWeekPicker() {
+  var inp = document.getElementById('inp-week');
+  try { if (inp.showPicker) { inp.showPicker(); return; } } catch (e) { /* not allowed here */ }
+  inp.focus();
+}
+
+// Name comes from the login; "Ändern" reveals the old field
+function syncStundenName() {
+  var inp = document.getElementById('inp-name'), txt = document.getElementById('stunden-name-text');
+  if (inp && txt) txt.textContent = inp.value || 'Name fehlt';
+}
+
+function editStundenName() {
+  var wrap = document.getElementById('stunden-name-field');
+  if (!wrap) return;
+  wrap.style.display = wrap.style.display === 'none' ? '' : 'none';
+  if (wrap.style.display === '') document.getElementById('inp-name').focus();
+}
+
 function renderWeekStrip() {
   var val = document.getElementById('inp-week').value || currentWeekVal();
   var mon = getMondayFromWeekVal(val);
   var sun = new Date(mon.getTime() + 6 * 86400000);
   var parts = val.split('-W');
   var lbl = document.getElementById('week-strip-label');
-  if (lbl) lbl.textContent = 'KW ' + parseInt(parts[1]) + '  ·  ' + fmtDate(mon) + ' – ' + fmtDateFull(sun);
+  if (lbl) lbl.textContent = 'KW ' + parseInt(parts[1]) + ' · ' + fmtDate(mon) + '.–' + fmtDate(sun) + '.';
+  syncStundenName();
 
   var strip = document.getElementById('week-strip');
   if (!strip) return;
@@ -265,14 +309,13 @@ function renderWeekStrip() {
   for (var i = 0; i < DAYS.length; i++) {
     (function (i) {
       var d = new Date(mon.getTime() + i * 86400000);
-      var wrap = document.createElement('div');
-      wrap.className = 'day-bubble-wrap';
-      wrap.onclick = (function (idx) { return function () { selectDay(idx); }; })(i);
-      wrap.innerHTML =
-        '<span class="day-bubble-name">' + DAY_SHORT[i] + '</span>' +
-        '<div class="day-bubble" id="bubble-' + i + '">—</div>' +
-        '<span class="day-bubble-date">' + fmtDate(d) + '</span>';
-      strip.appendChild(wrap);
+      var tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = 'ui-day';
+      tile.id = 'dayw-' + i;
+      tile.onclick = function () { selectDay(i); };
+      tile.innerHTML = '<span>' + DAY_SHORT[i] + '</span><b id="bubble-' + i + '">–</b><span>' + fmtDate(d) + '</span><i></i>';
+      strip.appendChild(tile);
     })(i);
   }
 }
@@ -286,8 +329,8 @@ function selectDay(i) {
   }
   activeDayIdx = i;
   for (var j = 0; j < DAYS.length; j++) {
-    var b = document.getElementById('bubble-' + j);
-    if (b) b.classList.toggle('active', j === i);
+    var t = document.getElementById('dayw-' + j);
+    if (t) t.classList.toggle('ui-day-active', j === i);
   }
   renderDayEditorArea();
 }
@@ -295,26 +338,24 @@ function selectDay(i) {
 function updateBubble(dayIdx) {
   var bubble = document.getElementById('bubble-' + dayIdx);
   if (!bubble) return;
-  var totalMins = 0, hasInput = false;
+  var totalMins = 0, shifts = [], signed = 0;
   for (var s = 0; s < (shiftCounts[dayIdx] || 1); s++) {
     var data = getShiftData(dayIdx, s);
-    if (data.von || data.bis) hasInput = true;
+    shifts.push(data);
+    if (shiftSigData[dayIdx + '-' + s]) signed++;
     var von = timeToMins(data.von), bis = timeToMins(data.bis);
     var pause = parseInt(data.pause) || 0;
     var effB = (bis < von) ? bis + 1440 : bis;
     if (von !== null && bis !== null && effB > von) totalMins += Math.max(180, effB - von - pause);
   }
-  var isActive = (activeDayIdx === dayIdx);
-  bubble.className = 'day-bubble' + (isActive ? ' active' : '');
+  var status = dayStatus(shifts, signed);
+  var tile = document.getElementById('dayw-' + dayIdx);
+  if (tile) tile.className = 'ui-day' + (activeDayIdx === dayIdx ? ' ui-day-active' : '') + (status !== 'empty' ? ' ui-dot-' + status : '');
   if (totalMins > 0) {
     var h = totalMins / 60;
-    bubble.textContent = (h % 1 === 0 ? h.toFixed(0) : h.toFixed(1)) + 'h';
-    bubble.classList.add('done');
-  } else if (hasInput) {
-    bubble.textContent = '?';
-    bubble.classList.add('partial');
+    bubble.textContent = h % 1 === 0 ? h.toFixed(0) : h.toFixed(1).replace('.', ',');
   } else {
-    bubble.textContent = '—';
+    bubble.textContent = status === 'partial' ? '?' : '–';
   }
 }
 
@@ -322,7 +363,7 @@ function renderDayEditorArea() {
   var area = document.getElementById('day-editor-area');
   if (!area) return;
   if (activeDayIdx === null) {
-    area.innerHTML = '<div class="day-empty-state"><div class="day-empty-icon">☝️</div><div>Tag im Wochenstreifen antippen,<br/>um Stunden einzutragen.</div></div>';
+    area.innerHTML = uiEmptyHtml('Tag antippen', 'Wähle oben einen Tag, um Stunden einzutragen.');
     return;
   }
   var i = activeDayIdx;
@@ -330,9 +371,9 @@ function renderDayEditorArea() {
   var mon = getMondayFromWeekVal(val);
   var d = new Date(mon.getTime() + i * 86400000);
   area.innerHTML =
-    '<div class="day-editor-head"><div class="day-editor-title">' + DAYS[i] + '</div><div class="day-editor-date">' + fmtDateFull(d) + '</div></div>' +
+    '<div class="ui-section-head"><span class="ui-title" style="font-size:18px;">' + DAYS[i] + '</span><span class="ui-sub">' + fmtDateFull(d) + '</span></div>' +
     '<div id="shifts-' + i + '"></div>' +
-    '<button class="add-shift-btn" onclick="addShift(' + i + ')">＋ Schicht hinzufügen</button>';
+    '<button type="button" class="ui-add-row" onclick="addShift(' + i + ')">' + uiIcon('plus') + ' Schicht hinzufügen</button>';
 
   for (var s = 0; s < (shiftCounts[i] || 1); s++) renderShift(i, s);
 
@@ -358,29 +399,30 @@ function renderDayEditorArea() {
 function renderShift(dayIdx, shiftIdx) {
   var container = document.getElementById('shifts-' + dayIdx);
   if (!container) return;
+  var key = dayIdx + '-' + shiftIdx;
   var block = document.createElement('div');
-  block.className = 'shift-block';
-  block.id = 'shift-' + dayIdx + '-' + shiftIdx;
-  var removeBtn = shiftIdx > 0 ? '<button class="shift-remove" onclick="removeShift(' + dayIdx + ',' + shiftIdx + ')">×</button>' : '';
-  // Build dept options
+  block.className = 'ui-card stunden-shift';
+  block.id = 'shift-' + key;
+  var removeBtn = shiftIdx > 0 ? '<button type="button" class="ui-icon-btn shift-remove" onclick="removeShift(' + dayIdx + ',' + shiftIdx + ')" aria-label="Schicht entfernen">' + uiIcon('trash') + '</button>' : '';
   var deptOpts = (typeof departments !== 'undefined' ? departments : []).map(function(d) {
     return '<option value="' + escapeHtml(d) + '">' + escapeHtml(typeof deptLabel === 'function' ? deptLabel(d) : d) + '</option>';
   }).join('');
   block.innerHTML =
-    '<div class="shift-label">Schicht ' + (shiftIdx + 1) + removeBtn + '</div>' +
-    '<div class="field"><label>Abteilung (diese Schicht)</label>' +
-    '<select id="dept-' + dayIdx + '-' + shiftIdx + '" class="meta-input" style="margin-bottom:0" onchange="calcTotal()">' + deptOpts + '</select></div>' +
-    '<div class="time-pair">' +
-    ' <div class="field"><label>Von</label><input type="time" id="von-' + dayIdx + '-' + shiftIdx + '" oninput="calcDay(' + dayIdx + ')"/></div>' +
-    ' <div class="field"><label>Bis</label><input type="time" id="bis-' + dayIdx + '-' + shiftIdx + '" oninput="calcDay(' + dayIdx + ')"/></div>' +
+    '<div class="stunden-shift-head"><span class="ui-label">Schicht ' + (shiftIdx + 1) + ' · ' + DAYS[dayIdx] + '</span>' + removeBtn + '</div>' +
+    '<div class="stunden-times">' +
+      '<label class="ui-field"><span>Von</span><input type="time" id="von-' + key + '" oninput="calcDay(' + dayIdx + ')"/></label>' +
+      '<span class="stunden-dash" aria-hidden="true">–</span>' +
+      '<label class="ui-field"><span>Bis</span><input type="time" id="bis-' + key + '" oninput="calcDay(' + dayIdx + ')"/></label>' +
     '</div>' +
-    '<div class="field"><label>Pause</label><div class="pause-badge" id="pbadge-' + dayIdx + '-' + shiftIdx + '">wird automatisch berechnet</div><input type="hidden" id="pause-' + dayIdx + '-' + shiftIdx + '" value="0"/></div>' +
-    '<div class="field"><label>Ort</label><input type="text" id="ort-' + dayIdx + '-' + shiftIdx + '" placeholder="Einsatzort"/></div>' +
-    '<div class="field"><label>Name AL</label><input type="text" id="al-' + dayIdx + '-' + shiftIdx + '" placeholder="Vorname Nachname"/></div>' +
-    '<div class="field"><label>Unterschrift AL</label>' +
-    ' <button class="sig-full-btn" type="button" onclick="openSignaturePad(' + dayIdx + ',' + shiftIdx + ')">🖊️ Vollbild-Unterschrift öffnen</button>' +
-    ' <div class="sig-wrap" onclick="openSignaturePad(' + dayIdx + ',' + shiftIdx + ')"><canvas id="sigc-' + dayIdx + '-' + shiftIdx + '"></canvas><div class="sig-placeholder" id="sigph-' + dayIdx + '-' + shiftIdx + '">Tippen für Unterschrift</div><button class="sig-clear" type="button" onclick="event.stopPropagation();clearShiftSig(' + dayIdx + ',' + shiftIdx + ')">löschen</button></div>' +
-    '</div>';
+    '<div class="ui-sub stunden-summary" id="pbadge-' + key + '">Von und Bis eintragen – die Pause wird automatisch berechnet</div>' +
+    '<input type="hidden" id="pause-' + key + '" value="0"/>' +
+    '<div class="stunden-grid">' +
+      '<label class="ui-field"><span>Ort</span><input type="text" id="ort-' + key + '" placeholder="Einsatzort"/></label>' +
+      '<label class="ui-field"><span>Name AL</span><input type="text" id="al-' + key + '" placeholder="Vorname Nachname"/></label>' +
+    '</div>' +
+    '<label class="ui-field"><span>Abteilung (diese Schicht)</span><select id="dept-' + key + '" onchange="calcTotal()">' + deptOpts + '</select></label>' +
+    '<div class="stunden-sig-head"><span>Unterschrift AL</span><span class="ui-pill ui-pill-warn" id="sigpill-' + key + '">fehlt</span></div>' +
+    '<div class="sig-wrap" onclick="openSignaturePad(' + dayIdx + ',' + shiftIdx + ')"><canvas id="sigc-' + key + '"></canvas><div class="sig-placeholder" id="sigph-' + key + '">Tippen für Unterschrift</div><button class="sig-clear" type="button" onclick="event.stopPropagation();clearShiftSig(' + dayIdx + ',' + shiftIdx + ')">löschen</button></div>';
   container.appendChild(block);
   setTimeout(function () { initShiftSig(dayIdx, shiftIdx); }, 0);
 }
@@ -410,6 +452,16 @@ function removeShift(dayIdx, shiftIdx) {
 }
 
 // ── CALC ──
+// "7,5 h netto · 30 min Pause"; same rules as the day tiles (minimum 3 h, over midnight). '' while Von/Bis is missing
+function shiftSummaryLine(von, bis, pauseMins) {
+  var v = timeToMins(von), b = timeToMins(bis);
+  if (v === null || b === null) return '';
+  var effB = b < v ? b + 1440 : b;
+  if (effB <= v) return '';
+  var pause = parseInt(pauseMins) || 0, h = Math.max(180, effB - v - pause) / 60;
+  return (h % 1 === 0 ? h.toFixed(0) : h.toFixed(1).replace('.', ',')) + ' h netto' + (pause > 0 ? ' · ' + pause + ' min Pause' : '');
+}
+
 function calcDay(dayIdx) {
   var totalMins = 0;
   for (var s = 0; s < shiftCounts[dayIdx]; s++) {
@@ -421,11 +473,11 @@ function calcDay(dayIdx) {
     if (von !== null && bis !== null && effB > von) {
       var raw = effB - von, pause = autoPause(raw), net = Math.max(180, raw - pause);
       if (pauseEl) pauseEl.value = pause;
-      if (badge) { badge.textContent = pause > 0 ? pause + ' min (automatisch)' : 'keine Pause'; badge.className = 'pause-badge' + (pause > 0 ? ' auto' : ''); }
+      if (badge) badge.textContent = shiftSummaryLine(vonEl.value, bisEl.value, pause);
       totalMins += net;
     } else {
       if (pauseEl) pauseEl.value = 0;
-      if (badge) { badge.textContent = 'wird automatisch berechnet'; badge.className = 'pause-badge'; }
+      if (badge) badge.textContent = 'Von und Bis eintragen – die Pause wird automatisch berechnet';
     }
   }
   updateBubble(dayIdx);
@@ -563,17 +615,24 @@ function updateShiftLockState(key) {
     if (sigWrap) sigWrap.style.pointerEvents = locked ? 'none' : '';
     var hint = block.querySelector('.shift-lock-hint');
     if (locked && !hint) {
-      hint = document.createElement('div');
-      hint.className = 'shift-lock-hint';
-      hint.style.cssText = 'font-size:11px;color:var(--text3);margin-top:6px;';
-      hint.textContent = sv.isProtocol && !shiftSigData[key]
-        ? '🔒 Aus Protokoll übernommen – Änderungen nur durch AL/PL möglich.'
-        : '🔒 Vom AL abgezeichnet – Zeiten können nicht mehr geändert werden.';
-      block.appendChild(hint);
+      hint = document.createElement('span');
+      hint.className = 'shift-lock-hint ui-pill';
+      var fromProtocol = sv.isProtocol && !shiftSigData[key];
+      hint.textContent = fromProtocol ? 'aus Protokoll' : 'abgezeichnet';
+      hint.title = fromProtocol ? 'Aus Protokoll übernommen – Änderungen nur durch AL/PL möglich.'
+        : 'Vom AL abgezeichnet – Zeiten können nicht mehr geändert werden.';
+      (block.querySelector('.stunden-shift-head') || block).appendChild(hint);
     } else if (!locked && hint) {
       hint.remove();
     }
+    // Signature status pill next to "Unterschrift AL"
+    var pill = document.getElementById('sigpill-' + key);
+    if (pill) {
+      pill.className = 'ui-pill ' + (shiftSigData[key] ? 'ui-pill-ok' : 'ui-pill-warn');
+      pill.textContent = shiftSigData[key] ? 'unterschrieben' : 'fehlt';
+    }
   }
+  if (!isNaN(dayIdx)) updateBubble(dayIdx);
 }
 
 function redrawSigModalFromState() {
@@ -621,7 +680,7 @@ function renderHistory(skipSync) {
   var list = document.getElementById('history-list');
   var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
   var keys = Object.keys(all).sort().reverse();
-  if (!keys.length) { list.innerHTML = '<div class="empty-state"><div class="empty-icon"></div><div>Noch keine Wochen gespeichert</div></div>'; return; }
+  if (!keys.length) { list.innerHTML = uiEmptyHtml('Noch keine Wochen', 'Gespeicherte Wochen erscheinen hier.'); return; }
   var months = {};
   keys.forEach(function (k) {
     var w = all[k];
@@ -637,19 +696,27 @@ function renderHistory(skipSync) {
     var m = months[mKey];
     var hrs = m.totalHours % 1 === 0 ? m.totalHours.toFixed(0) : m.totalHours.toFixed(2);
     var bilRange = getBillingPeriodLabel(mKey, billingCutoff);
-    html += '<div class="month-group"><div class="month-header"><div><div class="month-title">' + m.label + '</div><div class="month-stats">' + bilRange + ' · ' + hrs + ' h</div></div><button class="month-export-btn" onclick="exportMonthlyPDF(\'' + mKey + '\')">⤵ Monat exportieren</button></div>';
+    html += '<div class="ui-section"><div class="ui-section-head"><div><div class="ui-row-title">' + escapeHtml(m.label) + '</div>' +
+      '<div class="ui-sub">' + bilRange + ' · ' + hrs.replace('.', ',') + ' h</div></div>' +
+      '<button type="button" class="ui-icon-btn" aria-label="Monat-Aktionen" onclick="historyMonthMenu(\'' + jsAttrArg(mKey) + '\')">' + uiIcon('dots') + '</button></div>';
     html += m.weeks.map(function (w) {
       var hKey = w.histKey || w.weekStart;
       var earnW = formatEarnings(parseFloat((w.total || '0').replace(',', '.')), w.abt);
-      return '<div class="card" onclick="loadWeek(\'' + jsAttrArg(hKey) + '\')">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center">' +
-        '<div><div class="history-week">' + escapeHtml(w.weekLabel) + '</div>' +
-        '<div class="history-sub">' + escapeHtml(w.name) + ' · <span class="badge">' + escapeHtml(w.abt) + '</span></div>' +
-        (w.unsynced ? '<div style="font-size:11px;color:var(--danger);margin-top:2px">⚠ nicht mit Server synchronisiert</div>' : '') + '</div>' +
-        '<div style="text-align:right"><div class="history-hours">' + escapeHtml(w.total) + 'h</div>' +
-        (earnW ? '<div class="history-earnings" style="display:block">' + earnW + '</div>' : '') +
-        '<button onclick="deleteWeek(event,\'' + jsAttrArg(hKey) + '\')" style="font-size:11px;color:var(--danger);background:none;border:none;cursor:pointer;margin-top:4px">löschen</button>' +
-        '</div></div></div>';
+      var kw = w.weekStart ? parseInt(String(w.weekStart).split('-W')[1]) : '';
+      var range = '';
+      if (w.weekStart) {
+        var mon = getMondayFromWeekVal(String(w.weekStart).split(':')[0]);
+        range = fmtDate(mon) + '.–' + fmtDate(new Date(mon.getTime() + 6 * 86400000)) + '.';
+      }
+      return '<div class="ui-row" onclick="loadWeek(\'' + jsAttrArg(hKey) + '\')">' +
+        '<div class="stunden-kw"><span>KW</span><b>' + kw + '</b></div>' +
+        '<div class="ui-row-main"><div class="ui-row-title">' + escapeHtml(range || w.weekLabel || '') + '</div>' +
+          '<div class="ui-sub">' + escapeHtml(w.name || '') + (w.abt ? ' <span class="ui-pill ui-pill-info">' + escapeHtml(w.abt) + '</span>' : '') + '</div>' +
+          (w.unsynced ? '<span class="ui-pill ui-pill-warn" style="margin-top:4px;">nicht synchronisiert</span>' : '') + '</div>' +
+        '<div class="ui-row-end"><div><b class="stunden-h">' + escapeHtml(String(w.total || '0').replace('.', ',')) + ' h</b>' +
+          (earnW ? '<div class="ui-sub">' + earnW + '</div>' : '') + '</div>' +
+          '<button type="button" class="ui-icon-btn" aria-label="Woche-Aktionen" onclick="event.stopPropagation();historyWeekMenu(\'' + jsAttrArg(hKey) + '\')">' + uiIcon('dots') + '</button></div>' +
+        '</div>';
     }).join('') + '</div>';
   });
   list.innerHTML = html;
@@ -669,10 +736,28 @@ function renderHistoryChart() {
   var labels = keys.map(function(k) { return 'KW ' + parseInt(k.split('-W')[1]); });
   var data = keys.map(function(k) { return weekTotals[k]; });
   if (historyChart) historyChart.destroy();
+  // Colours from the theme tokens so the chart follows light/dark
+  var css = getComputedStyle(document.documentElement);
+  var accent = (css.getPropertyValue('--accent') || '#185FA5').trim(), muted = (css.getPropertyValue('--text2') || '#888').trim();
   historyChart = new Chart(ctx, {
-    type: 'bar', data: { labels: labels, datasets: [{ label: 'Wochenstunden', data: data, backgroundColor: 'rgba(24, 95, 165, 0.4)', borderColor: 'rgba(24, 95, 165, 1)', borderWidth: 1, borderRadius: 6 }] },
-    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } }, x: { grid: { display: false } } }, plugins: { legend: { display: false } } }
+    type: 'bar', data: { labels: labels, datasets: [{ label: 'Wochenstunden', data: data, backgroundColor: accent, borderRadius: 6, maxBarThickness: 28 }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      scales: { y: { beginAtZero: true, grid: { color: 'rgba(128,128,128,0.15)' }, ticks: { color: muted } }, x: { grid: { display: false }, ticks: { color: muted } } },
+      plugins: { legend: { display: false } } }
   });
+}
+
+function historyMonthMenu(mKey) {
+  openUiMenu([{ label: 'Monat als PDF exportieren', action: 'exportMonthlyPDF', args: [mKey] }]);
+}
+
+function historyWeekMenu(key) {
+  openUiMenu([{ label: 'Woche öffnen', action: 'loadWeek', args: [key] }, { label: 'Woche löschen', action: 'deleteWeekFromMenu', args: [key], danger: true }]);
+}
+
+// The old delete expects a click event (stopPropagation); the menu has none
+function deleteWeekFromMenu(key) {
+  deleteWeek({ stopPropagation: function () {} }, key);
 }
 
 // ── WEEK STORAGE HELPERS ──

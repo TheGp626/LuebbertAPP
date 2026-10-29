@@ -35,19 +35,6 @@ function readNextShiftCache(raw, userId) {
 
 /* ── DOM part (browser only) ── */
 
-var HOME_ICONS = {
-  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-  clipboard: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v3H9zM9 12h6M9 16h4"/>',
-  calendar: '<rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/>',
-  box: '<path d="M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8"/>',
-  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
-  chart: '<path d="M5 20v-9M12 20V4M19 20v-6"/>'
-};
-
-function homeIcon(name) {
-  return '<svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true">' + (HOME_ICONS[name] || '') + '</svg>';
-}
-
 // "heute" / "morgen" / "am Freitag" within the next 6 days, else "am 07.11."
 function homeWhen(date) {
   var today = localDateStr();
@@ -115,7 +102,7 @@ function renderHome() {
   if (tiles) {
     tiles.innerHTML = homeTiles(userRole, moduleAllowedForRole).map(function(t) {
       return '<button type="button" class="ui-tile" id="btn-select-' + t.mode + '" onclick="selectMode(\'' + t.mode + '\')">' +
-        '<span class="ui-tile-ico">' + homeIcon(t.icon) + '</span><span>' + t.label + '</span></button>';
+        '<span class="ui-tile-ico">' + uiIcon(t.icon) + '</span><span>' + t.label + '</span></button>';
     }).join('');
   }
   var cached = null;
