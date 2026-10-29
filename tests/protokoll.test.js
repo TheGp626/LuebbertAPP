@@ -266,3 +266,16 @@ test('pdfStr', () => {
   assert.equal(f('', '0'), '0');
   assert.equal(f(0, '—'), '0');
 });
+
+test('protSectionStatus: check marks per section (hints only)', () => {
+  const protSectionStatus = (...a) => plain(ctx.protSectionStatus(...a));
+  const st = { transports: [], personnel: [{ start: '08:00', end: '' }], categories: { a: { active: true, status: '' }, b: { active: false } }, signature: null };
+  assert.deepEqual(protSectionStatus(st, { event: 'X', date: '2026-10-29', alId: 'u1' }, { transport: false }),
+    { basis: true, transport: false, equipment: false, personal: false, vorkommnisse: true, unterschrift: false });
+  st.categories.a.status = 'okay'; st.personnel[0].end = '16:00'; st.signature = 'data:';
+  assert.deepEqual(protSectionStatus(st, { event: 'X', date: '', alId: 'u1' }, { transport: true }),
+    { basis: false, transport: true, equipment: true, personal: true, vorkommnisse: true, unterschrift: true });
+  // no categories at all counts as complete, a transport makes the section complete without opening it
+  assert.equal(protSectionStatus({ transports: [{}], personnel: [], categories: {}, signature: null }, {}, {}).transport, true);
+  assert.equal(protSectionStatus({ transports: [], personnel: [], categories: {}, signature: null }, {}, {}).equipment, true);
+});

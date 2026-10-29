@@ -219,6 +219,10 @@ function initProtokoll() {
   renderProtCategories();
   calcProtCosts();
   setTimeout(redrawProtSig, 50);
+  // Restored draft: action segment, section checks and textarea heights follow the loaded values
+  syncProtActionSeg();
+  renderProtSectionNav();
+  ['prot-damages', 'prot-incidents', 'prot-feedback'].forEach(function(id) { var t = document.getElementById(id); if (t && t.style) growProtText(t); });
 
   fetchAppUsers();
 }
@@ -250,6 +254,7 @@ function redrawProtSig() {
   } else {
     if (ph) ph.style.display = '';
   }
+  renderProtSectionNav(); // signature check mark + pill
 }
 
 function openProtSig() {
@@ -586,6 +591,72 @@ function calcProtCosts() {
   if (el) el.textContent = total.toFixed(2).replace('.', ',');
 }
 
+// ── SECTIONS (redesign): navigation chips with check marks; hints only, Senden stays allowed ──
+var PROT_SECTIONS = [['basis', 'Basis'], ['transport', 'Transport'], ['equipment', 'Equipment'], ['personal', 'Personal'], ['vorkommnisse', 'Vorkommnisse'], ['unterschrift', 'Unterschrift']];
+var PROT_ACTIONS = ['Aufbau', 'Teilaufbau', 'Umbau', 'Teilabbau', 'Abbau'];
+var protTransportOpened = false;
+
+// state = protState; basis = {event, date, alId}; opened = {transport} (section looked at, "bewusst keiner")
+function protSectionStatus(state, basis, opened) {
+  basis = basis || {}; opened = opened || {};
+  var cats = state.categories || {};
+  return {
+    basis: !!(basis.event && basis.date && basis.alId),
+    transport: (state.transports || []).length > 0 || !!opened.transport,
+    equipment: Object.keys(cats).every(function(k) { return !cats[k].active || !!cats[k].status; }),
+    personal: (state.personnel || []).some(function(p) { return p.start && p.end; }),
+    vorkommnisse: true,
+    unterschrift: !!state.signature
+  };
+}
+
+function protBasisValues() {
+  var v = function(id) { return (document.getElementById(id) || {}).value || ''; };
+  return { event: v('prot-event'), date: v('prot-date'), alId: v('prot-al') || protState.alId || '' };
+}
+
+function renderProtSectionNav() {
+  var nav = document.getElementById('prot-section-nav');
+  if (!nav) return;
+  var st = protSectionStatus(protState, protBasisValues(), { transport: protTransportOpened });
+  nav.innerHTML = PROT_SECTIONS.map(function(s) {
+    return '<button type="button" class="ui-chip' + (st[s[0]] ? ' ui-chip-on' : '') + '" onclick="scrollProtSection(\'' + s[0] + '\')">' +
+      (st[s[0]] ? uiIcon('check') : '') + s[1] + '</button>';
+  }).join('');
+  var pill = document.getElementById('prot-sig-pill');
+  if (pill) {
+    pill.className = 'ui-pill ' + (protState.signature ? 'ui-pill-ok' : 'ui-pill-warn');
+    pill.textContent = protState.signature ? 'unterschrieben' : 'fehlt';
+  }
+}
+
+function scrollProtSection(id) {
+  var el = document.getElementById('prot-sec-' + id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (id === 'transport' && !protTransportOpened) { protTransportOpened = true; renderProtSectionNav(); }
+}
+
+// Aktion as a segmented control; the hidden #prot-action select stays the data source
+function syncProtActionSeg() {
+  var sel = document.getElementById('prot-action'), seg = document.getElementById('prot-action-seg');
+  if (!sel || !seg) return;
+  seg.querySelectorAll('button').forEach(function(b) { b.classList.toggle('active', b.dataset.value === sel.value); });
+}
+
+function setProtAction(v) {
+  var sel = document.getElementById('prot-action');
+  if (!sel) return;
+  sel.value = v;
+  sel.dispatchEvent(new Event('change'));
+  syncProtActionSeg();
+}
+
+// Textareas grow with their content
+function growProtText(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.max(72, el.scrollHeight) + 'px';
+}
+
 // ── PERSISTENCE ──
 function saveProtDraft() {
   // Offline start: the AL/PL selects are still empty → keep the known ids instead of storing ''
@@ -616,6 +687,8 @@ function saveProtDraft() {
   };
   localStorage.setItem('luebbert_protokoll_draft', JSON.stringify(data));
   updateTopBarSub();
+  renderProtSectionNav();
+  syncProtActionSeg();
 }
 
 // Owner for the stored draft; before the login is restored the previous owner is kept
@@ -1453,3 +1526,8 @@ function buildProtPdfDoc(entry) {
   }
 }
 
+
+// Top bar "…": rare actions of the form
+if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
+  UI_TOPBAR_ITEMS.protokoll = function() { return [{ label: 'Formular leeren', action: 'clearProtForm', danger: true }]; };
+}
