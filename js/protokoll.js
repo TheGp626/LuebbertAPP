@@ -394,6 +394,46 @@ function addProtPersonnel() {
   saveProtDraft();
 }
 
+// Wochenplan shift (planShiftFromDb shape) → personnel rows for "Protokoll starten": only people the plan
+// names, AL first. Start: personal note ("ab 14 Uhr", agency "8.30 - 16.30 Uhr") → else the shift's Wann time.
+// End only when the plan states one for that person; the AL fills in the rest.
+function protPlanPersonnel(shift, users) {
+  var shiftWhen = planWhen(shift.wann || []);
+  var shiftStart = shiftWhen.prefix === 'bis' ? '' : (shiftWhen.time || '');
+  var posOf = function(role) {
+    if (role === 'ROCKiT') return 'Rockit';
+    return ['AL', 'MA', 'Fahrer', 'Zenjob'].indexOf(role) !== -1 ? role : 'MA';
+  };
+  var rows = (shift.people || []).map(function(p) {
+    var own = p.note ? planWhen([p.note]) : { time: null };
+    var start = shiftStart, end = '';
+    if (own.time && own.prefix === 'bis') end = own.time;
+    else if (own.time) { start = own.time; end = own.end || ''; }
+    var pos = posOf(p.role), isAgency = pos === 'Zenjob' || pos === 'Rockit';
+    var u = p.userId && !isAgency ? (users || []).find(function(x) { return x.id === p.userId; }) : null;
+    var row = { pos: pos, isTemp: isAgency, userId: u ? u.id : '', tempName: isAgency ? p.name : '',
+      name: u ? (u.full_name || u.email) : p.name, start: start, end: end, pause: '0', rating: null, isStar: false };
+    if (u) row.fest = !!u.is_fest;
+    var a = timeToMins(start), b = timeToMins(end);
+    if (a !== null && b !== null) row.pause = String(autoPause((b < a ? b + 1440 : b) - a));
+    return row;
+  });
+  return rows.filter(function(r) { return r.pos === 'AL'; }).concat(rows.filter(function(r) { return r.pos !== 'AL'; }));
+}
+
+// Puts plan rows into the form unless the AL already entered someone (then nothing changes)
+function protApplyPlanPersonnel(rows) {
+  if (!rows || !rows.length) return false;
+  var touched = protState.personnel.some(function(p) { return p.name || p.tempName || p.start || p.end; });
+  if (touched) return false;
+  protState.personnel = rows;
+  protOpenRows = {};
+  renderProtPersonnel();
+  saveProtDraft();
+  if (typeof calcProtCosts === 'function') calcProtCosts();
+  return true;
+}
+
 function updateProtRating(idx, field, val) {
   protState.personnel[idx][field] = val;
   renderProtPersonnel();

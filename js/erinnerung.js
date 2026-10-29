@@ -168,7 +168,8 @@ async function openProtokollForEinsatz(einsatzId) {
   await openProtokollPrefilled({ event: (e.folder && e.folder.name) || '', date: e.date, action: e.action, alId: e.al_id });
 }
 
-// Fresh protocol form pre-filled with { event, date, action, alId, location } (reminder banner, Wochenplan)
+// Fresh protocol form pre-filled with { event, date, action, alId, location, shift } (reminder banner, Wochenplan);
+// shift (planShiftFromDb shape) also fills the personnel list with the people the plan names
 async function openProtokollPrefilled(p) {
   var val = function(id) { return ((document.getElementById(id) || {}).value || '').trim(); };
   if (typeof appUsers !== 'undefined' && !appUsers.length && typeof fetchAppUsers === 'function') await fetchAppUsers();
@@ -177,6 +178,7 @@ async function openProtokollPrefilled(p) {
   if (val('prot-event') === p.event && val('prot-date') === p.date) {
     if (!val('prot-al') && p.alId) { document.getElementById('prot-al').value = p.alId; protState.alId = p.alId; }
     saveProtDraft();
+    if (p.shift) protApplyPlanPersonnel(protPlanPersonnel(p.shift, appUsers));
     selectMode('protokoll');
     return;
   }
@@ -190,6 +192,7 @@ async function openProtokollPrefilled(p) {
   if (p.location) document.getElementById('prot-location').value = p.location;
   if (p.alId) { document.getElementById('prot-al').value = p.alId; protState.alId = p.alId; }
   saveProtDraft();
+  if (p.shift) protApplyPlanPersonnel(protPlanPersonnel(p.shift, appUsers));
   if (typeof calcProtCosts === 'function') calcProtCosts();
   selectMode('protokoll');
 }
@@ -200,7 +203,7 @@ async function openProtokollPrefilled(p) {
 async function openProtokollForDate(date) {
   var me = currentUser.id;
   var { data, error } = await supabaseClient.from('plan_assignments')
-    .select('shift:plan_shifts!inner(date, sort, venue, title, wann, location, details, notes, open_slots)')
+    .select('shift:plan_shifts!inner(date, sort, venue, title, wann, location, details, notes, open_slots, plan_assignments(name, role, note, user_id))')
     .eq('user_id', me).eq('role', 'AL').eq('shift.date', date);
   if (error) console.error('Plan-Einsatz laden:', error);
   var shifts = (data || []).map(function(r) { return r.shift; }).sort(function(a, b) { return a.sort - b.sort; });
@@ -208,7 +211,7 @@ async function openProtokollForDate(date) {
   var p = planShiftFromDb(shifts[0]);
   await openProtokollPrefilled({
     event: planEventName(p), date: date, action: planGuessAction(p.wann), alId: me,
-    location: [p.venue].concat(p.location.slice(0, 1)).filter(Boolean).join(', ')
+    location: [p.venue].concat(p.location.slice(0, 1)).filter(Boolean).join(', '), shift: p
   });
 }
 

@@ -1,5 +1,5 @@
 // Run from the repo root: node --test tests/protokoll.test.js
-// Loads formulas.js, utils.js and protokoll.js into one sandbox with a fake Supabase client.
+// Loads formulas.js, utils.js, protokoll.js and plan-parser.js into one sandbox with a fake Supabase client.
 const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('vm');
@@ -58,7 +58,7 @@ function load() {
     supabaseClient: sb,
     currentUser: { id: 'u-me' },
   });
-  for (const f of ['formulas.js', 'utils.js', 'protokoll.js']) {
+  for (const f of ['formulas.js', 'utils.js', 'protokoll.js', 'plan-parser.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../js', f), 'utf8'), ctx, { filename: f });
   }
   // UI helpers the module calls; not under test
@@ -324,4 +324,68 @@ test('protCostLines: same total as calcProtCosts, one line per transport and per
   // a person without end time costs nothing and gets no line
   const r2 = plain(ctx.protCostLines({ transports: [], personnel: [{ pos: 'MA', isTemp: true, name: 'X', start: '08:00', end: '' }] }, '2026-10-28', false));
   assert.deepEqual(r2, { lines: [], total: 0 });
+});
+
+// ── Personnel prefill from a Wochenplan shift ──
+const planShift = extra => Object.assign({ date: '2026-10-30', wann: ['Aufbau: 8 Uhr'], people: [] }, extra);
+const users = [{ id: 'u-anna', full_name: 'Anna Albers', is_fest: true }, { id: 'u-bert', full_name: 'Bert Brandt', is_fest: false }];
+
+test('protPlanPersonnel: one row per named person, AL first, start from Wann, end empty', () => {
+  const rows = plain(run('protPlanPersonnel')(planShift({ people: [
+    { name: 'Bert', role: 'MA', note: null, userId: 'u-bert' },
+    { name: 'Anna', role: 'AL', note: null, userId: 'u-anna' },
+  ] }), users));
+  assert.deepEqual(rows.map(r => [r.pos, r.name, r.userId, r.start, r.end]), [
+    ['AL', 'Anna Albers', 'u-anna', '08:00', ''],
+    ['MA', 'Bert Brandt', 'u-bert', '08:00', ''],
+  ]);
+  assert.equal(rows[0].fest, true);
+  assert.equal(rows[0].isTemp, false);
+  assert.equal(rows[0].pause, '0');
+});
+
+test('protPlanPersonnel: personal and agency times win over the shift time', () => {
+  const rows = plain(run('protPlanPersonnel')(planShift({ people: [
+    { name: 'Milan', role: 'MA', note: 'ab 14 Uhr', userId: null },
+    { name: 'Feli', role: 'Deko', note: 'bis 13 Uhr', userId: null },
+    { name: 'Carla Muster', role: 'Zenjob', note: '8.30 - 16.30 Uhr', userId: null },
+  ] }), users));
+  assert.deepEqual(rows.map(r => [r.name, r.start, r.end, r.pause]), [
+    ['Milan', '14:00', '', '0'],
+    ['Feli', '08:00', '13:00', '0'],
+    ['Carla Muster', '08:30', '16:30', '30'],
+  ]);
+});
+
+test('protPlanPersonnel: roles map to the protocol positions; agency people are Aushilfen', () => {
+  const rows = plain(run('protPlanPersonnel')(planShift({ people: [
+    { name: 'Dino', role: 'ROCKiT', note: null, userId: null },
+    { name: 'Hanna', role: 'Deko', note: null, userId: null },
+    { name: 'Fritz', role: 'Fahrer', note: 'BAR PL 50', userId: null },
+  ] }), users));
+  assert.deepEqual(rows.map(r => r.pos), ['Rockit', 'MA', 'Fahrer']);
+  assert.equal(rows[0].isTemp, true);
+  assert.equal(rows[0].tempName, 'Dino');
+  // Unmatched internal names stay as typed names (shown as "nicht registriert")
+  assert.equal(rows[1].isTemp, false);
+  assert.equal(rows[1].userId, '');
+  assert.equal(rows[1].name, 'Hanna');
+  assert.equal(rows[2].start, '08:00');
+});
+
+test('protPlanPersonnel: no people → no rows; "bis" in Wann is no start time', () => {
+  assert.deepEqual(plain(run('protPlanPersonnel')(planShift({}), users)), []);
+  const rows = plain(run('protPlanPersonnel')(planShift({ wann: ['Abbau bis 18 Uhr'], people: [{ name: 'Bert', role: 'MA', note: null, userId: 'u-bert' }] }), users));
+  assert.equal(rows[0].start, '');
+});
+
+test('protApplyPlanPersonnel: fills only an untouched list, keeps entered rows', () => {
+  const rows = [{ pos: 'AL', name: 'Anna Albers', start: '08:00', end: '' }];
+  run('protState.personnel = [{ pos: "MA", name: "", tempName: "", start: "", end: "", pause: "0" }]');
+  assert.equal(run('protApplyPlanPersonnel')(rows), true);
+  assert.deepEqual(plain(run('protState.personnel')).map(r => r.name), ['Anna Albers']);
+  run('protState.personnel = [{ pos: "MA", name: "Max", start: "07:00", end: "", pause: "0" }]');
+  assert.equal(run('protApplyPlanPersonnel')(rows), false);
+  assert.deepEqual(plain(run('protState.personnel')).map(r => r.name), ['Max']);
+  assert.equal(run('protApplyPlanPersonnel')([]), false);
 });

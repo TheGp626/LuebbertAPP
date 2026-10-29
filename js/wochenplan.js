@@ -359,7 +359,7 @@ function wpStartProtokoll(shiftId) {
   var parsed = planShiftFromDb(s);
   openProtokollPrefilled({
     event: planEventName(parsed), date: s.date, action: planGuessAction(parsed.wann),
-    alId: wpMe(), location: [s.venue].concat(parsed.location.slice(0, 1)).filter(Boolean).join(', ')
+    alId: wpMe(), location: [s.venue].concat(parsed.location.slice(0, 1)).filter(Boolean).join(', '), shift: parsed
   });
 }
 
