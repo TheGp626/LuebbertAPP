@@ -410,3 +410,25 @@ test('saveProtokoll: incomplete rows → asks first; "Abbrechen" sends nothing',
   assert.match(asked, /Bert/);
   assert.equal(sb.calls.length, 0);
 });
+
+test('loading another protocol or resetting the form closes all rows (no stale open state)', () => {
+  store['luebbert_protokoll_history'] = JSON.stringify([{ id: 'h1', event: 'Gala', personnel: [{ pos: 'MA', name: 'Max', start: '08:00', end: '16:00' }], transports: [] }]);
+  ctx.confirm = () => true;
+  run('protOpenRows = { p3: true, t1: true }');
+  run('loadProtFromHistory("h1")');
+  assert.deepEqual(plain(run('protOpenRows')), {});
+  run('protOpenRows = { p0: true }');
+  run('resetProtFormState()');
+  assert.deepEqual(plain(run('protOpenRows')), {});
+  store['luebbert_protokoll_draft'] = JSON.stringify({ ownerId: 'u-me', personnel: [{ name: 'A' }, { name: 'B' }] });
+  run('protOpenRows = { p1: true }');
+  run('loadProtDraft()');
+  assert.deepEqual(plain(run('protOpenRows')), {});
+});
+
+test('typing an Aushilfe name updates the row title right away', () => {
+  run('protState.personnel = [{ pos: "Zenjob", isTemp: true, tempName: "", name: "", start: "", end: "", pause: "0" }]');
+  dom['prot-pname-0'] = { textContent: 'Ohne Name' };
+  run('updateProtPersonnel(0, "tempName", "Zoe")');
+  assert.equal(dom['prot-pname-0'].textContent, 'Zoe');
+});

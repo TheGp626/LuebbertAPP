@@ -37,3 +37,10 @@ test('ordnerFileKind: image / video / file for the row icon', () => {
   assert.equal(ctx.ordnerFileKind('application/pdf', 'Hallenplan.pdf'), 'file');
   assert.equal(ctx.ordnerFileKind('', ''), 'file');
 });
+
+test('ordnerFolderMenu: "Bearbeiten" opens the full folder form', () => {
+  let items = null;
+  ctx.openUiMenu = i => { items = i; };
+  ctx.ordnerFolderMenu('f1');
+  assert.deepEqual(plain(items), [{ label: 'Bearbeiten', action: 'openOrdnerForm', args: ['f1'] }]);
+});

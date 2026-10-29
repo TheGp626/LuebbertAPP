@@ -368,14 +368,9 @@ function readEinsatzRows() {
 }
 
 async function openOrdnerForm(id) {
-  // The form lives in the list view; coming from a folder's detail view, return there after saving
+  // The form is a sheet over the current view; coming from a folder's detail view, refresh it after saving
   var detail = document.getElementById('ordner-detail-view');
-  _ordnerFormReturnId = null;
-  if (id && detail && detail.style.display !== 'none') {
-    _ordnerFormReturnId = id;
-    detail.style.display = 'none';
-    document.getElementById('ordner-list-view').style.display = 'block';
-  }
+  _ordnerFormReturnId = id && detail && detail.style.display !== 'none' ? id : null;
   editingOrdnerId = id || null;
   var form = document.getElementById('ordner-form');
   var nameInp = document.getElementById('inp-ordner-name');
@@ -411,7 +406,7 @@ function closeOrdnerForm() {
   editingOrdnerId = null;
   var fm = document.getElementById('ordner-form-modal');
   if (fm) fm.classList.remove('open');
-  if (_ordnerFormReturnId) { var back = _ordnerFormReturnId; _ordnerFormReturnId = null; openOrdnerDetail(back); }
+  _ordnerFormReturnId = null; // cancelled: the detail view underneath is unchanged
 }
 
 // After a partly failed save: take the DB state as the new baseline and give form rows that were
@@ -524,18 +519,6 @@ async function renderOrdnerEinsaetze(folder) {
   box.style.display = 'block';
 }
 
-async function renameOrdnerPrompt(id) {
-  var o = alleOrdner.find(function(x) { return x.id === id; });
-  if (!o || !canManageOrdner) return;
-  var name = prompt('Neuer Name:', o.name);
-  if (!name || !name.trim() || name.trim() === o.name) return;
-  var { error } = await supabaseClient.from('project_folders').update({ name: name.trim() }).eq('id', id);
-  if (error) { showToast('Fehler: ' + error.message, 'danger'); return; }
-  showToast('✅ Umbenannt.');
-  var keepId = aktuellerOrdner ? aktuellerOrdner.id : null;
-  await fetchOrdner();
-  if (keepId) await openOrdnerDetail(keepId);
-}
 
 // Collects the folder and all nested subfolder ids (depth-first over the cached list)
 function collectOrdnerTreeIds(rootId) {
@@ -854,7 +837,7 @@ function ordnerFileKind(mimeType, name) {
 }
 
 function ordnerFolderMenu(id) {
-  openUiMenu([{ label: 'Umbenennen', action: 'renameOrdnerPrompt', args: [id] }]);
+  openUiMenu([{ label: 'Bearbeiten', action: 'openOrdnerForm', args: [id] }]);
 }
 
 function ordnerFileMenu(id) {

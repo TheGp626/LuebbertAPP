@@ -34,3 +34,9 @@ test('next-shift cache is per user and survives garbage', () => {
   assert.equal(H.readNextShiftCache(null, 'u1'), null);
   assert.equal(H.readNextShiftCache(H.nextShiftCacheValue('u1', null), 'u1'), null);
 });
+
+test('homeNextAllowed: the "Nächster Einsatz" card only for roles that may open the Wochenplan', () => {
+  assert.equal(H.homeNextAllowed('MA', allowed), true);
+  assert.equal(H.homeNextAllowed('AL', allowed), true);
+  assert.equal(H.homeNextAllowed('Gast', allowed), false);
+});

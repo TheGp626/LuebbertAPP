@@ -35,3 +35,21 @@ test('pinCheckOutcome: only a definite "false" from the server is a failed attem
   assert.equal(outcome(null, { message: 'TypeError: Failed to fetch' }), 'error');
   assert.equal(outcome(true, { message: 'x' }), 'error');
 });
+
+test('authSessionChanged: re-login only when the fresh user differs from the cached one', () => {
+  const changed = load('authSessionChanged');
+  const u = { id: 'a', full_name: 'Anna', role: 'MA', default_dept: 'Lager', hourly_rate_conni: 15, hourly_rate_internal: 14 };
+  assert.equal(changed(u, Object.assign({}, u)), false);
+  assert.equal(changed(u, Object.assign({}, u, { role: 'AL' })), true);
+  assert.equal(changed(u, Object.assign({}, u, { full_name: 'Anna B' })), true);
+  assert.equal(changed(u, Object.assign({}, u, { hourly_rate_internal: 16 })), true);
+  assert.equal(changed(u, null), true, 'deactivated or removed → log out');
+  assert.equal(changed(null, u), true, 'nothing shown yet → log in');
+  assert.equal(changed(null, null), true, 'no session → show the login');
+});
+
+test('initAuth restores the login from the cached list before waiting for the network', () => {
+  const body = grab('initAuth');
+  const early = body.indexOf('handleSession(shown)'), fetch = body.indexOf('await fetchEmployees()');
+  assert.ok(early !== -1 && fetch !== -1 && early < fetch);
+});

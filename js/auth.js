@@ -138,29 +138,37 @@ function initAuthNamePicker() {
   });
 }
 
+// After the fresh employee list arrived: log in again only if the person changed (role, name, rates),
+// was deactivated, or nothing was shown from the cache yet
+function authSessionChanged(shown, fresh) {
+  if (!shown || !fresh) return true;
+  return ['full_name', 'role', 'default_dept', 'hourly_rate_conni', 'hourly_rate_internal']
+    .some(function(k) { return String(shown[k] == null ? '' : shown[k]) !== String(fresh[k] == null ? '' : fresh[k]); });
+}
+
 async function initAuth() {
   initAuthNamePicker();
-  await fetchEmployees();
 
   // Check if we have an active local session (with expiry)
-  const activeUserId = localStorage.getItem('local_app_user_id');
+  let activeUserId = localStorage.getItem('local_app_user_id');
   const sessionTs = parseInt(localStorage.getItem('local_app_session_ts') || '0');
   const rememberMe = localStorage.getItem('local_app_remember_me') === '1';
   const activeTTL = rememberMe ? REMEMBER_ME_TTL_MS : SESSION_TTL_MS;
-  if (activeUserId && (Date.now() - sessionTs) < activeTTL) {
-    const user = allUsers.find(u => u.id === activeUserId);
-    if (user) {
-      handleSession(user);
-      return;
-    }
-  } else if (activeUserId) {
+  if (activeUserId && (Date.now() - sessionTs) >= activeTTL) {
     // Expired session — clear it
     localStorage.removeItem('local_app_user_id');
     localStorage.removeItem('local_app_session_ts');
     localStorage.removeItem('local_app_remember_me');
+    activeUserId = null;
   }
 
-  handleSession(null);
+  // Weak network: start from the cached employee list instead of an empty page until the server answers
+  const shown = activeUserId ? parseCachedUsers(localStorage.getItem(USERS_CACHE_KEY)).find(u => u.id === activeUserId) || null : null;
+  if (shown) handleSession(shown);
+
+  await fetchEmployees();
+  const fresh = activeUserId ? allUsers.find(u => u.id === activeUserId) || null : null;
+  if (authSessionChanged(shown, fresh)) handleSession(fresh);
 }
 
 function handleSession(user) {

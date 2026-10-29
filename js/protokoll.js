@@ -472,7 +472,7 @@ function renderProtPersonnel() {
       : '<input type="text" placeholder="Name tippen…" list="prot-users-datalist" autocomplete="off" value="' + escapeHtml(p.name || '') + '" onchange="onProtPersonnelName(' + i + ', this.value)"/>';
     return '<div class="ui-row ui-row-wrap' + (protOpenRows[key] ? ' ui-row-open' : '') + '">' +
       '<div class="ui-row-main" onclick="toggleProtRow(\'' + key + '\')">' +
-        '<div class="ui-row-title">' + escapeHtml(p.name || p.tempName || 'Ohne Name') + ' <span class="ui-pill ui-pill-info">' + escapeHtml(p.pos || '') + '</span></div>' +
+        '<div class="ui-row-title"><span id="prot-pname-' + i + '">' + escapeHtml(p.name || p.tempName || 'Ohne Name') + '</span> <span class="ui-pill ui-pill-info">' + escapeHtml(p.pos || '') + '</span></div>' +
         '<div class="ui-sub" id="prot-psum-' + i + '">' + escapeHtml(protPersonSummary(p)) + '</div>' +
         (unregistered ? '<span class="ui-pill ui-pill-warn" style="margin-top:4px;" title="Kein registrierter Mitarbeiter – wird als Externe(r) gespeichert">nicht registriert</span>' : '') +
       '</div>' +
@@ -557,6 +557,8 @@ function updateProtPersonnel(idx, field, val) {
   }
   var sum = document.getElementById('prot-psum-' + idx);
   if (sum) sum.textContent = protPersonSummary(protState.personnel[idx]);
+  var title = document.getElementById('prot-pname-' + idx);
+  if (title) title.textContent = protState.personnel[idx].name || protState.personnel[idx].tempName || 'Ohne Name';
 
   saveProtDraft();
   calcProtCosts();
@@ -779,6 +781,7 @@ function protDraftOwner() {
 // Empties the form state and fields without touching localStorage (used when a foreign draft is discarded)
 function resetProtFormState() {
   protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null, editingId: null, editingLocalId: null, signature: null };
+  protOpenRows = {};
   ['prot-event', 'prot-location', 'prot-date', 'prot-damages', 'prot-incidents', 'prot-feedback', 'prot-al', 'prot-pl'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.value = '';
@@ -814,6 +817,7 @@ function loadProtDraft() {
     
     protState.transports = data.transports || [];
     protState.personnel = data.personnel || [];
+    protOpenRows = {}; // rows of the previous form must not stay open on the loaded one
     protState.categories = data.categories || {};
     protState.signature = data.signature || null;
     protState.editingId = data.editingId || null;
@@ -826,6 +830,7 @@ function clearProtForm(skipConfirm) {
   if (!skipConfirm && !confirm('Gesamtes Protokoll löschen?')) return;
   localStorage.removeItem('luebbert_protokoll_draft');
   protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null };
+  protOpenRows = {};
 
   // Re-hydrate UI without reloading if possible
   document.getElementById('prot-event').value = '';
@@ -1395,6 +1400,7 @@ function loadProtFromHistory(id) {
   // Hydrate state
   protState.transports = (entry.transports || []).map(function(t) { return Object.assign({}, t); });
   protState.personnel  = (entry.personnel  || []).map(function(p) { return Object.assign({}, p); });
+  protOpenRows = {};
   protState.categories = JSON.parse(JSON.stringify(entry.categories || {}));
   protState.signature  = entry.signature || null;
   var holEl = document.getElementById('prot-isholiday');

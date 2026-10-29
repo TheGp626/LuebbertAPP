@@ -286,8 +286,24 @@ async function wpRenderMine() {
       (wpWeeks.length ? '<br><button type="button" class="btn wp-empty-btn" onclick="wpSetView(\'all\')">Ganze Woche ansehen</button>' : '') + '</div>';
     return;
   }
+  _wpMineShifts = shifts;
   content.innerHTML = wpHero(shifts[0]) +
-    (shifts.length > 1 ? '<div class="ui-label">Danach</div>' + shifts.slice(1).map(function(s) { return wpRow(s, { showDate: true }); }).join('') : '');
+    (shifts.length > 1 ? '<div class="ui-label">Danach</div>' + shifts.slice(1).map(function(s) { return wpRow(s, { showDate: true }); }).join('') : '') +
+    '<button type="button" class="ui-btn wp-cal-btn" onclick="wpExportCalendar()">' + uiIcon('calendar') + ' In Kalender übernehmen</button>' +
+    '<div class="ui-sub wp-cal-hint">Nach Planänderungen erneut tippen – vorhandene Einträge werden aktualisiert.</div>';
+}
+
+// "In Kalender übernehmen": the upcoming own shifts as .ics; re-importing updates entries (UID from the plan key)
+var _wpMineShifts = [];
+function wpExportCalendar() {
+  if (!_wpMineShifts.length) return;
+  var stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  var blob = new Blob([planIcs(_wpMineShifts, wpMe(), stamp)], { type: 'text/calendar;charset=utf-8' });
+  var url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = 'Luebbert-Schichten.ics';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function() { URL.revokeObjectURL(url); }, 10000);
+  showToast(_wpMineShifts.length + (_wpMineShifts.length === 1 ? ' Schicht' : ' Schichten') + ' für den Kalender exportiert', 'success');
 }
 
 function wpRenderDays(week, byDay) {

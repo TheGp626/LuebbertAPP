@@ -121,3 +121,15 @@ test('loadDashboardWorkers keeps the selected employee (the list rebuild must no
   await ctx.loadDashboardWorkers();
   assert.equal(sel.value, 'w1');
 });
+
+test('recalcAllProtocolCosts: a second tap while it runs does nothing', async () => {
+  let updates = 0;
+  const b = { update() { updates++; return b; }, eq() { return b; }, select() { return Promise.resolve({ data: [{ id: 'p1' }], error: null }); } };
+  ctx.supabaseClient = { from: () => b };
+  ctx.showToast = () => {};
+  run('appUsers = [{ id: "x" }]; dashboardProtocols = [{ id: "p1", date: "2026-10-28", shifts: [], protocol_transports: [] }]');
+  await Promise.all([run('recalcAllProtocolCosts()'), run('recalcAllProtocolCosts()')]);
+  assert.equal(updates, 1);
+  await run('recalcAllProtocolCosts()');
+  assert.equal(updates, 2, 'runs again once the first run is done');
+});

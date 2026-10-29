@@ -394,3 +394,50 @@ test('planEventName: delivery notes and the warehouse are no event lines', () =>
   assert.equal(P.planEventName({ title: 'Inventur', venue: 'PL', location: loc('entfällt!') }), 'Inventur');
   assert.equal(P.planEventName({ title: '1 STB weiß', venue: 'Estrel', location: loc('PL Lager') }), 'Estrel');
 });
+
+// ── Calendar export ──
+const icsShift = extra => Object.assign({
+  id: 'x1', key: '2026-10-30|estrel|4 stb weiß', date: '2026-10-30', venue: 'Estrel', title: '4 STB weiß',
+  location: 'Musterallee 1\n12345 Berlin\nShowtheater\nZahnärztetag XY', wann: 'Aufbau: 8 Uhr',
+  plan_assignments: [{ user_id: 'me', name: 'Ich', role: 'AL' }, { user_id: 'u2', name: 'Bert', role: 'MA' }],
+}, extra);
+const icsEvents = ics => ics.split('BEGIN:VEVENT').slice(1).map(e => e.split('END:VEVENT')[0]);
+
+test('planIcs: calendar with one event per shift, CRLF lines, stable UID from the plan key', () => {
+  const ics = P.planIcs([icsShift()], 'me', '20261029T120000Z');
+  assert.match(ics, /^BEGIN:VCALENDAR\r\nVERSION:2\.0\r\n/);
+  assert.match(ics, /END:VCALENDAR\r\n$/);
+  assert.ok(!/[^\r]\n/.test(ics), 'every line ends with CRLF');
+  const [ev] = icsEvents(ics);
+  assert.match(ev, /\r\nSUMMARY:Aufbau – Zahnärztetag XY\r\n/);
+  assert.match(ev, /\r\nDTSTART:20261030T080000\r\n/);
+  assert.ok(!/DTEND/.test(ev), 'no end time in the plan → no DTEND');
+  assert.ok(ev.includes('\r\nLOCATION:Estrel\\, Musterallee 1\\, 12345 Berlin\r\n'));
+  assert.ok(ev.includes('\r\nDESCRIPTION:Aufbau: 8 Uhr\\nRolle: AL\r\n'));
+  assert.match(ev, /\r\nDTSTAMP:20261029T120000Z\r\n/);
+  // Same plan key → same UID even when the shift id changes with a new upload
+  const uid = /UID:(.+)\r\n/.exec(ev)[1];
+  const again = icsEvents(P.planIcs([icsShift({ id: 'other' })], 'me', '20261029T120000Z'))[0];
+  assert.equal(/UID:(.+)\r\n/.exec(again)[1], uid);
+  const otherKey = icsEvents(P.planIcs([icsShift({ key: '2026-10-31|estrel|x' })], 'me', '20261029T120000Z'))[0];
+  assert.notEqual(/UID:(.+)\r\n/.exec(otherKey)[1], uid);
+});
+
+test('planIcs: end times, night shifts and shifts without a start time', () => {
+  const ev = w => icsEvents(P.planIcs([icsShift({ wann: w })], 'me', '20261029T120000Z'))[0];
+  assert.match(ev('Aufbau: 9 - 14 Uhr'), /DTSTART:20261030T090000\r\nDTEND:20261030T140000\r\n/);
+  // Before 4:00 → the night after the listed day
+  assert.match(ev('Abbau: 0.30 Uhr'), /DTSTART:20261031T003000\r\n/);
+  assert.match(ev('Abbau: 22 - 2 Uhr'), /DTSTART:20261030T220000\r\nDTEND:20261031T020000\r\n/);
+  // No time, or only a deadline ("bis 16 Uhr") → all-day entry
+  assert.match(ev(''), /DTSTART;VALUE=DATE:20261030\r\nDTEND;VALUE=DATE:20261031\r\n/);
+  assert.match(ev('Aufbau: bis 16 Uhr'), /DTSTART;VALUE=DATE:20261030\r\n/);
+});
+
+test('planIcs: escapes text and folds long lines at 75 bytes', () => {
+  const long = 'Sehr lange Veranstaltung mit Umlauten äöü; Komma, und noch viel mehr Text bis die Zeile umbricht';
+  const ics = P.planIcs([icsShift({ title: long })], 'me', '20261029T120000Z');
+  assert.ok(ics.split('\r\n').every(l => Buffer.byteLength(l, 'utf8') <= 75), 'no line longer than 75 bytes');
+  const unfolded = ics.replace(/\r\n /g, '');
+  assert.ok(unfolded.includes('SUMMARY:Aufbau – Sehr lange Veranstaltung mit Umlauten äöü\\; Komma\\, und noch'));
+});
