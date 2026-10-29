@@ -389,3 +389,24 @@ test('protApplyPlanPersonnel: fills only an untouched list, keeps entered rows',
   assert.deepEqual(plain(run('protState.personnel')).map(r => r.name), ['Max']);
   assert.equal(run('protApplyPlanPersonnel')([]), false);
 });
+
+test('protIncompleteNames: named people without start or end; blank rows are ignored', () => {
+  const names = plain(run('protIncompleteNames')([
+    { name: 'Anna', start: '08:00', end: '16:00' },
+    { name: 'Bert', start: '08:00', end: '' },
+    { isTemp: true, tempName: 'Carla', name: '', start: '', end: '17:00' },
+    { name: '', tempName: '', start: '', end: '' },
+    { name: '', tempName: '', start: '09:00', end: '' },
+  ]));
+  assert.deepEqual(names, ['Bert', 'Carla', 'Ohne Name']);
+});
+
+test('saveProtokoll: incomplete rows → asks first; "Abbrechen" sends nothing', async () => {
+  let asked = '';
+  ctx.confirm = msg => { asked = msg; return false; };
+  dom['prot-total-cost'] = { textContent: '0,00' };
+  run('protState.personnel = [{ pos: "MA", name: "Bert", start: "08:00", end: "", pause: "0" }]');
+  await run('saveProtokoll()');
+  assert.match(asked, /Bert/);
+  assert.equal(sb.calls.length, 0);
+});
