@@ -185,3 +185,11 @@ input[type=checkbox].ui-switch:checked::before { transform: translateX(18px); }
 @media (min-width: 768px) {
   .ui-topnav, .ui-actionbar { padding-left: max(16px, calc((100% - 720px) / 2)); padding-right: max(16px, calc((100% - 720px) / 2)); }
 }
+
+/* Sheets with older generated content (dashboard details/edit): shared field and heading look */
+.ui-sheet .meta-input, .ui-sheet input[type=text], .ui-sheet input[type=number], .ui-sheet input[type=date], .ui-sheet input[type=time], .ui-sheet select, .ui-sheet textarea { min-height: 44px; padding: 10px 12px; font-size: 16px; border-radius: var(--r-control); border: 0.5px solid var(--border2); background: var(--bg); color: var(--text); box-sizing: border-box; }
+.ui-sheet input[type=checkbox]:not(.ui-switch) { width: 18px; height: 18px; min-height: 0; }
+.ui-sheet .field label, .ui-sheet .meta-label { font-size: 13px; color: var(--text2); font-weight: 500; text-transform: none; letter-spacing: 0; }
+.ui-sheet .sig-modal-head { margin-bottom: 12px; }
+.ui-sheet .sig-modal-title, .ui-sheet h3 { font-size: 18px; font-weight: 700; }
+.ui-sheet .btn { min-height: 44px; border-radius: var(--r-control); }

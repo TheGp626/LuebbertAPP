@@ -48,9 +48,9 @@ const BUCHHALTUNG_MIN_HOURS = 3;         // Minimum booking floor in hours
 const BUCHHALTUNG_MIN_HOURS_ENABLED = true; // Set to false to show raw hours
 
 function switchDashTab(tab) {
-  document.getElementById('dash-tab-prot').classList.toggle('primary', tab === 'prot');
-  document.getElementById('dash-tab-work').classList.toggle('primary', tab === 'work');
-  document.getElementById('dash-tab-settings').classList.toggle('primary', tab === 'settings');
+  document.getElementById('dash-tab-prot').classList.toggle('active', tab === 'prot');
+  document.getElementById('dash-tab-work').classList.toggle('active', tab === 'work');
+  document.getElementById('dash-tab-settings').classList.toggle('active', tab === 'settings');
 
   document.getElementById('dash-view-prot').style.display = tab === 'prot' ? 'block' : 'none';
   document.getElementById('dash-view-work').style.display = tab === 'work' ? 'block' : 'none';
@@ -63,9 +63,87 @@ function switchDashTab(tab) {
   }
 }
 
+// Opens/closes the "Mitarbeiter hinzufügen" sheet (name kept: addDashboardUser closes it after saving)
 function toggleAddUserForm() {
-  const form = document.getElementById('add-user-form');
-  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  const m = document.getElementById('add-user-modal');
+  if (m) m.classList.toggle('open');
+}
+
+// Employee list: people with new hours first, then by name; filtered by a name search
+function dashWorkerList(workers, pendingMap, query) {
+  var q = String(query || '').trim().toLowerCase();
+  return (workers || [])
+    .filter(function(w) { return !q || String(w.full_name || '').toLowerCase().indexOf(q) !== -1; }) // real names only, not the placeholder
+    .map(function(w) { return { id: w.id, name: w.full_name || 'Unbekannt', role: w.role || '', pending: (pendingMap || {})[w.id] || 0 }; })
+    .sort(function(a, b) { return (b.pending > 0) - (a.pending > 0) || a.name.localeCompare(b.name, 'de'); });
+}
+
+var dashPendingMap = {};
+
+function dashWorkerRowHtml(w, selectedId) {
+  return '<button type="button" class="ui-row dash-worker-row' + (w.id === selectedId ? ' ui-row-me' : '') + '" onclick="selectDashWorker(\'' + jsAttrArg(w.id) + '\')">' +
+    '<span class="ui-row-main"><span class="ui-row-title">' + escapeHtml(w.name) + '</span><span class="ui-sub">' + escapeHtml(w.role) + '</span></span>' +
+    (w.pending ? '<span class="ui-pill ui-pill-info" title="Neue Stunden">' + w.pending + '</span>' : '') +
+  '</button>';
+}
+
+function renderDashWorkerList() {
+  var listEl = document.getElementById('dash-worker-list');
+  if (!listEl) return;
+  var selected = (document.getElementById('dash-worker-select') || {}).value || '';
+  var query = (document.getElementById('dash-worker-search') || {}).value || '';
+  var rows = dashWorkerList(dashboardWorkers, dashPendingMap, query);
+  listEl.innerHTML = rows.length ? rows.map(function(w) { return dashWorkerRowHtml(w, selected); }).join('') : uiEmptyHtml('Niemand gefunden', '');
+  var panel = document.getElementById('pending-workers-panel'), chips = document.getElementById('pending-workers-chips');
+  var pending = rows.filter(function(w) { return w.pending > 0; });
+  if (panel && chips) {
+    panel.style.display = pending.length && !query.trim() ? 'block' : 'none';
+    chips.innerHTML = pending.map(function(w) { return dashWorkerRowHtml(w, selected); }).join('');
+  }
+}
+
+// Selecting a person: the hidden select stays the source the rest of the dashboard reads
+function selectDashWorker(id) {
+  var sel = document.getElementById('dash-worker-select');
+  if (!sel) return;
+  sel.value = id;
+  renderWorkerShifts();
+  updateEditWorkerBtn();
+  renderDashWorkerList();
+  var work = document.getElementById('dash-work');
+  if (work) work.classList.add('dash-work-detail-open');
+}
+
+function closeDashWorker() {
+  var work = document.getElementById('dash-work');
+  if (work) work.classList.remove('dash-work-detail-open');
+}
+
+// Share of the income limit: {pct 0–100, over}; null without pay or without a limit
+function incomeLimitShare(earned, limit) {
+  if (earned === null || earned === undefined || !limit || limit <= 0) return null;
+  return { pct: Math.min(100, Math.round(earned / limit * 100)), over: earned > limit };
+}
+
+// Net minutes of one booked shift, same rules as the table (overnight, minimum booking floor)
+function dashShiftNetMins(s) {
+  var st = s.start_time ? s.start_time.substring(0, 5) : null, en = s.end_time ? s.end_time.substring(0, 5) : null;
+  if (!st || !en) return 0;
+  var a = st.split(':').map(Number), b = en.split(':').map(Number);
+  if (isNaN(a[0]) || isNaN(b[0])) return 0;
+  var startMins = a[0] * 60 + a[1], endMins = b[0] * 60 + b[1];
+  if (endMins < startMins) endMins += 1440;
+  var net = endMins - startMins - (s.pause_mins || 0);
+  if (BUCHHALTUNG_MIN_HOURS_ENABLED) net = Math.max(BUCHHALTUNG_MIN_HOURS * 60, net);
+  return net > 0 ? net : 0;
+}
+
+function dashWorkerHeadHtml(w) {
+  if (!w) return '';
+  var rates = [w.hourly_rate_conni ? 'Lohn ' + parseFloat(w.hourly_rate_conni).toFixed(2).replace('.', ',') + ' €/h' : '',
+    w.hourly_rate_internal ? 'intern ' + parseFloat(w.hourly_rate_internal).toFixed(2).replace('.', ',') + ' €/h' : ''].filter(Boolean).join(' · ');
+  return '<div class="ui-title" style="font-size:20px;">' + escapeHtml(w.full_name || 'Unbekannt') + '</div>' +
+    '<div class="ui-sub">' + escapeHtml([w.role, w.default_dept].filter(Boolean).join(' · ')) + (rates ? ' · ' + escapeHtml(rates) : '') + '</div>';
 }
 
 function updateEditWorkerBtn() {
@@ -302,29 +380,56 @@ function renderDashboardTable() {
     const alName = p.al ? p.al.full_name : (p.al_name_fallback || '—');
     const plName = p.pl ? p.pl.full_name : (p.pl_name_fallback || '');
     const costStr = (p.total_cost || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €';
-    const holidayTag = p.is_holiday
-      ? ' <span style="font-size:10px;background:#f59e0b;color:#fff;padding:1px 5px;border-radius:8px;vertical-align:middle;margin-left:4px;">Feiertag</span>'
-      : '';
-    const plLine = plName
-      ? `<div style="font-size:11px; color:var(--text3);">PL: ${escapeHtml(plName)}</div>`
-      : '';
+    const holidayTag = p.is_holiday ? ' <span class="ui-pill ui-pill-warn">Feiertag</span>' : '';
+    const plLine = plName ? `<div class="ui-sub">PL ${escapeHtml(plName)}</div>` : '';
 
     tr.innerHTML = `
-      <td data-label="Datum">${new Date(p.date).toLocaleDateString('de-DE')}</td>
-      <td data-label="Projekt" style="font-weight:600;">${escapeHtml(projName)}</td>
-      <td data-label="Aktion"><span class="badge ${p.action === 'Abbau' ? 'badge-al' : 'badge-pl'}">${escapeHtml(p.action)}</span>${holidayTag}</td>
-      <td data-label="AL/PL" style="font-size: 13px; color: var(--text2);">
-        <div>${escapeHtml(alName)}</div>
-        ${plLine}
-      </td>
-      <td data-label="Kosten" style="font-weight:700; color: var(--accent);">${escapeHtml(costStr)}</td>
-      <td data-label="" style="text-align:right; display:flex; gap:8px; justify-content:flex-end;">
-        <button class="view-btn" data-action="pdf" data-id="${escapeHtml(p.id)}">PDF</button>
-        <button class="view-btn" data-action="detail" data-id="${escapeHtml(p.id)}">Details</button>
+      <td data-label="Datum" class="dash-num">${new Date(p.date).toLocaleDateString('de-DE')}</td>
+      <td data-label="Projekt"><span class="ui-row-title">${escapeHtml(projName)}</span></td>
+      <td data-label="Aktion"><span class="ui-pill ui-pill-info">${escapeHtml(p.action)}</span>${holidayTag}</td>
+      <td data-label="AL / PL"><div>${escapeHtml(alName)}</div>${plLine}</td>
+      <td data-label="Kosten" class="dash-num"><b>${escapeHtml(costStr)}</b></td>
+      <td data-label="" class="dash-actions">
+        <button type="button" class="ui-btn dash-small-btn" data-action="pdf" data-id="${escapeHtml(p.id)}">PDF</button>
+        <button type="button" class="ui-btn dash-small-btn" data-action="detail" data-id="${escapeHtml(p.id)}">Details</button>
       </td>
     `;
     body.appendChild(tr);
   });
+  if (!filtered.length) {
+    body.innerHTML = '<tr><td colspan="6" data-label="">' + uiEmptyHtml(searchTerm ? 'Nichts gefunden' : 'Noch keine Protokolle', searchTerm ? 'Andere Suche versuchen.' : '') + '</td></tr>';
+  }
+  renderDashStats();
+}
+
+// Protocols and costs of the calendar month of `now`
+function dashMonthStats(protocols, now) {
+  var ym = now.getFullYear() + '-' + ('0' + (now.getMonth() + 1)).slice(-2);
+  var count = 0, cost = 0;
+  (protocols || []).forEach(function(p) {
+    if (String(p.date || '').slice(0, 7) !== ym) return;
+    count++;
+    cost += Number(p.total_cost) || 0;
+  });
+  return { count: count, cost: cost };
+}
+
+function renderDashStats() {
+  var box = document.getElementById('dash-stats');
+  if (!box) return;
+  var now = new Date(), s = dashMonthStats(dashboardProtocols, now);
+  var month = now.toLocaleDateString('de-DE', { month: 'long' });
+  box.innerHTML =
+    '<div class="ui-stat"><span>Protokolle im ' + month + '</span><b>' + s.count + '</b></div>' +
+    '<div class="ui-stat"><span>Kosten im ' + month + '</span><b>' + s.cost.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</b></div>';
+}
+
+if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
+  UI_TOPBAR_ITEMS.dashboard = function() {
+    var items = [{ label: 'Kosten aller Protokolle neu berechnen', action: 'recalcAllProtocolCosts' }];
+    if (typeof dashboardCurrentWorker !== 'undefined' && dashboardCurrentWorker) items.push({ label: 'Monat als PDF (' + (dashboardCurrentWorker.full_name || 'Mitarbeiter') + ')', action: 'exportDashboardMonthlyPDF' });
+    return items;
+  };
 }
 
 // ── BUCHHALTUNG SHIFTS LOGIC ──
@@ -349,23 +454,7 @@ async function loadDashboardWorkers() {
       if (s.user_id) pendingMap[s.user_id] = (pendingMap[s.user_id] || 0) + 1;
     });
     dashboardWorkers = users || [];
-
-    // Render pending-workers panel
-    const panel = document.getElementById('pending-workers-panel');
-    const chips = document.getElementById('pending-workers-chips');
-    const pendingWorkers = dashboardWorkers.filter(w => pendingMap[w.id]);
-    if (panel && chips) {
-      if (pendingWorkers.length > 0) {
-        chips.innerHTML = pendingWorkers.map(w =>
-          `<button class="btn" style="width:auto;padding:6px 14px;font-size:13px;border:2px solid var(--accent);" onclick="document.getElementById('dash-worker-select').value='${escapeHtml(w.id)}';renderWorkerShifts();">` +
-          `${escapeHtml(w.full_name || 'Unbekannt')} <span style="background:var(--accent);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:6px;">${pendingMap[w.id]}</span>` +
-          `</button>`
-        ).join('');
-        panel.style.display = 'block';
-      } else {
-        panel.style.display = 'none';
-      }
-    }
+    dashPendingMap = pendingMap;
 
     const sel = document.getElementById('dash-worker-select');
     sel.innerHTML = '<option value="">-- Mitarbeiter wählen --</option>';
@@ -376,6 +465,7 @@ async function loadDashboardWorkers() {
       opt.textContent = (w.full_name || 'Unbekannt') + ' (' + (w.role || '') + ')' + indicator;
       sel.appendChild(opt);
     });
+    renderDashWorkerList();
   } catch (err) {
     console.error("Worker fetch err:", err);
   }
@@ -385,14 +475,17 @@ async function renderWorkerShifts() {
   const userId = document.getElementById('dash-worker-select').value;
   const cont = document.getElementById('worker-shifts-container');
   
+  const head = document.getElementById('dash-worker-head');
   if (!userId) {
-    cont.innerHTML = `<div class="empty-state"><div class="empty-icon">👥</div><div>Bitte wählen Sie einen Mitarbeiter aus.</div></div>`;
+    if (head) head.innerHTML = '';
+    cont.innerHTML = uiEmptyHtml('Mitarbeiter wählen', 'Wähle links eine Person, um ihre Schichten zu sehen.');
     populateDashboardMonthFilter([]);
     return;
   }
-  
+
   dashboardCurrentWorker = dashboardWorkers.find(w => w.id === userId);
-  cont.innerHTML = `<div style="text-align:center; padding: 20px; color:var(--text3);">Lade Schichten...</div>`;
+  if (head) head.innerHTML = dashWorkerHeadHtml(dashboardCurrentWorker);
+  cont.innerHTML = '<div class="ui-sub" style="padding:20px 2px;">Schichten werden geladen…</div>';
   
   try {
     const { data: shifts, error } = await supabaseClient
@@ -418,28 +511,28 @@ async function renderWorkerShifts() {
     const canEdit = (typeof userRole !== 'undefined') && (userRole === 'Buchhaltung' || userRole === 'Admin');
 
     if (dashboardCurrentShifts.length === 0) {
-      cont.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><div>Keine Schichten für diesen Mitarbeiter gefunden.</div></div>` +
-        (canEdit ? `<div style="margin-top:16px; text-align:right;"><button class="btn" style="width:auto; padding:10px 16px;" onclick="openAddShift()">+ Schicht hinzufügen</button></div>` : '');
+      cont.innerHTML = uiEmptyHtml('Keine Schichten', 'Für diese Person sind noch keine Schichten erfasst.',
+        canEdit ? '<button type="button" class="ui-btn" onclick="openAddShift()">+ Schicht hinzufügen</button>' : '');
       populateDashboardMonthFilter([]);
       return;
     }
-    let html = `<table class="compact-table" style="width:100%; margin-top: 10px;">
+    let html = `<table class="ui-table dash-shift-table">
       <thead>
         <tr>
-          <th>Datum/Projekt</th>
+          <th>Datum / Projekt</th>
           <th>Rolle</th>
           <th>Zeiten</th>
           <th>Netto</th>
-          <th style="text-align:center;">Verbucht</th>
-          ${canEdit ? '<th style="text-align:center;"></th>' : ''}
+          <th>Verbucht</th>
+          ${canEdit ? '<th></th>' : ''}
         </tr>
       </thead>
       <tbody>`;
-      
+
     dashboardCurrentShifts.forEach(s => {
       let dateLabel = "Unbekannt";
       let projLabel = "Manuell erfasst";
-      
+
       if (s.protocols) {
         dateLabel = s.protocols.date ? new Date(s.protocols.date).toLocaleDateString('de-DE') : '—';
         projLabel = s.protocols.projects ? s.protocols.projects.name : '—';
@@ -448,100 +541,68 @@ async function renderWorkerShifts() {
       } else if (s.created_at) {
         dateLabel = new Date(s.created_at).toLocaleDateString('de-DE');
       }
-      
+
       const st = s.start_time ? s.start_time.substring(0, 5) : '—';
       const en = s.end_time ? s.end_time.substring(0, 5) : '—';
-      const timeStr = st !== '—' ? `${st} - ${en} (${s.pause_mins}m P)` : '—';
-      
-      let netStr = '—';
-      if (st !== '—' && en !== '—') {
-        const [sh, sm] = st.split(':').map(Number);
-        const [eh, em] = en.split(':').map(Number);
-        if (!isNaN(sh) && !isNaN(eh)) {
-          const startMins = sh * 60 + sm;
-          let endMins = eh * 60 + em;
-          if (endMins < startMins) endMins += 1440; // overnight
-          let netMins = endMins - startMins - (s.pause_mins || 0);
-          if (BUCHHALTUNG_MIN_HOURS_ENABLED) netMins = Math.max(BUCHHALTUNG_MIN_HOURS * 60, netMins);
-          if (netMins > 0) {
-            netStr = (netMins / 60).toFixed(2).replace('.', ',') + ' h';
-          }
-        }
-      }
-      
+      const timeStr = st !== '—' ? `${st}–${en}` + (s.pause_mins ? ` · ${s.pause_mins} min` : '') : '—';
+      const netMins = dashShiftNetMins(s);
+      const netStr = netMins > 0 ? (netMins / 60).toFixed(2).replace('.', ',') + ' h' : '—';
+
       const isBooked = s.status === 'eingetragen';
-      const checkedAttr = isBooked ? 'checked' : '';
-      const checkboxHtml = `<input type="checkbox" ${checkedAttr} data-shift-id="${escapeHtml(s.id)}" class="shift-booked-cb" style="width:18px;height:18px;cursor:pointer;">`;
+      const checkboxHtml = `<input type="checkbox" ${isBooked ? 'checked' : ''} data-shift-id="${escapeHtml(s.id)}" class="shift-booked-cb ui-switch" aria-label="Verbucht">`;
 
       html += `<tr>
-        <td data-label="Datum/Projekt">
-          <div style="font-weight:600;">${escapeHtml(dateLabel)}</div>
-          <div style="font-size:11px; color:var(--text3);">${escapeHtml(projLabel)}</div>
-        </td>
-        <td data-label="Rolle" style="font-size:12px;">${escapeHtml(s.position_role || '—')}</td>
-        <td data-label="Zeiten" style="font-size:13px;">${escapeHtml(timeStr)}</td>
-        <td data-label="Netto" style="font-weight:600; color:var(--accent); font-size:13px;">${escapeHtml(netStr)}</td>
-        <td data-label="" style="text-align:center;">${checkboxHtml}</td>
-        ${canEdit ? `<td style="text-align:center;"><button onclick="openShiftEdit('${escapeHtml(s.id)}')" style="background:none;border:none;cursor:pointer;font-size:15px;color:var(--text3);" title="Bearbeiten">✏️</button></td>` : ''}
+        <td data-label="Datum / Projekt"><div class="dash-num"><b>${escapeHtml(dateLabel)}</b></div><div class="ui-sub">${escapeHtml(projLabel)}</div></td>
+        <td data-label="Rolle">${escapeHtml(s.position_role || '—')}</td>
+        <td data-label="Zeiten" class="dash-num">${escapeHtml(timeStr)}</td>
+        <td data-label="Netto" class="dash-num"><b>${escapeHtml(netStr)}</b></td>
+        <td data-label="Verbucht">${checkboxHtml}</td>
+        ${canEdit ? `<td data-label="" class="dash-actions"><button type="button" class="ui-icon-btn" onclick="openShiftEdit('${escapeHtml(s.id)}')" aria-label="Schicht bearbeiten">${uiIcon('edit')}</button></td>` : ''}
       </tr>`;
     });
-    
+
     html += `</tbody></table>`;
 
-    // Summary row: total net hours
+    // Key figures: total net hours (all shifts), pay, and the income limit of the current billing period
     let totalNetMins = 0;
-    dashboardCurrentShifts.forEach(s => {
-      const st = s.start_time ? s.start_time.substring(0, 5) : null;
-      const en = s.end_time ? s.end_time.substring(0, 5) : null;
-      if (st && en) {
-        const [sh, sm] = st.split(':').map(Number);
-        const [eh, em] = en.split(':').map(Number);
-        if (!isNaN(sh) && !isNaN(eh)) {
-          let startMins = sh * 60 + sm;
-          let endMins = eh * 60 + em;
-          if (endMins < startMins) endMins += 1440;
-          let net = endMins - startMins - (s.pause_mins || 0);
-          if (BUCHHALTUNG_MIN_HOURS_ENABLED) net = Math.max(BUCHHALTUNG_MIN_HOURS * 60, net);
-          if (net > 0) totalNetMins += net;
-        }
-      }
-    });
+    dashboardCurrentShifts.forEach(s => { totalNetMins += dashShiftNetMins(s); });
     const totalH = Math.floor(totalNetMins / 60);
     const totalM = totalNetMins % 60;
-    const totalNetStr = totalNetMins > 0 ? (totalM > 0 ? `${totalH}h ${totalM}m` : `${totalH}h`) : '—';
+    const totalNetStr = totalNetMins > 0 ? (totalM > 0 ? `${totalH} h ${totalM} min` : `${totalH} h`) : '—';
     const worker = dashboardCurrentWorker;
     const rateConni = worker && worker.hourly_rate_conni ? parseFloat(worker.hourly_rate_conni) : null;
     const rateInternal = worker && worker.hourly_rate_internal ? parseFloat(worker.hourly_rate_internal) : null;
     const totalNetHrs = totalNetMins / 60;
-    const earningsConni = rateConni && totalNetHrs > 0 ? (totalNetHrs * rateConni).toFixed(2).replace('.', ',') + ' €' : null;
-    const earningsInternal = rateInternal && totalNetHrs > 0 ? (totalNetHrs * rateInternal).toFixed(2).replace('.', ',') + ' €' : null;
-    html += `<div style="display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:16px; padding:12px 4px; border-top:1px solid var(--border); margin-top:4px;">
-      <div style="display:flex; align-items:center; gap:8px;">
-        <span style="font-size:13px; color:var(--text3);">Gesamtstunden (netto):</span>
-        <span style="font-size:16px; font-weight:700; color:var(--accent);">${totalNetStr}</span>
-      </div>
-      ${rateConni ? `<div style="display:flex; align-items:center; gap:8px;">
-        <span style="font-size:13px; color:var(--text3);">Lohn (${rateConni.toFixed(2).replace('.',',')} €/h):</span>
-        <span style="font-size:16px; font-weight:700; color:var(--accent);">${earningsConni}</span>
-      </div>` : ''}
-      ${rateInternal ? `<div style="display:flex; align-items:center; gap:8px;">
-        <span style="font-size:13px; color:var(--text3);">Intern (${rateInternal.toFixed(2).replace('.',',')} €/h):</span>
-        <span style="font-size:14px; font-weight:600; color:var(--text2);">${earningsInternal}</span>
-      </div>` : ''}
-    </div>`;
+    const eur = n => n.toFixed(2).replace('.', ',') + ' €';
+    const cutoff = (typeof billingCutoff !== 'undefined') ? billingCutoff : 20;
+    const periodKey = getBillingKeyForDate(new Date(), cutoff);
+    let periodMins = 0;
+    dashboardCurrentShifts.forEach(s => {
+      const d = s.protocols?.date || s.shift_date || (s.created_at || '').slice(0, 10);
+      if (d && getBillingKeyForDate(new Date(d + 'T12:00:00'), cutoff).key === periodKey.key) periodMins += dashShiftNetMins(s);
+    });
+    const share = incomeLimitShare(rateConni ? periodMins / 60 * rateConni : null, worker && worker.income_limit ? parseFloat(worker.income_limit) : null);
+    let statsHtml = '<div class="ui-stats">' +
+      `<div class="ui-stat"><span>Netto-Stunden gesamt</span><b>${totalNetStr}</b></div>` +
+      (rateConni ? `<div class="ui-stat"><span>Lohn (${rateConni.toFixed(2).replace('.', ',')} €/h)</span><b>${totalNetHrs > 0 ? eur(totalNetHrs * rateConni) : '—'}</b></div>` : '') +
+      (rateInternal ? `<div class="ui-stat"><span>Intern (${rateInternal.toFixed(2).replace('.', ',')} €/h)</span><b>${totalNetHrs > 0 ? eur(totalNetHrs * rateInternal) : '—'}</b></div>` : '') +
+      (share ? `<div class="ui-stat"><span>Grenze ${eur(parseFloat(worker.income_limit))} · ${escapeHtml(periodKey.label)}</span>` +
+        `<b>${eur(periodMins / 60 * rateConni)}</b>` +
+        `<div class="ui-bar${share.over ? ' ui-bar-over' : share.pct >= 80 ? ' ui-bar-warn' : ''}"><i style="width:${share.pct}%"></i></div></div>` : '') +
+      '</div>';
 
-    // Quick actions row
+    // Actions above the table
     const pendingCount = dashboardCurrentShifts.filter(s => s.status !== 'eingetragen').length;
-    html += `<div style="margin-top: 16px; display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;">`;
+    statsHtml += `<div class="dash-shift-actions">`;
     if (canEdit) {
-      html += `<button class="btn" style="width:auto; padding: 10px 16px;" onclick="openAddShift()">+ Schicht hinzufügen</button>`;
+      statsHtml += `<button type="button" class="ui-btn dash-small-btn" onclick="openAddShift()">+ Schicht hinzufügen</button>`;
     }
     if (pendingCount > 0) {
-      html += `<button class="btn primary" style="width:auto; padding: 10px 20px;" data-action="mark-all" data-user-id="${escapeHtml(userId)}">Alle offenen (${escapeHtml(String(pendingCount))}) verbuchen</button>`;
+      statsHtml += `<button type="button" class="ui-btn ui-btn-primary dash-small-btn" data-action="mark-all" data-user-id="${escapeHtml(userId)}">Alle offenen (${escapeHtml(String(pendingCount))}) verbuchen</button>`;
     }
-    html += `</div>`;
+    statsHtml += `</div>`;
 
-    cont.innerHTML = html;
+    cont.innerHTML = statsHtml + html;
     populateDashboardMonthFilter(dashboardCurrentShifts);
 
     // Delegate change events for shift booking checkboxes

@@ -16,8 +16,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=25">
-  <link rel="stylesheet" href="css/ui.css?v=8">
+  <link rel="stylesheet" href="css/style.css?v=29">
+  <link rel="stylesheet" href="css/ui.css?v=9">
 </head>
 
 <body>
@@ -259,95 +259,63 @@
     <!-- ══════════ OFFICE DASHBOARD PAGE ══════════ -->
     <div class="page" id="page-dashboard">
       <div class="dash-container">
-        
-        <!-- DASHBOARD NAVIGATION TABS -->
-        <div class="dash-tab-row" style="display: flex; gap: 10px; margin-bottom: 24px;">
-          <button id="dash-tab-prot" class="btn primary" style="flex: 0 0 auto; width: auto; padding: 10px 20px;" onclick="switchDashTab('prot')">Protokolle</button>
-          <button id="dash-tab-work" class="btn" style="flex: 0 0 auto; width: auto; padding: 10px 20px;" onclick="switchDashTab('work')">Buchhaltung (Personal)</button>
-          <button id="dash-tab-settings" class="btn" style="flex: 0 0 auto; width: auto; padding: 10px 20px; display: none;" onclick="switchDashTab('settings')">Einstellungen</button>
+
+        <!-- DASHBOARD TABS -->
+        <div class="ui-seg dash-tabs" role="tablist">
+          <button type="button" id="dash-tab-prot" class="active" onclick="switchDashTab('prot')">Protokolle</button>
+          <button type="button" id="dash-tab-work" onclick="switchDashTab('work')">Buchhaltung</button>
+          <button type="button" id="dash-tab-settings" style="display: none;" onclick="switchDashTab('settings')">Einstellungen</button>
         </div>
 
         <!-- TAB: EINSTELLUNGEN (Admin only, js/settings.js) -->
         <div id="dash-view-settings" class="table-card set-card" style="display: none;"></div>
 
         <!-- TAB: PROTOKOLLE -->
-        <div id="dash-view-prot" class="table-card" style="display: block;">
-          <div class="table-header">
-            <h3 style="margin:0; font-size: 16px;">Verschickte Protokolle</h3>
-            <div style="display:flex; gap:8px; align-items:center;">
-              <input type="text" id="dash-search" placeholder="Suchen..." class="meta-input"
-                style="width: 180px; margin: 0; padding: 8px 12px; font-size: 13px;" oninput="renderDashboardTable()">
-              <button class="btn" id="btn-recalc-costs" style="width:auto; padding:8px 14px; font-size:13px; white-space:nowrap;" onclick="recalcAllProtocolCosts()" title="Gesamtkosten aller Protokolle neu berechnen">↻ Kosten neu berechnen</button>
-            </div>
+        <div id="dash-view-prot" style="display: block;">
+          <div class="ui-stats" id="dash-stats"></div>
+          <div class="ui-search dash-search">
+            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+            <input type="search" id="dash-search" placeholder="Projekt, AL, Ort oder Datum suchen" oninput="renderDashboardTable()">
           </div>
-          <div style="overflow-x: auto;">
-            <table id="protocol-table">
-              <thead>
-                <tr>
-                  <th>Datum</th>
-                  <th>Projekt</th>
-                  <th>Aktion</th>
-                  <th>AL/PL</th>
-                  <th>Kosten</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="protocol-body">
-                <!-- Rows via JS -->
-              </tbody>
-            </table>
-          </div>
+          <table id="protocol-table" class="ui-table">
+            <thead>
+              <tr><th>Datum</th><th>Projekt</th><th>Aktion</th><th>AL / PL</th><th>Kosten</th><th></th></tr>
+            </thead>
+            <tbody id="protocol-body"></tbody>
+          </table>
         </div>
 
-        <!-- TAB: PERSONAL/BUCHHALTUNG -->
-        <div id="dash-view-work" class="table-card" style="display: none;">
-          <div class="table-header">
-            <h3 style="margin:0; font-size: 16px;">Schichten & Abrechnung</h3>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <button class="btn primary" style="width: auto; padding: 8px 12px; font-size: 13px;" onclick="toggleAddUserForm()">Mitarbeiter hinzufügen</button>
-              <select id="dash-worker-select" class="meta-input" style="width: 250px; margin: 0; padding: 8px 12px; font-size: 13px;" onchange="renderWorkerShifts(); updateEditWorkerBtn();">
+        <!-- TAB: PERSONAL/BUCHHALTUNG — list (master) + detail -->
+        <div id="dash-view-work" style="display: none;">
+          <div class="dash-work" id="dash-work">
+            <aside class="dash-work-list">
+              <button type="button" class="ui-btn ui-btn-block" onclick="toggleAddUserForm()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Mitarbeiter hinzufügen</button>
+              <div class="ui-search" style="margin:10px 0 4px;">
+                <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+                <input type="search" id="dash-worker-search" placeholder="Mitarbeiter suchen" oninput="renderDashWorkerList()">
+              </div>
+              <div id="pending-workers-panel" style="display:none;">
+                <div class="ui-label">Neue Stunden eingereicht</div>
+                <div id="pending-workers-chips" class="ui-list"></div>
+              </div>
+              <div class="ui-label">Alle Mitarbeiter</div>
+              <div id="dash-worker-list" class="ui-list"></div>
+              <!-- data source for the selection (read by the dashboard code) -->
+              <select id="dash-worker-select" hidden onchange="renderWorkerShifts(); updateEditWorkerBtn();">
                 <option value="">-- Mitarbeiter wählen --</option>
               </select>
-              <button id="edit-worker-btn" class="btn" style="width:auto; padding:8px 12px; font-size:13px; display:none;" onclick="openEditWorker()">✏️ Bearbeiten</button>
-              <select id="dash-month-filter" class="meta-input" style="width: 160px; margin: 0; padding: 8px 12px; font-size: 13px; display: none;">
-                <option value="">-- Monat --</option>
-              </select>
-              <button id="dash-export-month-btn" class="btn" style="width: auto; padding: 8px 14px; font-size: 13px; display: none;" onclick="exportDashboardMonthlyPDF()">📄 Monat als PDF</button>
-            </div>
-          </div>
-          
-          <!-- ADD USER FORM (HIDDEN) -->
-          <div id="add-user-form" style="display: none; padding: 20px; background: var(--bg2); border-bottom: 1px solid var(--border);">
-            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-              <input type="text" id="new-user-firstname" placeholder="Vorname" class="meta-input" style="flex: 1; min-width: 120px;">
-              <input type="text" id="new-user-lastname" placeholder="Nachname" class="meta-input" style="flex: 1; min-width: 120px;">
-              <select id="new-user-role" class="meta-input" style="flex: 1; min-width: 100px;">
-                <option value="MA">MA (Mitarbeiter)</option>
-                <option value="AL">AL (Aufbauleitung)</option>
-                <option value="PL">PL (Projektleitung)</option>
-                <option value="Buchhaltung">Buchhaltung</option>
-                <option value="Admin">Admin</option>
-                <option value="Gast">Gast (nur Produkte &amp; Ordner)</option>
-              </select>
-              <input type="text" id="new-user-dept" placeholder="Abteilung" class="meta-input" style="flex: 2; min-width: 150px;">
-              <input type="number" id="new-user-rate-conni" step="0.50" min="0" placeholder="Lohn Conni (€/h)" class="meta-input" style="flex: 1; min-width: 130px;">
-              <input type="number" id="new-user-rate-internal" step="0.50" min="0" placeholder="Satz intern (€/h)" class="meta-input" style="flex: 1; min-width: 130px;">
-              <input type="number" id="new-user-income-limit" step="1" min="0" placeholder="Einkommensgrenze (€)" class="meta-input" style="flex: 1; min-width: 150px;">
-              <button class="btn primary" style="width: auto; padding: 0 20px;" onclick="addDashboardUser()">Speichern</button>
-              <button class="btn" style="width: auto; padding: 0 20px;" onclick="toggleAddUserForm()">Abbrechen</button>
-            </div>
-          </div>
-          <!-- PENDING PANEL: Mitarbeiter mit neuen Stunden -->
-          <div id="pending-workers-panel" style="display:none; padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--bg2);">
-            <div style="font-size:13px; font-weight:600; color:var(--text2); margin-bottom:10px;">Neue Stunden eingereicht</div>
-            <div id="pending-workers-chips" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
-          </div>
-
-          <div id="worker-shifts-container" style="padding: 24px;">
-            <div class="empty-state">
-              <div class="empty-icon">👥</div>
-              <div>Bitte wählen Sie einen Mitarbeiter aus, um die Schichten zu sehen.</div>
-            </div>
+            </aside>
+            <section class="dash-work-detail">
+              <button type="button" class="stunden-link dash-work-back" onclick="closeDashWorker()">‹ Alle Mitarbeiter</button>
+              <div class="dash-worker-head" id="dash-worker-head"></div>
+              <div class="dash-worker-controls">
+                <button id="edit-worker-btn" type="button" class="ui-btn dash-small-btn" style="display:none;" onclick="openEditWorker()">Bearbeiten</button>
+                <label class="ui-field dash-month"><span>Monat für den PDF-Export</span>
+                  <select id="dash-month-filter" style="display: none;"><option value="">-- Monat --</option></select></label>
+                <button id="dash-export-month-btn" type="button" class="ui-btn dash-small-btn" style="display: none;" onclick="exportDashboardMonthlyPDF()">Monat als PDF</button>
+              </div>
+              <div id="worker-shifts-container"></div>
+            </section>
           </div>
         </div>
 
@@ -545,6 +513,41 @@
       </div>
     </div>
 
+  <!-- ── MITARBEITER HINZUFÜGEN (Sheet; toggleAddUserForm opens/closes it) ── -->
+  <div id="add-user-modal" class="sig-modal ui-sheet" style="--sheet-w:520px">
+    <div class="sig-modal-inner" id="add-user-form">
+      <div class="ui-sheet-head">
+        <h3 class="ui-title" style="font-size:18px;">Mitarbeiter hinzufügen</h3>
+        <button type="button" class="ui-icon-btn" onclick="toggleAddUserForm()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="stunden-grid">
+        <label class="ui-field"><span>Vorname</span><input type="text" id="new-user-firstname" placeholder="Vorname"></label>
+        <label class="ui-field"><span>Nachname</span><input type="text" id="new-user-lastname" placeholder="Nachname"></label>
+      </div>
+      <div class="stunden-grid">
+        <label class="ui-field"><span>Rolle</span>
+          <select id="new-user-role">
+            <option value="MA">MA (Mitarbeiter)</option>
+            <option value="AL">AL (Aufbauleitung)</option>
+            <option value="PL">PL (Projektleitung)</option>
+            <option value="Buchhaltung">Buchhaltung</option>
+            <option value="Admin">Admin</option>
+            <option value="Gast">Gast (nur Produkte &amp; Ordner)</option>
+          </select></label>
+        <label class="ui-field"><span>Abteilung</span><input type="text" id="new-user-dept" placeholder="z.B. MA frei"></label>
+      </div>
+      <div class="stunden-grid">
+        <label class="ui-field"><span>Lohn Conni (€/h)</span><input type="number" id="new-user-rate-conni" step="0.50" min="0" placeholder="z.B. 21.50"></label>
+        <label class="ui-field"><span>Satz intern (€/h)</span><input type="number" id="new-user-rate-internal" step="0.50" min="0" placeholder="z.B. 25.00"></label>
+      </div>
+      <label class="ui-field"><span>Einkommensgrenze (€)</span><input type="number" id="new-user-income-limit" step="1" min="0" placeholder="z.B. 520"></label>
+      <div class="ui-sheet-actions">
+        <button type="button" class="ui-btn" onclick="toggleAddUserForm()">Abbrechen</button>
+        <button type="button" class="ui-btn ui-btn-primary" onclick="addDashboardUser()">Speichern</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── PRODUKT VIEWER MODAL ── -->
   <div id="produkt-viewer-modal" class="sig-modal" style="display:none;">
     <div class="sig-modal-inner" style="width:96vw; max-width:960px; height:90vh; display:flex; flex-direction:column; padding:0; overflow:hidden;">
@@ -613,7 +616,7 @@
 
   <!-- DASHBOARD PROTOCOL EDIT MODAL -->
   <div id="dash-prot-edit-modal" class="sig-modal ui-sheet" style="--sheet-w:700px">
-    <div class="sig-modal-inner" style="padding:24px; max-height:92vh; overflow-y:auto;">
+    <div class="sig-modal-inner" style="max-height:92vh; overflow-y:auto;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
         <h3 style="margin:0; font-size:17px;">Protokoll bearbeiten</h3>
         <button onclick="closeDashProtEdit()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2);">✕</button>
@@ -810,7 +813,7 @@
 
   <!-- ══════════ MITARBEITER BEARBEITEN MODAL ══════════ -->
   <div id="edit-worker-modal" class="sig-modal ui-sheet" style="--sheet-w:460px">
-    <div class="sig-modal-inner" style="padding:24px; max-height:90vh; display:flex; flex-direction:column;">
+    <div class="sig-modal-inner" style="max-height:90vh; display:flex; flex-direction:column;">
       <div style="overflow-y:auto; flex:1; padding-bottom:8px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
           <h3 style="margin:0; font-size:17px;">Mitarbeiter bearbeiten</h3>
@@ -888,7 +891,7 @@
 
   <!-- Scripts -->
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=17"></script>
+  <script src="js/auth.js?v=18"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=10"></script>
   <script src="js/utils.js?v=17"></script>
@@ -901,7 +904,7 @@
   <script src="js/plan-parser.js?v=10"></script>
   <script src="js/wochenplan.js?v=9"></script>
   <script src="js/home.js?v=3"></script>
-  <script src="js/dashboard.js?v=16"></script>
+  <script src="js/dashboard.js?v=20"></script>
   <script src="js/produkte.js?v=14"></script>
   <script src="js/ordner.js?v=14"></script>
   <script src="js/app.js?v=18"></script>

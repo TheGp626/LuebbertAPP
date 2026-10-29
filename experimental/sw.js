@@ -1,4 +1,4 @@
-const CACHE = 'stundenzettel-exp-7c89138';
+const CACHE = 'stundenzettel-exp-90c58e5';
 const ASSETS = ['./index.html', './manifest.json'];
 
 self.addEventListener('install', e => {
