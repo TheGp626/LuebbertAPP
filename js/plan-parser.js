@@ -469,6 +469,32 @@ function planMaterialLines(s) {
   return planIsMaterial(s.title) ? [s.title].concat(d) : d;
 }
 
+// Order of a person's upcoming shifts: by date, same day timed shifts by time, then untimed ones by sort.
+// Shifts from earlier days are dropped, and so are today's whose start is more than 2 h behind `now`.
+function planShiftOrder(shifts, now) {
+  var pad = function(n) { return (n < 10 ? '0' : '') + n; };
+  var today = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+  var nowMin = now.getHours() * 60 + now.getMinutes();
+  var minutes = function(s) {
+    var t = planWhen(s.wann ? String(s.wann).split('\n') : []).time;
+    return t ? parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10) : null;
+  };
+  return (shifts || [])
+    .map(function(s) { return { s: s, min: minutes(s) }; })
+    .filter(function(x) { return x.s.date > today || (x.s.date === today && (x.min === null || nowMin - x.min <= 120)); })
+    .sort(function(a, b) {
+      if (a.s.date !== b.s.date) return a.s.date < b.s.date ? -1 : 1;
+      if ((a.min === null) !== (b.min === null)) return a.min === null ? 1 : -1;
+      if (a.min !== b.min) return a.min - b.min;
+      return (a.s.sort || 0) - (b.s.sort || 0);
+    })
+    .map(function(x) { return x.s; });
+}
+
+function nextOwnShift(shifts, now) {
+  return planShiftOrder(shifts, now)[0] || null;
+}
+
 // Parsed shift + resolved user ids → DB rows (assignments without shift_id, added after insert)
 function planShiftRow(s, weekId, status) {
   return {
@@ -495,5 +521,5 @@ if (typeof module !== 'undefined' && module.exports) {
     planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planShiftKey: planShiftKey,
     planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek, planCellLines: planCellLines,
     planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName,
-    planShiftHeading: planShiftHeading, planMaterialLines: planMaterialLines, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb };
+    planShiftOrder: planShiftOrder, nextOwnShift: nextOwnShift, planShiftHeading: planShiftHeading, planMaterialLines: planMaterialLines, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb };
 }

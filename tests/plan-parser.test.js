@@ -324,3 +324,18 @@ test('planShiftHeading / planMaterialLines: a Was cell that starts with equipmen
   assert.deepEqual(P.planMaterialLines(h), ['Barbereich', '3 Stehtisch Kris weiß']);
   assert.equal(P.planShiftHeading({ title: '1. OG', location: [] }), '1. OG');
 });
+
+test('planShiftOrder / nextOwnShift: date, then time, untimed last, today long past dropped', () => {
+  const now = new Date(2026, 9, 29, 15, 0); // Wed 29.10. 15:00 local
+  const s = (date, wann, sort) => ({ date, wann, sort });
+  const past = s('2026-10-29', 'Aufbau: 12 Uhr', 1);       // 3 h ago → dropped
+  const recent = s('2026-10-29', 'Abbau: 13.30 Uhr', 2);   // 1.5 h ago → stays
+  const untimed = s('2026-10-29', 'Aufbau: im Zuge Abbau', 0);
+  const later = s('2026-10-29', 'Abbau: 18 Uhr', 3);
+  const tomorrow = s('2026-10-30', 'Aufbau: 8 Uhr', 0);
+  assert.deepEqual(P.planShiftOrder([tomorrow, untimed, later, past, recent], now), [recent, later, untimed, tomorrow]);
+  assert.equal(P.nextOwnShift([tomorrow, untimed], now), untimed);
+  assert.equal(P.nextOwnShift([], now), null);
+  // a shift without time is never dropped by the 2 h rule; yesterday's leftovers are not "next"
+  assert.deepEqual(P.planShiftOrder([s('2026-10-28', 'Aufbau: 9 Uhr', 0), untimed], now), [untimed]);
+});
