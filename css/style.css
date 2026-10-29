@@ -1345,3 +1345,6 @@ canvas#historyChart {
   .dash-work.dash-work-detail-open .dash-work-detail { display: block; }
   .dash-work-back { display: inline-flex; }
 }
+.dash-worker-head { margin-bottom: 12px; }
+.dash-shift-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-bottom: 12px; }
+.dash-shift-table td { vertical-align: middle; }
