@@ -13,6 +13,7 @@ function fakeSupabase() {
     const b = {
       select() { return b; }, order() { return b; }, limit() { return b; }, or() { return b; },
       eq(k, v) { q.filters.push([k, v]); return b; },
+      in(k, v) { q.filters.push([k + ' in', v]); return b; },
       insert(p) { q.op = 'insert'; q.payload = p; return b; },
       update(p) { q.op = 'update'; q.payload = p; return b; },
       delete() { q.op = 'delete'; return b; },
@@ -563,4 +564,231 @@ test('sync: before the migration (no created_by column) the insert is retried wi
   const inserts = sb.calls.filter(c => c.table === 'protocols' && c.op === 'insert');
   assert.equal(inserts.length, 2);
   assert.ok(!('created_by' in inserts[1].payload));
+});
+
+// ── Bug round 2026-10-30 ──
+const shRow = (id, status, extra) => Object.assign({ id, user_id: 'u-ma', temp_worker_name: null, position_role: 'MA frei', start_time: '08:00:00', end_time: '16:00:00', pause_mins: 30, status, shift_date: '2026-10-28' }, extra || {});
+
+test('sync edit: shifts are updated in place; booked rows keep their id (changed hours go back to offen), only open rows are deleted', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  sb.rows.shifts = [shRow('sh1', 'eingetragen'), shRow('sh2', 'offen', { user_id: 'u-b' }), shRow('sh3', 'eingetragen', { user_id: 'u-c' })];
+  ctx.__data = protData({ personnel: [
+    { shiftId: 'sh1', pos: 'MA', userId: 'u-ma', name: 'Max', start: '08:00', end: '17:00', pause: '30' },
+    { pos: 'MA', userId: 'u-new', name: 'Neu', start: '09:00', end: '15:00', pause: '0' },
+  ] });
+  assert.equal(await run('syncProtokollToSupabase(__data, "prot-9")'), 'prot-9');
+  const sh = sb.calls.filter(c => c.table === 'shifts');
+  assert.equal(sh.filter(c => c.op === 'delete' && !c.filters.some(f => f[0] === 'id in')).length, 0, 'no delete of all shifts of the protocol');
+  const upd = sh.filter(c => c.op === 'update');
+  assert.equal(upd.length, 1);
+  assert.deepEqual(plain(upd[0].payload), { end_time: '17:00', status: 'offen' });
+  assert.deepEqual(plain(upd[0].filters), [['id', 'sh1']]);
+  const ins = sh.filter(c => c.op === 'insert');
+  assert.equal(ins.length, 1);
+  assert.equal(ins[0].payload[0].user_id, 'u-new');
+  assert.equal(ins[0].payload[0].status, 'offen');
+  assert.deepEqual(plain(sh.find(c => c.op === 'delete').filters), [['id in', ['sh2']]]);
+  assert.ok(ctx.__data.personnel[1].shiftId, 'id of the inserted shift is remembered on the row');
+});
+
+test('sync edit: a row without shiftId that equals a stored shift is matched, not duplicated', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  sb.rows.shifts = [shRow('sh1', 'eingetragen')];
+  ctx.__data = protData({ personnel: [{ pos: 'MA', userId: 'u-ma', name: 'Max', start: '08:00', end: '16:00', pause: '30' }] });
+  await run('syncProtokollToSupabase(__data, "prot-9")');
+  const sh = sb.calls.filter(c => c.table === 'shifts');
+  assert.equal(sh.filter(c => c.op !== 'select').length, 0);
+  assert.equal(ctx.__data.personnel[0].shiftId, 'sh1');
+});
+
+test('sync edit: a rejected shift update (0 rows) fails the sync', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  sb.rows.shifts = [shRow('sh1', 'offen')];
+  const orig = sb.from;
+  // protocols.update must still answer with a row → only shifts answer with 0 rows
+  sb.from = t => {
+    const b = orig(t);
+    if (t === 'shifts') { const u = b.update; b.update = p => { sb.rows['shifts.update'] = []; return u(p); }; }
+    return b;
+  };
+  sb.rows['protocols.update'] = [{ id: 'prot-9' }];
+  ctx.__data = protData({ personnel: [{ shiftId: 'sh1', pos: 'MA', userId: 'u-ma', name: 'Max', start: '08:00', end: '17:00', pause: '30' }] });
+  assert.equal(await run('syncProtokollToSupabase(__data, "prot-9")'), null);
+});
+
+test('AL/PL select keeps a stored person who is no longer in the list', () => {
+  dom['prot-al'] = { innerHTML: '', value: '' };
+  dom['prot-pl'] = { innerHTML: '', value: '' };
+  run('protState.alId = "u-gone"; protState.alName = "Gerd Alt"; protState.plId = null');
+  run('populateAlPlSelects()');
+  assert.match(dom['prot-al'].innerHTML, /value="u-gone"[^>]*>Gerd Alt</);
+  assert.equal(dom['prot-al'].value, 'u-gone');
+  assert.doesNotMatch(dom['prot-pl'].innerHTML, /u-gone/);
+});
+
+test('loadProtFromHistory remembers the stored AL name for a deactivated AL', () => {
+  store['luebbert_protokoll_history'] = JSON.stringify([{ id: 'h1', event: 'Gala', al: 'Gerd Alt', alId: 'u-gone', pl: 'Paul', plId: 'u-pl', personnel: [], transports: [] }]);
+  ctx.confirm = () => true;
+  dom['prot-al'] = { innerHTML: '', value: '' };
+  dom['prot-pl'] = { innerHTML: '', value: '' };
+  run('appUsers = [{ id: "u-pl", full_name: "Paul", role: "Admin" }]');
+  run('loadProtFromHistory("h1")');
+  assert.equal(run('protState.alName'), 'Gerd Alt');
+  assert.equal(dom['prot-al'].value, 'u-gone');
+  assert.equal(dom['prot-pl'].value, 'u-pl');
+});
+
+test('fetchAppUsers recalculates the costs with the personal rates once the users are there', async () => {
+  dom['prot-date'] = { value: '2026-10-28' };
+  dom['prot-isholiday'] = { checked: false };
+  dom['prot-total-cost'] = { textContent: '' };
+  run('protState.transports = []; protState.personnel = [{ pos: "MA", userId: "u-ma", name: "Max", start: "08:00", end: "16:00", pause: "0" }]; calcProtCosts();');
+  const before = dom['prot-total-cost'].textContent;
+  sb.rows.app_users = [{ id: 'u-ma', full_name: 'Max', role: 'MA', hourly_rate_internal: 77, is_fest: false }];
+  await run('fetchAppUsers()');
+  assert.notEqual(dom['prot-total-cost'].textContent, before);
+});
+
+test('saveProtokoll recalculates before it reads the total (stale restored-draft total)', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  dom['prot-date'] = { value: '2026-10-28' };
+  dom['prot-isholiday'] = { checked: false };
+  dom['prot-total-cost'] = { textContent: '0,00' };
+  dom['prot-event'] = { value: 'Gala' };
+  run('clearProtForm = function() {}; appUsers = [{ id: "u-ma", hourly_rate_internal: 40, is_fest: false }];');
+  run('protState.transports = []; protState.personnel = [{ pos: "MA", userId: "u-ma", name: "Max", start: "08:00", end: "16:00", pause: "0" }]');
+  const expected = run('protCostLines(protState, "2026-10-28", false).total');
+  assert.ok(expected > 0);
+  await run('saveProtokoll()');
+  const ins = sb.calls.find(c => c.table === 'protocols' && c.op === 'insert');
+  assert.equal(ins.payload.total_cost, Number(expected.toFixed(2)));
+});
+
+test('saveProtokoll resets the driver-hint cache', async () => {
+  run('clearProtForm = function() {}; protDayDrivers.key = "2026-10-28|prot-1"');
+  dom['prot-total-cost'] = { textContent: '0,00' };
+  await run('saveProtokoll()');
+  assert.equal(run('protDayDrivers.key'), null);
+});
+
+test('clearProtSig stores the cleared signature in the draft', () => {
+  run('protState.signature = "data:sig"; saveProtDraft()');
+  assert.equal(JSON.parse(store.luebbert_protokoll_draft).signature, 'data:sig');
+  run('clearProtSig()');
+  assert.equal(JSON.parse(store.luebbert_protokoll_draft).signature, null);
+});
+
+test('retry: concurrent taps insert the protocol only once', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  store.luebbert_protokoll_history = JSON.stringify([Object.assign(protData(), { id: 'L1', supabaseId: null, synced: false, isUpdate: false })]);
+  await Promise.all([run('retrySyncAllProtocols()'), run('retrySyncAllProtocols()')]);
+  assert.equal(sb.calls.filter(c => c.table === 'protocols' && c.op === 'insert').length, 1);
+});
+
+test('retry: an entry saved while the retry is running is not lost', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  store.luebbert_protokoll_history = JSON.stringify([Object.assign(protData(), { id: 'L1', supabaseId: null, synced: false, isUpdate: false, savedAt: 'a' })]);
+  const orig = sb.from;
+  sb.from = t => {
+    const b = orig(t);
+    if (t === 'protocols') {
+      const ins = b.insert;
+      b.insert = p => {
+        const arch = JSON.parse(store.luebbert_protokoll_history);
+        arch.unshift({ id: 'L2', event: 'new one', synced: false, savedAt: 'b' });
+        store.luebbert_protokoll_history = JSON.stringify(arch);
+        return ins(p);
+      };
+    }
+    return b;
+  };
+  await run('retrySyncAllProtocols()');
+  const arch = JSON.parse(store.luebbert_protokoll_history);
+  assert.deepEqual(arch.map(e => e.id).sort(), ['L1', 'L2']);
+  assert.equal(arch.find(e => e.id === 'L1').synced, true);
+  assert.equal(arch.find(e => e.id === 'L2').synced, false);
+});
+
+test('retry: the entry author (createdBy) is used, not the current user', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  const p = protData({ personnel: [{ pos: 'Zenjob', isTemp: true, tempName: 'Zed', name: 'Zed', start: '08:00', end: '16:00', pause: '0', rating: 'up' }] });
+  store.luebbert_protokoll_history = JSON.stringify([Object.assign(p, { id: 'L1', supabaseId: null, synced: false, isUpdate: false, createdBy: 'u-author' })]);
+  await run('retrySyncAllProtocols()');
+  assert.equal(sb.calls.find(c => c.table === 'protocols' && c.op === 'insert').payload.created_by, 'u-author');
+  assert.equal(sb.calls.find(c => c.table === 'worker_ratings' && c.op === 'insert').payload[0].rated_by, 'u-author');
+});
+
+test('mergeProtHistory drops synced entries the server no longer has (inside the fetched window), never unsynced ones', () => {
+  const mk = () => [
+    { id: 'A', supabaseId: 'S1', date: '2026-10-20', synced: true },
+    { id: 'B', supabaseId: 'S9', date: '2026-10-25', synced: true },
+    { id: 'C', supabaseId: 'S8', date: '2026-01-01', synced: true },
+    { id: 'D', supabaseId: 'S7', date: '2026-10-26', synced: false },
+    { id: 'E', supabaseId: null, date: '2026-10-26', synced: false },
+  ];
+  const fresh = [{ id: 'S1', supabaseId: 'S1', date: '2026-10-20', synced: true }, { id: 'S2', supabaseId: 'S2', date: '2026-10-28', synced: true }];
+  const ids = out => plain(out).map(e => e.id).sort();
+  // window full (limit reached): only entries newer than the oldest fetched date can be judged
+  assert.deepEqual(ids(run('mergeProtHistory')(mk(), JSON.parse(JSON.stringify(fresh)), 2)), ['C', 'D', 'E', 'S1', 'S2']);
+  // fewer rows than the limit: the server returned everything
+  assert.deepEqual(ids(run('mergeProtHistory')(mk(), JSON.parse(JSON.stringify(fresh)), 60)), ['D', 'E', 'S1', 'S2']);
+});
+
+test('sync: a failed project lookup or insert aborts instead of saving without / duplicating the project', async () => {
+  sb.fail['projects.select'] = { message: 'offline' };
+  ctx.__data = protData();
+  assert.equal(await run('syncProtokollToSupabase(__data, null)'), null);
+  assert.equal(sb.calls.filter(c => c.table === 'projects' && c.op === 'insert').length, 0);
+  assert.equal(sb.calls.filter(c => c.table === 'protocols').length, 0);
+  delete sb.fail['projects.select'];
+  sb.fail['projects.insert'] = { message: 'rls' };
+  assert.equal(await run('syncProtokollToSupabase(__data, null)'), null);
+  assert.equal(sb.calls.filter(c => c.table === 'protocols').length, 0);
+});
+
+test('loadProtFromHistory: a missing action (server null → "—") becomes Aufbau', () => {
+  store['luebbert_protokoll_history'] = JSON.stringify([{ id: 'h1', event: 'Gala', action: '—', personnel: [], transports: [] }]);
+  ctx.confirm = () => true;
+  dom['prot-action'] = { value: 'x' };
+  run('loadProtFromHistory("h1")');
+  assert.equal(dom['prot-action'].value, 'Aufbau');
+});
+
+test('AL time sync: a changed AL end does not hit rows whose START equals the old end', () => {
+  run('protState.personnel = [{ pos: "AL", start: "08:00", end: "16:00", pause: "0" }, { pos: "MA", start: "16:00", end: "20:00", pause: "0" }, { pos: "MA", start: "08:00", end: "16:00", pause: "0" }]');
+  run('updateProtPersonnel(0, "end", "17:00")');
+  const p = plain(run('protState.personnel'));
+  assert.deepEqual([p[1].start, p[1].end], ['16:00', '20:00']);
+  assert.deepEqual([p[2].start, p[2].end], ['08:00', '17:00']);
+});
+
+test('onProtPersonnelName: unchanged name → no re-render; changed → row updated in place', () => {
+  run('appUsers = [{ id: "u1", full_name: "Max Muster", is_fest: false }]');
+  run('protState.personnel = [{ pos: "MA", userId: "u1", name: "Max Muster", fest: false, start: "", end: "", pause: "0" }]');
+  dom['prot-personnel-list'] = { innerHTML: 'orig' };
+  dom['prot-pname-0'] = { textContent: 'Max Muster' };
+  dom['prot-punreg-0'] = { style: { display: 'none' } };
+  run('onProtPersonnelName(0, "Max Muster")');
+  assert.equal(dom['prot-personnel-list'].innerHTML, 'orig');
+  run('onProtPersonnelName(0, "Zed Fremd")');
+  assert.equal(dom['prot-personnel-list'].innerHTML, 'orig', 'list is not rebuilt');
+  assert.equal(dom['prot-pname-0'].textContent, 'Zed Fremd');
+  assert.equal(dom['prot-punreg-0'].style.display, '');
+  assert.equal(run('protState.personnel[0].userId'), '');
+  run('onProtPersonnelName(0, "Max Muster")');
+  assert.equal(dom['prot-punreg-0'].style.display, 'none');
+  assert.equal(run('protState.personnel[0].userId'), 'u1');
+});
+
+test('protShiftChanges: a booked shift whose times change goes back to offen; an unchanged one keeps its status', () => {
+  const old = [
+    { id: 's1', user_id: 'u1', temp_worker_name: null, position_role: 'MA frei', start_time: '08:00:00', end_time: '16:00:00', pause_mins: 30, shift_date: '2026-10-28', status: 'eingetragen' },
+    { id: 's2', user_id: 'u2', temp_worker_name: null, position_role: 'MA frei', start_time: '08:00:00', end_time: '16:00:00', pause_mins: 30, shift_date: '2026-10-28', status: 'eingetragen' }
+  ];
+  const personnel = [
+    { pos: 'MA', userId: 'u1', name: 'A', start: '08:00', end: '17:00', pause: '30', shiftId: 's1' },
+    { pos: 'MA', userId: 'u2', name: 'B', start: '08:00', end: '16:00', pause: '30', shiftId: 's2' }
+  ];
+  const ch = plain(run('protShiftChanges')(old, personnel, [], '2026-10-28'));
+  assert.deepEqual(ch.updates.map(u => [u.id, u.patch.end_time, u.patch.status]), [['s1', '17:00', 'offen']]);
 });

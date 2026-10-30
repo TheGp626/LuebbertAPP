@@ -42,6 +42,8 @@ async function fetchAppUsers() {
     });
     renderProtPersonnel();
     populateAlPlSelects();
+    // A restored draft was calculated before the rates were known
+    calcProtCosts();
   }
 }
 
@@ -184,7 +186,23 @@ function protRowToEntry(r) {
 
 // Merges fresh server entries into the local archive (in place). A local entry that is still
 // unsynced holds an edit the server doesn't have yet → it is kept until the retry pushes it.
-function mergeProtHistory(archive, freshList) {
+// limit = row limit of the fetch: fewer rows than that means the server sent everything, so synced entries
+// it doesn't have were deleted there → dropped. With a full window only entries newer than the oldest
+// fetched date can be judged. Unsynced entries are never dropped.
+function mergeProtHistory(archive, freshList, limit) {
+  if (limit && freshList.length) {
+    var onServer = {}, minDate = null;
+    freshList.forEach(function(f) {
+      onServer[f.supabaseId] = true;
+      if (f.date && (minDate === null || f.date < minDate)) minDate = f.date;
+    });
+    var complete = freshList.length < limit;
+    for (var i = archive.length - 1; i >= 0; i--) {
+      var old = archive[i];
+      if (old.synced !== true || !old.supabaseId || onServer[old.supabaseId]) continue;
+      if (complete || (minDate !== null && /^\d{4}-\d{2}-\d{2}/.test(old.date || '') && old.date.slice(0, 10) > minDate)) archive.splice(i, 1);
+    }
+  }
   freshList.forEach(function(fresh) {
     var idx = archive.findIndex(function(e) { return e.supabaseId === fresh.supabaseId; });
     // Server signatures stay out of localStorage (quota); only a locally drawn one is kept
@@ -205,21 +223,35 @@ function mergeProtHistory(archive, freshList) {
   return archive;
 }
 
+// <option>s of the AL/PL select. A stored person who isn't in the list any more (deactivated, role changed)
+// stays selectable under the stored name, otherwise editing an old protocol would drop AL/PL on Senden.
+function protPersonOptionsHtml(users, placeholder, selectedId, storedName) {
+  var known = false;
+  var html = '<option value="">' + placeholder + '</option>' + users.map(function(u) {
+    if (u.id === selectedId) known = true;
+    return '<option value="' + escapeHtml(u.id) + '">' + escapeHtml(u.full_name || u.email) + '</option>';
+  }).join('');
+  if (selectedId && !known) {
+    var u = appUsers.find(function(x) { return x.id === selectedId; });
+    var name = (u && (u.full_name || u.email)) || (storedName && storedName !== '—' ? storedName : 'Bisherige Person');
+    html += '<option value="' + escapeHtml(selectedId) + '">' + escapeHtml(name) + '</option>';
+  }
+  return html;
+}
+
 function populateAlPlSelects() {
   var alSel = document.getElementById('prot-al');
   var plSel = document.getElementById('prot-pl');
 
   if (alSel) {
     var alUsers = appUsers.filter(function(u) { return userHasRole(u, 'AL') || u.role === 'Admin'; });
-    alSel.innerHTML = '<option value="">— AL auswählen —</option>' +
-      alUsers.map(function(u) { return '<option value="' + escapeHtml(u.id) + '">' + escapeHtml(u.full_name || u.email) + '</option>'; }).join('');
+    alSel.innerHTML = protPersonOptionsHtml(alUsers, '— AL auswählen —', protState.alId, protState.alName);
     if (protState.alId) alSel.value = protState.alId;
   }
 
   if (plSel) {
     var plUsers = appUsers.filter(function(u) { return userHasRole(u, 'PL') || u.role === 'Admin'; });
-    plSel.innerHTML = '<option value="">— PL auswählen —</option>' +
-      plUsers.map(function(u) { return '<option value="' + escapeHtml(u.id) + '">' + escapeHtml(u.full_name || u.email) + '</option>'; }).join('');
+    plSel.innerHTML = protPersonOptionsHtml(plUsers, '— PL auswählen —', protState.plId, protState.plName);
     if (protState.plId) plSel.value = protState.plId;
   }
 }
@@ -568,7 +600,8 @@ function renderProtPersonnel() {
       '<div class="ui-row-main" onclick="toggleProtRow(\'' + key + '\')">' +
         '<div class="ui-row-title"><span id="prot-pname-' + i + '">' + escapeHtml(p.name || p.tempName || 'Ohne Name') + '</span> <span class="ui-pill ui-pill-info">' + escapeHtml(p.pos || '') + '</span></div>' +
         '<div class="ui-sub" id="prot-psum-' + i + '">' + escapeHtml(protPersonSummary(p)) + '</div>' +
-        (unregistered ? '<span class="ui-pill ui-pill-warn" style="margin-top:4px;" title="Kein registrierter Mitarbeiter – wird als Externe(r) gespeichert">nicht registriert</span>' : '') +
+        // Always present (hidden when registered) so onProtPersonnelName can toggle it without a re-render
+        '<span id="prot-punreg-' + i + '" class="ui-pill ui-pill-warn" style="margin-top:4px;' + (unregistered ? '' : 'display:none;') + '" title="Kein registrierter Mitarbeiter – wird als Externe(r) gespeichert">nicht registriert</span>' +
       '</div>' +
       '<div class="ui-row-end">' + (isAgency ? protRatingButtons(p, i) : '') + protRowChevron(key) + '</div>' +
       '<div class="ui-row-body">' +
@@ -598,22 +631,30 @@ function onProtPersonnelName(idx, val) {
   var exact = appUsers.filter(function(u) { return (u.full_name || '').toLowerCase() === lower; });
   var partial = typed.length >= 3 ? appUsers.filter(function(u) { return (u.full_name || '').toLowerCase().includes(lower); }) : [];
   var match = exact.length === 1 ? exact[0] : (partial.length === 1 ? partial[0] : null);
-  if (match) {
-    protState.personnel[idx].userId = match.id;
-    protState.personnel[idx].name = match.full_name || match.email;
-    protState.personnel[idx].fest = !!match.is_fest; // kept on the row for offline saves
-  } else {
-    protState.personnel[idx].userId = '';
-    protState.personnel[idx].name = typed;
-    delete protState.personnel[idx].fest;
-  }
-  renderProtPersonnel();
+  var row = protState.personnel[idx];
+  if (!row) return;
+  var userId = match ? match.id : '';
+  var name = match ? (match.full_name || match.email) : typed;
+  // Also fires on blur: nothing changed → leave the DOM alone (a rebuild would destroy the field just tapped)
+  if (row.userId === userId && row.name === name) return;
+  row.userId = userId;
+  row.name = name;
+  if (match) row.fest = !!match.is_fest; // kept on the row for offline saves
+  else delete row.fest;
+  // Update only this row; renderProtPersonnel() would rebuild all inputs and drop the keyboard
+  var title = document.getElementById('prot-pname-' + idx);
+  if (title) title.textContent = row.name || row.tempName || 'Ohne Name';
+  var unreg = document.getElementById('prot-punreg-' + idx);
+  if (unreg) unreg.style.display = (!row.isTemp && !row.userId && row.name) ? '' : 'none';
+  var inp = document.getElementById('prot-pn-' + idx);
+  if (inp && match && inp.value !== name && document.activeElement !== inp) inp.value = name;
   saveProtDraft();
   calcProtCosts();
 }
 
 function updateProtPersonnel(idx, field, val) {
-  var oldVal = protState.personnel[idx][field];
+  // Old AL times, tracked separately: an end must never be compared with other rows' start (or vice versa)
+  var oldStart = protState.personnel[idx].start, oldEnd = protState.personnel[idx].end;
   protState.personnel[idx][field] = val;
   
   if (field === 'userId') {
@@ -640,8 +681,8 @@ function updateProtPersonnel(idx, field, val) {
     if (idx === 0) {
       protState.personnel.forEach(function(p, i) {
         if (i === 0) return;
-        if (!p.start || p.start === oldVal || p.start === '') p.start = protState.personnel[0].start;
-        if (!p.end || p.end === oldVal || p.end === '') p.end = protState.personnel[0].end;
+        if (!p.start || (field === 'start' && p.start === oldStart)) p.start = protState.personnel[0].start;
+        if (!p.end || (field === 'end' && p.end === oldEnd)) p.end = protState.personnel[0].end;
         var pv = timeToMins(p.start), pb = timeToMins(p.end);
         var effPb = (pb !== null && pv !== null && pb < pv) ? pb + 1440 : pb;
         if (pv !== null && pb !== null && effPb > pv) p.pause = autoPause(effPb - pv);
@@ -850,6 +891,9 @@ function saveProtDraft() {
   var usersLoaded = appUsers.length > 0;
   var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded) || '';
   var plId = protSelectedId((document.getElementById('prot-pl') || {}).value, protState.plId, usersLoaded) || '';
+  // The selects change without touching the state; the next populateAlPlSelects must not switch back
+  protState.alId = alId || null;
+  protState.plId = plId || null;
   var data = {
     ownerId: protDraftOwner(),
     event: (document.getElementById('prot-event') || {}).value || '',
@@ -861,6 +905,8 @@ function saveProtDraft() {
     pl: plId,
     alId: alId,
     plId: plId,
+    alName: protState.alName || '', // name of a person who is no longer in the select (see protPersonOptionsHtml)
+    plName: protState.plName || '',
     damages: (document.getElementById('prot-damages') || {}).value || '',
     incidents: (document.getElementById('prot-incidents') || {}).value || '',
     feedback: (document.getElementById('prot-feedback') || {}).value || '',
@@ -918,6 +964,8 @@ function loadProtDraft() {
     if (document.getElementById('prot-action')) document.getElementById('prot-action').value = data.action || 'Aufbau';
     protState.alId = data.alId || data.al || '';
     protState.plId = data.plId || data.pl || '';
+    protState.alName = data.alName || '';
+    protState.plName = data.plName || '';
     if (document.getElementById('prot-damages')) document.getElementById('prot-damages').value = data.damages || '';
     if (document.getElementById('prot-incidents')) document.getElementById('prot-incidents').value = data.incidents || '';
     if (document.getElementById('prot-feedback')) document.getElementById('prot-feedback').value = data.feedback || '';
@@ -974,6 +1022,7 @@ async function saveProtokoll() {
   var missing = protIncompleteNames(protState.personnel);
   if (missing.length && !confirm('Ohne Start- oder Endzeit: ' + missing.join(', ') + '.\n\n' +
       (missing.length === 1 ? 'Diese Person wird' : 'Diese Personen werden') + ' nicht mitgespeichert und fehlen bei den Stunden. Trotzdem senden?')) return;
+  calcProtCosts(); // the shown total may be stale (restored draft, rates loaded late)
   var usersLoaded = appUsers.length > 0;
   var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded);
   var plId = protSelectedId((document.getElementById('prot-pl') || {}).value, protState.plId, usersLoaded);
@@ -1072,10 +1121,68 @@ async function saveProtokoll() {
   if (btn) { btn.disabled = false; btn.textContent = 'Senden'; }
   // Mail in the background so Senden never waits on SMTP (registered as in-flight before the history retry runs)
   if (isSynced) sendMailForEntry(entry, true);
+  protDayDrivers.key = null; // next form (same date, no editingId) must not reuse the hints of this protocol
   clearProtForm(true); // Soft clear without reloading
   if (typeof navigateProt === 'function') navigateProt('protokoll-history');
   // The start-page banner must not keep offering the job that was just documented
   if (typeof loadErinnerungen === 'function') loadErinnerungen();
+}
+
+// Diff of the stored shifts of a protocol against the form rows (only rows with start and end are shifts).
+// Stored shifts are matched by the row's shiftId, else by an identical person + times, and only ever updated
+// in place (patch = changed fields): id and status ('eingetragen') survive. Unmatched rows are inserted as 'offen';
+// stored shifts without a row are deleted only while 'offen' (booked ones stay). Sets person.shiftId on matches.
+function protShiftChanges(oldShifts, personnel, users, shiftDate) {
+  var old = oldShifts || [], used = {}, updates = [], inserts = [], deletes = [];
+  var hhmm = function(t) { return (t || '').substring(0, 5); };
+  var rows = (personnel || []).filter(function(p) { return p.start && p.end; }).map(function(p) {
+    var asUser = !p.isTemp && p.userId;
+    return { person: p, old: null, db: {
+      user_id: asUser ? p.userId : null,
+      temp_worker_name: asUser ? null : (p.tempName || p.name || null),
+      position_role: protBasePos(p, users),
+      start_time: p.start,
+      end_time: p.end,
+      pause_mins: parseInt(p.pause) || 0,
+      shift_date: shiftDate || null
+    } };
+  });
+  rows.forEach(function(r) {
+    if (!r.person.shiftId) return;
+    var o = old.find(function(s) { return s.id === r.person.shiftId && !used[s.id]; });
+    if (o) { r.old = o; used[o.id] = true; }
+  });
+  rows.forEach(function(r) {
+    if (r.old) return;
+    var o = old.find(function(s) {
+      return !used[s.id] && (s.user_id || null) === r.db.user_id && (s.temp_worker_name || null) === r.db.temp_worker_name &&
+        hhmm(s.start_time) === r.db.start_time && hhmm(s.end_time) === r.db.end_time;
+    });
+    if (o) { r.old = o; used[o.id] = true; }
+  });
+  rows.forEach(function(r) {
+    var o = r.old, next = r.db;
+    if (!o) { inserts.push({ person: r.person, row: Object.assign({}, next, { status: 'offen' }) }); return; }
+    r.person.shiftId = o.id;
+    var patch = {};
+    var oldBase = (o.position_role || '').replace(/ (fest|frei)$/, '');
+    if ((o.user_id || null) !== next.user_id || (o.temp_worker_name || null) !== next.temp_worker_name) {
+      patch.user_id = next.user_id;
+      patch.temp_worker_name = next.temp_worker_name;
+    }
+    // Same base position and person: keep the stored role as it is (fest/frei, legacy values)
+    if (!(r.person.pos === oldBase && (o.user_id || null) === next.user_id) && o.position_role !== next.position_role) patch.position_role = next.position_role;
+    if (hhmm(o.start_time) !== next.start_time) patch.start_time = next.start_time;
+    if (hhmm(o.end_time) !== next.end_time) patch.end_time = next.end_time;
+    if ((parseInt(o.pause_mins, 10) || 0) !== next.pause_mins) patch.pause_mins = next.pause_mins;
+    if (((o.shift_date || '').substring(0, 10) || null) !== next.shift_date) patch.shift_date = next.shift_date;
+    // Booked hours that change (person, times, break) must be checked again in Buchhaltung – same rule as the dashboard
+    var paidChange = 'user_id' in patch || 'start_time' in patch || 'end_time' in patch || 'pause_mins' in patch;
+    if (paidChange && o.status && o.status !== 'offen') patch.status = 'offen';
+    if (Object.keys(patch).length) updates.push({ id: o.id, patch: patch });
+  });
+  old.forEach(function(s) { if (!used[s.id] && s.status === 'offen') deletes.push(s.id); });
+  return { updates: updates, inserts: inserts, deletes: deletes };
 }
 
 // targetId: Supabase id to update (null = insert). Omitted → the protocol currently open in the form.
@@ -1089,11 +1196,12 @@ async function syncProtokollToSupabase(data, targetId, out) {
     var projId = null;
     if (data.event && data.event !== '—') {
       var { data: pData, error: pErr1 } = await supabaseClient.from('projects').select('id').eq('name', data.event).maybeSingle();
-      if (pErr1) console.error("Project Select Error:", pErr1);
+      // A failed lookup must not fall through to an insert (duplicate project), a failed insert must not save without project
+      if (pErr1) { console.error("Project Select Error:", pErr1); throw pErr1; }
       if (pData) projId = pData.id;
       else {
         var { data: iData, error: pErr2 } = await supabaseClient.from('projects').insert({ name: data.event, location: data.location === '—' ? null : data.location }).select().single();
-        if (pErr2) console.error("Project Insert Error:", pErr2);
+        if (pErr2) { console.error("Project Insert Error:", pErr2); throw pErr2; }
         if (iData) projId = iData.id;
       }
     }
@@ -1132,11 +1240,10 @@ async function syncProtokollToSupabase(data, targetId, out) {
       if (trDelErr) { console.error('Transports delete failed, aborting:', trDelErr); throw trDelErr; }
       var { error: eqDelErr } = await supabaseClient.from('protocol_equipments').delete().eq('protocol_id', protId);
       if (eqDelErr) { console.error('Equipment delete failed, aborting:', eqDelErr); throw eqDelErr; }
-      var { error: shDelErr } = await supabaseClient.from('shifts').delete().eq('protocol_id', protId);
-      if (shDelErr) { console.error('Shifts delete failed, aborting to prevent duplicates:', shDelErr); throw shDelErr; }
+      // Shifts are NOT deleted here: booked ones ('eingetragen') must keep id and status (see step 5)
     } else {
-      // created_by is set on INSERT only (never changed by later edits)
-      var insPayload = Object.assign({ created_by: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null }, protPayload);
+      // created_by is set on INSERT only (never changed by later edits); a retry keeps the entry's author
+      var insPayload = Object.assign({ created_by: data.createdBy || ((typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null) }, protPayload);
       var { data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single();
       // Column not migrated yet: save without it rather than lose the protocol
       if (protError && /created_by/.test(protError.message || '')) {
@@ -1148,7 +1255,7 @@ async function syncProtokollToSupabase(data, targetId, out) {
     }
     if (out) out.protId = protId;
 
-    // From here on every failure throws: the entry stays unsynced and the retry replaces all child rows
+    // From here on every failure throws: the entry stays unsynced and the retry repeats the steps (shifts are diffed again)
 
     // 3. Insert Transports
     if (data.transports.length > 0) {
@@ -1185,32 +1292,33 @@ async function syncProtokollToSupabase(data, targetId, out) {
       if (catErr) throw catErr;
     }
 
-    // 5. Insert Shifts (CRITICAL PIECE)
-    if (data.personnel.length > 0) {
-      var shiftInserts = [];
-      data.personnel.forEach(function(p) {
-        if (!p.start || !p.end) return; // Skip incomplete shifts
-        var basePos = protBasePos(p, appUsers);
-
-        var uId = (p.isTemp || !p.userId) ? null : p.userId;
-        var tName = (p.isTemp || !p.userId) ? (p.tempName || p.name || null) : null;
-        
-        shiftInserts.push({
-          protocol_id: protId,
-          user_id: uId,
-          temp_worker_name: tName,
-          position_role: basePos,
-          start_time: p.start,
-          end_time: p.end,
-          pause_mins: parseInt(p.pause) || 0,
-          status: 'offen',
-          shift_date: (data.date && data.date !== '—') ? data.date : null
-        });
-      });
-      if (shiftInserts.length > 0) {
-        var { error: shErr } = await supabaseClient.from('shifts').insert(shiftInserts);
-        if (shErr) throw shErr;
-      }
+    // 5. Shifts (CRITICAL PIECE): on an edit the stored shifts are updated in place, never replaced,
+    // so booked hours ('eingetragen') keep their id and status
+    var oldShifts = [];
+    if (editId) {
+      var { data: shOld, error: shOldErr } = await supabaseClient.from('shifts')
+        .select('id, user_id, temp_worker_name, position_role, start_time, end_time, pause_mins, status, shift_date')
+        .eq('protocol_id', protId);
+      if (shOldErr) throw shOldErr;
+      oldShifts = shOld || [];
+    }
+    var shiftDate = (data.date && data.date !== '—') ? data.date : null;
+    var ch = protShiftChanges(oldShifts, data.personnel, appUsers, shiftDate);
+    for (var ui = 0; ui < ch.updates.length; ui++) {
+      var { data: shUpd, error: shUpdErr } = await supabaseClient.from('shifts').update(ch.updates[ui].patch).eq('id', ch.updates[ui].id).select('id');
+      if (shUpdErr) throw shUpdErr;
+      if (!shUpd || shUpd.length === 0) throw new Error('Schicht-Update abgelehnt – fehlende Berechtigung auf dem Server (shifts).');
+    }
+    if (ch.inserts.length > 0) {
+      var { data: shNew, error: shErr } = await supabaseClient.from('shifts')
+        .insert(ch.inserts.map(function(i) { return Object.assign({ protocol_id: protId }, i.row); })).select('id');
+      if (shErr) throw shErr;
+      // Remember the ids on the rows: a retry or the next edit then matches them instead of inserting again
+      (shNew || []).forEach(function(r, k) { if (ch.inserts[k]) ch.inserts[k].person.shiftId = r.id; });
+    }
+    if (ch.deletes.length > 0) {
+      var { error: shDelErr } = await supabaseClient.from('shifts').delete().in('id', ch.deletes);
+      if (shDelErr) { console.error('Shifts delete failed:', shDelErr); throw shDelErr; }
     }
 
     // 6. Save Ratings for Zenjob/Rockit workers
@@ -1226,7 +1334,7 @@ async function syncProtokollToSupabase(data, targetId, out) {
         temp_worker_name: workerName.trim(),
         rating: r.rating,
         is_star: r.is_star,
-        rated_by: typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null
+        rated_by: data.createdBy || (typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null)
       });
     });
     // On edits old ratings go first, also when all of them were removed
@@ -1248,7 +1356,14 @@ async function syncProtokollToSupabase(data, targetId, out) {
   }
 }
 
+var _protRetryRunning = false; // a second tap while the first run is still syncing would insert the protocols twice
 async function retrySyncAllProtocols() {
+  if (_protRetryRunning) return;
+  _protRetryRunning = true;
+  try { await retrySyncAllProtocolsRun(); } finally { _protRetryRunning = false; }
+}
+
+async function retrySyncAllProtocolsRun() {
   var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
   var unsynced = archive.filter(e => !e.synced);
   var unmailed = archive.filter(e => e.synced && e.mailed === false && e.supabaseId);
@@ -1279,7 +1394,22 @@ async function retrySyncAllProtocols() {
     }
   }
 
-  if (successCount > 0 || rowIdLearned) localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
+  if (successCount > 0 || rowIdLearned) {
+    // Entries may have been saved while the sync was running → write only what the sync changed into the current archive
+    var current = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
+    archive.forEach(function(done) {
+      if (!done.supabaseId) return;
+      var cur = current.find(function(x) { return x.id === done.id; });
+      if (!cur) return;
+      if (!cur.supabaseId) cur.supabaseId = done.supabaseId;
+      // Only a still identical entry takes over the result; one re-saved meanwhile stays as it is (unsynced)
+      if (cur.savedAt === done.savedAt) {
+        if (done.personnel) cur.personnel = done.personnel; // carries the shift ids learned by the sync
+        if (done.synced && !cur.synced) { cur.synced = true; cur.mailed = false; }
+      }
+    });
+    localStorage.setItem('luebbert_protokoll_history', JSON.stringify(current));
+  }
   if (successCount > 0) {
     showToast(`✅ ${successCount} Protokolle erfolgreich synchronisiert!`);
   }
@@ -1410,6 +1540,7 @@ async function mailProtokoll(supabaseId, entry, isUpdate, notify) {
 }
 
 // ── PROTOKOLL HISTORY ──
+var PROT_HIST_FETCH_LIMIT = 60;
 async function renderProtHistory() {
   var list = document.getElementById('prot-history-list');
   if (!list) return;
@@ -1424,12 +1555,12 @@ async function renderProtHistory() {
         .from('protocols')
         .select('*, projects(name,location), al:app_users!protocols_al_id_fkey(full_name), pl:app_users!protocols_pl_id_fkey(full_name), shifts(*,app_users(full_name)), protocol_transports(*), protocol_equipments(*), worker_ratings(temp_worker_name, rating, is_star)')
         .order('date', { ascending: false })
-        .limit(60);
+        .limit(PROT_HIST_FETCH_LIMIT);
 
       if (rows && rows.length) {
         var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
-        // Unsynced local edits are kept (see mergeProtHistory)
-        mergeProtHistory(archive, rows.map(protRowToEntry));
+        // Unsynced local edits are kept; protocols deleted on the server are dropped (see mergeProtHistory)
+        mergeProtHistory(archive, rows.map(protRowToEntry), PROT_HIST_FETCH_LIMIT);
         archive.sort(function(a, b) { return new Date(b.savedAt) - new Date(a.savedAt); });
         if (archive.length > 100) archive = archive.slice(0, 100);
         localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
@@ -1537,6 +1668,9 @@ function loadProtFromHistory(id) {
     var el = document.getElementById(fieldMap[key]);
     if (el) el.value = entry[key] || '';
   });
+  // A server protocol without action arrives as '—': no such option, the select would be empty and Senden saves null
+  var actEl = document.getElementById('prot-action');
+  if (actEl && (!entry.action || entry.action === '—')) actEl.value = 'Aufbau';
 
   // Hydrate state
   protState.transports = (entry.transports || []).map(function(t) { return Object.assign({}, t); });
@@ -1555,11 +1689,11 @@ function loadProtFromHistory(id) {
   protState.alId = entry.alId || findUserByName(entry.al) || null;
   protState.plId = entry.plId || findUserByName(entry.pl) || null;
 
+  // Stored names keep a deactivated / re-roled AL or PL selectable (protPersonOptionsHtml)
+  protState.alName = entry.al || '';
+  protState.plName = entry.pl || '';
   // If appUsers already loaded, set AL/PL selects immediately
-  var alSel = document.getElementById('prot-al');
-  var plSel = document.getElementById('prot-pl');
-  if (alSel && appUsers.length) alSel.value = protState.alId || '';
-  if (plSel && appUsers.length) plSel.value = protState.plId || '';
+  if (appUsers.length) populateAlPlSelects();
 
   // No transport stays no transport (a default Sprinter would also add its cost on re-save)
   if (!protState.personnel.length)  protState.personnel.push({ pos: 'MA', name: '', start: '', end: '', pause: '0' });
