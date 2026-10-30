@@ -18,12 +18,28 @@ test('firstName', () => {
 });
 
 test('homeTiles follow the role rules of auth.js', () => {
-  const modes = r => H.homeTiles(r, allowed).map(t => t.mode);
-  assert.deepEqual(modes('MA'), ['stunden', 'wochenplan', 'produkte', 'ordner']);
-  assert.deepEqual(modes('Gast'), ['produkte', 'ordner']);
-  assert.deepEqual(modes('AL'), ['stunden', 'protokoll', 'wochenplan', 'produkte', 'ordner', 'dashboard']);
-  assert.deepEqual(modes('Admin'), modes('AL'));
-  assert.deepEqual(modes('Buchhaltung'), modes('AL').filter(m => m !== 'protokoll' || allowed('protokoll', 'Buchhaltung')));
+  const labels = r => H.homeTiles(r, allowed).map(t => t.label);
+  const office = ['Protokoll-Übersicht', 'Buchhaltung'];
+  assert.deepEqual(labels('MA'), ['Stundenzettel', 'Wochenplan', 'Produktdatenbank', 'Projektordner']);
+  assert.deepEqual(labels('Gast'), ['Produktdatenbank', 'Projektordner']);
+  assert.deepEqual(labels('AL'), ['Stundenzettel', 'Protokoll schreiben', 'Wochenplan', 'Produktdatenbank', 'Projektordner'].concat(office));
+  assert.deepEqual(labels('Admin'), labels('AL'));
+  assert.deepEqual(labels('Buchhaltung'), labels('AL').filter(l => l !== 'Protokoll schreiben' || allowed('protokoll', 'Buchhaltung')));
+});
+
+test('homeTiles: the dashboard is split into two tiles with their own view and id', () => {
+  const t = H.homeTiles('AL', allowed).filter(x => x.mode === 'dashboard');
+  assert.deepEqual(t.map(x => x.view), ['prot', 'work']);
+  assert.equal(new Set(H.homeTiles('AL', allowed).map(x => x.id || x.mode)).size, H.homeTiles('AL', allowed).length);
+  assert.equal(H.homeTiles('MA', allowed).some(x => x.mode === 'dashboard'), false);
+});
+
+test('dashViewFromStored: a restored dashboard reopens its view; old/unknown values mean the protocols view', () => {
+  assert.equal(H.dashViewFromStored('work'), 'work');
+  assert.equal(H.dashViewFromStored('prot'), 'prot');
+  assert.equal(H.dashViewFromStored(null), 'prot');
+  assert.equal(H.dashViewFromStored('settings'), 'prot');
+  assert.equal(H.dashViewFromStored('x'), 'prot');
 });
 
 test('next-shift cache is per user and survives garbage', () => {

@@ -5,12 +5,19 @@ var NEXT_SHIFT_KEY = 'luebbert_next_shift';
 
 var HOME_TILES = [
   { mode: 'stunden', label: 'Stundenzettel', icon: 'clock' },
-  { mode: 'protokoll', label: 'Protokoll', icon: 'clipboard' },
+  { mode: 'protokoll', label: 'Protokoll schreiben', icon: 'clipboard' },
   { mode: 'wochenplan', label: 'Wochenplan', icon: 'calendar' },
   { mode: 'produkte', label: 'Produktdatenbank', icon: 'box' },
   { mode: 'ordner', label: 'Projektordner', icon: 'folder' },
-  { mode: 'dashboard', label: 'Office Dashboard', icon: 'chart' }
+  // The office dashboard is two tiles: same module (role guard), different view
+  { mode: 'dashboard', view: 'prot', id: 'dashboard-prot', label: 'Protokoll-Übersicht', icon: 'file' },
+  { mode: 'dashboard', view: 'work', id: 'dashboard-work', label: 'Buchhaltung', icon: 'chart' }
 ];
+
+// Stored dashboard view ('prot' | 'work'); the old single "dashboard" mode has none → protocols
+function dashViewFromStored(v) {
+  return v === 'work' ? 'work' : 'prot';
+}
 
 function firstName(fullName) {
   return String(fullName || '').trim().split(/\s+/)[0] || '';
@@ -106,7 +113,7 @@ function renderHome() {
   var tiles = document.getElementById('home-tiles');
   if (tiles) {
     tiles.innerHTML = homeTiles(userRole, moduleAllowedForRole).map(function(t) {
-      return '<button type="button" class="ui-tile" id="btn-select-' + t.mode + '" onclick="selectMode(\'' + t.mode + '\')">' +
+      return '<button type="button" class="ui-tile" id="btn-select-' + (t.id || t.mode) + '" onclick="selectMode(\'' + t.mode + '\'' + (t.view ? ', \'' + t.view + '\'' : '') + ')">' +
         '<span class="ui-tile-ico">' + uiIcon(t.icon) + '</span><span>' + t.label + '</span></button>';
     }).join('');
   }
@@ -117,6 +124,6 @@ function renderHome() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { HOME_TILES: HOME_TILES, firstName: firstName, homeTiles: homeTiles, homeNextAllowed: homeNextAllowed,
+  module.exports = { HOME_TILES: HOME_TILES, firstName: firstName, homeTiles: homeTiles, homeNextAllowed: homeNextAllowed, dashViewFromStored: dashViewFromStored,
     nextShiftCacheValue: nextShiftCacheValue, readNextShiftCache: readNextShiftCache };
 }

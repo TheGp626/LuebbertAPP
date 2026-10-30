@@ -56,6 +56,8 @@ function switchDashTab(tab) {
   document.getElementById('dash-view-work').style.display = tab === 'work' ? 'block' : 'none';
   document.getElementById('dash-view-settings').style.display = tab === 'settings' ? 'block' : 'none';
 
+  if (typeof setDashView === 'function') setDashView(tab);
+
   if (tab === 'settings' && typeof renderSettingsTab === 'function') renderSettingsTab();
 
   if (tab === 'work' && dashboardWorkers.length === 0) {
@@ -428,6 +430,12 @@ if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
   UI_TOPBAR_ITEMS.dashboard = function() {
     var items = [{ label: 'Kosten aller Protokolle neu berechnen', action: 'recalcAllProtocolCosts' }];
     if (typeof dashboardCurrentWorker !== 'undefined' && dashboardCurrentWorker) items.push({ label: 'Monat als PDF (' + (dashboardCurrentWorker.full_name || 'Mitarbeiter') + ')', action: 'exportDashboardMonthlyPDF' });
+    // The tab bar is hidden (tiles open one view each): settings and the way back are reachable from here
+    if (typeof dashView !== 'undefined' && dashView === 'settings') {
+      items.push({ label: 'Einstellungen schließen', action: 'switchDashTab', args: [dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY))] });
+    } else if (typeof userRole !== 'undefined' && userRole === 'Admin') {
+      items.push({ label: 'Einstellungen', action: 'switchDashTab', args: ['settings'] });
+    }
     return items;
   };
 }
