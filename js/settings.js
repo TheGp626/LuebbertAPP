@@ -173,7 +173,13 @@ async function saveSettingsTab() {
   btn.disabled = true; btn.textContent = 'Speichert…';
   try {
     var actor = (typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null;
-    var { error } = await supabaseClient.rpc('set_app_settings', { input_pin: _settingsPin, changes: changes, actor: actor });
+    var error = null;
+    try {
+      error = (await supabaseClient.rpc('set_app_settings', { input_pin: _settingsPin, changes: changes, actor: actor })).error;
+    } catch (e) { // network failure throws instead of answering with an error
+      console.error('Einstellungen speichern:', e);
+      error = { message: 'network' };
+    }
     if (error) {
       var msg = String(error.message || '');
       if (/invalid_pin/.test(msg)) { _settingsPin = null; err.textContent = 'Passwort falsch.'; return; }

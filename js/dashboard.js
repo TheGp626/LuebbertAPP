@@ -9,6 +9,8 @@ let dashboardCurrentShifts = [];
 let _dashboardRealtimeChannel = null;
 let _dashboardPollInterval = null;
 let _dashboardRefreshing = false;
+let _dashboardRefreshPending = false; // a refresh was requested while one was running → run once more afterwards
+let _dashboardRefreshPromise = null;
 
 function initDashboardRealtime() {
   if (typeof supabaseClient === 'undefined') return;
@@ -60,9 +62,8 @@ function switchDashTab(tab) {
 
   if (tab === 'settings' && typeof renderSettingsTab === 'function') renderSettingsTab();
 
-  if (tab === 'work' && dashboardWorkers.length === 0) {
-    loadDashboardWorkers();
-  }
+  // Reload on every entry: the "neue Stunden" badges must not show a stale snapshot
+  if (tab === 'work') loadDashboardWorkers();
 }
 
 // Opens/closes the "Mitarbeiter hinzufügen" sheet (name kept: addDashboardUser closes it after saving)
@@ -215,11 +216,21 @@ async function deactivateWorker() {
   if (!worker) return;
   if (!confirm('Mitarbeiter "' + (worker.full_name || '') + '" wirklich deaktivieren?\nDie Person verschwindet aus allen Dropdowns.')) return;
   try {
-    const { error } = await supabaseClient.from('app_users').update({ is_active: false }).eq('id', worker.id);
+    const { data: rows, error } = await supabaseClient.from('app_users').update({ is_active: false }).eq('id', worker.id).select('id');
     if (error) throw error;
+    // RLS answers with 0 rows instead of an error
+    if (!rows || rows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung');
     closeEditWorker();
     showToast('Mitarbeiter deaktiviert.');
+    // The person is gone from the list: close the detail and refresh the rate source (their old shifts keep their rate)
+    const sel = document.getElementById('dash-worker-select');
+    if (sel) sel.value = '';
+    dashboardCurrentWorker = null;
     await loadDashboardWorkers();
+    await dashRefreshRateUsers();
+    renderWorkerShifts();
+    updateEditWorkerBtn();
+    closeDashWorker();
   } catch (err) {
     showToast('Fehler: ' + (err.message || 'Deaktivierung fehlgeschlagen'), 'danger');
   }
@@ -254,11 +265,14 @@ async function saveEditWorker() {
   };
 
   try {
-    const { error } = await supabaseClient.from('app_users').update(payload).eq('id', worker.id);
+    const { data: rows, error } = await supabaseClient.from('app_users').update(payload).eq('id', worker.id).select('id');
     if (error) throw error;
+    // RLS answers with 0 rows instead of an error
+    if (!rows || rows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung');
     showToast('Mitarbeiter gespeichert!');
     closeEditWorker();
     await loadDashboardWorkers();
+    await dashRefreshRateUsers(); // new rates count for the next cost calculation
     // Re-select the same worker after reload
     const sel = document.getElementById('dash-worker-select');
     if (sel) { sel.value = worker.id; renderWorkerShifts(); }
@@ -325,11 +339,28 @@ async function addDashboardUser() {
   });
 })();
 
-async function refreshDashboard() {
-  if (typeof supabaseClient === 'undefined') return;
-  if (_dashboardRefreshing) return;
+// Realtime events arrive while a refresh (or the save that triggered them) is still running: remember the request
+// and load once more afterwards, so the list never keeps the snapshot from the middle of a save.
+// Returns a promise that resolves after the last needed load.
+function refreshDashboard() {
+  if (typeof supabaseClient === 'undefined') return Promise.resolve();
+  if (_dashboardRefreshing) { _dashboardRefreshPending = true; return _dashboardRefreshPromise; }
   _dashboardRefreshing = true;
+  _dashboardRefreshPromise = (async function() {
+    try {
+      do {
+        _dashboardRefreshPending = false;
+        await refreshDashboardOnce();
+      } while (_dashboardRefreshPending);
+    } finally {
+      _dashboardRefreshing = false;
+      _dashboardRefreshPromise = null;
+    }
+  })();
+  return _dashboardRefreshPromise;
+}
 
+async function refreshDashboardOnce() {
   try {
     await ensureRateUsers();
     const protSelect = (withCreator) => `
@@ -357,8 +388,6 @@ async function refreshDashboard() {
   } catch (err) {
     console.error('Dash Load Error:', err);
     if (typeof showToast === 'function') showToast('Fehler beim Laden der Dashboard-Daten', 'danger');
-  } finally {
-    _dashboardRefreshing = false;
   }
 }
 
@@ -529,8 +558,10 @@ function renderDashStats() {
 
 if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
   UI_TOPBAR_ITEMS.dashboard = function() {
-    var items = [{ label: 'Kosten aller Protokolle neu berechnen', action: 'recalcAllProtocolCosts' }];
-    if (typeof dashboardCurrentWorker !== 'undefined' && dashboardCurrentWorker) items.push({ label: 'Monat als PDF (' + (dashboardCurrentWorker.full_name || 'Mitarbeiter') + ')', action: 'exportDashboardMonthlyPDF' });
+    var view = typeof dashView !== 'undefined' ? dashView : 'prot';
+    var items = [];
+    if (view === 'prot') items.push({ label: 'Kosten aller Protokolle neu berechnen', action: 'recalcAllProtocolCosts' });
+    if (view === 'work' && typeof dashboardCurrentWorker !== 'undefined' && dashboardCurrentWorker) items.push({ label: 'Monat als PDF (' + (dashboardCurrentWorker.full_name || 'Mitarbeiter') + ')', action: 'exportDashboardMonthlyPDF' });
     // The tab bar is hidden (tiles open one view each): settings and the way back are reachable from here
     if (typeof dashView !== 'undefined' && dashView === 'settings') {
       items.push({ label: 'Einstellungen schließen', action: 'switchDashTab', args: [dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY))] });
@@ -606,6 +637,9 @@ async function renderWorkerShifts() {
         protocols(date, projects(name))
       `)
       .eq('user_id', userId);
+
+    // Another person was selected while this one loaded: drop the late answer
+    if (document.getElementById('dash-worker-select').value !== userId) return;
 
     // Sort by date descending (protocol date → shift_date → created_at)
     if (shifts) {
@@ -738,12 +772,15 @@ async function renderWorkerShifts() {
 async function toggleShiftBooked(shiftId, checked) {
   const newStat = checked ? 'eingetragen' : 'offen';
   try {
-    const { error } = await supabaseClient
+    const { data: rows, error } = await supabaseClient
       .from('shifts')
       .update({ status: newStat })
-      .eq('id', shiftId);
+      .eq('id', shiftId)
+      .select('id');
       
     if (error) throw error;
+    // RLS answers with 0 rows instead of an error
+    if (!rows || rows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung');
     if (typeof showToast === 'function') showToast(checked ? "Schicht verbucht!" : "Verbuchung aufgehoben");
     
     // Update local state without full rerender to avoid jumpiness
@@ -760,13 +797,17 @@ async function toggleShiftBooked(shiftId, checked) {
 async function markAllShiftsBooked(userId) {
   if (!confirm("Alle offenen Schichten dieses Mitarbeiters als eingetragen markieren?")) return;
   try {
-    const { error } = await supabaseClient
+    const { data: rows, error } = await supabaseClient
       .from('shifts')
       .update({ status: 'eingetragen' })
       .eq('user_id', userId)
-      .neq('status', 'eingetragen');
+      .neq('status', 'eingetragen')
+      .select('id');
       
     if (error) throw error;
+    // RLS answers with 0 rows instead of an error
+    // 0 rows: nothing was open, or RLS refused – both mean nothing changed, which is not a failure the user caused
+    if (!rows || rows.length === 0) { if (typeof showToast === 'function') showToast('Keine offenen Schichten zum Verbuchen.', 'info'); return; }
     if (typeof showToast === 'function') showToast("Alle Schichten erfolgreich gebucht!");
     renderWorkerShifts();
   } catch(e) {
@@ -786,6 +827,7 @@ function openShiftEdit(shiftId) {
   const dateVal = shift.protocols?.date || shift.shift_date || '';
   document.getElementById('shift-edit-date').value  = dateVal;
   document.getElementById('shift-edit-ort').value   = shift.ort || '';
+  dashShiftRoleOption(shift.position_role);
   document.getElementById('shift-edit-role').value  = shift.position_role || 'MA frei';
   document.getElementById('shift-edit-start').value = (shift.start_time || '').substring(0, 5);
   document.getElementById('shift-edit-end').value   = (shift.end_time   || '').substring(0, 5);
@@ -794,11 +836,32 @@ function openShiftEdit(shiftId) {
   document.getElementById('shift-edit-modal').classList.add('open');
 }
 
+// A stored role the select does not offer (legacy "MA" without fest/frei) gets a temporary option,
+// otherwise saving would blank it. Options added earlier are removed first.
+function dashShiftRoleOption(role) {
+  var sel = document.getElementById('shift-edit-role');
+  if (!sel || !sel.options) return;
+  for (var i = sel.options.length - 1; i >= 0; i--) if (sel.options[i].dataset && sel.options[i].dataset.extra) sel.removeChild(sel.options[i]);
+  if (!role) return;
+  for (var j = 0; j < sel.options.length; j++) if (sel.options[j].value === role) return;
+  var opt = document.createElement('option');
+  opt.value = role; opt.textContent = role; opt.dataset.extra = '1';
+  sel.appendChild(opt);
+}
+
+// Break for a saved shift: the stored one stays unless start/end changed (then the automatic break applies again)
+function dashEditPause(old, startVal, endVal, autoVal) {
+  if (!old || old.pause_mins === null || old.pause_mins === undefined) return autoVal;
+  var timesChanged = (old.start_time || '').substring(0, 5) !== startVal || (old.end_time || '').substring(0, 5) !== endVal;
+  return timesChanged ? autoVal : (parseInt(old.pause_mins, 10) || 0);
+}
+
 function openAddShift() {
   _shiftEditId = null;
   document.getElementById('shift-edit-title').textContent = 'Schicht hinzufügen';
   document.getElementById('shift-edit-date').value  = localDateStr();
   document.getElementById('shift-edit-ort').value   = '';
+  dashShiftRoleOption(null);
   document.getElementById('shift-edit-role').value  = 'MA frei';
   document.getElementById('shift-edit-start').value = '';
   document.getElementById('shift-edit-end').value   = '';
@@ -819,7 +882,7 @@ async function saveShiftEdit() {
   const endVal   = document.getElementById('shift-edit-end').value;
   const ortVal   = (document.getElementById('shift-edit-ort') || {}).value || '';
   const rawMins  = (timeToMins(endVal) || 0) - (timeToMins(startVal) || 0);
-  const pause    = autoPause(rawMins < 0 ? rawMins + 1440 : rawMins);
+  let pause      = autoPause(rawMins < 0 ? rawMins + 1440 : rawMins);
 
   if (!dateVal || !startVal || !endVal) {
     if (typeof showToast === 'function') showToast('Bitte Datum, Von und Bis ausfüllen.', 'danger');
@@ -828,22 +891,25 @@ async function saveShiftEdit() {
 
   try {
     if (_shiftEditId) {
-      // Edit existing shift
-      const { error } = await supabaseClient.from('shifts').update({
+      // Edit existing shift (a manually set break stays unless the times changed)
+      pause = dashEditPause(dashboardCurrentShifts.find(function(x) { return x.id === _shiftEditId; }), startVal, endVal, pause);
+      const { data: uRows, error } = await supabaseClient.from('shifts').update({
         shift_date:    dateVal,
         position_role: role,
         start_time:    startVal,
         end_time:      endVal,
         pause_mins:    pause,
         ort:           ortVal || null,
-      }).eq('id', _shiftEditId);
+      }).eq('id', _shiftEditId).select('id');
       if (error) throw error;
+      // RLS answers with 0 rows instead of an error
+      if (!uRows || uRows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung');
       if (typeof showToast === 'function') showToast('Schicht gespeichert!');
     } else {
       // New shift linked to a worker (existing worker-dashboard flow)
       const userId = document.getElementById('dash-worker-select').value;
       if (!userId) { if (typeof showToast === 'function') showToast('Kein Mitarbeiter ausgewählt.', 'danger'); return; }
-      const { error } = await supabaseClient.from('shifts').insert({
+      const { data: iRows, error } = await supabaseClient.from('shifts').insert({
         user_id:       userId,
         shift_date:    dateVal,
         position_role: role,
@@ -852,8 +918,9 @@ async function saveShiftEdit() {
         pause_mins:    pause,
         ort:           ortVal || null,
         status:        'offen',
-      });
+      }).select('id');
       if (error) throw error;
+      if (!iRows || iRows.length === 0) throw new Error('Einfügen abgelehnt – keine Berechtigung');
       if (typeof showToast === 'function') showToast('Schicht hinzugefügt!');
     }
 
@@ -869,18 +936,49 @@ async function deleteShiftFromModal() {
   if (!_shiftEditId) return;
   if (!confirm('Schicht wirklich löschen?')) return;
   try {
-    const { error } = await supabaseClient.from('shifts').delete().eq('id', _shiftEditId);
+    const { data: rows, error } = await supabaseClient.from('shifts').delete().eq('id', _shiftEditId).select('id');
     if (error) throw error;
+    // RLS answers with 0 rows instead of an error
+    if (!rows || rows.length === 0) throw new Error('Löschen abgelehnt – keine Berechtigung');
     if (typeof showToast === 'function') showToast('Schicht gelöscht.');
     closeShiftEditModal();
     renderWorkerShifts();
   } catch (err) {
     console.error('deleteShift error:', err);
-    if (typeof showToast === 'function') showToast('Fehler beim Löschen.', 'danger');
+    if (typeof showToast === 'function') showToast('Fehler beim Löschen: ' + (err.message || 'unbekannt'), 'danger');
   }
 }
 
 // ── PROTOCOL COST RECALCULATION ──
+
+// All employees incl. deactivated ones by id – appUsers (protokoll.js) only holds the active ones
+var _dashRateUsers = {};
+var _dashRateUsersLoaded = false;
+
+// Same lookup as getEffectivePersonnelRate (role rate, then base rate) on a user object; undefined = none
+function dashUserRate(user, basePos) {
+  if (!user) return undefined;
+  if (Array.isArray(user.role_rates)) {
+    var match = user.role_rates.find(function(r) { return r.role === basePos; });
+    if (match && parseFloat(match.rate_internal) > 0) return parseFloat(match.rate_internal);
+  }
+  if (parseFloat(user.hourly_rate_internal) > 0) return parseFloat(user.hourly_rate_internal);
+  return undefined;
+}
+
+async function dashRefreshRateUsers() {
+  if (typeof supabaseClient === 'undefined') return;
+  try {
+    // appUsers drives the pickers and the rates of new work: reload it as well (rates may just have changed)
+    if (typeof fetchAppUsers === 'function') await fetchAppUsers();
+    var { data, error } = await supabaseClient.from('app_users').select('id, role, role_rates, hourly_rate_internal, is_active');
+    if (error) throw error;
+    var map = {};
+    (data || []).forEach(function(u) { map[u.id] = u; });
+    _dashRateUsers = map;
+    _dashRateUsersLoaded = true;
+  } catch (e) { console.warn('Stundensätze nicht geladen:', e); }
+}
 
 // Cost lines of one stored shift, with the employee's own rate like the app (getEffectivePersonnelRate)
 function dashShiftCosts(date, isHoliday, s) {
@@ -896,6 +994,8 @@ function dashShiftCosts(date, isHoliday, s) {
   var basePos = s.position_role || 'MA frei';
   var customRate = (s.user_id && typeof getEffectivePersonnelRate === 'function')
     ? getEffectivePersonnelRate(basePos, s.user_id) : undefined;
+  // Not among the active app users (deactivated, or not loaded yet): the dashboard's own copy has the rates
+  if (customRate === undefined && s.user_id) customRate = dashUserRate(_dashRateUsers[s.user_id], basePos);
   return calcSplitShiftCosts(basePos, date, !!isHoliday, v, b, parseInt(s.pause_mins) || 0, customRate);
 }
 
@@ -984,6 +1084,8 @@ function dashShiftChanges(oldShifts, editedRows, users) {
     if ((old.start_time || '').substring(0, 5) !== (next.start_time || '')) patch.start_time = next.start_time;
     if ((old.end_time || '').substring(0, 5) !== (next.end_time || '')) patch.end_time = next.end_time;
     if ((parseInt(old.pause_mins, 10) || 0) !== next.pause_mins) patch.pause_mins = next.pause_mins;
+    // Hours that were already booked for someone else / for other times are open again for the accounting
+    if (old.status && old.status !== 'offen' && ('user_id' in patch || 'start_time' in patch || 'end_time' in patch || 'pause_mins' in patch)) patch.status = 'offen';
     if (Object.keys(patch).length) updates.push({ id: old.id, patch: patch });
   });
   (oldShifts || []).forEach(function(s) { if (!kept[s.id]) deletes.push(s.id); });
@@ -1002,6 +1104,7 @@ async function ensureRateUsers() {
   if (typeof appUsers !== 'undefined' && appUsers.length === 0 && typeof fetchAppUsers === 'function') {
     try { await fetchAppUsers(); } catch (e) { console.warn('app_users für Stundensätze nicht geladen:', e); }
   }
+  if (!_dashRateUsersLoaded && typeof supabaseClient !== 'undefined') await dashRefreshRateUsers();
 }
 
 var _recalcRunning = false; // the menu item has no button to disable → guard against a second tap
@@ -1520,6 +1623,38 @@ function renderDashProtEquipment(existing) {
   }).join('');
 }
 
+// Replace the child rows of a protocol: insert the new rows first, then delete the old ones by id.
+// Every write must touch the expected number of rows (RLS answers with 0 rows instead of an error).
+// prot[prop] follows what is really stored, so a retry after a failure deletes exactly what exists.
+async function dashReplaceRows(table, prot, prop, newRows) {
+  const oldRows = prot[prop] || [];
+  let inserted = [];
+  if (newRows.length) {
+    const { data, error } = await supabaseClient.from(table).insert(newRows).select('id');
+    if (error) throw error;
+    if (!data || data.length !== newRows.length) throw new Error('Einfügen abgelehnt – keine Berechtigung (' + table + ')');
+    inserted = newRows.map(function(r, k) { return Object.assign({}, r, { id: data[k].id }); });
+    prot[prop] = oldRows.concat(inserted);
+  }
+  const ids = oldRows.map(function(r) { return r.id; }).filter(Boolean);
+  if (ids.length) {
+    const { data, error } = await supabaseClient.from(table).delete().in('id', ids).select('id');
+    if (error) throw error;
+    if (!data || data.length !== ids.length) throw new Error('Löschen abgelehnt – keine Berechtigung (' + table + ')');
+  }
+  prot[prop] = inserted;
+}
+
+// Did the transports (type, driver, driver hours – the cost-relevant parts) change against the stored rows?
+function dashTransportsChanged(storedRows, edited) {
+  const key = function(t) {
+    const h = parseFloat(t.hours);
+    return [t.type || '', (t.driver || '').trim(), t.driverUserId || '', h >= 0 ? h : ''].join('|');
+  };
+  const a = dashTransportsFromRows(storedRows).map(key), b = (edited || []).map(key);
+  return a.length !== b.length || a.some(function(k, i) { return k !== b[i]; });
+}
+
 async function saveDashProtEdit() {
   const p = dashboardProtocols.find(x => x.id === _editProtId);
   if (!p) return;
@@ -1546,6 +1681,12 @@ async function saveDashProtEdit() {
   const al = dashResolvePerson(alVal, p.al ? p.al.full_name : (p.al_name_fallback || ''), p.al_id, users);
   const pl = dashResolvePerson(plVal, p.pl ? p.pl.full_name : (p.pl_name_fallback || ''), p.pl_id, users);
   const rateUsers = typeof appUsers !== 'undefined' ? appUsers : [];
+  // p.shifts is kept in step with what is already written (see below), so a second Speichern after a partial failure continues cleanly
+  const ch = dashShiftChanges(p.shifts || [], _editProtShifts, rateUsers);
+  // Old totals must not drift with today's rates: recompute only if something that costs money changed
+  const costChanged = newDate !== p.date || isHoliday !== !!p.is_holiday
+    || dashTransportsChanged(p.protocol_transports, _editProtTransports)
+    || ch.updates.length > 0 || ch.inserts.length > 0 || ch.deletes.length > 0;
 
   const protPayload = {
     date:            newDate,
@@ -1555,13 +1696,13 @@ async function saveDashProtEdit() {
     pl_id:           pl.id,
     al_name_fallback: al.fallback,
     pl_name_fallback: pl.fallback,
-    // Same formula as the app, from the edited transports and the edited personnel (not the stored ones)
-    total_cost:      calcDashProtTotal(newDate, isHoliday, _editProtTransports,
-      _editProtShifts.map(function(r) { return dashShiftRowToDb(r, rateUsers); })),
     notes_damages:   document.getElementById('pe-damages').value.trim()   || null,
     notes_incidents: document.getElementById('pe-incidents').value.trim() || null,
     notes_feedback:  document.getElementById('pe-feedback').value.trim()  || null,
   };
+  // Same formula as the app, from the edited transports and the edited personnel (not the stored ones)
+  if (costChanged) protPayload.total_cost = calcDashProtTotal(newDate, isHoliday, _editProtTransports,
+    _editProtShifts.map(function(r) { return dashShiftRowToDb(r, rateUsers); }));
 
   if (saveBtn) saveBtn.disabled = true;
   try {
@@ -1578,11 +1719,12 @@ async function saveDashProtEdit() {
     }
 
     // Personnel: update existing shifts in place (status and ids survive), insert new rows, delete removed ones
-    const ch = dashShiftChanges(p.shifts || [], _editProtShifts, rateUsers);
+    const stored = p.shifts || (p.shifts = []);
     for (const u of ch.updates) {
       const { data: uRows, error: uErr } = await supabaseClient.from('shifts').update(u.patch).eq('id', u.id).select('id');
       if (uErr) throw uErr;
       if (!uRows || uRows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung (shifts)');
+      Object.assign(stored.find(function(s) { return s.id === u.id; }) || {}, u.patch);
     }
     if (ch.inserts.length) {
       const ort = (p.projects && p.projects.location) || null;
@@ -1590,29 +1732,29 @@ async function saveDashProtEdit() {
       const { data: iRows, error: iErr } = await supabaseClient.from('shifts').insert(rows).select('id');
       if (iErr) throw iErr;
       if (!iRows || iRows.length !== rows.length) throw new Error('Einfügen abgelehnt – keine Berechtigung (shifts)');
+      // Remember the new ids right away: a second Speichern after a later failure must not insert (and pay) them again
+      const fresh = _editProtShifts.filter(function(r) { return !(r.id && stored.some(function(s) { return s.id === r.id; })); });
+      rows.forEach(function(row, k) {
+        if (fresh[k]) fresh[k].id = iRows[k].id;
+        stored.push(Object.assign({}, row, { id: iRows[k].id }));
+      });
     }
     if (ch.deletes.length) {
       const { data: dRows, error: dErr } = await supabaseClient.from('shifts').delete().in('id', ch.deletes).select('id');
       if (dErr) throw dErr;
       if (!dRows || dRows.length !== ch.deletes.length) throw new Error('Löschen abgelehnt – keine Berechtigung (shifts)');
+      p.shifts = stored.filter(function(s) { return ch.deletes.indexOf(s.id) === -1; });
     }
 
-    // Re-insert transports (delete first, check error before inserting)
-    const { error: tDelErr } = await supabaseClient.from('protocol_transports').delete().eq('protocol_id', _editProtId);
-    if (tDelErr) throw tDelErr;
-    if (_editProtTransports.length) {
-      const tInserts = _editProtTransports.map(function(t) {
-        return { protocol_id: _editProtId, vehicle_type: t.type, driver_name: t.driver || null,
-                 punctuality: t.punctuality, delay_mins: t.delay ? parseInt(t.delay) : 0,
-                 driver_hours: parseFloat(t.hours) >= 0 ? parseFloat(t.hours) : null, driver_user_id: t.driverUserId || null };
-      });
-      const { error: tErr } = await supabaseClient.from('protocol_transports').insert(tInserts);
-      if (tErr) throw tErr;
-    }
+    // Transports: write the new rows first, then remove the old ones by id (a failure never leaves the protocol without them)
+    const tInserts = _editProtTransports.map(function(t) {
+      return { protocol_id: _editProtId, vehicle_type: t.type, driver_name: t.driver || null,
+               punctuality: t.punctuality, delay_mins: t.delay ? parseInt(t.delay) : 0,
+               driver_hours: parseFloat(t.hours) >= 0 ? parseFloat(t.hours) : null, driver_user_id: t.driverUserId || null };
+    });
+    await dashReplaceRows('protocol_transports', p, 'protocol_transports', tInserts);
 
-    // Re-insert equipment (delete first, check error before inserting)
-    const { error: eDelErr } = await supabaseClient.from('protocol_equipments').delete().eq('protocol_id', _editProtId);
-    if (eDelErr) throw eDelErr;
+    // Equipment: same order
     const eInserts = _PE_CATEGORIES.filter(function(cat) {
       return (document.getElementById('pe-st-' + cat.id) || {}).value !== '';
     }).map(function(cat) {
@@ -1625,10 +1767,7 @@ async function saveDashProtEdit() {
         hussen_returned:  cat.id === 'stoffe' ? (parseInt((document.getElementById('pe-hr-stoffe') || {}).value) || null) : null,
       };
     });
-    if (eInserts.length) {
-      const { error: eErr } = await supabaseClient.from('protocol_equipments').insert(eInserts);
-      if (eErr) throw eErr;
-    }
+    await dashReplaceRows('protocol_equipments', p, 'protocol_equipments', eInserts);
 
     showToast('✅ Protokoll gespeichert!');
     closeDashProtEdit();
@@ -1709,6 +1848,15 @@ function populateDashboardMonthFilter(shifts) {
 }
 
 async function exportDashboardMonthlyPDF() {
+  try {
+    await exportDashboardMonthlyPDFRun();
+  } catch (err) {
+    console.error('exportDashboardMonthlyPDF error:', err);
+    showToast('PDF konnte nicht erstellt werden', 'danger');
+  }
+}
+
+async function exportDashboardMonthlyPDFRun() {
   const mKey = (document.getElementById('dash-month-filter') || {}).value;
   if (!mKey || !dashboardCurrentWorker) return;
 

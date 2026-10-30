@@ -67,3 +67,20 @@ test('testPushMessage: device count, no device, failure', () => {
   assert.match(S.testPushMessage({ status: 'failed', devices: 0 }), /fehlgeschlagen/);
   assert.match(S.testPushMessage(null), /fehlgeschlagen/);
 });
+
+test('saveSettingsTab: a network exception from the rpc shows an error instead of throwing', async () => {
+  const vm = require('vm'), fs = require('fs'), path = require('path');
+  const err = { textContent: '' }, btn = { disabled: false, textContent: '' };
+  const sandbox = vm.createContext({
+    console: { log() {}, warn() {}, error() {} },
+    localStorage: global.localStorage,
+    document: { getElementById: id => id === 'set-error' ? err : id === 'set-save-btn' ? btn : id === 'set-evening_push_hour' ? { value: '18' } : id === 'set-billing_cutoff' ? { value: '21' } : { checked: false } },
+    showToast() {},
+    supabaseClient: { rpc: () => Promise.reject(new TypeError('Failed to fetch')) },
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/settings.js'), 'utf8'), sandbox, { filename: 'settings.js' });
+  vm.runInContext("_settingsPin = 'x'; _settingsRendered = _readSettingsForm(); _settingsRendered.billing_cutoff = 20;", sandbox);
+  await vm.runInContext('saveSettingsTab()', sandbox);
+  assert.match(err.textContent, /fehlgeschlagen/);
+  assert.equal(btn.disabled, false);
+});
