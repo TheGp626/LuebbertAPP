@@ -63,14 +63,62 @@ function szStoreKey() {
 }
 
 // Legacy weeks → { mine: weeks carrying this user's name, rest: everybody else's (stay where they are) }
+// The name on a saved week was editable ("Ändern"): "Max" or "Mustermann Max" still means "Max Mustermann".
+// Same words (case/umlauts ignored), or every word of one name appears in the other.
+function szNameMatches(weekName, fullName) {
+  var words = function (s) {
+    return String(s || '').toLowerCase().replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ß/g, 'ss')
+      .split(/[^a-z0-9]+/).filter(Boolean);
+  };
+  var a = words(weekName), b = words(fullName);
+  if (!a.length || !b.length) return false;
+  var within = function (x, y) { return x.every(function (w) { return y.indexOf(w) !== -1; }); };
+  return within(a, b) || within(b, a);
+}
+
 function splitLegacyStore(legacy, fullName) {
-  var norm = function (s) { return String(s || '').trim().toLowerCase(); };
-  var me = norm(fullName), out = { mine: {}, rest: {} };
+  var out = { mine: {}, rest: {} };
   Object.keys(legacy || {}).forEach(function (k) {
     var e = legacy[k];
-    if (me && e && norm(e.name) === me) out.mine[k] = e; else out.rest[k] = e;
+    if (fullName && e && szNameMatches(e.name, fullName)) out.mine[k] = e; else out.rest[k] = e;
   });
   return out;
+}
+
+// Weeks still in the old shared store after the migration (other names): shown in the Verlauf to take over
+function legacySummary(legacy) {
+  var keys = Object.keys(legacy || {});
+  if (!keys.length) return null;
+  var names = [];
+  keys.forEach(function (k) { var n = String((legacy[k] && legacy[k].name) || '').trim(); if (n && names.indexOf(n) === -1) names.push(n); });
+  return { count: keys.length, unsent: keys.filter(function (k) { return legacy[k] && legacy[k].unsynced; }).length, names: names.sort() };
+}
+
+function readLegacyStore() {
+  try { return JSON.parse(localStorage.getItem('stundenzettel') || 'null'); } catch (e) { return null; }
+}
+
+// "Übernehmen": the logged-in person takes the remaining old weeks of this device (unsent ones are then sent under them)
+function takeOverLegacyWeeks() {
+  var legacy = readLegacyStore(), s = legacySummary(legacy);
+  if (!s || !currentUser) return;
+  if (!confirm(s.count + (s.count === 1 ? ' ältere Woche' : ' ältere Wochen') + ' (Name: ' + (s.names.join(', ') || '—') + ') auf diesem Gerät als deine übernehmen?' +
+      (s.unsent ? '\n\n' + s.unsent + ' davon wurden noch nicht übertragen und werden jetzt unter deinem Namen gesendet.' : ''))) return;
+  var all = loadStore();
+  Object.keys(legacy).forEach(function (k) { if (!(k in all)) all[k] = legacy[k]; });
+  saveStore(all);
+  localStorage.removeItem('stundenzettel');
+  showToast('Wochen übernommen.');
+  renderHistory();
+}
+
+function legacyNoticeHtml() {
+  var s = legacySummary(readLegacyStore());
+  if (!s) return '';
+  return '<div class="ui-card" style="margin-bottom:12px;"><div class="ui-row-title">Ältere Wochen auf diesem Gerät</div>' +
+    '<div class="ui-sub" style="margin:4px 0 10px;">' + s.count + (s.count === 1 ? ' Woche' : ' Wochen') + ' unter dem Namen ' + escapeHtml(s.names.join(', ') || '—') +
+    (s.unsent ? ', davon ' + s.unsent + ' noch nicht übertragen' : '') + '. Gehören sie dir?</div>' +
+    '<button type="button" class="ui-btn" onclick="takeOverLegacyWeeks()">Übernehmen</button></div>';
 }
 
 var _szMigrated = {};
@@ -81,6 +129,11 @@ function migrateLegacyStore(key) {
     var raw = localStorage.getItem('stundenzettel');
     if (!raw) return;
     var sp = splitLegacyStore(JSON.parse(raw), currentUser.full_name);
+    // Unsent weeks under another name stay behind: point to the "Übernehmen" notice in the Verlauf once
+    var left = legacySummary(sp.rest);
+    if (left && left.unsent && typeof showToast === 'function') {
+      setTimeout(function () { showToast('Auf diesem Gerät liegen noch nicht übertragene Wochen – bitte im Verlauf prüfen.', 'info'); }, 800);
+    }
     if (!Object.keys(sp.mine).length) return;
     var mine = JSON.parse(localStorage.getItem(key) || '{}');
     Object.keys(sp.mine).forEach(function (k) { if (!(k in mine)) mine[k] = sp.mine[k]; });
@@ -882,7 +935,8 @@ function renderHistory(skipSync) {
   var list = document.getElementById('history-list');
   var all = loadStore();
   var keys = Object.keys(all).sort().reverse();
-  if (!keys.length) { list.innerHTML = uiEmptyHtml('Noch keine Wochen', 'Gespeicherte Wochen erscheinen hier.'); return; }
+  var legacyNotice = legacyNoticeHtml();
+  if (!keys.length) { list.innerHTML = legacyNotice + uiEmptyHtml('Noch keine Wochen', 'Gespeicherte Wochen erscheinen hier.'); return; }
   var months = {};
   keys.forEach(function (k) {
     var w = all[k];
@@ -921,7 +975,7 @@ function renderHistory(skipSync) {
         '</div>';
     }).join('') + '</div>';
   });
-  list.innerHTML = html;
+  list.innerHTML = legacyNotice + html;
 }
 
 function renderHistoryChart() {
