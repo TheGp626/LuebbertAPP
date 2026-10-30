@@ -399,7 +399,6 @@
               <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="produkt-add-label">Ordner</span>
             </button>
           </div>
-          <div id="ordner-expired"></div>
           <div id="ordner-loading" style="display:none;" class="ui-empty"><div class="ui-sub">Ordner werden geladen…</div></div>
           <div id="ordner-grid" class="ui-list"></div>
           <div id="ordner-empty" class="ui-empty" style="display:none;">
@@ -498,7 +497,7 @@
       <label class="ui-field"><span>Ordnername *</span><input type="text" id="inp-ordner-name" placeholder="z. B. Projekt Berlin 2024" /></label>
       <label class="ui-field"><span>Beschreibung</span><input type="text" id="inp-ordner-desc" placeholder="Kurze Beschreibung…" /></label>
       <label class="ui-field"><span>Projektleitung (PL)</span><select id="inp-ordner-pl"></select></label>
-      <label class="ui-field"><span>Projektende (optional)</span><input type="date" id="inp-ordner-ends" /></label>
+      <label class="ui-field" id="ordner-ends-field"><span>Löschung am</span><input type="date" id="inp-ordner-ends" /><small class="ui-sub">Automatisch 7 Tage nach dem letzten Einsatz – bei Bedarf verschieben</small></label>
       <div class="ui-field"><span>Einsätze (für die Protokoll-Erinnerung an die AL)</span>
         <div id="ordner-einsatz-rows" style="display:flex; flex-direction:column; gap:8px;"></div>
         <button type="button" class="ui-add-row" style="margin-top:8px;" onclick="addEinsatzRow()">+ Einsatz</button>
@@ -855,7 +854,7 @@
   <script src="js/formulas.js?v=10"></script>
   <script src="js/utils.js?v=18"></script>
   <script src="js/ui.js?v=2"></script>
-  <script src="js/settings.js?v=4"></script>
+  <script src="js/settings.js?v=5"></script>
   <script src="js/stundenzettel.js?v=15"></script>
   <script src="js/protokoll.js?v=31"></script>
   <script src="js/erinnerung.js?v=9"></script>
@@ -865,7 +864,7 @@
   <script src="js/home.js?v=5"></script>
   <script src="js/dashboard.js?v=23"></script>
   <script src="js/produkte.js?v=16"></script>
-  <script src="js/ordner.js?v=17"></script>
+  <script src="js/ordner.js?v=18"></script>
   <script src="js/app.js?v=19"></script>
 </body>
 

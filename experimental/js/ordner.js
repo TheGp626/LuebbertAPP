@@ -9,19 +9,52 @@ var editingOrdnerId = null;
 
 var canManageOrdner = false; // PL / Admin only
 
-// Top-level folders whose end date has passed, for the PL of the folder (and Admin): "Abgelaufen – löschen?".
-// today = ISO date; oldest end date first. Everyone else gets nothing.
-function ordnerExpired(folders, today, userId, role) {
-  if (role !== 'Admin' && !(role === 'PL' && userId)) return [];
-  return (folders || []).filter(function(o) {
-    return !o.parent_id && o.ends_on && o.ends_on < today && (role === 'Admin' || o.pl_id === userId);
-  }).sort(function(a, b) { return a.ends_on < b.ends_on ? -1 : a.ends_on > b.ends_on ? 1 : 0; });
+// project_folders.ends_on is the deletion date: a top-level folder is removed (with subfolders and files)
+// by the Edge Function cleanup-folders once this date has passed.
+var ORDNER_DELETE_DAYS = 7;
+var ORDNER_DELETE_WARN_DAYS = 7;
+var _ordnerAutoValue = ''; // auto date the open form last computed from its Einsatz rows
+
+// ISO date + n days (UTC math, no DST surprises)
+function ordnerAddDays(iso, n) {
+  var p = String(iso).split('-');
+  var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n));
+  return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2);
 }
 
-// "Projektende: 05.10.2026" for the detail view, '' without an end date
-function ordnerEndsLabel(endsOn) {
+// Latest non-cancelled Einsatz date + 7 days, null without dated jobs
+function ordnerAutoDeleteDate(einsaetze) {
+  var latest = null;
+  (einsaetze || []).forEach(function(e) {
+    if (e && e.date && !e.cancelled && (!latest || e.date > latest)) latest = e.date;
+  });
+  return latest ? ordnerAddDays(latest, ORDNER_DELETE_DAYS) : null;
+}
+
+// null without a deletion date, else { date, days } (days left, 0 = today or overdue); today = ISO date
+function ordnerDeleteInfo(folder, today) {
+  if (!folder || !folder.ends_on) return null;
+  var a = folder.ends_on.split('-'), b = String(today).split('-');
+  var days = Math.round((Date.UTC(+a[0], +a[1] - 1, +a[2]) - Date.UTC(+b[0], +b[1] - 1, +b[2])) / 86400000);
+  return { date: folder.ends_on, days: Math.max(0, days) };
+}
+
+// "Löschung am 05.10.2026", '' without a date
+function ordnerDeleteLabel(endsOn) {
   var p = String(endsOn || '').split('-');
-  return p.length === 3 ? 'Projektende: ' + p[2] + '.' + p[1] + '.' + p[0] : '';
+  return p.length === 3 ? 'Löschung am ' + p[2] + '.' + p[1] + '.' + p[0] : '';
+}
+
+// Warning text for the last days before deletion, '' otherwise
+function ordnerDeleteBadge(info) {
+  if (!info || info.days > ORDNER_DELETE_WARN_DAYS) return '';
+  return info.days === 0 ? 'wird heute gelöscht' : 'wird in ' + info.days + (info.days === 1 ? ' Tag' : ' Tagen') + ' gelöscht';
+}
+
+// Form rule: an empty field or one still equal to the previous auto value follows the jobs; a manual date stays
+function ordnerNextDeleteValue(current, oldAuto, newAuto) {
+  if (!current || current === oldAuto) return newAuto || '';
+  return current;
 }
 
 // ── INIT ──
@@ -57,7 +90,6 @@ function renderOrdner(list) {
   var grid = document.getElementById('ordner-grid');
   var empty = document.getElementById('ordner-empty');
   if (!grid) return;
-  renderOrdnerExpired();
 
   // Top level shows only root folders; subfolders live inside their parent
   list = (list || []).filter(function(o) { return !o.parent_id; });
@@ -72,70 +104,19 @@ function renderOrdner(list) {
   grid.innerHTML = list.map(function(o) { return ordnerFolderRowHtml(o, true); }).join('');
 }
 
-// Section at the top of the list: folders past their end date, only for their PL / Admin
-function renderOrdnerExpired() {
-  var box = document.getElementById('ordner-expired');
-  if (!box) return;
-  var me = typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null;
-  var expired = canManageOrdner ? ordnerExpired(alleOrdner, localDateStr(), me, typeof userRole !== 'undefined' ? userRole : '') : [];
-  if (!expired.length) { box.innerHTML = ''; return; }
-  box.innerHTML = '<div class="ui-label">Abgelaufen – löschen?</div><div class="ui-list" style="margin-bottom:14px;">' +
-    expired.map(function(o) {
-      return '<div class="ui-row ui-row-wrap"><div class="ui-row-main"><div class="ui-row-title">' + escOrdner(o.name) + '</div>' +
-        '<div class="ui-sub">' + escOrdner(ordnerEndsLabel(o.ends_on)) + '</div></div>' +
-        '<div class="ui-row-end">' +
-          '<button type="button" class="ui-btn ui-btn-danger dash-small-btn" onclick="deleteExpiredOrdner(\'' + o.id + '\')">Löschen</button>' +
-          '<button type="button" class="ui-btn dash-small-btn" onclick="openOrdnerKeep(\'' + o.id + '\')">Behalten</button>' +
-        '</div></div>';
-    }).join('') + '</div>';
-}
-
-// "Behalten": small sheet for a new end date (default: in 30 days)
-function openOrdnerKeep(id) {
-  var m = document.getElementById('ordner-keep-modal');
-  if (!m) {
-    m = document.createElement('div');
-    m.id = 'ordner-keep-modal';
-    m.className = 'sig-modal ui-sheet';
-    m.style.setProperty('--sheet-w', '420px');
-    m.innerHTML = '<div class="sig-modal-inner">' +
-      '<div class="ui-sheet-head"><h3 class="ui-title" style="font-size:18px;">Ordner behalten</h3></div>' +
-      '<label class="ui-field"><span>Neues Projektende</span><input type="date" id="ordner-keep-date" /></label>' +
-      '<div class="ui-sheet-actions"><button type="button" class="ui-btn" onclick="closeOrdnerKeep()">Abbrechen</button>' +
-      '<button type="button" class="ui-btn ui-btn-primary" id="ordner-keep-save">Speichern</button></div></div>';
-    m.addEventListener('click', function(e) { if (e.target === m) closeOrdnerKeep(); });
-    document.body.appendChild(m);
-  }
-  document.getElementById('ordner-keep-date').value = wpAddDays(localDateStr(), 30);
-  document.getElementById('ordner-keep-save').onclick = function() { saveOrdnerKeep(id); };
-  m.classList.add('open');
-}
-
-function closeOrdnerKeep() {
-  var m = document.getElementById('ordner-keep-modal');
-  if (m) m.classList.remove('open');
-}
-
-async function saveOrdnerKeep(id) {
-  var date = (document.getElementById('ordner-keep-date') || {}).value;
-  if (!date) { showToast('Bitte ein Datum wählen.', 'danger'); return; }
-  var { data, error } = await supabaseClient.from('project_folders').update({ ends_on: date }).eq('id', id).select('id');
-  if (error || !data || !data.length) { showToast('Fehler: ' + (error ? error.message : 'Projektende nicht gespeichert'), 'danger'); return; }
-  var o = alleOrdner.find(function(x) { return x.id === id; });
-  if (o) o.ends_on = date;
-  closeOrdnerKeep();
-  showToast('Projektende verschoben.');
-  renderOrdner(alleOrdner);
-}
-
 // One folder as a list row (list view and subfolders)
 function ordnerFolderRowHtml(o, showDate) {
   var date = showDate && o.created_at ? new Date(o.created_at).toLocaleDateString('de-DE') : '';
-  var sub = [o.description || '', date].filter(Boolean).join(' · ');
+  // Only top-level folders carry a deletion date
+  var info = o.parent_id ? null : ordnerDeleteInfo(o, localDateStr());
+  var sub = [o.description || '', date, info ? 'Löschung am ' + shortDateDE(info.date) : ''].filter(Boolean).join(' · ');
+  var badge = ordnerDeleteBadge(info);
+  var menuBtn = canManageOrdner ? '<button type="button" class="ui-icon-btn" aria-label="Ordner-Aktionen" onclick="event.stopPropagation();ordnerFolderMenu(\'' + o.id + '\')">' + uiIcon('dots') + '</button>' : '';
+  var end = (badge ? '<span class="ui-pill ui-pill-warn">' + escOrdner(badge) + '</span>' : '') + menuBtn;
   return '<div class="ui-row ordner-row" onclick="openOrdnerDetail(\'' + o.id + '\')">' +
     '<span class="ui-tile-ico ordner-ico">' + uiIcon('folder') + '</span>' +
     '<div class="ui-row-main"><div class="ui-row-title">' + escOrdner(o.name) + '</div>' + (sub ? '<div class="ui-sub">' + escOrdner(sub) + '</div>' : '') + '</div>' +
-    (canManageOrdner ? '<div class="ui-row-end"><button type="button" class="ui-icon-btn" aria-label="Ordner-Aktionen" onclick="event.stopPropagation();ordnerFolderMenu(\'' + o.id + '\')">' + uiIcon('dots') + '</button></div>' : '') +
+    (end ? '<div class="ui-row-end">' + end + '</div>' : '') +
   '</div>';
 }
 
@@ -179,7 +160,9 @@ async function openOrdnerDetail(id) {
   var titleEl = document.getElementById('ordner-detail-title');
   if (titleEl) titleEl.textContent = ordnerBreadcrumb(folder);
   ordnerSetTitle(ordnerBreadcrumb(folder));
-  var endsEl = document.getElementById('ordner-ends'), endsText = ordnerEndsLabel(folder.ends_on);
+  var endsEl = document.getElementById('ordner-ends');
+  var endsInfo = folder.parent_id ? null : ordnerDeleteInfo(folder, localDateStr());
+  var endsText = endsInfo ? [ordnerDeleteLabel(endsInfo.date), ordnerDeleteBadge(endsInfo)].filter(Boolean).join(' · ') : '';
   if (endsEl) { endsEl.textContent = endsText; endsEl.style.display = endsText ? 'block' : 'none'; }
   initOrdnerDragDrop();
 
@@ -424,8 +407,16 @@ function addEinsatzRow(e) {
     '</select>' +
     '<select class="meta-input einsatz-al" style="flex:2 1 160px; margin:0;">' + ordnerUserOptions(['AL', 'Admin'], e.al_id, '– AL wählen –') + '</select>' +
     '<label style="font-size:12px; display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" class="einsatz-cancelled"' + (e.cancelled ? ' checked' : '') + '> abgesagt/übernommen</label>' +
-    '<button type="button" class="btn" style="width:auto; padding:4px 10px; color:var(--danger);" title="Einsatz entfernen" onclick="this.parentElement.remove()">🗑</button>';
+    '<button type="button" class="btn" style="width:auto; padding:4px 10px; color:var(--danger);" title="Einsatz entfernen" onclick="this.parentElement.remove(); ordnerSyncDeleteField()">🗑</button>';
   list.appendChild(row);
+}
+
+// Moves the "Löschung am" field along with the Einsatz rows (unless the date was set by hand)
+function ordnerSyncDeleteField() {
+  var inp = document.getElementById('inp-ordner-ends');
+  var auto = ordnerAutoDeleteDate(readEinsatzRows()) || '';
+  if (inp) inp.value = ordnerNextDeleteValue(inp.value, _ordnerAutoValue, auto);
+  _ordnerAutoValue = auto;
 }
 
 function readEinsatzRows() {
@@ -457,6 +448,10 @@ async function openOrdnerForm(id) {
   if (descInp) descInp.value = o ? (o.description || '') : '';
   var endsInp = document.getElementById('inp-ordner-ends');
   if (endsInp) endsInp.value = o && o.ends_on ? o.ends_on : '';
+  // Subfolders follow their top-level folder: no deletion date of their own
+  var endsField = document.getElementById('ordner-ends-field');
+  if (endsField) endsField.style.display = o && o.parent_id ? 'none' : '';
+  _ordnerAutoValue = '';
 
   await loadOrdnerUsers();
   var plSel = document.getElementById('inp-ordner-pl');
@@ -470,6 +465,13 @@ async function openOrdnerForm(id) {
     if (error) { console.error('Einsätze laden:', error); showToast('Einsätze konnten nicht geladen werden.', 'danger'); }
     _editEinsaetzeExisting = data || [];
     _editEinsaetzeExisting.forEach(addEinsatzRow);
+  }
+  // Baseline for the follow rule: what the auto date is for the jobs as loaded
+  _ordnerAutoValue = ordnerAutoDeleteDate(readEinsatzRows()) || '';
+  if (rows && !rows.dataset.followBound) {
+    rows.dataset.followBound = '1';
+    rows.addEventListener('input', ordnerSyncDeleteField);
+    rows.addEventListener('change', ordnerSyncDeleteField);
   }
 
   if (form) form.style.display = 'block';
@@ -533,9 +535,13 @@ async function saveOrdner() {
   var payload = {
     name: name,
     description: desc || null,
-    pl_id: plId,
-    ends_on: ((document.getElementById('inp-ordner-ends') || {}).value || '') || null
+    pl_id: plId
   };
+  // Deletion date: manual value, else auto from the jobs, else none (never deleted). Subfolders carry none.
+  var editing = editingOrdnerId ? alleOrdner.find(function(x) { return x.id === editingOrdnerId; }) : null;
+  if (!(editing && editing.parent_id)) {
+    payload.ends_on = ((document.getElementById('inp-ordner-ends') || {}).value || '') || ordnerAutoDeleteDate(einsaetze) || null;
+  }
 
   var folderId = editingOrdnerId;
   if (editingOrdnerId) {
@@ -628,12 +634,6 @@ function collectOrdnerTreeIds(rootId) {
 
 async function deleteCurrentOrdner() {
   if (aktuellerOrdner) await deleteOrdner(aktuellerOrdner);
-}
-
-// "Löschen" in the expired section of the list: same flow (confirm, files, folder) as in the detail view
-async function deleteExpiredOrdner(id) {
-  var o = alleOrdner.find(function(x) { return x.id === id; });
-  if (o) await deleteOrdner(o);
 }
 
 async function deleteOrdner(folder) {
