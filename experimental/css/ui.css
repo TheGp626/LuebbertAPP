@@ -197,3 +197,6 @@ input[type=checkbox].ui-switch:checked::before { transform: translateX(18px); }
 .ui-sheet .sig-modal-head { margin-bottom: 12px; }
 .ui-sheet .sig-modal-title, .ui-sheet h3 { font-size: 18px; font-weight: 700; }
 .ui-sheet .btn { min-height: 44px; border-radius: var(--r-control); }
+
+/* "Meine · Alle" switch above lists */
+.prot-scope-seg { max-width: 220px; margin: 0 0 12px; }
