@@ -353,12 +353,68 @@ async function refreshDashboard() {
 
     dashboardProtocols = protocols;
     renderDashboardTable();
+    loadDashMissing();
   } catch (err) {
     console.error('Dash Load Error:', err);
     if (typeof showToast === 'function') showToast('Fehler beim Laden der Dashboard-Daten', 'danger');
   } finally {
     _dashboardRefreshing = false;
   }
+}
+
+// ── Einsätze ohne Protokoll: plan shifts of the last 14 days that no protocol covers yet ──
+var _dashPlanRows = [];      // plan_shifts rows (with plan_assignments) of the window
+var _dashMissingAll = false; // list collapsed to 5 entries by default
+var DASH_MISSING_DAYS = 14, DASH_MISSING_COLLAPSED = 5;
+
+async function loadDashMissing() {
+  if (typeof supabaseClient === 'undefined' || typeof planWithoutProtocol !== 'function') return;
+  var today = localDateStr();
+  var { data, error } = await supabaseClient.from('plan_shifts').select('*, plan_assignments(*)')
+    .gte('date', wpAddDays(today, -DASH_MISSING_DAYS)).lte('date', today);
+  if (error) { console.error('Einsätze ohne Protokoll:', error); return; }
+  _dashPlanRows = data || [];
+  renderDashMissing();
+}
+
+function renderDashMissing() {
+  var box = document.getElementById('dash-missing');
+  if (!box) return;
+  var today = localDateStr();
+  var rowsById = {};
+  var shifts = _dashPlanRows.map(function(r) { var s = planShiftFromDb(r); rowsById[s.id] = r; return s; });
+  var protocols = dashboardProtocols.map(function(p) { return { date: p.date, event: p.projects && p.projects.name }; });
+  var open = planWithoutProtocol(shifts, protocols, wpAddDays(today, -DASH_MISSING_DAYS), today);
+  if (!open.length) { box.innerHTML = ''; return; }
+  var canWrite = typeof moduleAllowedForRole === 'function' && moduleAllowedForRole('protokoll', userRole);
+  var shown = (_dashMissingAll || open.length <= DASH_MISSING_COLLAPSED) ? open : open.slice(0, DASH_MISSING_COLLAPSED);
+  box.innerHTML = '<div class="ui-label">Einsätze ohne Protokoll</div><div class="ui-list" style="margin-bottom:14px;">' +
+    shown.map(function(s) {
+      var head = planShiftHeading(s);
+      return '<div class="ui-row"><div class="ui-row-main"><div class="ui-row-title">' + escapeHtml(shortDateDE(s.date)) + ' ' + escapeHtml(s.venue || '—') +
+        (head && head !== s.venue ? ' · ' + escapeHtml(head) : '') + '</div></div>' +
+        (canWrite ? '<div class="ui-row-end"><button type="button" class="ui-btn dash-small-btn" onclick="dashStartProtokollFromPlan(' + uiArg(s.id) + ')">Protokoll anlegen</button></div>' : '') +
+        '</div>';
+    }).join('') + '</div>' +
+    (open.length > DASH_MISSING_COLLAPSED
+      ? '<button type="button" class="stunden-link" style="margin:-6px 0 14px;" onclick="toggleDashMissing()">' + (_dashMissingAll ? 'Weniger zeigen' : 'Alle zeigen (' + open.length + ')') + '</button>'
+      : '');
+}
+
+function toggleDashMissing() {
+  _dashMissingAll = !_dashMissingAll;
+  renderDashMissing();
+}
+
+// Same prefill as "Protokoll starten" in the Wochenplan; the AL is the shift's registered AL (if any)
+function dashStartProtokollFromPlan(shiftId) {
+  var row = _dashPlanRows.find(function(r) { return r.id === shiftId; });
+  if (!row) return;
+  var p = planShiftFromDb(row);
+  openProtokollPrefilled({
+    event: planEventName(p), date: p.date, action: planGuessAction(p.wann), alId: planAlUserId(row),
+    location: [p.venue].concat(p.location.slice(0, 1)).filter(Boolean).join(', '), shift: p
+  });
 }
 
 function renderDashboardTable() {

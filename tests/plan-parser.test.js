@@ -434,6 +434,27 @@ test('planIcs: end times, night shifts and shifts without a start time', () => {
   assert.match(ev('Aufbau: bis 16 Uhr'), /DTSTART;VALUE=DATE:20261030\r\n/);
 });
 
+test('planWithoutProtocol: shifts of the window without a protocol of the same day and event name', () => {
+  const sh = (date, title, extra) => Object.assign({ id: date + title, date, venue: 'Estrel', title, location: [], wann: ['Aufbau: 8 Uhr'], sort: 1 }, extra);
+  const shifts = [
+    sh('2026-10-29', 'Gala Nord'), sh('2026-10-29', 'Messe Süd'), sh('2026-10-20', 'Alt'), sh('2026-10-14', 'Zu alt'),
+    sh('2026-10-31', 'Morgen'), sh('2026-10-28', 'Gala Nord'), sh('2026-10-28', 'Gala Nord', { id: 'dup' })
+  ];
+  const protocols = [{ date: '2026-10-29', event: '  gala NORD ' }, { date: '2026-10-27', event: 'Alt' }];
+  const out = P.planWithoutProtocol(shifts, protocols, '2026-10-16', '2026-10-30');
+  // 29.10. Gala is covered (case/space-insensitive); "Alt" has a protocol on another day only; out of window and future dropped;
+  // two plan rows of one event and day count once; newest first
+  assert.deepEqual(out.map(s => s.date + ' ' + s.title), ['2026-10-29 Messe Süd', '2026-10-28 Gala Nord', '2026-10-20 Alt']);
+  assert.equal(out[1].id, '2026-10-28Gala Nord');
+  assert.deepEqual(P.planWithoutProtocol([], [], '2026-10-16', '2026-10-30'), []);
+});
+
+test('planAlUserId: the registered AL of a shift row, else null', () => {
+  assert.equal(P.planAlUserId({ plan_assignments: [{ role: 'MA', user_id: 'm' }, { role: 'AL', user_id: 'a' }] }), 'a');
+  assert.equal(P.planAlUserId({ plan_assignments: [{ role: 'AL', user_id: null }, { role: 'MA', user_id: 'm' }] }), null);
+  assert.equal(P.planAlUserId({}), null);
+});
+
 test('planIcs: escapes text and folds long lines at 75 bytes', () => {
   const long = 'Sehr lange Veranstaltung mit Umlauten äöü; Komma, und noch viel mehr Text bis die Zeile umbricht';
   const ics = P.planIcs([icsShift({ title: long })], 'me', '20261029T120000Z');

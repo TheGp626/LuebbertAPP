@@ -539,6 +539,28 @@ function planShiftFromDb(r) {
   };
 }
 
+// Plan shifts (planShiftFromDb shape) within [from, to] (ISO dates) that no protocol covers: a protocol of the
+// same date whose event name equals planEventName(shift) (trimmed, case-insensitive). One entry per day and
+// event, newest first. protocols = [{ date, event }]
+function planWithoutProtocol(shifts, protocols, from, to) {
+  var norm = function(s) { return String(s || '').trim().toLowerCase(); };
+  var seen = {};
+  (protocols || []).forEach(function(p) { seen[p.date + '|' + norm(p.event)] = true; });
+  return (shifts || []).filter(function(s) {
+    if (s.date < from || s.date > to) return false;
+    var k = s.date + '|' + norm(planEventName(s));
+    if (seen[k]) return false;
+    seen[k] = true;
+    return true;
+  }).sort(function(a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+}
+
+// user_id of the registered AL of a plan_shifts row (with plan_assignments), else null
+function planAlUserId(row) {
+  var al = ((row && row.plan_assignments) || []).find(function(a) { return a.role === 'AL' && a.user_id; });
+  return al ? al.user_id : null;
+}
+
 // ── Calendar export (.ics) of a person's plan shifts (DB rows with plan_assignments) ──
 // UID comes from the plan key (date|venue|title), not the shift id: ids change with every upload, and the
 // calendar must update an imported entry instead of duplicating it. Times are floating local times.
@@ -606,5 +628,6 @@ if (typeof module !== 'undefined' && module.exports) {
     planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planShiftKey: planShiftKey,
     planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek, planCellLines: planCellLines,
     planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName,
-    planShiftOrder: planShiftOrder, nextOwnShift: nextOwnShift, planShiftHeading: planShiftHeading, planMaterialLines: planMaterialLines, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb, planIcs: planIcs };
+    planShiftOrder: planShiftOrder, nextOwnShift: nextOwnShift, planShiftHeading: planShiftHeading, planMaterialLines: planMaterialLines, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb, planIcs: planIcs,
+    planWithoutProtocol: planWithoutProtocol, planAlUserId: planAlUserId };
 }
