@@ -63,7 +63,24 @@ try {
 var MODULE_TITLES = { stunden: 'Stundenzettel', protokoll: 'Protokoll', dashboard: 'Office Dashboard',
   produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan' };
 
-function selectMode(m) {
+// The office dashboard is opened from two tiles; each shows one view ('prot' | 'work'), Admin settings come via "…"
+var DASH_VIEW_TITLES = { prot: 'Protokoll-Übersicht', work: 'Buchhaltung', settings: 'Einstellungen' };
+var DASH_VIEW_KEY = 'luebbert_dash_view';
+var dashView = dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY));
+
+function moduleTitle(m) {
+  return m === 'dashboard' ? DASH_VIEW_TITLES[dashView] : (MODULE_TITLES[m] || '');
+}
+
+// Called by switchDashTab: remembers the view (settings are never restored) and retitles the top bar
+function setDashView(view) {
+  dashView = view;
+  if (view !== 'settings') localStorage.setItem(DASH_VIEW_KEY, view);
+  var topTitle = document.getElementById('topbar-title');
+  if (topTitle && activeModule === 'dashboard') topTitle.textContent = moduleTitle('dashboard');
+}
+
+function selectMode(m, view) {
   // Role-based guards (only once a user is logged in — during module restore
   // on page load the role is not resolved yet and the auth overlay blocks input)
   var loggedIn = typeof currentUser !== 'undefined' && currentUser;
@@ -76,6 +93,7 @@ function selectMode(m) {
   }
 
   activeModule = m;
+  if (m === 'dashboard') dashView = view || dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY));
   // The test build at /experimental/ shares localStorage with the live app, which doesn't know
   // the Wochenplan module → never hand it over as the module to restore
   if (window.IS_TEST_BUILD && m === 'wochenplan') localStorage.removeItem('luebbert_mode');
@@ -87,7 +105,7 @@ function selectMode(m) {
   
   // Module top bar (Back to Menu, title, Optionen)
   var topbar = document.getElementById('topbar'), topTitle = document.getElementById('topbar-title');
-  if (topTitle) topTitle.textContent = MODULE_TITLES[m] || '';
+  if (topTitle) topTitle.textContent = moduleTitle(m);
   if (topbar) topbar.style.display = 'flex';
   updateTopBarSub();
 
@@ -105,6 +123,7 @@ function selectMode(m) {
     var pn = document.getElementById('prot-nav');
     if (pn) pn.style.display = 'none';
     navigate('dashboard');
+    if (typeof switchDashTab === 'function') switchDashTab(dashView);
     if (typeof initDashboardRealtime === 'function') initDashboardRealtime();
     if (typeof refreshDashboard === 'function') refreshDashboard();
   } else if (m === 'produkte') {

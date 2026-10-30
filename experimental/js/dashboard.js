@@ -56,6 +56,8 @@ function switchDashTab(tab) {
   document.getElementById('dash-view-work').style.display = tab === 'work' ? 'block' : 'none';
   document.getElementById('dash-view-settings').style.display = tab === 'settings' ? 'block' : 'none';
 
+  if (typeof setDashView === 'function') setDashView(tab);
+
   if (tab === 'settings' && typeof renderSettingsTab === 'function') renderSettingsTab();
 
   if (tab === 'work' && dashboardWorkers.length === 0) {
@@ -351,12 +353,68 @@ async function refreshDashboard() {
 
     dashboardProtocols = protocols;
     renderDashboardTable();
+    loadDashMissing();
   } catch (err) {
     console.error('Dash Load Error:', err);
     if (typeof showToast === 'function') showToast('Fehler beim Laden der Dashboard-Daten', 'danger');
   } finally {
     _dashboardRefreshing = false;
   }
+}
+
+// ── Einsätze ohne Protokoll: plan shifts of the last 14 days that no protocol covers yet ──
+var _dashPlanRows = [];      // plan_shifts rows (with plan_assignments) of the window
+var _dashMissingAll = false; // list collapsed to 5 entries by default
+var DASH_MISSING_DAYS = 14, DASH_MISSING_COLLAPSED = 5;
+
+async function loadDashMissing() {
+  if (typeof supabaseClient === 'undefined' || typeof planWithoutProtocol !== 'function') return;
+  var today = localDateStr();
+  var { data, error } = await supabaseClient.from('plan_shifts').select('*, plan_assignments(*)')
+    .gte('date', wpAddDays(today, -DASH_MISSING_DAYS)).lte('date', today);
+  if (error) { console.error('Einsätze ohne Protokoll:', error); return; }
+  _dashPlanRows = data || [];
+  renderDashMissing();
+}
+
+function renderDashMissing() {
+  var box = document.getElementById('dash-missing');
+  if (!box) return;
+  var today = localDateStr();
+  var rowsById = {};
+  var shifts = _dashPlanRows.map(function(r) { var s = planShiftFromDb(r); rowsById[s.id] = r; return s; });
+  var protocols = dashboardProtocols.map(function(p) { return { date: p.date, event: p.projects && p.projects.name }; });
+  var open = planWithoutProtocol(shifts, protocols, wpAddDays(today, -DASH_MISSING_DAYS), today);
+  if (!open.length) { box.innerHTML = ''; return; }
+  var canWrite = typeof moduleAllowedForRole === 'function' && moduleAllowedForRole('protokoll', userRole);
+  var shown = (_dashMissingAll || open.length <= DASH_MISSING_COLLAPSED) ? open : open.slice(0, DASH_MISSING_COLLAPSED);
+  box.innerHTML = '<div class="ui-label">Einsätze ohne Protokoll</div><div class="ui-list" style="margin-bottom:14px;">' +
+    shown.map(function(s) {
+      var head = planShiftHeading(s);
+      return '<div class="ui-row"><div class="ui-row-main"><div class="ui-row-title">' + escapeHtml(shortDateDE(s.date)) + ' ' + escapeHtml(s.venue || '—') +
+        (head && head !== s.venue ? ' · ' + escapeHtml(head) : '') + '</div></div>' +
+        (canWrite ? '<div class="ui-row-end"><button type="button" class="ui-btn dash-small-btn" onclick="dashStartProtokollFromPlan(' + uiArg(s.id) + ')">Protokoll anlegen</button></div>' : '') +
+        '</div>';
+    }).join('') + '</div>' +
+    (open.length > DASH_MISSING_COLLAPSED
+      ? '<button type="button" class="stunden-link" style="margin:-6px 0 14px;" onclick="toggleDashMissing()">' + (_dashMissingAll ? 'Weniger zeigen' : 'Alle zeigen (' + open.length + ')') + '</button>'
+      : '');
+}
+
+function toggleDashMissing() {
+  _dashMissingAll = !_dashMissingAll;
+  renderDashMissing();
+}
+
+// Same prefill as "Protokoll starten" in the Wochenplan; the AL is the shift's registered AL (if any)
+function dashStartProtokollFromPlan(shiftId) {
+  var row = _dashPlanRows.find(function(r) { return r.id === shiftId; });
+  if (!row) return;
+  var p = planShiftFromDb(row);
+  openProtokollPrefilled({
+    event: planEventName(p), date: p.date, action: planGuessAction(p.wann), alId: planAlUserId(row),
+    location: [p.venue].concat(p.location.slice(0, 1)).filter(Boolean).join(', '), shift: p
+  });
 }
 
 function renderDashboardTable() {
@@ -428,6 +486,12 @@ if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
   UI_TOPBAR_ITEMS.dashboard = function() {
     var items = [{ label: 'Kosten aller Protokolle neu berechnen', action: 'recalcAllProtocolCosts' }];
     if (typeof dashboardCurrentWorker !== 'undefined' && dashboardCurrentWorker) items.push({ label: 'Monat als PDF (' + (dashboardCurrentWorker.full_name || 'Mitarbeiter') + ')', action: 'exportDashboardMonthlyPDF' });
+    // The tab bar is hidden (tiles open one view each): settings and the way back are reachable from here
+    if (typeof dashView !== 'undefined' && dashView === 'settings') {
+      items.push({ label: 'Einstellungen schließen', action: 'switchDashTab', args: [dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY))] });
+    } else if (typeof userRole !== 'undefined' && userRole === 'Admin') {
+      items.push({ label: 'Einstellungen', action: 'switchDashTab', args: ['settings'] });
+    }
     return items;
   };
 }
@@ -930,11 +994,22 @@ function dashShiftCosts(date, isHoliday, s) {
   return calcSplitShiftCosts(basePos, date, !!isHoliday, v, b, parseInt(s.pause_mins) || 0, customRate);
 }
 
-// Protocol total with the same formula as calcProtCosts in the app
-function calcDashProtTotal(date, isHoliday, vehicleTypes, shifts) {
+// protocol_transports rows → { type, hours, driverUserId, driver } (the shape of the app's transports)
+function dashTransportsFromRows(rows) {
+  return (rows || []).map(function(t) {
+    return { type: t.vehicle_type, driver: t.driver_name || '', hours: t.driver_hours == null ? null : Number(t.driver_hours),
+      driverUserId: t.driver_user_id || '' };
+  });
+}
+
+// Protocol total with the same formula as calcProtCosts in the app; transports = [{ type, hours, driverUserId, driver }]
+// (rows without hours cost no driver, so totals of old protocols stay as they were)
+function calcDashProtTotal(date, isHoliday, transports, shifts) {
   var total = 0;
-  (vehicleTypes || []).forEach(function(type) {
-    total += (typeof calcTransportCost === 'function') ? calcTransportCost(type, date) : 0;
+  (transports || []).forEach(function(t) {
+    total += (typeof calcTransportCost === 'function') ? calcTransportCost(t.type, date) : 0;
+    var drv = (typeof protDriverCost === 'function') ? protDriverCost(t, typeof appUsers !== 'undefined' ? appUsers : []) : null;
+    if (drv) total += drv.amount;
   });
   (shifts || []).forEach(function(s) {
     dashShiftCosts(date, isHoliday, s).forEach(function(c) { total += c.hrs * c.rate; });
@@ -987,7 +1062,7 @@ async function recalcAllProtocolCostsRun() {
   await ensureRateUsers();
   for (const p of dashboardProtocols) {
     const rounded = calcDashProtTotal(p.date, p.is_holiday,
-      (p.protocol_transports || []).map(t => t.vehicle_type), p.shifts || []);
+      dashTransportsFromRows(p.protocol_transports), p.shifts || []);
 
     try {
       const { data: upd, error } = await supabaseClient
@@ -1088,7 +1163,7 @@ function openDashDetail(id) {
         : 'color:#22c55e;font-weight:600;';
       transHtml += `<tr>
         <td>${escapeHtml(t.vehicle_type || '—')}</td>
-        <td>${escapeHtml(t.driver_name || '—')}</td>
+        <td>${escapeHtml(t.driver_name || '—')}${t.driver_hours > 0 ? ' · ' + escapeHtml(String(Number(t.driver_hours)).replace('.', ',')) + ' h' : ''}</td>
         <td style="${punctStyle}">${escapeHtml(t.punctuality || '—')}</td>
         <td>${delay}</td>
       </tr>`;
@@ -1189,6 +1264,11 @@ function openDashDetail(id) {
         logTotal += r;
         rows.push({ section: 'transport', label: label, detail: escapeHtml(t.driver_name || ''), cost: r });
       }
+      var drv = (typeof protDriverCost === 'function') ? protDriverCost(dashTransportsFromRows([t])[0], typeof appUsers !== 'undefined' ? appUsers : []) : null;
+      if (drv) {
+        logTotal += drv.amount;
+        rows.push({ section: 'transport', label: 'Fahrer ' + escapeHtml(t.driver_name || ''), detail: drv.hrs.toFixed(2) + 'h × ' + drv.rate.toFixed(2) + ' €', cost: drv.amount });
+      }
     });
 
     // Personnel costs
@@ -1285,10 +1365,13 @@ function openDashProtEdit() {
   _editProtTransports = (p.protocol_transports || []).map(t => ({
     type: t.vehicle_type || 'Sprinter',
     driver: t.driver_name || '',
+    driverUserId: t.driver_user_id || '',
+    hours: t.driver_hours == null ? null : Number(t.driver_hours),
     punctuality: t.punctuality || 'pünktlich',
     delay: t.delay_mins || ''
   }));
 
+  ensureRateUsers(); // the driver combobox lists appUsers
   renderDashProtTransports();
   renderDashProtEquipment(p.protocol_equipments || []);
   renderProtShiftsInEdit();
@@ -1319,7 +1402,9 @@ function renderDashProtTransports() {
     }).join('');
     return '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
       '<select oninput="_editProtTransports[' + i + '].type=this.value" class="meta-input" style="flex:1;min-width:110px;padding:5px 6px;font-size:12px;">' + selOpts + '</select>' +
-      '<input type="text" placeholder="Fahrer" value="' + escapeHtml(t.driver || '') + '" oninput="_editProtTransports[' + i + '].driver=this.value" class="meta-input" style="flex:1;min-width:100px;padding:5px 6px;font-size:12px;">' +
+      '<div style="flex:1;min-width:100px;">' + uiComboHtml('pe-drv-' + i, t.driver || '', 'Fahrer', 'onDashDriverName', i)
+        .replace('<input ', '<input class="meta-input" style="width:100%;padding:5px 6px;font-size:12px;box-sizing:border-box;" ') + '</div>' +
+      '<input type="number" step="0.5" min="0" placeholder="Std" title="Fahrerstunden" value="' + escapeHtml(t.hours == null ? '' : t.hours) + '" oninput="_editProtTransports[' + i + '].hours=this.value" class="meta-input" style="width:60px;padding:5px 6px;font-size:12px;">' +
       '<select oninput="_editProtTransports[' + i + '].punctuality=this.value;renderDashProtTransports()" class="meta-input" style="flex:1;min-width:100px;padding:5px 6px;font-size:12px;">' +
         '<option value="pünktlich"' + (t.punctuality === 'pünktlich' ? ' selected' : '') + '>Pünktlich</option>' +
         '<option value="verspätet"' + (t.punctuality === 'verspätet' ? ' selected' : '') + '>Verspätet</option>' +
@@ -1330,8 +1415,18 @@ function renderDashProtTransports() {
   }).join('');
 }
 
+// Driver picked from the combobox or typed: a registered user sets the user id (rate lookup), free text clears it
+function onDashDriverName(idx, val) {
+  var t = _editProtTransports[idx];
+  if (!t) return;
+  var typed = (val || '').trim();
+  var hits = (typeof appUsers !== 'undefined' ? appUsers : []).filter(function(u) { return (u.full_name || '').trim().toLowerCase() === typed.toLowerCase(); });
+  t.driver = typed;
+  t.driverUserId = hits.length === 1 ? hits[0].id : '';
+}
+
 function addDashProtTransport() {
-  _editProtTransports.push({ type: 'Sprinter', driver: '', punctuality: 'pünktlich', delay: '' });
+  _editProtTransports.push({ type: 'Sprinter', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
   renderDashProtTransports();
 }
 
@@ -1397,7 +1492,7 @@ async function saveDashProtEdit() {
     al_name_fallback: al.fallback,
     pl_name_fallback: pl.fallback,
     // Same formula as the app (transports by date, holiday, employee rates, minimum hours)
-    total_cost:      calcDashProtTotal(newDate, isHoliday, _editProtTransports.map(t => t.type), p.shifts || []),
+    total_cost:      calcDashProtTotal(newDate, isHoliday, _editProtTransports, p.shifts || []),
     notes_damages:   document.getElementById('pe-damages').value.trim()   || null,
     notes_incidents: document.getElementById('pe-incidents').value.trim() || null,
     notes_feedback:  document.getElementById('pe-feedback').value.trim()  || null,
@@ -1421,7 +1516,8 @@ async function saveDashProtEdit() {
     if (_editProtTransports.length) {
       const tInserts = _editProtTransports.map(function(t) {
         return { protocol_id: _editProtId, vehicle_type: t.type, driver_name: t.driver || null,
-                 punctuality: t.punctuality, delay_mins: t.delay ? parseInt(t.delay) : 0 };
+                 punctuality: t.punctuality, delay_mins: t.delay ? parseInt(t.delay) : 0,
+                 driver_hours: parseFloat(t.hours) >= 0 ? parseFloat(t.hours) : null, driver_user_id: t.driverUserId || null };
       });
       const { error: tErr } = await supabaseClient.from('protocol_transports').insert(tInserts);
       if (tErr) throw tErr;

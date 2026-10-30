@@ -6,7 +6,17 @@ var BUCHHALTUNG_EMAIL = 'buchhaltung@peterluebbert.de';
 var DAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 var DAY_SHORT = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
-function pad(n) { 
+// Can this person act in a role (AL/PL pickers)? Main role, or an additional role of the Personalbogen
+// (app_users.role_rates entries like 'AL frei' → first word 'AL')
+function userHasRole(user, role) {
+  if (!user) return false;
+  if (user.role === role) return true;
+  return Array.isArray(user.role_rates) && user.role_rates.some(function(r) {
+    return r && String(r.role || '').split(' ')[0] === role;
+  });
+}
+
+function pad(n) {
   return String(n).padStart(2, '0'); 
 }
 

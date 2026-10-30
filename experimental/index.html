@@ -17,7 +17,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <link rel="stylesheet" href="css/style.css?v=33">
-  <link rel="stylesheet" href="css/ui.css?v=10">
+  <link rel="stylesheet" href="css/ui.css?v=11">
 </head>
 
 <body>
@@ -168,7 +168,7 @@
               <input type="text" id="prot-location" placeholder="Ort" oninput="saveProtDraft()" /></label>
             <div class="prot-date-row">
               <label class="ui-field"><span>Datum</span>
-                <input type="date" id="prot-date" onchange="saveProtDraft(); calcProtCosts()" /></label>
+                <input type="date" id="prot-date" onchange="saveProtDraft(); calcProtCosts(); protRefreshDriverHints()" /></label>
               <label class="prot-switch-label"><input type="checkbox" class="ui-switch" id="prot-isholiday" onchange="saveProtDraft(); calcProtCosts()" /> Feiertag</label>
             </div>
             <div class="ui-field"><span>Aktion</span>
@@ -261,7 +261,7 @@
       <div class="dash-container">
 
         <!-- DASHBOARD TABS -->
-        <div class="ui-seg dash-tabs" role="tablist">
+        <div class="ui-seg dash-tabs" role="tablist" style="display: none;">
           <button type="button" id="dash-tab-prot" class="active" onclick="switchDashTab('prot')">Protokolle</button>
           <button type="button" id="dash-tab-work" onclick="switchDashTab('work')">Buchhaltung</button>
           <button type="button" id="dash-tab-settings" style="display: none;" onclick="switchDashTab('settings')">Einstellungen</button>
@@ -273,6 +273,7 @@
         <!-- TAB: PROTOKOLLE -->
         <div id="dash-view-prot" style="display: block;">
           <div class="ui-stats" id="dash-stats"></div>
+          <div id="dash-missing"></div>
           <div class="ui-search dash-search">
             <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
             <input type="search" id="dash-search" placeholder="Projekt, AL, Ort oder Datum suchen" oninput="renderDashboardTable()">
@@ -398,6 +399,7 @@
               <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="produkt-add-label">Ordner</span>
             </button>
           </div>
+          <div id="ordner-expired"></div>
           <div id="ordner-loading" style="display:none;" class="ui-empty"><div class="ui-sub">Ordner werden geladen…</div></div>
           <div id="ordner-grid" class="ui-list"></div>
           <div id="ordner-empty" class="ui-empty" style="display:none;">
@@ -410,6 +412,7 @@
         <div id="ordner-detail-view" style="display:none;">
           <button type="button" class="stunden-link ordner-back" onclick="ordnerGoBack()">‹ Zurück</button>
           <h2 id="ordner-detail-title" class="ui-title ordner-title">Ordner</h2>
+          <div id="ordner-ends" class="ui-sub" style="display:none; margin:-6px 2px 10px;"></div>
           <div id="ordner-einsaetze" style="display:none;"></div>
           <input type="file" id="ordner-file-input" multiple style="display:none;" onchange="handleOrdnerFileInput(this)">
           <div id="ordner-subfolder-grid" style="display:none;"></div>
@@ -495,6 +498,7 @@
       <label class="ui-field"><span>Ordnername *</span><input type="text" id="inp-ordner-name" placeholder="z. B. Projekt Berlin 2024" /></label>
       <label class="ui-field"><span>Beschreibung</span><input type="text" id="inp-ordner-desc" placeholder="Kurze Beschreibung…" /></label>
       <label class="ui-field"><span>Projektleitung (PL)</span><select id="inp-ordner-pl"></select></label>
+      <label class="ui-field"><span>Projektende (optional)</span><input type="date" id="inp-ordner-ends" /></label>
       <div class="ui-field"><span>Einsätze (für die Protokoll-Erinnerung an die AL)</span>
         <div id="ordner-einsatz-rows" style="display:flex; flex-direction:column; gap:8px;"></div>
         <button type="button" class="ui-add-row" style="margin-top:8px;" onclick="addEinsatzRow()">+ Einsatz</button>
@@ -844,28 +848,25 @@
     </div>
   </div>
 
-  <!-- Shared name suggestions for Protokoll personnel inputs -->
-  <datalist id="prot-users-datalist"></datalist>
-
   <!-- Scripts -->
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=20"></script>
+  <script src="js/auth.js?v=21"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=10"></script>
-  <script src="js/utils.js?v=17"></script>
-  <script src="js/ui.js?v=1"></script>
-  <script src="js/settings.js?v=3"></script>
+  <script src="js/utils.js?v=18"></script>
+  <script src="js/ui.js?v=2"></script>
+  <script src="js/settings.js?v=4"></script>
   <script src="js/stundenzettel.js?v=15"></script>
-  <script src="js/protokoll.js?v=30"></script>
+  <script src="js/protokoll.js?v=31"></script>
   <script src="js/erinnerung.js?v=9"></script>
   <script src="js/plan-pdf.js?v=1"></script>
-  <script src="js/plan-parser.js?v=13"></script>
+  <script src="js/plan-parser.js?v=14"></script>
   <script src="js/wochenplan.js?v=11"></script>
-  <script src="js/home.js?v=4"></script>
-  <script src="js/dashboard.js?v=22"></script>
+  <script src="js/home.js?v=5"></script>
+  <script src="js/dashboard.js?v=23"></script>
   <script src="js/produkte.js?v=16"></script>
-  <script src="js/ordner.js?v=16"></script>
-  <script src="js/app.js?v=18"></script>
+  <script src="js/ordner.js?v=17"></script>
+  <script src="js/app.js?v=19"></script>
 </body>
 
 </html>

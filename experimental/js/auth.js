@@ -200,6 +200,7 @@ function handleSession(user) {
     const wpDeepLink = new URLSearchParams(location.search).get('open') === 'wochenplan';
     if (typeof handleEinsatzDeepLink === 'function') handleEinsatzDeepLink();
     if (typeof handleWochenplanDeepLink === 'function') handleWochenplanDeepLink();
+    if (typeof handleOrdnerDeepLink === 'function') handleOrdnerDeepLink();
     // Wochenplan restored from before the login needs the user to load "Meine Schichten"
     if (!wpDeepLink && typeof activeModule !== 'undefined' && activeModule === 'wochenplan' && typeof initWochenplan === 'function') initWochenplan();
     // If Projektordner is already rendered, re-render with correct permissions
