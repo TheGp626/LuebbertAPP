@@ -31,7 +31,8 @@ Deno.serve(async (req) => {
   const { data: user, error: uErr } = await db.from('app_users').select('id, full_name, is_active')
     .eq('calendar_token', token).maybeSingle();
   if (uErr) { console.error('calendar-feed: load user failed', uErr); return plain(500, 'Server error'); }
-  if (!user || !user.is_active) return plain(404, 'Not found');
+  // is_active null means active (same rule as the login list); only an explicit false is deactivated
+  if (!user || user.is_active === false) return plain(404, 'Not found');
 
   const { data, error } = await db.from('plan_assignments')
     .select('shift:plan_shifts!inner(*, plan_assignments(*))')
