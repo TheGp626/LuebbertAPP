@@ -291,13 +291,90 @@ async function wpRenderMine() {
   _wpMineShifts = shifts;
   content.innerHTML = wpHero(shifts[0]) +
     (shifts.length > 1 ? '<div class="ui-label">Danach</div>' + shifts.slice(1).map(function(s) { return wpRow(s, { showDate: true }); }).join('') : '') +
-    '<button type="button" class="ui-btn wp-cal-btn" onclick="wpExportCalendar()">' + uiIcon('calendar') + ' In Kalender übernehmen</button>' +
-    '<div class="ui-sub wp-cal-hint">Nach Planänderungen erneut tippen – vorhandene Einträge werden aktualisiert.</div>';
+    '<button type="button" class="ui-btn wp-cal-btn" onclick="wpCalendarSheet()">' + uiIcon('calendar') + ' In Kalender übernehmen</button>' +
+    '<div class="ui-sub wp-cal-hint" id="wp-cal-hint">Nach Planänderungen erneut tippen – vorhandene Einträge werden aktualisiert.</div>';
+  // With a subscription link the calendar updates itself → say so (hint stays as is without a token)
+  wpLoadCalendarToken().then(function(token) {
+    var hint = document.getElementById('wp-cal-hint');
+    if (token && hint && seq === _wpRenderSeq) hint.textContent = 'Abonniert – Planänderungen kommen automatisch (Android/Google: kann bis zu einem Tag dauern)';
+  });
 }
 
-// "In Kalender übernehmen": the upcoming own shifts as .ics; re-importing updates entries (UID from the plan key)
+// ── Calendar subscription: feed URL of the Edge Function calendar-feed (token = app_users.calendar_token) ──
+function wpCalendarUrls(supabaseUrl, token) {
+  if (!token) return null;
+  var https = supabaseUrl + '/functions/v1/calendar-feed?t=' + token + '.ics';
+  var webcal = 'webcal://' + https.replace(/^https?:\/\//, '');
+  return { https: https, webcal: webcal, google: 'https://calendar.google.com/calendar/render?cid=' + encodeURIComponent(webcal) };
+}
+
+// iPhone/iPad, also iPadOS with a desktop user agent ("MacIntel" with a touch screen)
+function wpIsIos(ua, platform, touchPoints) {
+  return /iPad|iPhone|iPod/.test(ua || '') || (platform === 'MacIntel' && touchPoints > 1);
+}
+
+function wpCalendarMenuItems(hasToken) {
+  var download = { label: 'Datei herunterladen', action: 'wpDownloadCalendar' };
+  if (!hasToken) return [{ label: 'In Kalender übernehmen (Datei)', action: 'wpDownloadCalendar' }];
+  return [{ label: 'Kalender abonnieren', action: 'wpSubscribeCalendar' }, { label: 'Link kopieren', action: 'wpCopyCalendarLink' },
+    download, { label: 'Neuen Link erzeugen', action: 'wpRenewCalendarToken', danger: true }];
+}
+
+var _wpCalToken = null; // { userId, token }
+// Token of the current user; null when the column doesn't exist yet or the read fails (then only the download is offered)
+async function wpLoadCalendarToken(force) {
+  var me = wpMe();
+  if (!me) return null;
+  if (!force && _wpCalToken && _wpCalToken.userId === me) return _wpCalToken.token;
+  try {
+    var { data, error } = await supabaseClient.from('app_users').select('calendar_token').eq('id', me).maybeSingle();
+    if (error || !data || !data.calendar_token) return null;
+    _wpCalToken = { userId: me, token: data.calendar_token };
+    return data.calendar_token;
+  } catch (e) { return null; }
+}
+
+async function wpCalendarSheet() {
+  var token = await wpLoadCalendarToken();
+  openUiMenu(wpCalendarMenuItems(!!token));
+}
+
+async function wpCalendarLinks() {
+  return wpCalendarUrls(SUPABASE_URL, await wpLoadCalendarToken());
+}
+
+async function wpSubscribeCalendar() {
+  var urls = await wpCalendarLinks();
+  if (!urls) { showToast('Abo-Link nicht verfügbar', 'danger'); return; }
+  if (wpIsIos(navigator.userAgent, navigator.platform, navigator.maxTouchPoints)) location.href = urls.webcal;
+  else window.open(urls.google, '_blank');
+}
+
+async function wpCopyCalendarLink() {
+  var urls = await wpCalendarLinks();
+  if (!urls) { showToast('Abo-Link nicht verfügbar', 'danger'); return; }
+  try {
+    await navigator.clipboard.writeText(urls.https);
+    showToast('Link kopiert', 'success');
+  } catch (e) {
+    prompt('Link zum Abonnieren kopieren:', urls.https);
+  }
+}
+
+async function wpRenewCalendarToken() {
+  if (!confirm('Der alte Link funktioniert dann nicht mehr; abonnierte Kalender müssen neu abonniert werden. Neuen Link erzeugen?')) return;
+  var me = wpMe();
+  if (!me) return;
+  var token = crypto.randomUUID();
+  var { data, error } = await supabaseClient.from('app_users').update({ calendar_token: token }).eq('id', me).select('id');
+  if (error || !data || !data.length) { console.error('Kalender-Link erneuern:', error); showToast('Neuer Link konnte nicht erzeugt werden', 'danger'); return; }
+  _wpCalToken = { userId: me, token: token };
+  showToast('Neuer Link erzeugt', 'success');
+}
+
+// Download of the upcoming own shifts as .ics; re-importing updates entries (UID from the plan key)
 var _wpMineShifts = [];
-function wpExportCalendar() {
+function wpDownloadCalendar() {
   if (!_wpMineShifts.length) return;
   var stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   var blob = new Blob([planIcs(_wpMineShifts, wpMe(), stamp)], { type: 'text/calendar;charset=utf-8' });

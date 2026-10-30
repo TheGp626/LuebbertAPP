@@ -1,4 +1,4 @@
-const CACHE = 'stundenzettel-exp-a96ba16';
+const CACHE = 'stundenzettel-exp-8c6093f';
 const ASSETS = ['./index.html', './manifest.json'];
 
 // Offline start needs every script/stylesheet of index.html (own files + CDN libs): the install step reads
