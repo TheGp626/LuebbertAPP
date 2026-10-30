@@ -45,27 +45,50 @@ test('ordnerFolderMenu: "Bearbeiten" opens the full folder form', () => {
   assert.deepEqual(plain(items), [{ label: 'Bearbeiten', action: 'openOrdnerForm', args: ['f1'] }]);
 });
 
-test('ordnerExpired: only the folder\'s own PL (or Admin) sees expired top-level folders', () => {
-  const folders = [
-    { id: 'a', pl_id: 'pl1', ends_on: '2026-10-01' },
-    { id: 'b', pl_id: 'pl2', ends_on: '2026-09-01' },
-    { id: 'c', pl_id: 'pl1', ends_on: '2026-10-30' },               // ends today → not expired yet
-    { id: 'd', pl_id: 'pl1', ends_on: null },
-    { id: 'e', pl_id: 'pl1', ends_on: '2026-08-01', parent_id: 'a' }, // subfolders follow their parent
-    { id: 'f', pl_id: 'pl1', ends_on: '2026-08-15' },
-  ];
-  const ids = (u, r) => plain(ctx.ordnerExpired(folders, '2026-10-30', u, r)).map(f => f.id);
-  assert.deepEqual(ids('pl1', 'PL'), ['f', 'a']);       // oldest end date first
-  assert.deepEqual(ids('pl2', 'PL'), ['b']);
-  assert.deepEqual(ids('x', 'Admin'), ['f', 'b', 'a']);
-  assert.deepEqual(ids('pl1', 'AL'), []);
-  assert.deepEqual(ids('pl1', 'MA'), []);
-  assert.deepEqual(ids('pl1', 'Gast'), []);
-  assert.deepEqual(ids(null, 'PL'), []);
-  assert.deepEqual(plain(ctx.ordnerExpired(null, '2026-10-30', 'pl1', 'PL')), []);
+test('ordnerAutoDeleteDate: latest non-cancelled job + 7 days', () => {
+  assert.equal(ctx.ordnerAutoDeleteDate([{ date: '2026-10-01' }, { date: '2026-10-12' }, { date: '2026-10-05' }]), '2026-10-19');
+  // cancelled jobs are ignored, even when they are the latest
+  assert.equal(ctx.ordnerAutoDeleteDate([{ date: '2026-10-01' }, { date: '2026-11-20', cancelled: true }]), '2026-10-08');
+  // month and year rollover
+  assert.equal(ctx.ordnerAutoDeleteDate([{ date: '2026-10-28' }]), '2026-11-04');
+  assert.equal(ctx.ordnerAutoDeleteDate([{ date: '2026-12-28' }]), '2027-01-04');
+  // leap day
+  assert.equal(ctx.ordnerAutoDeleteDate([{ date: '2028-02-25' }]), '2028-03-03');
 });
 
-test('ordnerEndsLabel: German date or empty', () => {
-  assert.equal(ctx.ordnerEndsLabel('2026-10-05'), 'Projektende: 05.10.2026');
-  assert.equal(ctx.ordnerEndsLabel(null), '');
+test('ordnerAutoDeleteDate: null without dated, non-cancelled jobs', () => {
+  assert.equal(ctx.ordnerAutoDeleteDate([]), null);
+  assert.equal(ctx.ordnerAutoDeleteDate(null), null);
+  assert.equal(ctx.ordnerAutoDeleteDate([{ date: '' }, { date: null }, { date: '2026-10-01', cancelled: true }]), null);
+});
+
+test('ordnerDeleteInfo: date and days until deletion', () => {
+  assert.equal(ctx.ordnerDeleteInfo({ ends_on: null }, '2026-10-30'), null);
+  assert.equal(ctx.ordnerDeleteInfo(null, '2026-10-30'), null);
+  assert.deepEqual(plain(ctx.ordnerDeleteInfo({ ends_on: '2026-11-06' }, '2026-10-30')), { date: '2026-11-06', days: 7 });
+  assert.deepEqual(plain(ctx.ordnerDeleteInfo({ ends_on: '2026-10-31' }, '2026-10-30')), { date: '2026-10-31', days: 1 });
+  assert.equal(ctx.ordnerDeleteInfo({ ends_on: '2026-10-30' }, '2026-10-30').days, 0);   // today
+  assert.equal(ctx.ordnerDeleteInfo({ ends_on: '2026-10-20' }, '2026-10-30').days, 0);   // overdue
+  assert.equal(ctx.ordnerDeleteInfo({ ends_on: '2027-01-02' }, '2026-12-30').days, 3);   // year rollover
+});
+
+test('ordnerDeleteLabel / ordnerDeleteBadge: German texts', () => {
+  assert.equal(ctx.ordnerDeleteLabel('2026-10-05'), 'Löschung am 05.10.2026');
+  assert.equal(ctx.ordnerDeleteLabel(null), '');
+  assert.equal(ctx.ordnerDeleteBadge({ date: '2026-11-06', days: 8 }), '');
+  assert.equal(ctx.ordnerDeleteBadge({ date: '2026-11-06', days: 7 }), 'wird in 7 Tagen gelöscht');
+  assert.equal(ctx.ordnerDeleteBadge({ date: '2026-11-06', days: 1 }), 'wird in 1 Tag gelöscht');
+  assert.equal(ctx.ordnerDeleteBadge({ date: '2026-11-06', days: 0 }), 'wird heute gelöscht');
+  assert.equal(ctx.ordnerDeleteBadge(null), '');
+});
+
+test('ordnerNextDeleteValue: the form follows the jobs unless the date was moved by hand', () => {
+  // empty or still the old auto value → follows the new auto value
+  assert.equal(ctx.ordnerNextDeleteValue('', '', '2026-10-19'), '2026-10-19');
+  assert.equal(ctx.ordnerNextDeleteValue('2026-10-19', '2026-10-19', '2026-10-26'), '2026-10-26');
+  // last job removed → field empties again
+  assert.equal(ctx.ordnerNextDeleteValue('2026-10-19', '2026-10-19', ''), '');
+  // moved by hand → kept
+  assert.equal(ctx.ordnerNextDeleteValue('2026-12-01', '2026-10-19', '2026-10-26'), '2026-12-01');
+  assert.equal(ctx.ordnerNextDeleteValue('2026-12-01', '', '2026-10-26'), '2026-12-01');
 });
