@@ -50,7 +50,19 @@ async function fetchProdukte() {
   }
 
   alleProdukte = data || [];
-  renderProdukte(alleProdukte);
+  filterProdukte(); // keeps an active search text applied (renders everything when empty)
+}
+
+// Row payload for products; created_by is set on insert only (an edit must not take over authorship)
+function produktPayload(f, userId, isNew) {
+  var p = {
+    name: f.name.trim(),
+    description: (f.desc || '').trim() || null,
+    pdf_url: f.pdfUrl,
+    content_text: (f.contentText || '').trim() || null
+  };
+  if (isNew) p.created_by = userId || null;
+  return p;
 }
 
 // ── RENDER ──
@@ -328,6 +340,8 @@ async function saveProdukt() {
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Speichert...'; }
 
   var wasEditing = !!editingProduktId;
+  var dbWritten = false;
+  var newPdfKey = null;
   try {
     var pdfUrl = null;
     var oldPdfUrl = null;
@@ -348,6 +362,7 @@ async function saveProdukt() {
         .upload(filePath, prepared.file, { upsert: false, contentType: prepared.type || 'application/octet-stream' });
 
       if (uploadErr) throw new Error('Aufbau-Datei: ' + uploadErrorMessage(uploadErr));
+      newPdfKey = filePath;
 
       var { data: urlData } = supabaseClient.storage
         .from('product-pdfs')
@@ -356,24 +371,20 @@ async function saveProdukt() {
       pdfUrl = urlData && urlData.publicUrl ? urlData.publicUrl : null;
     }
 
-    var payload = {
-      name: name.trim(),
-      description: desc.trim() || null,
-      pdf_url: pdfUrl,
-      content_text: contentText.trim() || null,
-      created_by: typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null
-    };
+    var payload = produktPayload({ name: name, desc: desc, pdfUrl: pdfUrl, contentText: contentText },
+      typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null, !editingProduktId);
 
     var productId = editingProduktId;
 
     if (editingProduktId) {
-      var { error: upErr } = await supabaseClient.from('products').update(payload).eq('id', editingProduktId);
-      if (upErr) throw upErr;
+      var { data: upd, error: upErr } = await supabaseClient.from('products').update(payload).eq('id', editingProduktId).select('id');
+      if (upErr || !upd || !upd.length) throw upErr || new Error('Keine Berechtigung zum Speichern');
     } else {
       var { data: inserted, error: insErr } = await supabaseClient.from('products').insert(payload).select('id').single();
       if (insErr) throw insErr;
       productId = inserted.id;
     }
+    dbWritten = true;
 
     // The new Aufbau-Datei is saved; drop the replaced one from storage (best effort)
     if (pdfFile && oldPdfUrl && oldPdfUrl !== pdfUrl) {
@@ -420,7 +431,10 @@ async function saveProdukt() {
             media_type: mediaType,
             sort_order: nextSort + i
           });
-          if (rowErr) throw new Error(uploadErrorMessage(rowErr));
+          if (rowErr) {
+            try { await supabaseClient.storage.from(bucketName).remove([mediaPath]); } catch (e3) { /* ignore */ }
+            throw new Error(uploadErrorMessage(rowErr));
+          }
         } catch (mediaErr) {
           console.error('Media upload error:', mediaErr);
           mediaFailures.push((mediaFile.name || 'Datei') + ': ' + (mediaErr && mediaErr.message ? mediaErr.message : uploadErrorMessage(mediaErr)));
@@ -442,6 +456,10 @@ async function saveProdukt() {
     }
   } catch(e) {
     console.error('Produkt save error:', e);
+    // The product row was not written: the freshly uploaded Aufbau-Datei is an orphan (best effort)
+    if (newPdfKey && !dbWritten) {
+      try { await supabaseClient.storage.from('product-pdfs').remove([newPdfKey]); } catch (e2) { /* ignore */ }
+    }
     var reason = e && e.message ? e.message : uploadErrorMessage(e);
     showToast('Fehler beim Speichern: ' + reason, 'danger');
     setProduktFormError('Fehler beim Speichern: ' + reason);
@@ -456,10 +474,11 @@ async function deleteProduktMedia(mediaId, mediaUrl, mediaType) {
   if (!confirm(label + ' löschen?')) return;
   try {
     var bucketName = mediaType === 'video' ? 'product-videos' : 'product-images';
+    // DB first (row-checked: RLS answers with 0 rows), storage only after it succeeded
+    var { data: delRows, error } = await supabaseClient.from('product_images').delete().eq('id', mediaId).select('id');
+    if (error || !delRows || !delRows.length) throw error || new Error('Löschen abgelehnt');
     var mediaKey = storagePathFromUrl(mediaUrl, bucketName);
-    if (mediaKey) await supabaseClient.storage.from(bucketName).remove([mediaKey]);
-    var { error } = await supabaseClient.from('product_images').delete().eq('id', mediaId);
-    if (error) throw error;
+    if (mediaKey) { try { await supabaseClient.storage.from(bucketName).remove([mediaKey]); } catch (e2) { console.warn('Medium nicht aus Storage entfernt:', e2); } }
     showToast(label + ' gelöscht.');
     if (editingProduktId) {
       await fetchProdukte();
@@ -476,22 +495,21 @@ async function deleteProdukt() {
   var prod = alleProdukte.find(function(p) { return p.id === editingProduktId; });
 
   try {
-    // Delete product media from storage
+    // DB first (row-checked: RLS answers with 0 rows); storage cleanup only after it succeeded
+    var { data: delRows, error } = await supabaseClient.from('products').delete().eq('id', editingProduktId).select('id');
+    if (error || !delRows || !delRows.length) throw error || new Error('Löschen abgelehnt');
     var imgs = prod && prod.product_images ? prod.product_images : [];
     for (var i = 0; i < imgs.length; i++) {
       if (imgs[i].image_url) {
         var bucketName = imgs[i].media_type === 'video' ? 'product-videos' : 'product-images';
         var imgKey = storagePathFromUrl(imgs[i].image_url, bucketName);
-        if (imgKey) await supabaseClient.storage.from(bucketName).remove([imgKey]);
+        if (imgKey) { try { await supabaseClient.storage.from(bucketName).remove([imgKey]); } catch (e2) { console.warn('Medium nicht aus Storage entfernt:', e2); } }
       }
     }
-    // Delete PDF from storage if exists
     if (prod && prod.pdf_url) {
       var pdfKey = storagePathFromUrl(prod.pdf_url, 'product-pdfs');
-      if (pdfKey) await supabaseClient.storage.from('product-pdfs').remove([pdfKey]);
+      if (pdfKey) { try { await supabaseClient.storage.from('product-pdfs').remove([pdfKey]); } catch (e3) { console.warn('PDF nicht aus Storage entfernt:', e3); } }
     }
-    var { error } = await supabaseClient.from('products').delete().eq('id', editingProduktId);
-    if (error) throw error;
     showToast('Produkt gelöscht.');
     closeProduktForm();
     await fetchProdukte();
@@ -946,5 +964,5 @@ if (typeof module !== 'undefined' && module.exports) {
     contentTypeFor: contentTypeFor, isPdfMagic: isPdfMagic, isBucketImageType: isBucketImageType,
     uploadErrorMessage: uploadErrorMessage, aufbauFileKind: aufbauFileKind, storagePathFromUrl: storagePathFromUrl,
     produktCoverOrder: produktCoverOrder, produktNextSortOrder: produktNextSortOrder, aufbauPageScale: aufbauPageScale,
-    produktBadges: produktBadges, produktMenuItems: produktMenuItems };
+    produktBadges: produktBadges, produktMenuItems: produktMenuItems, produktPayload: produktPayload };
 }

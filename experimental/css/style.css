@@ -599,7 +599,7 @@ input[type=time]:focus {
 .produkt-name {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text1);
+  color: var(--text);
   margin-bottom: 6px;
   word-break: break-word;
 }
@@ -730,7 +730,7 @@ canvas#historyChart {
   transition: all .2s;
   pointer-events: none;
   white-space: nowrap;
-  z-index: 999
+  z-index: 3000
 }
 
 .toast.show {
@@ -928,7 +928,7 @@ canvas#historyChart {
   #protocol-table thead { display: none; }
   #protocol-table tbody tr {
     display: block;
-    background: var(--card);
+    background: var(--bg2);
     border-radius: 12px;
     margin-bottom: 10px;
     border: 1px solid var(--border);
@@ -960,7 +960,7 @@ canvas#historyChart {
   .compact-table thead { display: none; }
   .compact-table tbody tr {
     display: block;
-    background: var(--card);
+    background: var(--bg2);
     border-radius: 10px;
     margin-bottom: 8px;
     border: 1px solid var(--border);
@@ -1054,7 +1054,7 @@ canvas#historyChart {
 .ordner-file-name {
   font-size: 14px;
   font-weight: 500;
-  color: var(--text1);
+  color: var(--text);
   /* full title readable on phones: wrap instead of truncating */
   white-space: normal;
   overflow-wrap: anywhere;
@@ -1139,6 +1139,7 @@ canvas#historyChart {
   border-bottom: none;
 }
 
+.combo-item.combo-active,
 .combo-item:hover,
 .combo-item:active {
   background: var(--accent-bg);

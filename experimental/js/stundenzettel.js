@@ -55,7 +55,95 @@ function getShiftData(dayIdx, shiftIdx) {
   return { von: sv.von || '', bis: sv.bis || '', pause: sv.pause || '0', ort: sv.ort || '', al: sv.al || '', dept: sv.dept || selectedAbt, sig: shiftSigData[key] || null, isProtocol: sv.isProtocol || false, protocolId: sv.protocolId || null };
 }
 
-function buildDays() {
+// ── PER-USER STORAGE ──
+// Weeks live in localStorage 'stundenzettel:<userId>' — on a shared device every user has their own history.
+// The old shared key 'stundenzettel' is only migrated (see migrateLegacyStore), never read or pushed otherwise.
+function szStoreKey() {
+  return (typeof currentUser !== 'undefined' && currentUser && currentUser.id) ? 'stundenzettel:' + currentUser.id : null;
+}
+
+// Legacy weeks → { mine: weeks carrying this user's name, rest: everybody else's (stay where they are) }
+function splitLegacyStore(legacy, fullName) {
+  var norm = function (s) { return String(s || '').trim().toLowerCase(); };
+  var me = norm(fullName), out = { mine: {}, rest: {} };
+  Object.keys(legacy || {}).forEach(function (k) {
+    var e = legacy[k];
+    if (me && e && norm(e.name) === me) out.mine[k] = e; else out.rest[k] = e;
+  });
+  return out;
+}
+
+var _szMigrated = {};
+function migrateLegacyStore(key) {
+  if (_szMigrated[key]) return;
+  _szMigrated[key] = true;
+  try {
+    var raw = localStorage.getItem('stundenzettel');
+    if (!raw) return;
+    var sp = splitLegacyStore(JSON.parse(raw), currentUser.full_name);
+    if (!Object.keys(sp.mine).length) return;
+    var mine = JSON.parse(localStorage.getItem(key) || '{}');
+    Object.keys(sp.mine).forEach(function (k) { if (!(k in mine)) mine[k] = sp.mine[k]; });
+    localStorage.setItem(key, JSON.stringify(mine));
+    if (Object.keys(sp.rest).length) localStorage.setItem('stundenzettel', JSON.stringify(sp.rest));
+    else localStorage.removeItem('stundenzettel');
+  } catch (e) { console.warn('Stundenzettel-Migration:', e); }
+}
+
+function loadStore() {
+  var key = szStoreKey();
+  if (!key) return {};
+  migrateLegacyStore(key);
+  try { return JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch (e) { return {}; }
+}
+
+function saveStore(all) {
+  var key = szStoreKey();
+  if (key) localStorage.setItem(key, JSON.stringify(all));
+}
+
+// ── EDITOR STATE ──
+var _editorBaseline = null; // snapshot of the editor right after it was filled/saved → "untouched" check
+var _editorWeek = null;
+
+// Editor state (shifts per day, signatures) of a stored week; all dept parts merged by the caller
+function weekToEditorState(w, fallbackDept) {
+  var st = { shiftCounts: {}, shiftValues: {}, shiftSigData: {} };
+  (w.days || []).forEach(function (dd, i) {
+    var shs = dd.shifts || [{ von: dd.von || '', bis: dd.bis || '', pause: dd.pause || '0', ort: dd.ort || '', al: dd.al || '', sig: dd.sig || null }];
+    st.shiftCounts[i] = shs.length;
+    st.shiftValues[i] = shs.map(function (sh, s) {
+      if (sh.sig) st.shiftSigData[i + '-' + s] = sh.sig;
+      var _v = timeToMins(sh.von || ''), _b = timeToMins(sh.bis || '');
+      var _p = (_v !== null && _b !== null) ? autoPause(_b < _v ? _b + 1440 - _v : _b - _v) : 0;
+      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: _p.toString(), dept: sh.dept || fallbackDept, protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
+    });
+  });
+  return st;
+}
+
+// days = [[shift, ...], ...] → string that changes only when real input changes (pause is derived)
+function weekSnapshot(days) {
+  return JSON.stringify(days.map(function (shs) {
+    return shs.map(function (s) { return [s.von || '', s.bis || '', s.ort || '', s.al || '', s.dept || '', s.sig || '']; });
+  }));
+}
+
+function editorSnapshot() {
+  var days = [];
+  for (var i = 0; i < DAYS.length; i++) {
+    var shs = [];
+    for (var s = 0; s < (shiftCounts[i] || 1); s++) shs.push(getShiftData(i, s));
+    days.push(shs);
+  }
+  return weekSnapshot(days);
+}
+
+function markEditorClean() { _editorBaseline = editorSnapshot(); }
+function editorIsDirty() { return _editorBaseline !== null && editorSnapshot() !== _editorBaseline; }
+
+// Empty editor, then (if given) the stored week on top
+function resetEditorState(w, fallbackDept) {
   shiftSigCanvases = {};
   shiftSigData = {};
   shiftValues = {};
@@ -64,11 +152,47 @@ function buildDays() {
     shiftCounts[i] = 1;
     shiftValues[i] = [{ von: '', bis: '', ort: '', al: '', pause: '0', dept: selectedAbt }];
   }
+  if (w) {
+    var st = weekToEditorState(w, fallbackDept || selectedAbt);
+    Object.keys(st.shiftCounts).forEach(function (i) { shiftCounts[i] = st.shiftCounts[i]; shiftValues[i] = st.shiftValues[i]; });
+    shiftSigData = st.shiftSigData;
+  }
   activeDayIdx = null;
+}
+
+function renderEditorFromState() {
   renderWeekStrip();
+  for (var i = 0; i < DAYS.length; i++) updateBubble(i);
   renderDayEditorArea();
   calcTotal();
   updateTopBarSub();
+  _editorWeek = (document.getElementById('inp-week') || {}).value || currentWeekVal();
+  markEditorClean();
+}
+
+// The sync brought a newer state of the week that is open — show it, but never over unsaved input
+function refreshEditorIfClean() {
+  if (!document.getElementById('inp-week') || editorIsDirty()) return;
+  var wk = document.getElementById('inp-week').value || currentWeekVal();
+  var w = mergeWeekParts(loadStore(), wk);
+  if (!w) return;
+  resetEditorState(w);
+  renderEditorFromState();
+}
+
+// force = true: reset without asking (user change). As a 'change' listener the first argument is an Event.
+function buildDays(force) {
+  var inp = document.getElementById('inp-week');
+  if (force !== true && inp && editorIsDirty()) {
+    if (!confirm('Du hast ungespeicherte Eingaben (auch Unterschriften). Beim Wechsel der Woche gehen sie verloren. Trotzdem wechseln?')) {
+      if (_editorWeek) inp.value = _editorWeek;
+      return;
+    }
+  }
+  var wk = (inp && inp.value) || currentWeekVal();
+  // The week as saved so far (all dept parts), otherwise the next save would replace it with a nearly empty form
+  resetEditorState(mergeWeekParts(loadStore(), wk));
+  renderEditorFromState();
 
   if (typeof currentUser !== 'undefined' && currentUser) {
     fetchSupabaseShifts();
@@ -76,7 +200,17 @@ function buildDays() {
 }
 
 var _shiftsSyncRunning = false;
-async function fetchSupabaseShifts() {
+var _shiftsSyncPromise = null;
+var _serverSeenFor = null; // user id whose server shifts this session has loaded successfully at least once
+
+// One sync at a time; callers (saveWeek) can await the one that is already running
+function fetchSupabaseShifts() {
+  if (_shiftsSyncPromise) return _shiftsSyncPromise;
+  _shiftsSyncPromise = fetchShiftsNow().then(function () { _shiftsSyncPromise = null; }, function () { _shiftsSyncPromise = null; });
+  return _shiftsSyncPromise;
+}
+
+async function fetchShiftsNow() {
   if (typeof supabaseClient === 'undefined' || !currentUser) return;
   if (_shiftsSyncRunning) return;
   _shiftsSyncRunning = true;
@@ -85,10 +219,12 @@ async function fetchSupabaseShifts() {
     // Weeks whose last save didn't reach the server (offline, failed check) are retried first —
     // like protocols, instead of waiting for the user to save again
     if (navigator.onLine !== false) {
-      var pending = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+      var pending = loadStore();
       for (var pw of unsyncedWeekKeys(pending)) {
+        if (weekIsBlind(pending, pw)) continue; // saved without seeing the server: merged below, never planned against it
+        if (serialBusy(_weekSyncChains, pw)) continue; // a save of this week is syncing right now — no second sync on top
         var pData = mergeWeekParts(pending, pw);
-        if (pData) { try { await syncWeekToSupabase(pData); } catch (e) { console.warn('Woche erneut synchronisieren:', pw, e); } }
+        if (pData) { try { await syncWeekToSupabase(pData, true); } catch (e) { console.warn('Woche erneut synchronisieren:', pw, e); } }
       }
     }
 
@@ -102,7 +238,21 @@ async function fetchSupabaseShifts() {
       .in('status', ['offen', 'eingetragen']);
 
     if (error) throw error;
-    if (!data || data.length === 0) return;
+    _serverSeenFor = currentUser.id;
+    // Nothing on the server = empty server state: synced local weeks are stale and go (unsynced ones stay)
+    if (!data || data.length === 0) {
+      resolveBlindWeeks({});
+      var staleAll = loadStore();
+      if (dropSyncedWeeks(staleAll)) {
+        saveStore(staleAll);
+        if (typeof renderHistory === 'function' && document.getElementById('history-list')) {
+          renderHistory(true);
+          if (typeof renderHistoryChart === 'function' && document.getElementById('historyChart')) renderHistoryChart();
+        }
+        refreshEditorIfClean();
+      }
+      return;
+    }
 
     // Deduplicate: same protocol + same start + same end = one shift
     var seen = {};
@@ -164,8 +314,10 @@ async function fetchSupabaseShifts() {
       }
     });
 
+    resolveBlindWeeks(userWeeks);
+
     // Calculate totals for each week and inject into history
-    var allLocal = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+    var allLocal = loadStore();
     var changed = false;
 
     Object.keys(userWeeks).forEach(function(wKey) {
@@ -204,13 +356,14 @@ async function fetchSupabaseShifts() {
     });
 
     if (changed) {
-      localStorage.setItem('stundenzettel', JSON.stringify(allLocal));
+      saveStore(allLocal);
       // Re-render WITHOUT re-triggering the sync — renderHistory(false, true)
       // would otherwise call fetchSupabaseShifts again in an endless loop
       if (typeof renderHistory === 'function' && document.getElementById('history-list')) {
         renderHistory(true);
         if (typeof renderHistoryChart === 'function' && document.getElementById('historyChart')) renderHistoryChart();
       }
+      refreshEditorIfClean();
     }
   } catch(e) { console.error("Error fetching shifts:", e); }
   finally { _shiftsSyncRunning = false; }
@@ -238,6 +391,53 @@ function mergeLocalShiftExtras(weekObj, oldEntries) {
       });
     });
   });
+}
+
+// True while a local save of this week was made without having seen the server's state of it
+function weekIsBlind(all, weekStart) {
+  return Object.keys(all).some(function (k) {
+    return (k === weekStart || k.indexOf(weekStart + ':') === 0) && all[k] && all[k].unsynced && all[k].blind;
+  });
+}
+
+// Adds shifts the server has but the local week lacks (same day + von + bis + dept); keeps everything local
+function mergeUnseenShifts(local, server) {
+  var added = 0;
+  var keyOf = function (s, w) { return [s.von, s.bis, s.dept || w.abt].join('|'); };
+  var days = (local.days || []).map(function (dd, i) {
+    var have = (dd.shifts || []).filter(function (s) { return s.von || s.bis; });
+    var keys = {};
+    have.forEach(function (s) { keys[keyOf(s, local)] = true; });
+    var sd = server && server.days && server.days[i];
+    ((sd && sd.shifts) || []).forEach(function (s) {
+      if (!s.von || !s.bis) return;
+      var k = keyOf(s, server);
+      if (keys[k]) return;
+      keys[k] = true;
+      have.push(Object.assign({}, s, { dept: s.dept || server.abt }));
+      added++;
+    });
+    return Object.assign({}, dd, { shifts: have.length ? have : (dd.shifts || []) });
+  });
+  return { week: Object.assign({}, local, { days: days }), added: added };
+}
+
+// Offline saves ('blind') meet the server for the first time: merge its shifts in (never delete them), then sync
+function resolveBlindWeeks(userWeeks) {
+  var all = loadStore(), done = [];
+  unsyncedWeekKeys(all).forEach(function (ws) {
+    if (!weekIsBlind(all, ws)) return;
+    var local = mergeWeekParts(all, ws);
+    var m = mergeUnseenShifts(local, userWeeks[ws] || null);
+    var w = Object.assign({}, m.week, { saved: new Date().toISOString(), unsynced: true });
+    delete w.blind;
+    removeWeekEntries(all, ws);
+    Object.assign(all, buildWeekEntries(w));
+    done.push(w);
+  });
+  if (!done.length) return;
+  saveStore(all);
+  done.forEach(function (w) { syncWeekToSupabase(w, true); });
 }
 
 function getWeekString(d) {
@@ -680,7 +880,7 @@ function renderHistory(skipSync) {
   if (!skipSync) fetchSupabaseShifts(); // Background sync when entering history (not when called FROM the sync)
 
   var list = document.getElementById('history-list');
-  var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+  var all = loadStore();
   var keys = Object.keys(all).sort().reverse();
   if (!keys.length) { list.innerHTML = uiEmptyHtml('Noch keine Wochen', 'Gespeicherte Wochen erscheinen hier.'); return; }
   var months = {};
@@ -726,7 +926,7 @@ function renderHistory(skipSync) {
 
 function renderHistoryChart() {
   var ctx = document.getElementById('historyChart'); if (!ctx) return;
-  var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+  var all = loadStore();
   // Aggregate hours per base week key (merges "2026-W12:AL" + "2026-W12:MA" into "2026-W12")
   var weekTotals = {};
   Object.keys(all).forEach(function(k) {
@@ -889,16 +1089,43 @@ function collectData() {
   return { name: document.getElementById('inp-name').value || '', abt: selectedAbt, weekStart: v, weekLabel: weekLabelFromVal(v), days: days, total: document.getElementById('total-hours').textContent, saved: new Date().toISOString(), depts: Object.keys(depsUsed) };
 }
 
-function saveWeek() {
+async function saveWeek() {
+  if (!szStoreKey()) { showToast('Bitte zuerst anmelden'); return; }
   var d = collectData(); if (!d.name) { showToast('Bitte Namen eingeben'); return; }
-  var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+
+  // A save replaces the week on the server (deletes open shifts that are not in the form) — so the server state of
+  // the week must have been seen first. Never delete what the user never saw.
+  var blind = false;
+  if (typeof supabaseClient !== 'undefined' && _serverSeenFor !== currentUser.id) {
+    if (navigator.onLine !== false) await fetchSupabaseShifts();
+    if (_serverSeenFor === currentUser.id) {
+      d = collectData(); // the sync may have refreshed an untouched editor
+      var stored = loadStore();
+      if (!weekHasUnsynced(stored, d.weekStart)) {
+        var sw = mergeWeekParts(stored, d.weekStart);
+        var m = sw ? mergeUnseenShifts(d, sw) : { added: 0 };
+        if (m.added > 0) {
+          resetEditorState(m.week);
+          renderEditorFromState();
+          _editorBaseline = ''; // merged but not saved yet → counts as changed
+          showToast('Für diese Woche gab es schon Einträge auf dem Server – bitte prüfen und erneut speichern');
+          return;
+        }
+      }
+    } else {
+      blind = true; // offline / server unreachable: save locally, merge with the server later
+    }
+  }
+  var all = loadStore();
 
   // The saved week replaces ALL stored parts of that week (plain key and every
   // dept part) — otherwise an old split/unsplit entry stays and totals double-count.
   // Mixed weeks get one history entry per dept. 'unsynced' stays until the server has it.
   removeWeekEntries(all, d.weekStart);
-  Object.assign(all, buildWeekEntries(Object.assign({}, d, { unsynced: true })));
-  localStorage.setItem('stundenzettel', JSON.stringify(all));
+  Object.assign(all, buildWeekEntries(Object.assign({}, d, blind ? { unsynced: true, blind: true } : { unsynced: true })));
+  saveStore(all);
+  markEditorClean();
+  if (blind) { showToast('💾 Woche lokal gespeichert – wird beim nächsten Online-Abgleich mit dem Server zusammengeführt'); return; }
   showToast('💾 Woche gespeichert!');
 
   // ── PUSH TO SUPABASE (Async) ──
@@ -913,7 +1140,27 @@ function isoWeekToDate(weekStr, dayIdx) {
   return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 }
 
-async function syncWeekToSupabase(data) {
+// Runs fn after everything queued before it under the same key (never two syncs of one week at once)
+function runSerial(chains, key, fn) {
+  var c = chains[key] || (chains[key] = { p: Promise.resolve(), n: 0 });
+  c.n++;
+  var run = c.p.then(fn);
+  c.p = run.then(function () { c.n--; }, function () { c.n--; });
+  return run;
+}
+
+function serialBusy(chains, key) {
+  return !!(chains[key] && chains[key].n > 0);
+}
+
+var _weekSyncChains = {};
+
+// quiet = background retry: no toasts (the user did not ask for it)
+function syncWeekToSupabase(data, quiet) {
+  return runSerial(_weekSyncChains, data.weekStart, function () { return syncWeekNow(data, quiet); });
+}
+
+async function syncWeekNow(data, quiet) {
   if (typeof supabaseClient === 'undefined' || !currentUser) return;
 
   try {
@@ -972,45 +1219,84 @@ async function syncWeekToSupabase(data) {
     }
 
     // Only now the server has this save → clear the flag (re-read: storage may have changed meanwhile)
-    var allNow = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+    var allNow = loadStore();
     if (clearUnsyncedFlag(allNow, data.weekStart, data.saved)) {
-      localStorage.setItem('stundenzettel', JSON.stringify(allNow));
+      saveStore(allNow);
     }
 
-    showToast('✅ Stundenzettel mit Server synchronisiert!');
+    if (!quiet) showToast('✅ Stundenzettel mit Server synchronisiert!');
   } catch(e) {
-    // The local week keeps its 'unsynced' flag → the history sync won't overwrite it; saving again retries
+    // The local week keeps its 'unsynced' flag → the history sync won't overwrite it; it is retried in the background
     console.error("Week Sync Error:", e);
-    showToast('Server-Sync fehlgeschlagen – Woche ist nur lokal gespeichert. Bitte später erneut speichern.');
+    if (!quiet) showToast('Server-Sync fehlgeschlagen – Woche ist nur lokal gespeichert und wird später erneut übertragen.');
   }
 }
 
+// Server ids of the open, manual shifts a deleted history card stands for (role null = every role).
+// Protocol shifts and anything accounting already booked ('eingetragen') are never touched.
+function planWeekDelete(existing, role) {
+  return (existing || []).filter(function (r) {
+    return r.status === 'offen' && (role === null || r.position_role === role);
+  }).map(function (r) { return r.id; });
+}
+
+// Removes every stored week part that has nothing waiting for the server (weeks with an unsynced part stay)
+function dropSyncedWeeks(all) {
+  var changed = false;
+  Object.keys(all).forEach(function (k) {
+    if (!weekHasUnsynced(all, k.split(':')[0])) { delete all[k]; changed = true; }
+  });
+  return changed;
+}
+
 function loadWeek(key) {
-  var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}'), clicked = all[key]; if (!clicked) return;
+  var all = loadStore(), clicked = all[key]; if (!clicked) return;
+  if (editorIsDirty() && !confirm('Du hast ungespeicherte Eingaben. Beim Laden dieser Woche gehen sie verloren. Trotzdem laden?')) return;
   // Edit the whole week (all dept parts): saving replaces every part locally and on the server,
   // so loading only the clicked part would drop the other departments' shifts
   var w = mergeWeekParts(all, clicked.weekStart) || clicked;
   document.getElementById('inp-name').value = w.name;
   document.getElementById('inp-week').value = w.weekStart;
   selectedAbt = clicked.abt;
-  shiftSigCanvases = {}; shiftSigData = {}; shiftValues = {}; shiftCounts = {}; activeDayIdx = null;
-  w.days.forEach(function (dd, i) {
-    var shs = dd.shifts || [{ von: dd.von || '', bis: dd.bis || '', pause: dd.pause || '0', ort: dd.ort || '', al: dd.al || '', sig: dd.sig || null }];
-    shiftCounts[i] = shs.length;
-    shiftValues[i] = shs.map(function (sh, s) {
-      if (sh.sig) shiftSigData[i + '-' + s] = sh.sig;
-      var _v = timeToMins(sh.von||''), _b = timeToMins(sh.bis||'');
-      var _p = (_v!==null&&_b!==null) ? autoPause(_b<_v ? _b+1440-_v : _b-_v) : 0;
-      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: _p.toString(), dept: sh.dept || clicked.abt || selectedAbt, protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
-    });
-  });
-  renderWeekStrip();
-  for (var i = 0; i < DAYS.length; i++) updateBubble(i);
-  renderDayEditorArea(); calcTotal(); updateTopBarSub(); navigate('home');
+  resetEditorState(w, clicked.abt || selectedAbt);
+  renderEditorFromState();
+  navigate('home');
   showToast('Backup geladen!');
 }
 
-function deleteWeek(e, k) { e.stopPropagation(); if (!confirm('Woche löschen?')) return; var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}'); delete all[k]; localStorage.setItem('stundenzettel', JSON.stringify(all)); renderHistory(); showToast('Gelöscht'); }
+// Deletes the card locally AND its open manual shifts on the server — otherwise the next history sync
+// rebuilds the week from the server and it stays billed
+async function deleteWeek(e, k) {
+  e.stopPropagation();
+  if (!confirm('Woche löschen?')) return;
+  var all = loadStore(), entry = all[k];
+  if (!entry) return;
+  if (typeof supabaseClient !== 'undefined' && currentUser) {
+    var ws = entry.weekStart || k.split(':')[0];
+    // A plain key next to dept parts only stands for its own department
+    var hasParts = Object.keys(all).some(function (x) { return x !== k && x.indexOf(ws + ':') === 0; });
+    var role = (k === ws && !hasParts) ? null : (entry.abt || null);
+    var failed = await runSerial(_weekSyncChains, ws, async function () {
+      try {
+        var ex = await supabaseClient.from('shifts').select('id, status, position_role')
+          .eq('user_id', currentUser.id).is('protocol_id', null)
+          .gte('shift_date', isoWeekToDate(ws, 0)).lte('shift_date', isoWeekToDate(ws, 6));
+        if (ex.error) throw ex.error;
+        var ids = planWeekDelete(ex.data || [], role);
+        if (ids.length) {
+          var del = await supabaseClient.from('shifts').delete().in('id', ids).eq('status', 'offen').select('id');
+          if (del.error) throw del.error;
+          var n = (del.data || []).length;
+          if (n !== ids.length) throw new Error('shifts delete: ' + n + ' of ' + ids.length + ' rows');
+        }
+        return false;
+      } catch (err) { console.error('Woche löschen (Server):', err); return true; }
+    });
+    if (failed) { showToast('Löschen auf dem Server fehlgeschlagen – Woche bleibt erhalten.'); return; }
+  }
+  all = loadStore(); delete all[k]; saveStore(all);
+  renderHistory(); showToast('Gelöscht');
+}
 
 // ── SIGNATURE LAZY-LOADER ──
 // Fetches signature_text only for the protocol IDs present in the given week data array.
@@ -1094,7 +1380,7 @@ async function downloadWeekPDF() {
 var sendToBuchhaltung = downloadWeekPDF;
 
 async function exportMonthlyPDF(mKey) {
-  var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+  var all = loadStore();
   var ks = Object.keys(all).sort();
   var monthW = [], mLab = monthLabelFromKey(mKey), mTot = 0, name = '';
   ks.forEach(function (k) {

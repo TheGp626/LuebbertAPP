@@ -403,6 +403,8 @@ function saveSigModal() {
       if (typeof protState !== 'undefined') {
         protState.signature = data;
         if (typeof redrawProtSig === 'function') redrawProtSig();
+        // Into the draft right away: re-entering the form reloads the draft and would drop the signature
+        if (typeof saveProtDraft === 'function') saveProtDraft();
       }
     } else {
       if (typeof shiftSigData !== 'undefined') {
@@ -415,6 +417,7 @@ function saveSigModal() {
       if (typeof protState !== 'undefined') {
         protState.signature = null;
         if (typeof redrawProtSig === 'function') redrawProtSig();
+        if (typeof saveProtDraft === 'function') saveProtDraft();
       }
     } else {
       if (typeof shiftSigData !== 'undefined') {
@@ -480,7 +483,7 @@ function renderSettingsDepts() {
            '</div>' +
            '<div style="display:flex;align-items:center;gap:6px;">' +
            '<input type="number" id="' + safeId + '" step="0.50" min="0" value="' + wage + '" placeholder="€/h" ' +
-           'style="width:64px;padding:4px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);" ' +
+           'style="width:64px;padding:4px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);" ' +
            'onclick="event.stopPropagation()" />' +
            '<button onclick="event.stopPropagation();deleteDepartment(' + i + ')" style="background:none;border:none;color:var(--danger);cursor:pointer;padding:4px 8px;">✕</button>' +
            '</div></div>';

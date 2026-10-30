@@ -171,9 +171,18 @@ async function initAuth() {
   if (authSessionChanged(shown, fresh)) handleSession(fresh);
 }
 
+// True when the session now belongs to someone else than before (login, user switch, logout)
+function sessionUserChanged(prevId, nextId) {
+  return prevId === undefined || (prevId || null) !== (nextId || null);
+}
+
+var lastSessionUserId; // undefined until the first handleSession
+
 function handleSession(user) {
   const overlay = document.getElementById('auth-overlay');
   if (!overlay) return;
+  const userChanged = sessionUserChanged(lastSessionUserId, user ? user.id : null);
+  lastSessionUserId = user ? user.id : null;
 
   if (user) {
     currentUser = { id: user.id, email: '', full_name: user.full_name || '' }; // Mock basic GoTrue object for backwards compatibility (+ name for the start page greeting)
@@ -188,6 +197,14 @@ function handleSession(user) {
     localStorage.setItem('stundenzettel_name', user.full_name);
     window.currentUserRateConni    = parseFloat(user.hourly_rate_conni)    || 0;
     window.currentUserRateInternal = parseFloat(user.hourly_rate_internal) || 0;
+
+    // Shared device: the Stundenzettel editor (weeks, drawn signatures) belongs to the previous user — start clean,
+    // buildDays loads this user's own stored week
+    if (userChanged && typeof buildDays === 'function') {
+      const weekInp = document.getElementById('inp-week');
+      if (weekInp && typeof currentWeekVal === 'function') weekInp.value = currentWeekVal();
+      buildDays(true);
+    }
 
     overlay.style.display = 'none';
 
@@ -220,6 +237,7 @@ function handleSession(user) {
     currentUser = null;
     userRole = 'MA';
     authSelectedUserId = null;
+    if (userChanged && typeof buildDays === 'function') buildDays(true); // no editor content of the logged-out user stays in memory
     const nameInp = document.getElementById('auth-name-input');
     if (nameInp) nameInp.value = '';
     const pwWrapper = document.getElementById('auth-password-wrapper');

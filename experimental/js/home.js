@@ -89,9 +89,11 @@ async function refreshHomeNextShift(force) {
   if (!force && _homeFetchedFor === me && Date.now() - _homeFetchedAt < 30000) return;
   _homeFetchedFor = me; _homeFetchedAt = Date.now();
   var seq = ++_homeSeq;
+  // From yesterday: a shift "Abbau: 0.30 Uhr" belongs to the night after its listed day
+  var yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
   var res = await supabaseClient.from('plan_assignments')
     .select('shift:plan_shifts!inner(*, plan_assignments(*))')
-    .eq('user_id', me).gte('shift.date', localDateStr());
+    .eq('user_id', me).gte('shift.date', localDateStr(yesterday));
   // Offline or failed: keep whatever the cache already showed, no error message
   if (res.error || seq !== _homeSeq || !currentUser || currentUser.id !== me) { if (res.error) _homeFetchedAt = 0; return; }
   var seen = {};

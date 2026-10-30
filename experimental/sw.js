@@ -1,10 +1,35 @@
-const CACHE = 'stundenzettel-exp-4c51abb';
+const CACHE = 'stundenzettel-exp-5298b23';
 const ASSETS = ['./index.html', './manifest.json'];
 
+// Offline start needs every script/stylesheet of index.html (own files + CDN libs): the install step reads
+// index.html and caches whatever it references, so this list never has to be kept in sync by hand.
+// Own files are required (install fails → old SW stays); CDN files are best effort (opaque no-cors responses are fine for <script>).
+function assetUrlsOf(html) {
+  const urls = [];
+  const add = u => { if (u && !/^(data|blob):/.test(u) && !urls.includes(u)) urls.push(u); };
+  (html.match(/<script[^>]*>/gi) || []).forEach(t => add((/src\s*=\s*["']([^"']+)["']/i.exec(t) || [])[1]));
+  (html.match(/<link[^>]*>/gi) || []).forEach(t => {
+    if (/rel\s*=\s*["']stylesheet["']/i.test(t)) add((/href\s*=\s*["']([^"']+)["']/i.exec(t) || [])[1]);
+  });
+  return urls.map(u => new URL(u, self.registration.scope).href);
+}
+
+async function precache() {
+  const cache = await caches.open(CACHE);
+  await cache.addAll(ASSETS);
+  const res = await fetch(new Request('./index.html', { cache: 'no-cache' }));
+  const urls = assetUrlsOf(await res.text());
+  const own = urls.filter(u => u.startsWith(self.location.origin));
+  const cdn = urls.filter(u => !u.startsWith(self.location.origin));
+  await Promise.all(own.map(u => fetch(new Request(u, { cache: 'no-cache' })).then(r => {
+    if (!r.ok) throw new Error('precache failed: ' + u);
+    return cache.put(u, r);
+  })));
+  await Promise.all(cdn.map(u => fetch(new Request(u, { mode: 'no-cors' })).then(r => cache.put(u, r)).catch(() => {})));
+}
+
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
-  );
+  e.waitUntil(precache().then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -31,8 +56,11 @@ self.addEventListener('fetch', e => {
     e.respondWith(
       fetch(new Request(e.request, { cache: 'no-cache' }))
         .then(res => {
-          const clone = res.clone();
-          caches.open(CACHE).then(c => c.put('./index.html', clone));
+          // Only a real page replaces the offline copy (not a 404 / captive-portal redirect)
+          if (res.ok && !res.redirected) {
+            const clone = res.clone();
+            caches.open(CACHE).then(c => c.put('./index.html', clone));
+          }
           return res;
         })
         .catch(() => caches.match('./index.html'))
@@ -43,11 +71,21 @@ self.addEventListener('fetch', e => {
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;
+      const url = e.request.url;
+      // CDN scripts (supabase-js, jsPDF, …) are cached on first load; no-cache stays for own files only
+      if (!url.startsWith(self.location.origin)) {
+        return fetch(e.request).then(res => {
+          if ((res.ok || res.type === 'opaque') && e.request.method === 'GET' && /\.(js|css|woff2?)(\?|$)|\/npm\//.test(url)) {
+            const clone = res.clone();
+            caches.open(CACHE).then(c => c.put(e.request, clone));
+          }
+          return res;
+        });
+      }
       // Use no-cache to bypass browser HTTP cache — SW cache is our offline layer
       return fetch(new Request(e.request, { cache: 'no-cache' })).then(res => {
-        const url = e.request.url;
         const isStaticAsset = /\.(js|css|png|jpg|jpeg|svg|ico|woff2?|json)(\?|$)/.test(url);
-        if (res.ok && url.startsWith(self.location.origin) && isStaticAsset) {
+        if (res.ok && isStaticAsset) {
           const clone = res.clone();
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }

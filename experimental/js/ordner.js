@@ -79,7 +79,7 @@ async function fetchOrdner() {
   showOrdnerLoading(false);
   if (error) { console.error('Ordner fetch:', error); showToast('Fehler beim Laden der Ordner.', 'danger'); return; }
   alleOrdner = data || [];
-  renderOrdner(alleOrdner);
+  filterOrdner(); // keeps an active search text applied (renders everything when empty)
 }
 
 function renderOrdner(list) {
@@ -216,7 +216,7 @@ function closeOrdnerDetail() {
   if (listView) listView.style.display = 'block';
   if (detailView) detailView.style.display = 'none';
   ordnerSetTitle('Projektordner');
-  renderOrdner(alleOrdner);
+  filterOrdner(); // keeps an active search text applied (renders everything when empty)
 }
 
 function initOrdnerDragDrop() {
@@ -244,7 +244,7 @@ function initOrdnerDragDrop() {
 
 async function fetchOrdnerFiles(folderId) {
   var container = document.getElementById('ordner-files-list');
-  if (container) container.innerHTML = '<div class="ui-sub" style="padding:16px 2px;">Dateien werden geladen…</div>';
+  if (container && aktuellerOrdner && aktuellerOrdner.id === folderId) container.innerHTML = '<div class="ui-sub" style="padding:16px 2px;">Dateien werden geladen…</div>';
 
   var { data, error } = await supabaseClient
     .from('folder_files')
@@ -252,6 +252,8 @@ async function fetchOrdnerFiles(folderId) {
     .eq('folder_id', folderId)
     .order('name', { ascending: true });
 
+  // Stale answer: the user navigated to another folder (or left) while this was loading
+  if (!aktuellerOrdner || aktuellerOrdner.id !== folderId) return;
   if (error) { console.error('Files fetch:', error); showToast('Fehler beim Laden.', 'danger'); return; }
   ordnerFiles = data || [];
   renderOrdnerFiles(ordnerFiles);
@@ -341,6 +343,8 @@ async function uploadOrdnerFile(folderId, file) {
 
   if (dbErr) {
     console.error('DB insert error for "' + file.name + '":', dbErr.message || dbErr);
+    // No row points to the uploaded object: remove it again (best effort)
+    try { await supabaseClient.storage.from('project-files').remove([filePath]); } catch (e) { /* ignore */ }
     return false;
   }
   return true;
@@ -349,13 +353,16 @@ async function uploadOrdnerFile(folderId, file) {
 async function deleteOrdnerFile(id, url) {
   if (!confirm('Datei wirklich löschen?')) return;
   try {
-    // Remove from storage
+    // DB first (row-checked: RLS answers with 0 rows), storage only after it succeeded
+    var { data: delRows, error } = await supabaseClient.from('folder_files').delete().eq('id', id).select('id');
+    if (error || !delRows || !delRows.length) throw error || new Error('Löschen abgelehnt');
     if (url) {
       var parts = url.split('/project-files/');
-      if (parts.length > 1) await supabaseClient.storage.from('project-files').remove([parts[1]]);
+      if (parts.length > 1) {
+        try { await supabaseClient.storage.from('project-files').remove([parts[1]]); }
+        catch (e2) { console.warn('Datei nicht aus Storage entfernt:', e2); }
+      }
     }
-    var { error } = await supabaseClient.from('folder_files').delete().eq('id', id);
-    if (error) throw error;
     showToast('Datei gelöscht.');
     if (aktuellerOrdner) await fetchOrdnerFiles(aktuellerOrdner.id);
   } catch(e) { showToast('Fehler beim Löschen.', 'danger'); }
@@ -435,7 +442,8 @@ function readEinsatzRows() {
 async function openOrdnerForm(id) {
   // The form is a sheet over the current view; coming from a folder's detail view, refresh it after saving
   var detail = document.getElementById('ordner-detail-view');
-  _ordnerFormReturnId = id && detail && detail.style.display !== 'none' ? id : null;
+  // Return to the folder that is open (a subfolder row's "Bearbeiten" passes the subfolder's id, not the open one)
+  _ordnerFormReturnId = id && detail && detail.style.display !== 'none' && aktuellerOrdner ? aktuellerOrdner.id : null;
   editingOrdnerId = id || null;
   var form = document.getElementById('ordner-form');
   var nameInp = document.getElementById('inp-ordner-name');
@@ -597,6 +605,8 @@ async function renderOrdnerEinsaetze(folder) {
   var { data: rows, error } = await supabaseClient.from('einsaetze')
     .select('id, date, action, al_id, cancelled, al:app_users!einsaetze_al_id_fkey(full_name)')
     .eq('folder_id', folder.id).order('date');
+  var stale = function() { return !aktuellerOrdner || aktuellerOrdner.id !== folder.id; };
+  if (stale()) return;
   if (error) { console.error('Einsätze:', error); return; }
   if (!rows || !rows.length) return;
   var alIds = rows.map(function(r) { return r.al_id; });
@@ -605,6 +615,7 @@ async function renderOrdnerEinsaetze(folder) {
   var done = {};
   (prots || []).forEach(function(p) { done[p.al_id + '|' + p.date] = true; });
   await loadOrdnerUsers();
+  if (stale()) return;
   var pl = (_ordnerUsers || []).find(function(u) { return u.id === folder.pl_id; });
   var PILL = { done: ['ui-pill-ok', 'erledigt'], open: ['ui-pill-warn', 'Protokoll fehlt'], future: ['ui-pill-info', 'geplant'], cancelled: ['ui-pill-danger', 'entfällt'] };
   var today = localDateStr();
@@ -644,17 +655,21 @@ async function deleteOrdner(folder) {
     ' und alle enthaltenen Dateien wirklich löschen?';
   if (!confirm(msg)) return;
 
-  // Remove storage objects of the whole subtree (DB rows cascade via FK)
+  // Collect the storage paths of the whole subtree first (DB rows cascade via FK)
   var { data: allFiles } = await supabaseClient
     .from('folder_files').select('file_url').in('folder_id', treeIds);
   var paths = (allFiles || []).map(function(f) {
     var parts = (f.file_url || '').split('/project-files/');
     return parts.length > 1 ? parts[1] : null;
   }).filter(Boolean);
-  if (paths.length) await supabaseClient.storage.from('project-files').remove(paths);
 
-  var { error } = await supabaseClient.from('project_folders').delete().eq('id', folder.id);
-  if (error) { showToast('Fehler: ' + error.message, 'danger'); return; }
+  // DB first (row-checked: RLS answers with 0 rows); storage is only cleaned up after the folder is really gone
+  var { data: delRows, error } = await supabaseClient.from('project_folders').delete().eq('id', folder.id).select('id');
+  if (error || !delRows || !delRows.length) { showToast('Fehler: ' + (error ? error.message : 'Löschen abgelehnt'), 'danger'); return; }
+  if (paths.length) {
+    try { await supabaseClient.storage.from('project-files').remove(paths); }
+    catch (e) { console.warn('Ordner-Dateien nicht aus Storage entfernt:', e); }
+  }
   showToast('Ordner gelöscht.');
   var parentId = folder.parent_id;
   closeOrdnerDetail();
@@ -671,6 +686,15 @@ function openOrdnerFileById(id) {
   openFileViewer(f.file_url, f.name, f.file_type || '');
 }
 
+// 'image' | 'pdf' | 'file' (download only). HEIC/HEIF is not displayable in most browsers (Chrome/Android), so it is a file.
+function ordnerViewerKind(mimeType, url) {
+  var mime = String(mimeType || ''), u = String(url || '');
+  if (/image\/hei[cf]/i.test(mime) || /\.hei[cf](\?|$)/i.test(u)) return 'file';
+  if (/image\//i.test(mime) || /\.(jpe?g|png|gif|webp)(\?|$)/i.test(u)) return 'image';
+  if (/pdf/i.test(mime) || /\.pdf(\?|$)/i.test(u)) return 'pdf';
+  return 'file';
+}
+
 function openFileViewer(url, name, mimeType) {
   var modal = document.getElementById('produkt-viewer-modal');
   var titleEl = document.getElementById('viewer-title');
@@ -679,10 +703,12 @@ function openFileViewer(url, name, mimeType) {
   var dlBtn = document.getElementById('viewer-download-btn');
 
   if (titleEl) titleEl.textContent = name || 'Datei';
-  if (dlBtn) dlBtn.href = url;
+  // The download button is shared with the product viewer, which hides/relabels it: restore it here
+  if (dlBtn) { dlBtn.href = url; dlBtn.textContent = '⬇ Download'; dlBtn.style.display = 'inline-flex'; }
 
-  var isImage = /image\//i.test(mimeType) || /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
-  var isPdf = /pdf/i.test(mimeType) || /\.pdf(\?|$)/i.test(url);
+  var kind = ordnerViewerKind(mimeType, url);
+  var isImage = kind === 'image';
+  var isPdf = kind === 'pdf';
   if (subtitleEl) subtitleEl.textContent = isImage ? 'Bild' : isPdf ? 'PDF' : 'Datei';
 
   if (modal) modal.style.display = 'flex'; // visible first so the zoom viewer can measure its width

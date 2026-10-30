@@ -139,12 +139,14 @@ function compressSignature(base64, callback) {
   img.src = base64;
 }
 
-function showToast(msg) {
+function showToast(msg, type) {
   var t = document.getElementById('toast');
   if (!t) return;
   t.textContent = msg;
+  if (type === 'danger') t.classList.add('toast-danger'); else t.classList.remove('toast-danger');
   t.classList.add('show');
-  setTimeout(function () { t.classList.remove('show'); }, 2200);
+  if (t._toastTimer) clearTimeout(t._toastTimer);
+  t._toastTimer = setTimeout(function () { t.classList.remove('show'); }, 2200);
 }
 
 function escapeHtml(str) {
