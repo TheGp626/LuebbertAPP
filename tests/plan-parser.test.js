@@ -496,3 +496,104 @@ test('planIcs: escapes text and folds long lines at 75 bytes', () => {
   const unfolded = ics.replace(/\r\n /g, '');
   assert.ok(unfolded.includes('SUMMARY:Aufbau – Sehr lange Veranstaltung mit Umlauten äöü\\; Komma\\, und noch'));
 });
+
+// ── Bug round 2026-10-30 ──
+// One synthetic shift row: cells as arrays of lines (Datum | Was | Wann | Wer | AP)
+function synthShift(datum, was, wann, wer, ap) {
+  const items = [], hlines = [];
+  const col = { Datum: 10, Was: 100, Wann: 200, Wer: 300, AP: 400 };
+  Object.keys(col).forEach(k => items.push({ s: k, x: col[k], y: 10, h: 10 }));
+  hlines.push({ x0: 10, x1: 450, y: 30 });
+  items.push({ s: 'Montag 02.11.26', x: 12, y: 33, h: 10 });
+  hlines.push({ x0: 10, x1: 450, y: 50 });
+  const cells = [datum, was, wann, wer, ap], n = Math.max(...cells.map(c => c.length));
+  cells.forEach((lines, c) => lines.forEach((s, i) => items.push({ s, x: Object.values(col)[c] + 2, y: 53 + i * 12, h: 10 })));
+  hlines.push({ x0: 10, x1: 450, y: 53 + n * 12 + 4 });
+  return [{ items, hlines, fills: [] }];
+}
+
+test('planParse: phone numbers in venue, title and AP are stripped before the key is built', () => {
+  const r = P.planParse(synthShift(['Estrel, 0170 1234567', 'Musterallee 1'], ['Gala Nord, 0152/7654321', 'Tische'], ['Aufbau: 8 Uhr'], ['Anna (AL)'], ['Sabine Muster, +49 170 1234567']));
+  assert.equal(r.shifts.length, 1);
+  const s = r.shifts[0];
+  assert.equal(s.venue, 'Estrel');
+  assert.equal(s.title, 'Gala Nord');
+  assert.equal(s.ap, 'Sabine Muster');
+  assert.equal(s.key, '2026-11-02|estrel|gala nord');
+  assert.doesNotMatch(JSON.stringify(s), /\d{7}/);
+});
+
+test('planStripPhones: more notations (+49 (0) …, (0170) …, 0170.…) but never times or dates', () => {
+  assert.equal(P.planStripPhones('Max Muster, +49 (0) 170 1234567'), 'Max Muster');
+  assert.equal(P.planStripPhones('Max Muster (0170) 1234567'), 'Max Muster');
+  assert.equal(P.planStripPhones('Max Muster 0170.1234567'), 'Max Muster');
+  assert.equal(P.planStripPhones('Max Muster 0170-1234567'), 'Max Muster');
+  assert.equal(P.planStripPhones('Aufbau: 08 - 16 Uhr'), 'Aufbau: 08 - 16 Uhr');
+  assert.equal(P.planStripPhones('Abbau: 0.30 - 8.30 Uhr'), 'Abbau: 0.30 - 8.30 Uhr');
+  assert.equal(P.planStripPhones('01.11.26 - 05.11.2026'), '01.11.26 - 05.11.2026');
+  assert.equal(P.planStripPhones('2 x Zenjob (8.30 - 16.30 Uhr)'), '2 x Zenjob (8.30 - 16.30 Uhr)');
+});
+
+test('planDiff: a changed note of a person ("ab 14 Uhr" → "ab 15 Uhr") marks the shift as changed', () => {
+  const mk = note => ({ key: 'a', wann: ['8 Uhr'], people: [{ name: 'Milan', role: 'MA', note }], open: [], ap: 'X', details: [] });
+  assert.deepEqual(P.planDiff([mk('ab 14 Uhr')], [mk('ab 15 Uhr')]).status, ['geändert']);
+  assert.deepEqual(P.planDiff([mk('ab 14 Uhr')], [mk('ab 14 Uhr')]).status, [null]);
+  assert.deepEqual(P.planDiff([mk(null)], [mk(undefined)]).status, [null]);
+});
+
+test('planWithoutProtocol: function words and generic event nouns do not tie a protocol to an event', () => {
+  const al = [{ name: 'Anna', role: 'AL' }];
+  const sh = (id, title) => ({ id, date: '2026-10-28', venue: 'Estrel', title, location: [], wann: [], people: al });
+  const run = (title, event) => P.planWithoutProtocol([sh('x', title)], [{ date: '2026-10-28', event }], '2026-10-16', '2026-10-30').length;
+  assert.equal(run('Sommerfest zum Jahresende', 'Eroeffnung zum Sommer'), 1, 'only "zum" shared');
+  assert.equal(run('Bar Aufbau', 'Bar Sommerfest'), 1, 'only "Bar" shared');
+  assert.equal(run('Weihnachtsfeier Gala', 'Gala Dinner'), 1, 'only generic nouns shared');
+  assert.equal(run('Sommerfest Nord', 'Sommerfest Ost'), 0, 'a distinctive word still matches');
+});
+
+test('planWhen: "24 Uhr" is midnight (00:00), no invalid ICS time', () => {
+  assert.equal(P.planWhen(['Abbau: 24 Uhr']).time, '00:00');
+  assert.equal(P.planWhen(['Abbau: 22 - 24 Uhr']).end, '00:00');
+  const ev = w => icsEvents(P.planIcs([icsShift({ wann: w })], 'me', '20261029T120000Z'))[0];
+  assert.match(ev('Abbau: 24 Uhr'), /DTSTART:20261031T000000\r\n/);
+  assert.match(ev('Abbau: 22 - 24 Uhr'), /DTSTART:20261030T220000\r\nDTEND:20261031T000000\r\n/);
+  assert.doesNotMatch(ev('Abbau: 24 Uhr'), /T24/);
+});
+
+test('planWhen: en dash and em dash work as range separator', () => {
+  assert.deepEqual(P.planWhen(['Aufbau: 8 – 16 Uhr']), { time: '08:00', end: '16:00', prefix: null, label: 'Aufbau' });
+  assert.deepEqual(P.planWhen(['Aufbau: 8 — 16 Uhr']), { time: '08:00', end: '16:00', prefix: null, label: 'Aufbau' });
+  assert.deepEqual(P.planWhen(['19.30–21 Uhr']), { time: '19:30', end: '21:00', prefix: null, label: null });
+});
+
+test('planMatchPerson: an alias to a deactivated user is ignored', () => {
+  const users = [{ id: 'u1', full_name: 'Kacper Nowak', role: 'AL' }, { id: 'u2', full_name: 'Alt Kollege', role: 'MA', is_active: false }];
+  assert.equal(P.planMatchPerson({ name: 'Kacper', role: 'AL' }, users, { kacper: 'u2' }).userId, 'u1');
+  assert.equal(P.planMatchPerson({ name: 'Foo', role: 'MA' }, users, { foo: 'u2' }).userId, null);
+  assert.equal(P.planMatchPerson({ name: 'Foo', role: 'MA' }, users, { foo: 'u1' }).userId, 'u1', 'active alias still works');
+});
+
+test('planEventName: "Stand up Gala" is an event, "Stand 20" / "Stand 421" stay booths', () => {
+  const loc = (...tail) => ['Musterallee 1', '12345 Berlin', ...tail];
+  assert.equal(P.planEventName({ title: 'Stand up Gala', venue: 'Estrel', location: loc('Saal', 'Kongress X') }), 'Stand up Gala');
+  assert.equal(P.planEventName({ title: 'Stand 20 | Beispiel GmbH', venue: 'Estrel', location: loc('Foyer 3', 'Messe Y') }), 'Messe Y');
+  assert.equal(P.planEventName({ title: 'Stand 421', venue: 'Messe Berlin', location: loc('Bazaar', 'Halle 17') }), 'Stand 421');
+});
+
+test('planShiftOrder: a night shift (< 4:00) of yesterday stays until 2 h after its time', () => {
+  const night = { date: '2026-10-29', wann: 'Abbau: 0.30 Uhr', sort: 0 };
+  const today = { date: '2026-10-30', wann: 'Aufbau: 9 Uhr', sort: 1 };
+  assert.deepEqual(P.planShiftOrder([night, today], new Date(2026, 9, 30, 0, 10)), [night, today]);
+  assert.deepEqual(P.planShiftOrder([night, today], new Date(2026, 9, 30, 1, 0), true), [night, today]);
+  assert.deepEqual(P.planShiftOrder([night, today], new Date(2026, 9, 30, 2, 31)), [today], '2 h over');
+  // a daytime shift of yesterday is never kept
+  assert.deepEqual(P.planShiftOrder([{ date: '2026-10-29', wann: 'Abbau: 22 Uhr', sort: 0 }, today], new Date(2026, 9, 30, 0, 10)), [today]);
+});
+
+test('planShiftOrder: the 2 h rule uses the last time of the day (Aufbau 8 Uhr + Abbau 22 Uhr stays at 15:00)', () => {
+  const merged = { date: '2026-10-29', wann: 'Aufbau: 8 Uhr\nAbbau: 20 Uhr', sort: 0 };
+  const now = new Date(2026, 9, 29, 15, 0);
+  assert.deepEqual(P.planShiftOrder([merged], now), [merged]);
+  assert.deepEqual(P.planShiftOrder([merged], new Date(2026, 9, 29, 22, 30)), [], 'more than 2 h past the last time (20:00)');
+  assert.deepEqual(P.planShiftOrder([{ date: '2026-10-29', wann: ['Aufbau: 8 Uhr', 'Abbau: 20 Uhr'], sort: 0 }], now).length, 1, 'array shape too');
+});

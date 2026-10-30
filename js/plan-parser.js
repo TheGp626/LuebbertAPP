@@ -30,7 +30,8 @@ function planIsoWeek(dateStr) {
 // Phone numbers of agency workers must never be stored ("Max Muster, 0170 1234567")
 function planStripPhones(s) {
   return String(s || '')
-    .replace(/,?\s*(\+\d|\b0)[\d\s\/-]{6,}\d/g, '')
+    // "+49 (0) 170 1234567", "0170 1234567", "0152/1234567", "(0170) 1234567", "0170.1234567" – times like "08 - 16 Uhr" stay
+    .replace(/,?\s*(?:\+\d[\d\s\/()-]{6,}\d|\b0[\d\s\/-]{6,}\d|\(0\d{2,5}\)[\s\/.-]*\d[\d\s\/-]{4,}\d|\b0\d{2,5}\.\d{6,}\b)/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
@@ -261,6 +262,9 @@ function planParse(pages) {
   });
   var byDate = {}, seenKeys = {};
   shifts.forEach(function(s, i) {
+    s.venue = planStripPhones(s.venue);
+    s.title = planStripPhones(s.title);
+    s.ap = planStripPhones(s.ap) || null;
     s.location = s.location.map(planStripPhones).filter(Boolean);
     s.details = s.details.map(planStripPhones).filter(Boolean);
     s.wann = s.wann.map(planStripPhones).filter(Boolean);
@@ -316,7 +320,7 @@ function planMatchPerson(person, users, aliases) {
       return id && active.some(function(u) { return u.id === id; });
     });
     if (apAlias) return { userId: apAlias, candidates: [], via: 'alias' };
-  } else if (aliases && aliases[n]) return { userId: aliases[n], candidates: [], via: 'alias' };
+  } else if (aliases && aliases[n] && active.some(function(u) { return u.id === aliases[n]; })) return { userId: aliases[n], candidates: [], via: 'alias' };
   var full = active.filter(function(u) { return (u.full_name || '').toLowerCase() === n; });
   if (full.length === 1) return { userId: full[0].id, candidates: [], via: 'name' };
   var words = n.split(' '), rest = words.slice(1).join(' ').replace(/\.$/, '');
@@ -353,7 +357,7 @@ function planPickExistingWeek(weeks, parsed) {
 function planDiff(oldShifts, newShifts) {
   // Field by field, never whole objects: jsonb hands back open slots with its own key order
   var fp = function(s) {
-    return JSON.stringify([s.wann, (s.people || []).map(function(p) { return p.name + '/' + p.role; }).sort(),
+    return JSON.stringify([s.wann, (s.people || []).map(function(p) { return p.name + '/' + p.role + '/' + (p.note || ''); }).sort(),
       (s.open || []).map(function(o) { return o.count + '/' + o.role + '/' + (o.note || ''); }), s.ap || null, s.details,
       s.location || [], s.notes || []]);
   };
@@ -422,14 +426,15 @@ function planWhen(wann) {
     for (var i = 0; i < PLAN_WHEN_LABELS.length; i++) if (l.indexOf(PLAN_WHEN_LABELS[i].toLowerCase()) === 0) return PLAN_WHEN_LABELS[i];
     return null;
   };
-  var re = /(?:\b(ab|bis)\s+)?(\d{1,2})(?:[.:](\d{2}))?(?:\s*-\s*(\d{1,2})(?:[.:](\d{2}))?)?\s*Uhr/i;
+  var re = /(?:\b(ab|bis)\s+)?(\d{1,2})(?:[.:](\d{2}))?(?:\s*[-–—]\s*(\d{1,2})(?:[.:](\d{2}))?)?\s*Uhr/i;
   var lines = wann || [], firstLabel = null;
   for (var i = 0; i < lines.length; i++) {
     var label = labelOf(lines[i]);
     if (!firstLabel) firstLabel = label;
     var m = re.exec(lines[i]);
     if (m && +m[2] <= 24 && (!m[4] || +m[4] <= 24)) {
-      return { time: hm(m[2], m[3]), end: m[4] ? hm(m[4], m[5]) : null, prefix: m[1] ? m[1].toLowerCase() : null, label: label };
+      // "24 Uhr" is midnight: 00:00 (planIcs / planShiftOrder move times before 4:00 to the night after the day)
+      return { time: hm(+m[2] === 24 ? 0 : m[2], m[3]), end: m[4] ? hm(+m[4] === 24 ? 0 : m[4], m[5]) : null, prefix: m[1] ? m[1].toLowerCase() : null, label: label };
     }
   }
   return { time: null, end: null, prefix: null, label: firstLabel };
@@ -446,7 +451,7 @@ function planGuessAction(wann) {
 }
 
 // Rooms, halls and booths ("Saal Europa", "CH II", "Stand 20 | …", "Apollo Saal", "2. OG") – never an event name
-var PLAN_ROOM_LINE = /^(?:halle|raum|saal|foyer|stand|auditorium|ch\s+i+|hub\s*\d+|\d+\.\s*og|\S+\s+saal|pl\s+lager)\b/i;
+var PLAN_ROOM_LINE = /^(?:halle|raum|saal|foyer|stand(?=\s+\d)|auditorium|ch\s+i+|hub\s*\d+|\d+\.\s*og|\S+\s+saal|pl\s+lager)\b/i;
 
 function planStartsWithStep(line) {
   var l = (line || '').toLowerCase();
@@ -496,15 +501,31 @@ function planShiftOrder(shifts, now, keepStarted) {
   var pad = function(n) { return (n < 10 ? '0' : '') + n; };
   var today = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
   var nowMin = now.getHours() * 60 + now.getMinutes();
-  var minutes = function(s) {
-    var t = planWhen(s.wann ? String(s.wann).split('\n') : []).time;
-    if (!t) return null;
-    var m = parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10);
-    return m < 240 ? m + 1440 : m;
+  var yd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  var yesterday = yd.getFullYear() + '-' + pad(yd.getMonth() + 1) + '-' + pad(yd.getDate());
+  // Start minute of every timed "Wann" line (night times as 1440+)
+  var allMinutes = function(s) {
+    return planLines(s.wann).map(function(l) {
+      var t = planWhen([l]).time;
+      if (!t) return null;
+      var m = parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10);
+      return m < 240 ? m + 1440 : m;
+    }).filter(function(m) { return m !== null; });
+  };
+  var minutes = function(s) { var a = allMinutes(s); return a.length ? a[0] : null; };
+  // Still relevant: the day's last time is at most 2 h behind; yesterday's shifts only through their night times
+  // (< 4:00 = today's early hours), so a night shift doesn't vanish at midnight
+  var current = function(s, keepAllOfToday) {
+    var a = allMinutes(s);
+    if (s.date === yesterday) {
+      var night = a.filter(function(m) { return m >= 1440; });
+      return night.length > 0 && nowMin - (Math.max.apply(null, night) - 1440) <= 120;
+    }
+    return keepAllOfToday || !a.length || nowMin - Math.max.apply(null, a) <= 120;
   };
   return (shifts || [])
     .map(function(s) { return { s: s, min: minutes(s) }; })
-    .filter(function(x) { return x.s.date > today || (x.s.date === today && (keepStarted || x.min === null || nowMin - x.min <= 120)); })
+    .filter(function(x) { return x.s.date > today || ((x.s.date === today || x.s.date === yesterday) && current(x.s, keepStarted && x.s.date === today)); })
     .sort(function(a, b) {
       if (a.s.date !== b.s.date) return a.s.date < b.s.date ? -1 : 1;
       if ((a.min === null) !== (b.min === null)) return a.min === null ? 1 : -1;
@@ -541,7 +562,8 @@ function planShiftFromDb(r) {
 
 // Words too generic to tie a protocol to an event (rooms, venue, work steps, filler)
 var PLAN_MATCH_STOP = ['kongress', 'deko', 'empfang', 'estrel', 'berlin', 'aufbau', 'abbau', 'umbau', 'saal', 'foyer', 'halle',
-  'stand', 'messe', 'raum', 'allen', 'bereichen', 'und', 'der', 'die', 'das', 'fur', 'mit', 'event', 'hotel', 'forum'];
+  'stand', 'messe', 'raum', 'allen', 'bereichen', 'und', 'der', 'die', 'das', 'fur', 'mit', 'event', 'hotel', 'forum',
+  'zum', 'zur', 'von', 'den', 'dem', 'des', 'ein', 'eine', 'im', 'am', 'bar', 'gala', 'dinner', 'party', 'feier', 'abend'];
 
 // "Tierärztekongress/DGT (Aufbau)" → ['tierarztekongress', 'dgt']: lowercase, umlauts folded, 3+ letters, no stop words
 function planMatchTokens(text) {
@@ -549,10 +571,10 @@ function planMatchTokens(text) {
     .split(/[^a-z0-9]+/).filter(function(w) { return w.length >= 3 && !/^\d+$/.test(w) && PLAN_MATCH_STOP.indexOf(w) === -1; });
 }
 
-// Same word, or long words with the same first 5 letters (typos like "Tierärtze"/"Tierärzte")
+// Same word, or long words of similar length with the same first 5 letters (typos like "Tierärtze"/"Tierärzte")
 function planTokensMatch(a, b) {
   return a.some(function(x) {
-    return b.some(function(y) { return x === y || (x.length >= 5 && y.length >= 5 && x.slice(0, 5) === y.slice(0, 5)); });
+    return b.some(function(y) { return x === y || (x.length >= 5 && y.length >= 5 && Math.abs(x.length - y.length) <= 2 && x.slice(0, 5) === y.slice(0, 5)); });
   });
 }
 

@@ -268,7 +268,9 @@ async function wpRenderMine() {
   var content = document.getElementById('wp-content');
   if (!wpMe()) return;
   var seq = ++_wpRenderSeq;
-  var from = localDateStr();
+  // From yesterday on: a night shift (Abbau 0.30 Uhr) of the day before is still running after midnight (planShiftOrder filters)
+  var yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+  var from = localDateStr(yesterday);
   var { data, error } = await supabaseClient.from('plan_assignments')
     .select('shift:plan_shifts!inner(*, plan_assignments(*), plan_weeks(kw))')
     .eq('user_id', wpMe())
@@ -521,7 +523,7 @@ async function wpSaveImport() {
   if (!wpImport) return;
   var btn = document.getElementById('wp-save-btn');
   btn.disabled = true; btn.textContent = 'Speichert…';
-  var insertedIds = [], createdWeekId = null, committed = false;
+  var insertedIds = [], createdWeekId = null, committed = false, oldNotDeleted = false;
   try {
     var p = wpImport.parsed, ex = wpImport.existing;
     // Names chosen in the preview → remembered as aliases (data-alias already holds planAliasKey)
@@ -584,8 +586,12 @@ async function wpSaveImport() {
     committed = true;
     wpImport.orphanWeekId = null;
     if (oldShifts.length) {
-      var del = await supabaseClient.from('plan_shifts').delete().in('id', oldShifts.map(function(s) { return s.id; }));
-      if (del.error) console.error('Alte Einsätze löschen:', del.error);
+      // RLS answers a blocked delete with 0 rows and no error: count them, or every shift would exist twice
+      var del = await supabaseClient.from('plan_shifts').delete().in('id', oldShifts.map(function(s) { return s.id; })).select('id');
+      if (del.error || !del.data || del.data.length !== oldShifts.length) {
+        console.error('Alte Einsätze löschen:', del.error || ((del.data ? del.data.length : 0) + ' von ' + oldShifts.length + ' gelöscht'));
+        oldNotDeleted = true;
+      }
     }
     if (newAliases.length) {
       var al = await supabaseClient.from('plan_name_aliases').upsert(newAliases, { onConflict: 'alias' });
@@ -598,6 +604,7 @@ async function wpSaveImport() {
       .catch(function(e) { console.error('Plan-Push:', e); });
 
     showToast('Wochenplan KW ' + p.kw + ' gespeichert');
+    if (oldNotDeleted) showToast('Die alten Einsätze der Woche konnten nicht gelöscht werden – Einsätze erscheinen doppelt. Bitte beim Admin melden.', 'danger');
     wpImport = null;
     wpWeekId = weekId;
     wpView = 'all';
@@ -615,8 +622,11 @@ async function wpSaveImport() {
 // it created. If that row can't be deleted, the next attempt reuses it (wpImport.orphanWeekId).
 async function wpRollbackImport(shiftIds, createdWeekId) {
   if (shiftIds.length) {
-    var d = await supabaseClient.from('plan_shifts').delete().in('id', shiftIds);
-    if (d.error) console.error('Rückgängig (Einsätze):', d.error);
+    var d = await supabaseClient.from('plan_shifts').delete().in('id', shiftIds).select('id');
+    if (d.error || !d.data || d.data.length !== shiftIds.length) {
+      console.error('Rückgängig (Einsätze):', d.error || ((d.data ? d.data.length : 0) + ' von ' + shiftIds.length + ' gelöscht'));
+      showToast('Rückgängig machen fehlgeschlagen: Einsätze der Woche sind evtl. doppelt. Bitte beim Admin melden.', 'danger');
+    }
   }
   if (createdWeekId) {
     var w = await supabaseClient.from('plan_weeks').delete().eq('id', createdWeekId).select('id');
