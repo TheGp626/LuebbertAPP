@@ -199,12 +199,28 @@ test('weekSnapshot: only real input changes it (pause is derived)', () => {
 });
 
 test('splitLegacyStore: legacy weeks go only to the user whose name they carry', () => {
-  const { splitLegacyStore } = load(['splitLegacyStore']);
+  const { splitLegacyStore } = load(['splitLegacyStore', 'szNameMatches']);
   const legacy = { '2026-W44': { name: 'Erika Muster' }, '2026-W43': { name: ' erika muster ' }, '2026-W42:AL': { name: 'Hans' }, '2026-W41': {} };
   const r = splitLegacyStore(legacy, 'Erika Muster');
   assert.deepEqual(Object.keys(r.mine).sort(), ['2026-W43', '2026-W44']);
   assert.deepEqual(Object.keys(r.rest).sort(), ['2026-W41', '2026-W42:AL']);
   assert.deepEqual(Object.keys(splitLegacyStore(legacy, '').mine), []);
+});
+
+test('splitLegacyStore: tolerant names – a shortened or reordered name still belongs to the user', () => {
+  const { splitLegacyStore } = load(['splitLegacyStore', 'szNameMatches']);
+  const legacy = { a: { name: 'Max' }, b: { name: 'Mustermann Max' }, c: { name: 'max müstermann' }, d: { name: 'Moritz' }, e: { name: 'Max Muster-Frau' } };
+  const r = splitLegacyStore(legacy, 'Max Müstermann');
+  assert.deepEqual(Object.keys(r.mine).sort(), ['a', 'b', 'c']);
+  assert.deepEqual(Object.keys(r.rest).sort(), ['d', 'e']);
+});
+
+test('legacySummary: names and unsent count of weeks left in the old shared store', () => {
+  const { legacySummary } = load(['legacySummary']);
+  assert.equal(legacySummary(null), null);
+  assert.equal(legacySummary({}), null);
+  const s = legacySummary({ w1: { name: 'Moritz', unsynced: true }, w2: { name: 'Moritz' }, w3: { name: 'Hans', unsynced: true }, w4: {} });
+  assert.deepEqual(s, { count: 4, unsent: 2, names: ['Hans', 'Moritz'] });
 });
 
 test('runSerial: syncs of one week run one after the other, other weeks are independent', async () => {
