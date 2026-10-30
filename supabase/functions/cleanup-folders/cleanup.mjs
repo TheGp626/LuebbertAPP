@@ -37,3 +37,14 @@ export function chunk(list, n) {
   for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n));
   return out;
 }
+
+// einsaetze: [{folder_id, date, cancelled}]. True when a non-cancelled Einsatz dated today or later sits in the tree.
+export function hasUpcomingJob(treeIds, einsaetze, today) {
+  return (einsaetze || []).some(e => !e.cancelled && e.date >= today && (treeIds || []).includes(e.folder_id));
+}
+
+// Paths in `paths` that are not in `removed` (files uploaded after the first select)
+export function pathsNotIn(paths, removed) {
+  const gone = new Set(removed || []);
+  return (paths || []).filter(p => !gone.has(p));
+}

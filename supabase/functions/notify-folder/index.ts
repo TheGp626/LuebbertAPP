@@ -41,8 +41,8 @@ Deno.serve(async (req) => {
   const { data: einsaetze, error: eErr } = await db.from('einsaetze')
     .select('al_id, date, action, cancelled').eq('folder_id', folder.id);
   if (eErr) { console.error('notify-folder: load jobs failed', eErr); return json({ error: 'db_error' }, 500); }
-  const told: string[] = folder.notified_al_ids || [];
-  const pushes = buildFolderPushes({ name: folder.name, notified_al_ids: told }, einsaetze || []);
+  let told: string[] = folder.notified_al_ids || [];
+  let pushes = buildFolderPushes({ name: folder.name, notified_al_ids: told }, einsaetze || []);
   if (input.dry_run) return json({ dry_run: true, enabled: settings.folder_push_enabled, pushes });
   if (!pushes.length) return json({ users: 0, pushed: 0 });
 
@@ -55,11 +55,21 @@ Deno.serve(async (req) => {
   }
 
   // Claim the recipients first: only the call that still sees the list it read can write the new one
-  const { data: claimed, error: cErr } = await db.from('project_folders')
-    .update({ notified_al_ids: [...told, ...pushes.map(p => p.user_id)] })
-    .eq('id', folder.id).eq('notified_al_ids', pgUuidArray(told)).select('id');
-  if (cErr) { console.error('notify-folder: claim failed', cErr); return json({ error: 'db_error' }, 500); }
-  if (!claimed || !claimed.length) return json({ skipped: 'already_notified' });
+  // A lost claim (another call changed the list meanwhile, e.g. a second AL added) re-reads the list and retries once,
+  // so an AL who is still untold does not miss the push
+  for (let attempt = 0; ; attempt++) {
+    const { data: claimed, error: cErr } = await db.from('project_folders')
+      .update({ notified_al_ids: [...told, ...pushes.map(p => p.user_id)] })
+      .eq('id', folder.id).eq('notified_al_ids', pgUuidArray(told)).select('id');
+    if (cErr) { console.error('notify-folder: claim failed', cErr); return json({ error: 'db_error' }, 500); }
+    if (claimed && claimed.length) break;
+    if (attempt >= 1) return json({ skipped: 'already_notified' });
+    const { data: fresh, error: rErr } = await db.from('project_folders').select('notified_al_ids').eq('id', folder.id).maybeSingle();
+    if (rErr || !fresh) { console.error('notify-folder: re-read failed', rErr); return json({ error: 'db_error' }, 500); }
+    told = fresh.notified_al_ids || [];
+    pushes = buildFolderPushes({ name: folder.name, notified_al_ids: told }, einsaetze || []);
+    if (!pushes.length) return json({ skipped: 'already_notified' });
+  }
 
   let pushed = 0, removed = 0;
   for (const p of pushes) {

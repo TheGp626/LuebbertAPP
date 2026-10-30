@@ -28,3 +28,9 @@ test('a value of the wrong type falls back to the default', () => {
   assert.equal(withDefaults([{ key: 'evening_push_hour', value: 'x' }]).evening_push_hour, 18);
   assert.equal(withDefaults([{ key: 'reminders_enabled', value: 1 }]).reminders_enabled, true);
 });
+
+test('a failed read is flagged (not enumerable, so the settings object itself is unchanged)', () => {
+  assert.equal(withDefaults(null)._read_failed, true);
+  assert.equal(withDefaults([])._read_failed, false);
+  assert.equal(Object.keys(withDefaults(null)).includes('_read_failed'), false);
+});

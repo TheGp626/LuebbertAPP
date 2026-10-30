@@ -1,7 +1,7 @@
 // Run: node --test supabase/functions/cleanup-folders/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dueFolderTrees, storagePaths, chunk } from './cleanup.mjs';
+import { dueFolderTrees, storagePaths, chunk, hasUpcomingJob, pathsNotIn } from './cleanup.mjs';
 
 const folders = [
   { id: 'a', name: 'Messe Nord', parent_id: null, ends_on: '2026-10-20' },
@@ -69,4 +69,22 @@ test('storagePaths: query string is cut off and the path is URL-decoded', () => 
 test('chunk: splits into groups of n', () => {
   assert.deepEqual(chunk([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
   assert.deepEqual(chunk([], 100), []);
+});
+
+test('hasUpcomingJob: a non-cancelled Einsatz today or later in the tree blocks the deletion', () => {
+  const jobs = [
+    { folder_id: 'a1', date: '2026-10-30', cancelled: false },
+    { folder_id: 'x', date: '2026-12-01', cancelled: false },
+    { folder_id: 'a', date: '2026-12-01', cancelled: true },
+    { folder_id: 'a', date: '2026-10-01', cancelled: false },
+  ];
+  assert.equal(hasUpcomingJob(['a', 'a1'], jobs, '2026-10-30'), true);
+  assert.equal(hasUpcomingJob(['a'], jobs, '2026-10-30'), false); // cancelled / past only
+  assert.equal(hasUpcomingJob(['a'], [], '2026-10-30'), false);
+  assert.equal(hasUpcomingJob(['a'], null, '2026-10-30'), false);
+});
+
+test('pathsNotIn: files uploaded after the first select', () => {
+  assert.deepEqual(pathsNotIn(['a', 'b', 'c'], ['a', 'c']), ['b']);
+  assert.deepEqual(pathsNotIn([], ['a']), []);
 });

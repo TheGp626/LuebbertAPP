@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { berlinDate, isBerlinNineAm, daysSince, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, testPush, testPushResult } from './reminders.mjs';
+import { berlinDate, isBerlinNineAm, daysSince, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, pendingPlIds, testPush, testPushResult } from './reminders.mjs';
 
 // ── Plan jobs (Wochenplan → reminders) ──
 const row = (o) => Object.assign({ al_id: 'A', date: '2026-10-26', venue: 'Estrel', title: 'CH I', wann: 'Aufbau: 8 Uhr', ap_user_id: 'P1' }, o);
@@ -188,4 +188,25 @@ test('testPushResult: no device, reached, or failed', () => {
   assert.deepEqual(testPushResult({ ok: 0, failed: 0, removed: 2 }), { status: 'no_device', devices: 0, removed: 2 });
   assert.deepEqual(testPushResult({ ok: 2, failed: 1, removed: 0 }), { status: 'sent', devices: 2, failed: 1 });
   assert.deepEqual(testPushResult({ ok: 0, failed: 1, removed: 0 }), { status: 'failed', devices: 0, failed: 1 });
+});
+
+// ── Review fixes ──
+test('evening: "bis" / "ab" prefix stays in the push text', () => {
+  const [p] = buildEveningPushes([ev({ wann: ['Abbau: bis 18 Uhr'] })]);
+  assert.match(p.body, /^bis 18:00 Abbau/);
+  const [q] = buildEveningPushes([ev({ venue: 'Estrel', wann: ['Aufbau: ab 8 Uhr'] }), ev({ venue: 'Messe', wann: ['Abbau: bis 18 Uhr'] })]);
+  assert.equal(q.body, 'ab 08:00 Estrel · bis 18:00 Messe');
+});
+
+test('evening: times before 04:00 belong to the night after and come last and come last', () => {
+  const [p] = buildEveningPushes([ev({ venue: 'Nacht', wann: ['Abbau: 0.30 Uhr'] }), ev({ venue: 'Abend', wann: ['Aufbau: 20 Uhr'] }), ev({ venue: 'Früh', wann: ['Aufbau: 8 Uhr'] })]);
+  assert.equal(p.body, '08:00 Früh · 20:00 Abend · 00:30 Nacht');
+});
+
+test('pendingPlIds: PLs of a plan job that were not mailed yet', () => {
+  const job = { al_id: 'A', date: '2026-10-20', pl_ids: ['P1', 'P2'] };
+  assert.deepEqual(pendingPlIds(job, new Set()), ['P1', 'P2']);
+  assert.deepEqual(pendingPlIds(job, new Set(['A|2026-10-20|P1'])), ['P2']);
+  assert.deepEqual(pendingPlIds(job, new Set(['A|2026-10-20|P1', 'A|2026-10-20|P2'])), []);
+  assert.deepEqual(pendingPlIds({ al_id: 'A', date: 'd', pl_ids: [] }, new Set()), [null]); // no PL → 'none' bucket
 });

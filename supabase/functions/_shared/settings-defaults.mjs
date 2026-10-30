@@ -22,5 +22,7 @@ export function withDefaults(rows) {
     if (!(r.key in SETTINGS_DEFAULTS)) continue;
     if (typeof r.value === typeof SETTINGS_DEFAULTS[r.key]) out[r.key] = r.value;
   }
+  // Not enumerable: existing callers see the same object as before; only cleanup-folders checks it
+  Object.defineProperty(out, '_read_failed', { value: !rows });
   return out;
 }

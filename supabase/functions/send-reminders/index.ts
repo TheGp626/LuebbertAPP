@@ -5,7 +5,7 @@
 // Body: { mode? ("evening" → evening push), force?, only_user_id?, dry_run? (list only, send/log nothing), plan_override? (daily dry runs: treat plan reminders as on) } or { mode: "test", user_id, pin } (test push)
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import webpush from 'npm:web-push@3.6.7';
-import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, testPush, testPushResult, LOOKBACK_DAYS } from './reminders.mjs';
+import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, pendingPlIds, testPush, testPushResult, LOOKBACK_DAYS } from './reminders.mjs';
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { loadSettings } from '../_shared/settings.ts';
 import { chooseRecipient } from '../_shared/recipient.mjs';
@@ -121,15 +121,17 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
     already = new Set((logged || []).filter((l: Db) => l.day === today).map((l: Db) => `${l.einsatz_id}|${l.kind}`));
     plMailedEarlier = new Set((logged || []).filter((l: Db) => l.kind === 'pl_mail').map((l: Db) => l.einsatz_id));
   }
-  let planAlready = new Set<string>(), planMailedEarlier = new Set<string>();
+  // planPlMailed: "al_id|date|pl_id" of PL mails already sent (kind 'pl_mail:<pl_id>'), so a retry skips them
+  let planAlready = new Set<string>(), planMailedEarlier = new Set<string>(), planPlMailed = new Set<string>();
   if (planJobs.length) {
     // Bounded to the job window: the log keeps growing and PostgREST caps unbounded reads
     const { data: pl, error: plErr } = await db.from('plan_reminder_log').select('al_id, date, day, kind')
       .in('al_id', [...new Set(planJobs.map(j => j.al_id))]).gte('date', from).lte('date', to)
-      .or(`day.eq.${today},kind.eq.pl_mail`);
+      .or(`day.eq.${today},kind.eq.pl_mail,kind.like.pl_mail:*`);
     if (plErr) { console.error('send-reminders: load plan_reminder_log failed', plErr); return json({ error: 'db_error' }, 500); }
     planAlready = new Set((pl || []).filter((l: Db) => l.day === today).map((l: Db) => `${l.al_id}|${l.date}|${l.kind}`));
     planMailedEarlier = new Set((pl || []).filter((l: Db) => l.kind === 'pl_mail').map((l: Db) => `${l.al_id}|${l.date}`));
+    planPlMailed = new Set((pl || []).filter((l: Db) => String(l.kind).startsWith('pl_mail:')).map((l: Db) => `${l.al_id}|${l.date}|${String(l.kind).slice(8)}`));
   }
 
   // ── Classify ──
@@ -170,9 +172,12 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
     const g = group(it.einsatz.folder?.pl_id || null, it.einsatz.folder?.pl?.full_name || 'keine PL', it.einsatz.folder?.pl?.email || '');
     g.items.push(it); g.logFolder.push(it.einsatz.id);
   }
+  // A plan job whose PLs were all mailed in an earlier run (only the aggregate log is missing) counts as resolved
+  const planResults: { keys: { al_id: string; date: string }[]; resolved: boolean }[] = [];
   for (const j of planMail) {
     const item = { einsatz: { date: j.date, action: planGuessAction(j.wann) }, folderName: planJobVenue(j), alName: users.get(j.al_id)?.full_name || '—' };
-    const pls = j.pl_ids.length ? j.pl_ids : [null];
+    const pls = pendingPlIds(j, planPlMailed);
+    if (!pls.length) planResults.push({ keys: [{ al_id: j.al_id, date: j.date }], resolved: true });
     for (const plId of pls) {
       const u = plId ? users.get(plId) : null;
       const g = group(plId, u?.full_name || 'keine PL', u?.email || '');
@@ -195,7 +200,7 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
     const { error: lErr } = await db.from('reminder_log').upsert(ids.map(id => ({ einsatz_id: id, day: today, kind })), { ignoreDuplicates: true });
     if (lErr) console.error('send-reminders: log failed', lErr);
   };
-  const logPlan = async (keys: { al_id: string; date: string }[], kind: 'push' | 'pl_mail') => {
+  const logPlan = async (keys: { al_id: string; date: string }[], kind: string) => {
     if (!keys.length) return;
     const { error: lErr } = await db.from('plan_reminder_log').upsert(keys.map(k => ({ ...k, day: today, kind })), { ignoreDuplicates: true });
     if (lErr) console.error('send-reminders: plan log failed', lErr);
@@ -221,7 +226,6 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
   // ── Day-6 mail (one per PL) ──
   let mailed = 0;
   // A plan job with several PLs is logged only when all of its PL mails are resolved (planMailLogKeys)
-  const planResults: { keys: { al_id: string; date: string }[]; resolved: boolean }[] = [];
   for (const { g, rcpt, m } of mailPlans) {
     if (rcpt.reason === 'no_pl' || rcpt.reason === 'no_email') {
       console.error('send-reminders: kein PL/E-Mail für', g.items.map((it: Db) => it.folderName).join(', '));
@@ -236,7 +240,12 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
     try {
       await sendGmail({ to: rcpt.to!, subject: rcpt.test ? `[TEST → ${g.plName}] ${m.subject}` : m.subject, text: m.text, html: m.html });
       mailed++;
-      await log(g.logFolder, 'pl_mail'); planResults.push({ keys: g.logPlan, resolved: true });
+      // Test mode only goes to TEST_RECIPIENT: the real PL must still get the mail after test mode is switched off
+      if (rcpt.test) { planResults.push({ keys: g.logPlan, resolved: false }); continue; }
+      await log(g.logFolder, 'pl_mail');
+      // Remember this PL per plan job: if another PL's mail fails, the retry does not mail this PL again
+      if (g.plId) await logPlan(g.logPlan, `pl_mail:${g.plId}`);
+      planResults.push({ keys: g.logPlan, resolved: true });
     } catch (e) {
       console.error('send-reminders: PL mail failed', e);
       planResults.push({ keys: g.logPlan, resolved: false });
@@ -271,7 +280,7 @@ async function runEvening(db: Db, input: Input, settings: Record<string, unknown
     ...(rows || []).sort((a: Db, b: Db) => a.shift.sort - b.shift.sort).map((r: Db) => ({
       al_id: r.user_id, date: tomorrow, source: 'plan', venue: r.shift.venue || 'Einsatz', title: r.shift.title || '',
       wann: r.shift.wann ? String(r.shift.wann).split('\n') : [],
-      team: (r.shift.plan_assignments || []).filter((a: Db) => a.user_id !== r.user_id && agency.indexOf(a.role) === -1).map((a: Db) => String(a.name).split(' ')[0]),
+      team: (r.shift.plan_assignments || []).filter((a: Db) => a.user_id !== r.user_id && agency.indexOf(a.role) === -1).map((a: Db) => String(a.name || '').split(' ')[0]).filter(Boolean),
       open: r.shift.open_slots || [], pl: r.shift.ap || null,
     })),
     ...(folder || []).map((e: Db) => ({ al_id: e.al_id, date: tomorrow, source: 'folder', folderName: e.folder?.name || 'Projekt', action: e.action })),

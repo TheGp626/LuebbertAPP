@@ -115,6 +115,12 @@ export function planMailLogKeys(groups) {
   return [...state.values()].filter(s => s.ok).map(s => s.key);
 }
 
+// PL ids of a plan job that were not mailed yet (mailed: Set of "al_id|date|pl_id"). No PL → [null] ('none' bucket)
+export function pendingPlIds(job, mailed) {
+  if (!job.pl_ids.length) return [null];
+  return job.pl_ids.filter(id => !mailed.has(`${job.al_id}|${job.date}|${id}`));
+}
+
 export function planJobVenue(job) {
   return job.venues.join(' / ') || 'Einsatz';
 }
@@ -157,17 +163,19 @@ export function buildEveningPushes(items) {
         body: list.length === 1 ? '' : list.map(i => i.folderName).join(' · '), url: './index.html' });
       continue;
     }
+    // Times before 04:00 belong to the night after the day → after all normal times; jobs without time last
+    const rank = w => (!w.time ? 2 : w.time < '04:00' ? 1 : 0);
     const withTime = list.map(i => ({ i, w: planWhen(i.wann || []) }))
-      .sort((a, b) => (a.w.time ? 0 : 1) - (b.w.time ? 0 : 1) || (a.w.time || '').localeCompare(b.w.time || ''));
+      .sort((a, b) => rank(a.w) - rank(b.w) || (a.w.time || '').localeCompare(b.w.time || ''));
     if (withTime.length > 1) {
       // Several rooms of one event at the same time read as one entry
-      const entries = [...new Set(withTime.map(({ i, w }) => (w.time ? w.time + ' ' : '') + i.venue))];
+      const entries = [...new Set(withTime.map(({ i, w }) => (w.time ? (w.prefix ? w.prefix + ' ' : '') + w.time + ' ' : '') + i.venue))];
       out.push({ al_id, title: `Morgen ${withTime.length} Einsätze`, body: entries.join(' · '), url: './index.html?open=wochenplan' });
       continue;
     }
     const { i, w } = withTime[0];
     const title = `Morgen: ${i.venue}` + (i.title && i.title !== i.venue && !/^\d+\s+\S/.test(i.title) ? ` · ${i.title}` : ''); // "7 Loungesessel …" = equipment, no heading
-    const time = w.time ? [w.time, w.label].filter(Boolean).join(' ') : '';
+    const time = w.time ? [w.prefix, w.time, w.label].filter(Boolean).join(' ') : '';
     const missing = (i.open || []).map(o => `${o.count} ${o.role} ${o.count === 1 ? 'fehlt' : 'fehlen'}`);
     const team = [(i.team || []).slice(0, 3).join(', '), ...missing].filter(Boolean).join(', ');
     const body = [time, team, i.pl ? `PL ${i.pl}` : ''].filter(Boolean).join(' · ');
