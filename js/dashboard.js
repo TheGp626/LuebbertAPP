@@ -752,21 +752,10 @@ async function markAllShiftsBooked(userId) {
 // ── SCHICHT BEARBEITEN / HINZUFÜGEN ──
 
 let _shiftEditId = null; // null = neuer Eintrag, sonst Supabase-ID
-let _shiftEditContext = 'worker'; // 'worker' | 'protocol-edit' | 'protocol-add'
-
-function _shiftModalBase() {
-  document.getElementById('shift-edit-person-row').style.display = 'none';
-  document.getElementById('shift-edit-temp-name').value = '';
-  const sel = document.getElementById('shift-edit-worker-select');
-  if (sel) sel.value = '';
-}
-
 function openShiftEdit(shiftId) {
   const shift = dashboardCurrentShifts.find(s => s.id === shiftId);
   if (!shift) return;
   _shiftEditId = shiftId;
-  _shiftEditContext = 'worker';
-  _shiftModalBase();
   document.getElementById('shift-edit-title').textContent = 'Schicht bearbeiten';
   const dateVal = shift.protocols?.date || shift.shift_date || '';
   document.getElementById('shift-edit-date').value  = dateVal;
@@ -781,8 +770,6 @@ function openShiftEdit(shiftId) {
 
 function openAddShift() {
   _shiftEditId = null;
-  _shiftEditContext = 'worker';
-  _shiftModalBase();
   document.getElementById('shift-edit-title').textContent = 'Schicht hinzufügen';
   document.getElementById('shift-edit-date').value  = localDateStr();
   document.getElementById('shift-edit-ort').value   = '';
@@ -792,98 +779,6 @@ function openAddShift() {
   document.getElementById('shift-edit-note').value  = '';
   document.getElementById('shift-edit-delete-row').style.display = 'none';
   document.getElementById('shift-edit-modal').classList.add('open');
-}
-
-function openProtShiftEdit(shiftId) {
-  const p = dashboardProtocols.find(x => x.id === _editProtId);
-  if (!p) return;
-  const shift = (p.shifts || []).find(s => s.id === shiftId);
-  if (!shift) return;
-  _shiftEditId = shiftId;
-  _shiftEditContext = 'protocol-edit';
-  _shiftModalBase();
-  document.getElementById('shift-edit-title').textContent = 'Schicht bearbeiten';
-  document.getElementById('shift-edit-date').value  = shift.shift_date || p.date || '';
-  document.getElementById('shift-edit-ort').value   = shift.ort || '';
-  document.getElementById('shift-edit-role').value  = shift.position_role || 'MA frei';
-  document.getElementById('shift-edit-start').value = (shift.start_time || '').substring(0, 5);
-  document.getElementById('shift-edit-end').value   = (shift.end_time   || '').substring(0, 5);
-  document.getElementById('shift-edit-note').value  = shift.note || '';
-  document.getElementById('shift-edit-delete-row').style.display = 'block';
-  document.getElementById('shift-edit-modal').classList.add('open');
-}
-
-function openAddProtShift() {
-  const p = dashboardProtocols.find(x => x.id === _editProtId);
-  if (!p) return;
-  _shiftEditId = null;
-  _shiftEditContext = 'protocol-add';
-  // Populate worker dropdown
-  const sel = document.getElementById('shift-edit-worker-select');
-  if (sel) {
-    sel.innerHTML = '<option value="">— Temp / Agentur (Name eingeben) —</option>' +
-      (dashboardWorkers || []).map(function(w) {
-        return '<option value="' + w.id + '">' + escapeHtml(w.full_name || '') + '</option>';
-      }).join('');
-  }
-  document.getElementById('shift-edit-person-row').style.display = 'block';
-  document.getElementById('shift-edit-temp-name').style.display = '';
-  document.getElementById('shift-edit-title').textContent = 'Schicht hinzufügen';
-  document.getElementById('shift-edit-date').value  = p.date || '';
-  document.getElementById('shift-edit-ort').value   = (p.projects && p.projects.location) || '';
-  document.getElementById('shift-edit-role').value  = 'MA frei';
-  document.getElementById('shift-edit-start').value = '';
-  document.getElementById('shift-edit-end').value   = '';
-  document.getElementById('shift-edit-note').value  = '';
-  document.getElementById('shift-edit-delete-row').style.display = 'none';
-  document.getElementById('shift-edit-modal').classList.add('open');
-}
-
-function onShiftWorkerSelect(val) {
-  const inp = document.getElementById('shift-edit-temp-name');
-  if (!inp) return;
-  if (val) {
-    const w = (dashboardWorkers || []).find(function(x) { return x.id === val; });
-    inp.value = w ? (w.full_name || '') : '';
-    inp.style.display = 'none';
-  } else {
-    inp.value = '';
-    inp.style.display = '';
-  }
-}
-
-async function _refreshProtocolShifts() {
-  if (!_editProtId) return;
-  const { data } = await supabaseClient
-    .from('shifts')
-    .select('id, user_id, temp_worker_name, position_role, start_time, end_time, pause_mins, status, shift_date, ort, app_users(full_name)')
-    .eq('protocol_id', _editProtId);
-  const p = dashboardProtocols.find(function(x) { return x.id === _editProtId; });
-  if (p) p.shifts = data || [];
-}
-
-function renderProtShiftsInEdit() {
-  const c = document.getElementById('pe-shifts');
-  if (!c) return;
-  const p = dashboardProtocols.find(function(x) { return x.id === _editProtId; });
-  const shifts = p ? (p.shifts || []) : [];
-  if (!shifts.length) {
-    c.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:6px 0;">Keine Schichten erfasst.</div>';
-    return;
-  }
-  c.innerHTML = shifts.map(function(s) {
-    const name = s.temp_worker_name || (s.app_users ? s.app_users.full_name : '—');
-    const von  = (s.start_time || '').substring(0, 5);
-    const bis  = (s.end_time   || '').substring(0, 5);
-    const time = von && bis ? von + '–' + bis : '—';
-    return '<div style="display:flex;gap:8px;align-items:center;background:var(--bg2);border-radius:8px;padding:8px 10px;">' +
-      '<div style="flex:1;min-width:0;">' +
-        '<div style="font-size:13px;font-weight:600;">' + escapeHtml(name) + '</div>' +
-        '<div style="font-size:11px;color:var(--text3);">' + escapeHtml(s.position_role || '—') + ' · ' + time + (s.ort ? ' · ' + escapeHtml(s.ort) : '') + '</div>' +
-      '</div>' +
-      '<button onclick="openProtShiftEdit(\'' + s.id + '\')" style="font-size:12px;padding:4px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg3);cursor:pointer;">✏️</button>' +
-    '</div>';
-  }).join('');
 }
 
 function closeShiftEditModal() {
@@ -905,11 +800,9 @@ async function saveShiftEdit() {
     return;
   }
 
-  const isProtocol = _shiftEditContext === 'protocol-edit' || _shiftEditContext === 'protocol-add';
-
   try {
     if (_shiftEditId) {
-      // Edit existing shift (works for both worker and protocol context)
+      // Edit existing shift
       const { error } = await supabaseClient.from('shifts').update({
         shift_date:    dateVal,
         position_role: role,
@@ -920,28 +813,6 @@ async function saveShiftEdit() {
       }).eq('id', _shiftEditId);
       if (error) throw error;
       if (typeof showToast === 'function') showToast('Schicht gespeichert!');
-    } else if (_shiftEditContext === 'protocol-add') {
-      // New shift linked to a protocol
-      const workerId = (document.getElementById('shift-edit-worker-select') || {}).value || '';
-      const tempName = (document.getElementById('shift-edit-temp-name') || {}).value.trim();
-      if (!workerId && !tempName) {
-        if (typeof showToast === 'function') showToast('Bitte Person angeben.', 'danger');
-        return;
-      }
-      const { error } = await supabaseClient.from('shifts').insert({
-        protocol_id:      _editProtId,
-        user_id:          workerId || null,
-        temp_worker_name: workerId ? null : (tempName || null),
-        shift_date:       dateVal,
-        position_role:    role,
-        start_time:       startVal,
-        end_time:         endVal,
-        pause_mins:       pause,
-        ort:              ortVal || null,
-        status:           'offen',
-      });
-      if (error) throw error;
-      if (typeof showToast === 'function') showToast('Schicht hinzugefügt!');
     } else {
       // New shift linked to a worker (existing worker-dashboard flow)
       const userId = document.getElementById('dash-worker-select').value;
@@ -961,12 +832,7 @@ async function saveShiftEdit() {
     }
 
     closeShiftEditModal();
-    if (isProtocol) {
-      await _refreshProtocolShifts();
-      renderProtShiftsInEdit();
-    } else {
-      renderWorkerShifts();
-    }
+    renderWorkerShifts();
   } catch (err) {
     console.error('saveShiftEdit error:', err);
     if (typeof showToast === 'function') showToast('Fehler: ' + (err.message || 'Speichern fehlgeschlagen'), 'danger');
@@ -976,18 +842,12 @@ async function saveShiftEdit() {
 async function deleteShiftFromModal() {
   if (!_shiftEditId) return;
   if (!confirm('Schicht wirklich löschen?')) return;
-  const isProtocol = _shiftEditContext === 'protocol-edit';
   try {
     const { error } = await supabaseClient.from('shifts').delete().eq('id', _shiftEditId);
     if (error) throw error;
     if (typeof showToast === 'function') showToast('Schicht gelöscht.');
     closeShiftEditModal();
-    if (isProtocol) {
-      await _refreshProtocolShifts();
-      renderProtShiftsInEdit();
-    } else {
-      renderWorkerShifts();
-    }
+    renderWorkerShifts();
   } catch (err) {
     console.error('deleteShift error:', err);
     if (typeof showToast === 'function') showToast('Fehler beim Löschen.', 'danger');
@@ -1045,6 +905,63 @@ function dashResolvePerson(typed, currentName, currentId, users) {
   var lower = name.toLowerCase();
   var hits = (users || []).filter(function(u) { return (u.full_name || '').trim().toLowerCase() === lower; });
   return { id: hits.length === 1 ? hits[0].id : null, fallback: name };
+}
+
+// ── Protokoll bearbeiten: personnel rows ──
+// Editor row: { id?, userId, name, pos (AL/MA/Fahrer/Zenjob/…), fest, start, end, pause }
+
+function dashShiftToRow(s) {
+  var role = s.position_role || '';
+  return {
+    id: s.id,
+    userId: s.user_id || '',
+    name: (s.app_users && s.app_users.full_name) || s.temp_worker_name || ((typeof appUsers !== 'undefined' ? appUsers : []).find(function(u) { return u.id === s.user_id; }) || {}).full_name || '',
+    pos: role.replace(/ (fest|frei)$/, ''),
+    fest: / fest$/.test(role),
+    start: (s.start_time || '').substring(0, 5),
+    end: (s.end_time || '').substring(0, 5),
+    pause: s.pause_mins || 0
+  };
+}
+
+// Editor row → the writable shift fields (fest/frei via protBasePos like the Protokoll form)
+function dashShiftRowToDb(row, users) {
+  var userId = row.userId || null;
+  var name = (row.name || '').trim();
+  return {
+    user_id: userId,
+    temp_worker_name: userId ? null : (name || null),
+    position_role: protBasePos({ pos: row.pos, isTemp: !userId, userId: userId, fest: row.fest }, users),
+    start_time: row.start || null,
+    end_time: row.end || null,
+    pause_mins: parseInt(row.pause, 10) || 0
+  };
+}
+
+// Diff of the stored shifts against the edited rows. Existing shifts are only ever updated in place
+// (patch = changed fields), so status ('verbucht') and ids survive; ids missing from the rows are deleted.
+function dashShiftChanges(oldShifts, editedRows, users) {
+  var kept = {}, updates = [], inserts = [], deletes = [];
+  (editedRows || []).forEach(function(row) {
+    var old = row.id ? (oldShifts || []).find(function(s) { return s.id === row.id; }) : null;
+    var next = dashShiftRowToDb(row, users);
+    if (!old) { inserts.push(Object.assign(next, { status: 'offen' })); return; }
+    kept[old.id] = true;
+    var patch = {};
+    var oldBase = (old.position_role || '').replace(/ (fest|frei)$/, '');
+    if ((old.user_id || null) !== next.user_id || (old.temp_worker_name || null) !== next.temp_worker_name) {
+      patch.user_id = next.user_id;
+      patch.temp_worker_name = next.temp_worker_name;
+    }
+    // Same base position and person: keep the stored role as it is (fest/frei, legacy values)
+    if (!(row.pos === oldBase && (old.user_id || null) === next.user_id) && old.position_role !== next.position_role) patch.position_role = next.position_role;
+    if ((old.start_time || '').substring(0, 5) !== (next.start_time || '')) patch.start_time = next.start_time;
+    if ((old.end_time || '').substring(0, 5) !== (next.end_time || '')) patch.end_time = next.end_time;
+    if ((parseInt(old.pause_mins, 10) || 0) !== next.pause_mins) patch.pause_mins = next.pause_mins;
+    if (Object.keys(patch).length) updates.push({ id: old.id, patch: patch });
+  });
+  (oldShifts || []).forEach(function(s) { if (!kept[s.id]) deletes.push(s.id); });
+  return { updates: updates, inserts: inserts, deletes: deletes };
 }
 
 // Dashboard protocol row → archive entry for buildProtPdfDoc (one PDF builder for app and dashboard)
@@ -1359,6 +1276,7 @@ function closeDashDetail() {
 
 var _editProtId = null;
 var _editProtTransports = [];
+var _editProtShifts = []; // editor rows, see dashShiftToRow
 
 var _PE_CATEGORIES = [
   { id: 'mobiliar',  label: 'Mobiliar' },
@@ -1368,15 +1286,37 @@ var _PE_CATEGORIES = [
   { id: 'logistik',  label: 'Lager / Logistik' }
 ];
 
+var _PE_ACTIONS = ['Aufbau', 'Teilaufbau', 'Umbau', 'Teilabbau', 'Abbau'];
+var _PE_POSITIONS = ['AL', 'MA', 'Fahrer', 'Zenjob', 'Rockit'];
+
+// Aktion as a segmented control (like the Protokoll form); the hidden #pe-action is the data source.
+// A stored action outside the list (older protocols) stays selectable.
+function renderDashPeActionSeg() {
+  var inp = document.getElementById('pe-action'), seg = document.getElementById('pe-action-seg');
+  if (!inp || !seg) return;
+  var cur = inp.value;
+  var acts = (cur && _PE_ACTIONS.indexOf(cur) === -1) ? _PE_ACTIONS.concat([cur]) : _PE_ACTIONS;
+  seg.innerHTML = acts.map(function(a) {
+    return '<button type="button" class="' + (a === cur ? 'active' : '') + '" onclick="setDashPeAction(' + uiArg(a) + ')">' + escapeHtml(a) + '</button>';
+  }).join('');
+}
+
+function setDashPeAction(v) {
+  document.getElementById('pe-action').value = v;
+  renderDashPeActionSeg();
+}
+
 function openDashProtEdit() {
   const p = dashboardProtocols.find(x => x.id === _editProtId);
   if (!p) return;
 
   document.getElementById('pe-date').value    = p.date || '';
   document.getElementById('pe-action').value  = p.action || 'Aufbau';
+  renderDashPeActionSeg();
   document.getElementById('pe-holiday').checked = !!p.is_holiday;
-  document.getElementById('pe-al').value      = p.al ? p.al.full_name : (p.al_name_fallback || '');
-  document.getElementById('pe-pl').value      = p.pl ? p.pl.full_name : (p.pl_name_fallback || '');
+  // AL/PL: picking a name from the list resolves to the user id on save (dashResolvePerson); free text stays a name
+  document.getElementById('pe-al-wrap').innerHTML = uiComboHtml('pe-al', p.al ? p.al.full_name : (p.al_name_fallback || ''), 'Name wählen oder eingeben', '', '');
+  document.getElementById('pe-pl-wrap').innerHTML = uiComboHtml('pe-pl', p.pl ? p.pl.full_name : (p.pl_name_fallback || ''), 'Name wählen oder eingeben', '', '');
   document.getElementById('pe-damages').value  = p.notes_damages || '';
   document.getElementById('pe-incidents').value = p.notes_incidents || '';
   document.getElementById('pe-feedback').value  = p.notes_feedback || '';
@@ -1389,11 +1329,12 @@ function openDashProtEdit() {
     punctuality: t.punctuality || 'pünktlich',
     delay: t.delay_mins || ''
   }));
+  _editProtShifts = (p.shifts || []).map(dashShiftToRow);
 
-  ensureRateUsers(); // the driver combobox lists appUsers
+  ensureRateUsers(); // the name comboboxes list appUsers
   renderDashProtTransports();
   renderDashProtEquipment(p.protocol_equipments || []);
-  renderProtShiftsInEdit();
+  renderDashPeShifts();
 
   document.getElementById('dash-prot-edit-modal').classList.add('open');
 }
@@ -1406,30 +1347,32 @@ function renderDashProtTransports() {
   var c = document.getElementById('pe-transports');
   if (!c) return;
   if (!_editProtTransports.length) {
-    c.innerHTML = '<div style="font-size:13px;color:var(--text3);">Kein Transport erfasst.</div>';
+    c.innerHTML = '<div class="ui-sub" style="margin-bottom:8px;">Kein Transport erfasst.</div>';
     return;
   }
-  var vehicleOpts = Object.keys(PROT_VEHICLE_RATES).map(function(v) {
-    return '<option value="' + v + '">' + v + '</option>';
-  }).join('');
   c.innerHTML = _editProtTransports.map(function(t, i) {
-    var delayField = t.punctuality === 'verspätet'
-      ? '<input type="number" placeholder="Min" value="' + escapeHtml(t.delay || '') + '" oninput="_editProtTransports[' + i + '].delay=this.value" class="meta-input" style="width:70px;padding:5px 6px;font-size:12px;">'
-      : '';
-    var selOpts = Object.keys(PROT_VEHICLE_RATES).map(function(v) {
-      return '<option value="' + v + '"' + (t.type === v ? ' selected' : '') + '>' + v + '</option>';
+    var vehicles = Object.keys(PROT_VEHICLE_RATES);
+    if (t.type && vehicles.indexOf(t.type) === -1) vehicles.push(t.type);
+    var selOpts = vehicles.map(function(v) {
+      return '<option value="' + escapeHtml(v) + '"' + (t.type === v ? ' selected' : '') + '>' + escapeHtml(v) + '</option>';
     }).join('');
-    return '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
-      '<select oninput="_editProtTransports[' + i + '].type=this.value" class="meta-input" style="flex:1;min-width:110px;padding:5px 6px;font-size:12px;">' + selOpts + '</select>' +
-      '<div style="flex:1;min-width:100px;">' + uiComboHtml('pe-drv-' + i, t.driver || '', 'Fahrer', 'onDashDriverName', i)
-        .replace('<input ', '<input class="meta-input" style="width:100%;padding:5px 6px;font-size:12px;box-sizing:border-box;" ') + '</div>' +
-      '<input type="number" step="0.5" min="0" placeholder="Std" title="Fahrerstunden" value="' + escapeHtml(t.hours == null ? '' : t.hours) + '" oninput="_editProtTransports[' + i + '].hours=this.value" class="meta-input" style="width:60px;padding:5px 6px;font-size:12px;">' +
-      '<select oninput="_editProtTransports[' + i + '].punctuality=this.value;renderDashProtTransports()" class="meta-input" style="flex:1;min-width:100px;padding:5px 6px;font-size:12px;">' +
-        '<option value="pünktlich"' + (t.punctuality === 'pünktlich' ? ' selected' : '') + '>Pünktlich</option>' +
-        '<option value="verspätet"' + (t.punctuality === 'verspätet' ? ' selected' : '') + '>Verspätet</option>' +
-      '</select>' +
+    var delayField = t.punctuality === 'verspätet'
+      ? '<label class="ui-field"><span>Verspätung (Min)</span><input type="number" inputmode="numeric" placeholder="Min" value="' + escapeHtml(t.delay || '') + '" oninput="_editProtTransports[' + i + '].delay=this.value"></label>'
+      : '';
+    return '<div class="ui-card">' +
+      '<div class="stunden-grid">' +
+        '<label class="ui-field"><span>Fahrzeug</span><select onchange="_editProtTransports[' + i + '].type=this.value">' + selOpts + '</select></label>' +
+        '<div class="ui-field"><span>Fahrer</span>' + uiComboHtml('pe-drv-' + i, t.driver || '', 'Name', 'onDashDriverName', i) + '</div>' +
+      '</div>' +
+      '<div class="stunden-grid">' +
+        '<label class="ui-field"><span>Fahrerstunden</span><input type="number" step="0.5" min="0" inputmode="decimal" placeholder="Std" value="' + escapeHtml(t.hours == null ? '' : t.hours) + '" oninput="_editProtTransports[' + i + '].hours=this.value"></label>' +
+        '<label class="ui-field"><span>Pünktlichkeit</span><select onchange="_editProtTransports[' + i + '].punctuality=this.value;renderDashProtTransports()">' +
+          '<option value="pünktlich"' + (t.punctuality === 'pünktlich' ? ' selected' : '') + '>Pünktlich</option>' +
+          '<option value="verspätet"' + (t.punctuality === 'verspätet' ? ' selected' : '') + '>Verspätet</option>' +
+        '</select></label>' +
+      '</div>' +
       delayField +
-      '<button onclick="_editProtTransports.splice(' + i + ',1);renderDashProtTransports()" style="color:var(--danger);background:none;border:none;cursor:pointer;font-size:16px;padding:0 4px;">✕</button>' +
+      '<button type="button" class="ui-btn ui-btn-danger prot-remove" onclick="_editProtTransports.splice(' + i + ',1);renderDashProtTransports()">Transport entfernen</button>' +
     '</div>';
   }).join('');
 }
@@ -1439,6 +1382,7 @@ function onDashDriverName(idx, val) {
   var t = _editProtTransports[idx];
   if (!t) return;
   var typed = (val || '').trim();
+  if (typed === (t.driver || '') && (t.driverUserId || !typed)) return; // untouched (keeps the id of duplicate names)
   var hits = (typeof appUsers !== 'undefined' ? appUsers : []).filter(function(u) { return (u.full_name || '').trim().toLowerCase() === typed.toLowerCase(); });
   t.driver = typed;
   t.driverUserId = hits.length === 1 ? hits[0].id : '';
@@ -1447,6 +1391,74 @@ function onDashDriverName(idx, val) {
 function addDashProtTransport() {
   _editProtTransports.push({ type: 'Sprinter', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
   renderDashProtTransports();
+}
+
+// ── Personnel rows (edited in place, see dashShiftChanges) ──
+
+function renderDashPeShifts() {
+  var c = document.getElementById('pe-shifts');
+  if (!c) return;
+  if (!_editProtShifts.length) {
+    c.innerHTML = '<div class="ui-sub" style="margin-bottom:8px;">Keine Personen erfasst.</div>';
+    return;
+  }
+  c.innerHTML = _editProtShifts.map(function(r, i) {
+    var positions = _PE_POSITIONS.indexOf(r.pos) === -1 && r.pos ? _PE_POSITIONS.concat([r.pos]) : _PE_POSITIONS;
+    var opts = positions.map(function(o) {
+      return '<option value="' + escapeHtml(o) + '"' + (r.pos === o ? ' selected' : '') + '>' + escapeHtml(o) + '</option>';
+    }).join('');
+    return '<div class="ui-card">' +
+      '<div class="stunden-grid">' +
+        '<div class="ui-field"><span>Name</span>' + uiComboHtml('pe-sh-' + i, r.name || '', 'Name wählen oder eingeben', 'onDashShiftName', i) + '</div>' +
+        '<label class="ui-field"><span>Position</span><select onchange="updateDashPeShift(' + i + ',\'pos\',this.value)">' + opts + '</select></label>' +
+      '</div>' +
+      '<div class="prot-time-grid">' +
+        '<label class="ui-field"><span>Start</span><input type="time" id="pe-sh-start-' + i + '" value="' + escapeHtml(r.start || '') + '" oninput="updateDashPeShift(' + i + ',\'start\',this.value)"></label>' +
+        '<label class="ui-field"><span>Ende</span><input type="time" id="pe-sh-end-' + i + '" value="' + escapeHtml(r.end || '') + '" oninput="updateDashPeShift(' + i + ',\'end\',this.value)"></label>' +
+        '<label class="ui-field"><span>Pause</span><input type="number" inputmode="numeric" id="pe-sh-pause-' + i + '" placeholder="Min" value="' + escapeHtml(r.pause || 0) + '" oninput="updateDashPeShift(' + i + ',\'pause\',this.value)"></label>' +
+      '</div>' +
+      '<button type="button" class="ui-btn ui-btn-danger prot-remove" onclick="removeDashPeShift(' + i + ')">Person entfernen</button>' +
+    '</div>';
+  }).join('');
+}
+
+// Name picked from the combobox or typed: a registered user sets the id (and fest/frei), free text becomes an Externe(r)
+function onDashShiftName(idx, val) {
+  var r = _editProtShifts[idx];
+  if (!r) return;
+  var typed = (val || '').trim();
+  if (typed === (r.name || '')) return; // untouched (keeps the id of duplicate names)
+  var hits = (typeof appUsers !== 'undefined' ? appUsers : []).filter(function(u) { return (u.full_name || '').trim().toLowerCase() === typed.toLowerCase(); });
+  r.name = typed;
+  if (hits.length === 1) { r.userId = hits[0].id; r.fest = !!hits[0].is_fest; }
+  else { r.userId = ''; r.fest = false; }
+}
+
+function updateDashPeShift(idx, field, val) {
+  var r = _editProtShifts[idx];
+  if (!r) return;
+  r[field] = val;
+  if (field === 'pause') r.pauseTouched = true;
+  // A new row suggests the break from its length until the break was typed by hand
+  if ((field === 'start' || field === 'end') && !r.id && !r.pauseTouched && r.start && r.end) {
+    var raw = (timeToMins(r.end) || 0) - (timeToMins(r.start) || 0);
+    r.pause = autoPause(raw < 0 ? raw + 1440 : raw);
+    var el = document.getElementById('pe-sh-pause-' + idx);
+    if (el) el.value = r.pause;
+  }
+}
+
+function addDashPeShift() {
+  _editProtShifts.push({ userId: '', name: '', pos: 'MA', fest: false, start: '', end: '', pause: 0 });
+  renderDashPeShifts();
+}
+
+function removeDashPeShift(idx) {
+  var r = _editProtShifts[idx];
+  if (!r) return;
+  if (!confirm('Person' + (r.name ? ' „' + r.name + '“' : '') + ' aus dem Protokoll entfernen?')) return;
+  _editProtShifts.splice(idx, 1);
+  renderDashPeShifts();
 }
 
 function renderDashProtEquipment(existing) {
@@ -1463,24 +1475,20 @@ function renderDashProtEquipment(existing) {
     var hDel   = e.hussen_delivered || '';
     var hRet   = e.hussen_returned  || '';
     var hussenHtml = cat.id === 'stoffe'
-      ? '<div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap;">' +
-          '<span style="font-size:11px;color:var(--text3);">Hussen geliefert:</span>' +
-          '<input type="number" id="pe-hd-' + cat.id + '" value="' + hDel + '" class="meta-input" style="width:60px;padding:4px 6px;font-size:12px;">' +
-          '<span style="font-size:11px;color:var(--text3);">zurück:</span>' +
-          '<input type="number" id="pe-hr-' + cat.id + '" value="' + hRet + '" class="meta-input" style="width:60px;padding:4px 6px;font-size:12px;">' +
+      ? '<div class="stunden-grid">' +
+          '<label class="ui-field"><span>Hussen geliefert</span><input type="number" inputmode="numeric" id="pe-hd-' + cat.id + '" value="' + hDel + '"></label>' +
+          '<label class="ui-field"><span>Hussen zurück</span><input type="number" inputmode="numeric" id="pe-hr-' + cat.id + '" value="' + hRet + '"></label>' +
         '</div>'
       : '';
-    return '<div style="background:var(--bg2);border-radius:10px;padding:10px 12px;">' +
-      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">' +
-        '<span style="font-size:13px;font-weight:600;flex:1;">' + cat.label + '</span>' +
-        '<select id="pe-st-' + cat.id + '" class="meta-input" style="width:auto;padding:4px 8px;font-size:12px;">' +
+    return '<div class="ui-card">' +
+      '<label class="ui-field"><span>' + escapeHtml(cat.label) + '</span>' +
+        '<select id="pe-st-' + cat.id + '">' +
           '<option value=""' + (status === '' ? ' selected' : '') + '>Ausgeblendet</option>' +
           ['okay','unsauber','beschädigt','unvollständig'].map(function(s) {
             return '<option value="' + s + '"' + (status === s ? ' selected' : '') + '>' + s.charAt(0).toUpperCase() + s.slice(1) + '</option>';
           }).join('') +
-        '</select>' +
-      '</div>' +
-      '<input type="text" id="pe-nt-' + cat.id + '" value="' + escapeHtml(note) + '" placeholder="Notiz (optional)" class="meta-input" style="font-size:12px;padding:5px 8px;">' +
+        '</select></label>' +
+      '<label class="ui-field"><span>Notiz</span><input type="text" id="pe-nt-' + cat.id + '" value="' + escapeHtml(note) + '" placeholder="Notiz (optional)"></label>' +
       hussenHtml +
     '</div>';
   }).join('');
@@ -1489,6 +1497,16 @@ function renderDashProtEquipment(existing) {
 async function saveDashProtEdit() {
   const p = dashboardProtocols.find(x => x.id === _editProtId);
   if (!p) return;
+  const saveBtn = document.getElementById('pe-save-btn');
+  if (saveBtn && saveBtn.disabled) return;
+
+  // A name typed but not yet committed (no blur before the tap) still counts
+  _editProtShifts.forEach(function(r, i) { const el = document.getElementById('pe-sh-' + i); if (el) onDashShiftName(i, el.value); });
+  _editProtTransports.forEach(function(t, i) { const el = document.getElementById('pe-drv-' + i); if (el) onDashDriverName(i, el.value); });
+  if (_editProtShifts.some(function(r) { return !r.userId && !(r.name || '').trim(); })) {
+    showToast('Bitte bei jeder Person einen Namen angeben.', 'danger');
+    return;
+  }
 
   const alVal = document.getElementById('pe-al').value.trim();
   const plVal = document.getElementById('pe-pl').value.trim();
@@ -1501,6 +1519,7 @@ async function saveDashProtEdit() {
     : (typeof appUsers !== 'undefined' ? appUsers : []);
   const al = dashResolvePerson(alVal, p.al ? p.al.full_name : (p.al_name_fallback || ''), p.al_id, users);
   const pl = dashResolvePerson(plVal, p.pl ? p.pl.full_name : (p.pl_name_fallback || ''), p.pl_id, users);
+  const rateUsers = typeof appUsers !== 'undefined' ? appUsers : [];
 
   const protPayload = {
     date:            newDate,
@@ -1510,13 +1529,15 @@ async function saveDashProtEdit() {
     pl_id:           pl.id,
     al_name_fallback: al.fallback,
     pl_name_fallback: pl.fallback,
-    // Same formula as the app (transports by date, holiday, employee rates, minimum hours)
-    total_cost:      calcDashProtTotal(newDate, isHoliday, _editProtTransports, p.shifts || []),
+    // Same formula as the app, from the edited transports and the edited personnel (not the stored ones)
+    total_cost:      calcDashProtTotal(newDate, isHoliday, _editProtTransports,
+      _editProtShifts.map(function(r) { return dashShiftRowToDb(r, rateUsers); })),
     notes_damages:   document.getElementById('pe-damages').value.trim()   || null,
     notes_incidents: document.getElementById('pe-incidents').value.trim() || null,
     notes_feedback:  document.getElementById('pe-feedback').value.trim()  || null,
   };
 
+  if (saveBtn) saveBtn.disabled = true;
   try {
     const { data: pRows, error: pErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', _editProtId).select('id');
     if (pErr) throw pErr;
@@ -1524,9 +1545,30 @@ async function saveDashProtEdit() {
     if (!pRows || pRows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung (protocols)');
 
     // Shifts carry their own date (Buchhaltung) → follow a date change
-    if (newDate && newDate !== p.date) {
-      const { error: sdErr } = await supabaseClient.from('shifts').update({ shift_date: newDate }).eq('protocol_id', _editProtId);
+    if (newDate && newDate !== p.date && (p.shifts || []).length) {
+      const { data: sdRows, error: sdErr } = await supabaseClient.from('shifts').update({ shift_date: newDate }).eq('protocol_id', _editProtId).select('id');
       if (sdErr) throw sdErr;
+      if (!sdRows || sdRows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung (shifts)');
+    }
+
+    // Personnel: update existing shifts in place (status and ids survive), insert new rows, delete removed ones
+    const ch = dashShiftChanges(p.shifts || [], _editProtShifts, rateUsers);
+    for (const u of ch.updates) {
+      const { data: uRows, error: uErr } = await supabaseClient.from('shifts').update(u.patch).eq('id', u.id).select('id');
+      if (uErr) throw uErr;
+      if (!uRows || uRows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung (shifts)');
+    }
+    if (ch.inserts.length) {
+      const ort = (p.projects && p.projects.location) || null;
+      const rows = ch.inserts.map(function(r) { return Object.assign({ protocol_id: _editProtId, shift_date: newDate, ort: ort }, r); });
+      const { data: iRows, error: iErr } = await supabaseClient.from('shifts').insert(rows).select('id');
+      if (iErr) throw iErr;
+      if (!iRows || iRows.length !== rows.length) throw new Error('Einfügen abgelehnt – keine Berechtigung (shifts)');
+    }
+    if (ch.deletes.length) {
+      const { data: dRows, error: dErr } = await supabaseClient.from('shifts').delete().in('id', ch.deletes).select('id');
+      if (dErr) throw dErr;
+      if (!dRows || dRows.length !== ch.deletes.length) throw new Error('Löschen abgelehnt – keine Berechtigung (shifts)');
     }
 
     // Re-insert transports (delete first, check error before inserting)
@@ -1570,6 +1612,8 @@ async function saveDashProtEdit() {
   } catch (err) {
     console.error('saveDashProtEdit error:', err);
     showToast('Fehler: ' + (err.message || 'Speichern fehlgeschlagen'), 'danger');
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 

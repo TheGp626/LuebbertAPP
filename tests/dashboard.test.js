@@ -145,3 +145,111 @@ test('recalcAllProtocolCosts: a second tap while it runs does nothing', async ()
   await run('recalcAllProtocolCosts()');
   assert.equal(updates, 2, 'runs again once the first run is done');
 });
+
+// ── Protokoll bearbeiten: shifts are edited in place ──
+const OLD_SHIFTS = [
+  { id: 's1', user_id: 'u1', temp_worker_name: null, position_role: 'AL fest', start_time: '08:00:00', end_time: '16:00:00', pause_mins: 30, status: 'verbucht' },
+  { id: 's2', user_id: null, temp_worker_name: 'Zora', position_role: 'Zenjob', start_time: '09:00:00', end_time: '15:00:00', pause_mins: 0, status: 'offen' },
+  { id: 's3', user_id: 'u2', temp_worker_name: null, position_role: 'MA', start_time: '10:00:00', end_time: '14:00:00', pause_mins: 0, status: 'verbucht' },
+];
+const USERS = [{ id: 'u1', full_name: 'Anna Alt', is_fest: true }, { id: 'u2', full_name: 'Max Muster', is_fest: false }, { id: 'u3', full_name: 'Nora Neu', is_fest: true }];
+const rowsOf = () => plain(run('(' + JSON.stringify(OLD_SHIFTS) + ').map(dashShiftToRow)'));
+
+test('dashShiftToRow: stored shift becomes an editor row (base position, fest kept, HH:MM)', () => {
+  run('appUsers = ' + JSON.stringify(USERS));
+  const r = rowsOf();
+  assert.deepEqual(r[0], { id: 's1', userId: 'u1', name: 'Anna Alt', pos: 'AL', fest: true, start: '08:00', end: '16:00', pause: 30 });
+  assert.deepEqual([r[1].userId, r[1].name, r[1].pos], ['', 'Zora', 'Zenjob']);
+});
+
+function changes(mutate, users) {
+  const rows = rowsOf();
+  mutate(rows);
+  ctx.__rows = rows; ctx.__old = OLD_SHIFTS; ctx.__users = users || USERS;
+  return plain(run('dashShiftChanges(__old, __rows, __users)'));
+}
+
+test('dashShiftChanges: nothing edited → nothing to write (status and ids survive)', () => {
+  assert.deepEqual(changes(() => {}), { updates: [], inserts: [], deletes: [] });
+});
+
+test('dashShiftChanges: changing only one name is exactly one update with only that name', () => {
+  const c = changes(rows => { rows[0].userId = 'u3'; rows[0].name = 'Nora Neu'; rows[0].fest = true; });
+  assert.equal(c.updates.length, 1);
+  assert.deepEqual(c.updates[0], { id: 's1', patch: { user_id: 'u3', temp_worker_name: null } });
+  assert.deepEqual([c.inserts.length, c.deletes.length], [0, 0]);
+});
+
+test('dashShiftChanges: free text name sets temp_worker_name and clears user_id', () => {
+  const c = changes(rows => { rows[2].userId = ''; rows[2].name = 'Gast Person'; });
+  assert.deepEqual(c.updates, [{ id: 's3', patch: { user_id: null, temp_worker_name: 'Gast Person', position_role: 'MA frei' } }]);
+});
+
+test('dashShiftChanges: unchanged position keeps the stored role (legacy "MA" without fest/frei)', () => {
+  const c = changes(rows => { rows[2].start = '11:00'; });
+  assert.deepEqual(c.updates, [{ id: 's3', patch: { start_time: '11:00' } }]);
+});
+
+test('dashShiftChanges: position change recomputes fest/frei, time and pause patch only what changed', () => {
+  const c = changes(rows => { rows[0].pos = 'MA'; rows[0].end = '17:00'; rows[0].pause = '45'; });
+  assert.deepEqual(c.updates, [{ id: 's1', patch: { position_role: 'MA fest', end_time: '17:00', pause_mins: 45 } }]);
+});
+
+test('dashShiftChanges: removed rows are deleted, new rows are inserted as offen', () => {
+  const c = changes(rows => {
+    rows.splice(1, 1);
+    rows.push({ userId: 'u3', name: 'Nora Neu', pos: 'MA', fest: true, start: '08:00', end: '12:00', pause: 0 });
+  });
+  assert.deepEqual(c.deletes, ['s2']);
+  assert.deepEqual(c.inserts, [{ user_id: 'u3', temp_worker_name: null, position_role: 'MA fest', start_time: '08:00', end_time: '12:00', pause_mins: 0, status: 'offen' }]);
+  assert.equal(c.updates.length, 0);
+});
+
+test('dashShiftRowToDb: edited rows give the shifts the total is recalculated from', () => {
+  run('appUsers = ' + JSON.stringify(USERS));
+  const rows = rowsOf();
+  rows[1].end = '19:00';
+  ctx.__rows = rows;
+  const edited = run('__rows.map(function(r) { return dashShiftRowToDb(r, appUsers); })');
+  const stale = OLD_SHIFTS;
+  const f = run('calcDashProtTotal');
+  assert.ok(f('2026-10-28', false, [], edited) > f('2026-10-28', false, [], stale));
+});
+
+test('saveDashProtEdit: one renamed person = one shift update; no shift delete/insert, status and created_by untouched', async () => {
+  const calls = [];
+  const sb = {
+    from(table) {
+      const q = { table, op: 'select', payload: null, filters: [] };
+      const b = {
+        select() { return b; }, order() { return b; },
+        eq(k, v) { q.filters.push([k, v]); return b; }, in(k, v) { q.filters.push([k, v]); return b; },
+        insert(p) { q.op = 'insert'; q.payload = p; return b; }, update(p) { q.op = 'update'; q.payload = p; return b; }, delete() { q.op = 'delete'; return b; },
+        then(res, rej) { calls.push(q); return Promise.resolve({ data: [{ id: 'x' }], error: null }).then(res, rej); },
+      };
+      return b;
+    },
+  };
+  const dom = {
+    'pe-date': { value: '2026-10-28' }, 'pe-action': { value: 'Aufbau' }, 'pe-holiday': { checked: false },
+    'pe-al': { value: 'Anna Alt' }, 'pe-pl': { value: '' }, 'pe-damages': { value: '' }, 'pe-incidents': { value: '' }, 'pe-feedback': { value: '' },
+    'pe-save-btn': { disabled: false },
+    'pe-sh-0': { value: 'Nora Neu' }, 'pe-sh-1': { value: 'Zora' }, 'pe-sh-2': { value: 'Max Muster' },
+  };
+  ctx.document.getElementById = id => dom[id] || null;
+  ctx.supabaseClient = sb;
+  ctx.showToast = () => {};
+  run('appUsers = ' + JSON.stringify(USERS));
+  run('ensureRateUsers = async function() {}; refreshDashboard = async function() {}; openDashDetail = function() {}; closeDashProtEdit = function() {};');
+  ctx.__p = { id: 'p1', date: '2026-10-28', is_holiday: false, al_id: 'u1', pl_id: null, al: { full_name: 'Anna Alt' }, shifts: OLD_SHIFTS, protocol_transports: [], protocol_equipments: [] };
+  run('dashboardProtocols = [__p]; _editProtId = "p1"; _editProtTransports = []; _editProtShifts = __p.shifts.map(dashShiftToRow);');
+  await run('saveDashProtEdit()');
+  const shiftCalls = calls.filter(c => c.table === 'shifts');
+  assert.equal(shiftCalls.length, 1);
+  assert.equal(shiftCalls[0].op, 'update');
+  assert.deepEqual(plain(shiftCalls[0].payload), { user_id: 'u3', temp_worker_name: null });
+  assert.deepEqual(shiftCalls[0].filters, [['id', 's1']]);
+  const prot = calls.find(c => c.table === 'protocols');
+  assert.ok(!('created_by' in prot.payload));
+  assert.equal(prot.payload.al_id, 'u1');
+});

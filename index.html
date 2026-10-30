@@ -574,81 +574,62 @@
     </div>
   </div>
 
-  <!-- DASHBOARD PROTOCOL EDIT MODAL -->
-  <div id="dash-prot-edit-modal" class="sig-modal ui-sheet" style="--sheet-w:700px">
-    <div class="sig-modal-inner" style="max-height:92vh; overflow-y:auto;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-        <h3 style="margin:0; font-size:17px;">Protokoll bearbeiten</h3>
-        <button onclick="closeDashProtEdit()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2);">✕</button>
+  <!-- DASHBOARD PROTOCOL EDIT SHEET -->
+  <div id="dash-prot-edit-modal" class="sig-modal ui-sheet" style="--sheet-w:640px">
+    <div class="sig-modal-inner">
+      <div class="ui-sheet-head">
+        <h3 class="ui-title" style="font-size:18px;">Protokoll bearbeiten</h3>
+        <button type="button" class="ui-icon-btn" onclick="closeDashProtEdit()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
 
-      <!-- Basic info -->
-      <div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
-        <div class="field" style="flex:1; min-width:140px;">
-          <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px;">Datum</label>
-          <input type="date" id="pe-date" class="meta-input">
+      <!-- Basis -->
+      <section class="ui-section">
+        <div class="ui-section-head"><span class="ui-label">Basis</span></div>
+        <div class="prot-date-row">
+          <label class="ui-field"><span>Datum</span><input type="date" id="pe-date"></label>
+          <label class="prot-switch-label"><input type="checkbox" class="ui-switch" id="pe-holiday"> Feiertag</label>
         </div>
-        <div class="field" style="flex:1; min-width:140px;">
-          <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px;">Aktion</label>
-          <select id="pe-action" class="meta-input">
-            <option value="Aufbau">Aufbau</option>
-            <option value="Abbau">Abbau</option>
-            <option value="Aufbau & Abbau">Aufbau & Abbau</option>
-            <option value="Lieferung">Lieferung</option>
-            <option value="Sonstiges">Sonstiges</option>
-          </select>
+        <div class="ui-field"><span>Aktion</span>
+          <div class="ui-seg prot-action-seg" id="pe-action-seg" role="group" aria-label="Aktion"></div>
+          <input type="hidden" id="pe-action">
         </div>
-        <div class="field" style="display:flex; align-items:center; gap:8px; padding-top:20px;">
-          <input type="checkbox" id="pe-holiday" style="width:18px;height:18px;">
-          <label for="pe-holiday" style="font-size:13px;">Feiertag</label>
+        <div class="stunden-grid">
+          <div class="ui-field"><span>Aufbauleitung (AL)</span><div id="pe-al-wrap"></div></div>
+          <div class="ui-field"><span>Projektleitung (PL)</span><div id="pe-pl-wrap"></div></div>
         </div>
-      </div>
-      <div style="display:flex; gap:12px; margin-bottom:16px;">
-        <div class="field" style="flex:1;">
-          <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px;">AL Name</label>
-          <input type="text" id="pe-al" class="meta-input" placeholder="Aufbauleitung">
-        </div>
-        <div class="field" style="flex:1;">
-          <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px;">PL Name</label>
-          <input type="text" id="pe-pl" class="meta-input" placeholder="Projektleitung">
-        </div>
-      </div>
+      </section>
 
-      <!-- Notes -->
-      <div style="margin-bottom:16px;">
-        <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px;">Mängel / Schäden</label>
-        <textarea id="pe-damages" class="meta-input" rows="2" style="resize:vertical;"></textarea>
-      </div>
-      <div style="margin-bottom:16px;">
-        <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px;">Vorkommnisse</label>
-        <textarea id="pe-incidents" class="meta-input" rows="2" style="resize:vertical;"></textarea>
-      </div>
-      <div style="margin-bottom:20px;">
-        <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px;">Feedback Location</label>
-        <textarea id="pe-feedback" class="meta-input" rows="2" style="resize:vertical;"></textarea>
-      </div>
+      <!-- Transporte -->
+      <section class="ui-section">
+        <div class="ui-section-head"><span class="ui-label">Transporte</span></div>
+        <div id="pe-transports"></div>
+        <button type="button" class="ui-add-row" onclick="addDashProtTransport()">+ Transport</button>
+      </section>
 
-      <!-- Transports -->
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <h4 style="margin:0; font-size:14px; color:var(--text3); text-transform:uppercase;">Logistik & Transport</h4>
-        <button onclick="addDashProtTransport()" style="font-size:12px;padding:4px 10px;border:0.5px solid var(--accent);border-radius:var(--radius);background:var(--accent-bg);color:var(--accent-text);cursor:pointer;">+ Hinzufügen</button>
-      </div>
-      <div id="pe-transports" style="margin-bottom:20px; display:flex; flex-direction:column; gap:8px;"></div>
+      <!-- Personal -->
+      <section class="ui-section">
+        <div class="ui-section-head"><span class="ui-label">Personal</span></div>
+        <div id="pe-shifts"></div>
+        <button type="button" class="ui-add-row" onclick="addDashPeShift()">+ Person</button>
+      </section>
 
-      <!-- Equipment -->
-      <h4 style="margin:0 0 10px; font-size:14px; color:var(--text3); text-transform:uppercase;">Gewerke & Ausrüstung</h4>
-      <div id="pe-equipment" style="margin-bottom:24px; display:flex; flex-direction:column; gap:10px;"></div>
+      <!-- Kategorien -->
+      <section class="ui-section">
+        <div class="ui-section-head"><span class="ui-label">Gewerke &amp; Ausrüstung</span></div>
+        <div id="pe-equipment"></div>
+      </section>
 
-      <!-- Shifts -->
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <h4 style="margin:0; font-size:14px; color:var(--text3); text-transform:uppercase;">Personal & Schichten</h4>
-        <button onclick="openAddProtShift()" style="font-size:12px;padding:4px 10px;border:0.5px solid var(--accent);border-radius:var(--radius);background:var(--accent-bg);color:var(--accent-text);cursor:pointer;">+ Hinzufügen</button>
-      </div>
-      <div id="pe-shifts" style="margin-bottom:24px; display:flex; flex-direction:column; gap:6px;"></div>
+      <!-- Notizen -->
+      <section class="ui-section">
+        <div class="ui-section-head"><span class="ui-label">Notizen</span></div>
+        <label class="ui-field"><span>Mängel / Schäden</span><textarea id="pe-damages" rows="2" style="resize: vertical;"></textarea></label>
+        <label class="ui-field"><span>Vorkommnisse</span><textarea id="pe-incidents" rows="2" style="resize: vertical;"></textarea></label>
+        <label class="ui-field"><span>Feedback Location</span><textarea id="pe-feedback" rows="2" style="resize: vertical;"></textarea></label>
+      </section>
 
-      <div style="display:flex; gap:10px;">
-        <button class="btn primary" style="flex:1;" onclick="saveDashProtEdit()">Speichern</button>
-        <button class="btn" style="flex:1;" onclick="closeDashProtEdit()">Abbrechen</button>
+      <div class="ui-sheet-actions">
+        <button type="button" class="ui-btn" onclick="closeDashProtEdit()">Abbrechen</button>
+        <button type="button" class="ui-btn ui-btn-primary" id="pe-save-btn" onclick="saveDashProtEdit()">Speichern</button>
       </div>
     </div>
   </div>
@@ -727,13 +708,6 @@
       <div class="ui-sheet-head">
         <h3 id="shift-edit-title" class="ui-title" style="font-size:18px;">Schicht bearbeiten</h3>
         <button type="button" class="ui-icon-btn" onclick="closeShiftEditModal()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-      </div>
-      <div id="shift-edit-person-row" class="ui-field" style="display:none;">
-        <span>Person</span>
-        <select id="shift-edit-worker-select" onchange="onShiftWorkerSelect(this.value)">
-          <option value="">— Temp / Agentur (Name eingeben) —</option>
-        </select>
-        <input type="text" id="shift-edit-temp-name" placeholder="Name (Zenjob, Rockit, ...)" style="margin-top:6px;">
       </div>
       <div class="stunden-grid">
         <label class="ui-field"><span>Datum</span><input type="date" id="shift-edit-date"></label>
