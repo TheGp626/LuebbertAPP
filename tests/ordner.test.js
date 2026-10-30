@@ -44,3 +44,28 @@ test('ordnerFolderMenu: "Bearbeiten" opens the full folder form', () => {
   ctx.ordnerFolderMenu('f1');
   assert.deepEqual(plain(items), [{ label: 'Bearbeiten', action: 'openOrdnerForm', args: ['f1'] }]);
 });
+
+test('ordnerExpired: only the folder\'s own PL (or Admin) sees expired top-level folders', () => {
+  const folders = [
+    { id: 'a', pl_id: 'pl1', ends_on: '2026-10-01' },
+    { id: 'b', pl_id: 'pl2', ends_on: '2026-09-01' },
+    { id: 'c', pl_id: 'pl1', ends_on: '2026-10-30' },               // ends today → not expired yet
+    { id: 'd', pl_id: 'pl1', ends_on: null },
+    { id: 'e', pl_id: 'pl1', ends_on: '2026-08-01', parent_id: 'a' }, // subfolders follow their parent
+    { id: 'f', pl_id: 'pl1', ends_on: '2026-08-15' },
+  ];
+  const ids = (u, r) => plain(ctx.ordnerExpired(folders, '2026-10-30', u, r)).map(f => f.id);
+  assert.deepEqual(ids('pl1', 'PL'), ['f', 'a']);       // oldest end date first
+  assert.deepEqual(ids('pl2', 'PL'), ['b']);
+  assert.deepEqual(ids('x', 'Admin'), ['f', 'b', 'a']);
+  assert.deepEqual(ids('pl1', 'AL'), []);
+  assert.deepEqual(ids('pl1', 'MA'), []);
+  assert.deepEqual(ids('pl1', 'Gast'), []);
+  assert.deepEqual(ids(null, 'PL'), []);
+  assert.deepEqual(plain(ctx.ordnerExpired(null, '2026-10-30', 'pl1', 'PL')), []);
+});
+
+test('ordnerEndsLabel: German date or empty', () => {
+  assert.equal(ctx.ordnerEndsLabel('2026-10-05'), 'Projektende: 05.10.2026');
+  assert.equal(ctx.ordnerEndsLabel(null), '');
+});

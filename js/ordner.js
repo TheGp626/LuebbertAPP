@@ -9,6 +9,21 @@ var editingOrdnerId = null;
 
 var canManageOrdner = false; // PL / Admin only
 
+// Top-level folders whose end date has passed, for the PL of the folder (and Admin): "Abgelaufen – löschen?".
+// today = ISO date; oldest end date first. Everyone else gets nothing.
+function ordnerExpired(folders, today, userId, role) {
+  if (role !== 'Admin' && !(role === 'PL' && userId)) return [];
+  return (folders || []).filter(function(o) {
+    return !o.parent_id && o.ends_on && o.ends_on < today && (role === 'Admin' || o.pl_id === userId);
+  }).sort(function(a, b) { return a.ends_on < b.ends_on ? -1 : a.ends_on > b.ends_on ? 1 : 0; });
+}
+
+// "Projektende: 05.10.2026" for the detail view, '' without an end date
+function ordnerEndsLabel(endsOn) {
+  var p = String(endsOn || '').split('-');
+  return p.length === 3 ? 'Projektende: ' + p[2] + '.' + p[1] + '.' + p[0] : '';
+}
+
 // ── INIT ──
 async function initOrdner() {
   canManageOrdner = typeof userRole !== 'undefined' && ['PL', 'Admin'].includes(userRole);
@@ -25,7 +40,7 @@ async function fetchOrdner() {
 
   var { data, error } = await supabaseClient
     .from('project_folders')
-    .select('id, name, description, created_at, parent_id, pl_id')
+    .select('id, name, description, created_at, parent_id, pl_id, ends_on')
     .order('name', { ascending: true });
 
   showOrdnerLoading(false);
@@ -42,6 +57,7 @@ function renderOrdner(list) {
   var grid = document.getElementById('ordner-grid');
   var empty = document.getElementById('ordner-empty');
   if (!grid) return;
+  renderOrdnerExpired();
 
   // Top level shows only root folders; subfolders live inside their parent
   list = (list || []).filter(function(o) { return !o.parent_id; });
@@ -54,6 +70,62 @@ function renderOrdner(list) {
   if (empty) empty.style.display = 'none';
 
   grid.innerHTML = list.map(function(o) { return ordnerFolderRowHtml(o, true); }).join('');
+}
+
+// Section at the top of the list: folders past their end date, only for their PL / Admin
+function renderOrdnerExpired() {
+  var box = document.getElementById('ordner-expired');
+  if (!box) return;
+  var me = typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null;
+  var expired = canManageOrdner ? ordnerExpired(alleOrdner, localDateStr(), me, typeof userRole !== 'undefined' ? userRole : '') : [];
+  if (!expired.length) { box.innerHTML = ''; return; }
+  box.innerHTML = '<div class="ui-label">Abgelaufen – löschen?</div><div class="ui-list" style="margin-bottom:14px;">' +
+    expired.map(function(o) {
+      return '<div class="ui-row ui-row-wrap"><div class="ui-row-main"><div class="ui-row-title">' + escOrdner(o.name) + '</div>' +
+        '<div class="ui-sub">' + escOrdner(ordnerEndsLabel(o.ends_on)) + '</div></div>' +
+        '<div class="ui-row-end">' +
+          '<button type="button" class="ui-btn ui-btn-danger dash-small-btn" onclick="deleteExpiredOrdner(\'' + o.id + '\')">Löschen</button>' +
+          '<button type="button" class="ui-btn dash-small-btn" onclick="openOrdnerKeep(\'' + o.id + '\')">Behalten</button>' +
+        '</div></div>';
+    }).join('') + '</div>';
+}
+
+// "Behalten": small sheet for a new end date (default: in 30 days)
+function openOrdnerKeep(id) {
+  var m = document.getElementById('ordner-keep-modal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'ordner-keep-modal';
+    m.className = 'sig-modal ui-sheet';
+    m.style.setProperty('--sheet-w', '420px');
+    m.innerHTML = '<div class="sig-modal-inner">' +
+      '<div class="ui-sheet-head"><h3 class="ui-title" style="font-size:18px;">Ordner behalten</h3></div>' +
+      '<label class="ui-field"><span>Neues Projektende</span><input type="date" id="ordner-keep-date" /></label>' +
+      '<div class="ui-sheet-actions"><button type="button" class="ui-btn" onclick="closeOrdnerKeep()">Abbrechen</button>' +
+      '<button type="button" class="ui-btn ui-btn-primary" id="ordner-keep-save">Speichern</button></div></div>';
+    m.addEventListener('click', function(e) { if (e.target === m) closeOrdnerKeep(); });
+    document.body.appendChild(m);
+  }
+  document.getElementById('ordner-keep-date').value = wpAddDays(localDateStr(), 30);
+  document.getElementById('ordner-keep-save').onclick = function() { saveOrdnerKeep(id); };
+  m.classList.add('open');
+}
+
+function closeOrdnerKeep() {
+  var m = document.getElementById('ordner-keep-modal');
+  if (m) m.classList.remove('open');
+}
+
+async function saveOrdnerKeep(id) {
+  var date = (document.getElementById('ordner-keep-date') || {}).value;
+  if (!date) { showToast('Bitte ein Datum wählen.', 'danger'); return; }
+  var { data, error } = await supabaseClient.from('project_folders').update({ ends_on: date }).eq('id', id).select('id');
+  if (error || !data || !data.length) { showToast('Fehler: ' + (error ? error.message : 'Projektende nicht gespeichert'), 'danger'); return; }
+  var o = alleOrdner.find(function(x) { return x.id === id; });
+  if (o) o.ends_on = date;
+  closeOrdnerKeep();
+  showToast('Projektende verschoben.');
+  renderOrdner(alleOrdner);
 }
 
 // One folder as a list row (list view and subfolders)
@@ -107,6 +179,8 @@ async function openOrdnerDetail(id) {
   var titleEl = document.getElementById('ordner-detail-title');
   if (titleEl) titleEl.textContent = ordnerBreadcrumb(folder);
   ordnerSetTitle(ordnerBreadcrumb(folder));
+  var endsEl = document.getElementById('ordner-ends'), endsText = ordnerEndsLabel(folder.ends_on);
+  if (endsEl) { endsEl.textContent = endsText; endsEl.style.display = endsText ? 'block' : 'none'; }
   initOrdnerDragDrop();
 
   // Upload is the main action; Unterordner, PL & Einsätze and Löschen live in the top bar "…"
@@ -381,6 +455,8 @@ async function openOrdnerForm(id) {
   if (title) title.textContent = o ? 'Ordner bearbeiten' : 'Neuer Ordner';
   if (nameInp) nameInp.value = o ? o.name : '';
   if (descInp) descInp.value = o ? (o.description || '') : '';
+  var endsInp = document.getElementById('inp-ordner-ends');
+  if (endsInp) endsInp.value = o && o.ends_on ? o.ends_on : '';
 
   await loadOrdnerUsers();
   var plSel = document.getElementById('inp-ordner-pl');
@@ -457,7 +533,8 @@ async function saveOrdner() {
   var payload = {
     name: name,
     description: desc || null,
-    pl_id: plId
+    pl_id: plId,
+    ends_on: ((document.getElementById('inp-ordner-ends') || {}).value || '') || null
   };
 
   var folderId = editingOrdnerId;
@@ -550,10 +627,19 @@ function collectOrdnerTreeIds(rootId) {
 }
 
 async function deleteCurrentOrdner() {
-  if (!aktuellerOrdner) return;
-  var treeIds = collectOrdnerTreeIds(aktuellerOrdner.id);
+  if (aktuellerOrdner) await deleteOrdner(aktuellerOrdner);
+}
+
+// "Löschen" in the expired section of the list: same flow (confirm, files, folder) as in the detail view
+async function deleteExpiredOrdner(id) {
+  var o = alleOrdner.find(function(x) { return x.id === id; });
+  if (o) await deleteOrdner(o);
+}
+
+async function deleteOrdner(folder) {
+  var treeIds = collectOrdnerTreeIds(folder.id);
   var subCount = treeIds.length - 1;
-  var msg = 'Ordner "' + aktuellerOrdner.name + '"' +
+  var msg = 'Ordner "' + folder.name + '"' +
     (subCount > 0 ? ' inkl. ' + subCount + ' Unterordner(n)' : '') +
     ' und alle enthaltenen Dateien wirklich löschen?';
   if (!confirm(msg)) return;
@@ -567,10 +653,10 @@ async function deleteCurrentOrdner() {
   }).filter(Boolean);
   if (paths.length) await supabaseClient.storage.from('project-files').remove(paths);
 
-  var { error } = await supabaseClient.from('project_folders').delete().eq('id', aktuellerOrdner.id);
+  var { error } = await supabaseClient.from('project_folders').delete().eq('id', folder.id);
   if (error) { showToast('Fehler: ' + error.message, 'danger'); return; }
   showToast('Ordner gelöscht.');
-  var parentId = aktuellerOrdner.parent_id;
+  var parentId = folder.parent_id;
   closeOrdnerDetail();
   await fetchOrdner();
   if (parentId) await openOrdnerDetail(parentId);

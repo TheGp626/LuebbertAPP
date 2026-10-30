@@ -397,6 +397,7 @@
               <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="produkt-add-label">Ordner</span>
             </button>
           </div>
+          <div id="ordner-expired"></div>
           <div id="ordner-loading" style="display:none;" class="ui-empty"><div class="ui-sub">Ordner werden geladen…</div></div>
           <div id="ordner-grid" class="ui-list"></div>
           <div id="ordner-empty" class="ui-empty" style="display:none;">
@@ -409,6 +410,7 @@
         <div id="ordner-detail-view" style="display:none;">
           <button type="button" class="stunden-link ordner-back" onclick="ordnerGoBack()">‹ Zurück</button>
           <h2 id="ordner-detail-title" class="ui-title ordner-title">Ordner</h2>
+          <div id="ordner-ends" class="ui-sub" style="display:none; margin:-6px 2px 10px;"></div>
           <div id="ordner-einsaetze" style="display:none;"></div>
           <input type="file" id="ordner-file-input" multiple style="display:none;" onchange="handleOrdnerFileInput(this)">
           <div id="ordner-subfolder-grid" style="display:none;"></div>
@@ -494,6 +496,7 @@
       <label class="ui-field"><span>Ordnername *</span><input type="text" id="inp-ordner-name" placeholder="z. B. Projekt Berlin 2024" /></label>
       <label class="ui-field"><span>Beschreibung</span><input type="text" id="inp-ordner-desc" placeholder="Kurze Beschreibung…" /></label>
       <label class="ui-field"><span>Projektleitung (PL)</span><select id="inp-ordner-pl"></select></label>
+      <label class="ui-field"><span>Projektende (optional)</span><input type="date" id="inp-ordner-ends" /></label>
       <div class="ui-field"><span>Einsätze (für die Protokoll-Erinnerung an die AL)</span>
         <div id="ordner-einsatz-rows" style="display:flex; flex-direction:column; gap:8px;"></div>
         <button type="button" class="ui-add-row" style="margin-top:8px;" onclick="addEinsatzRow()">+ Einsatz</button>
