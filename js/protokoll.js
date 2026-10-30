@@ -179,14 +179,6 @@ function populateAlPlSelects() {
   var alSel = document.getElementById('prot-al');
   var plSel = document.getElementById('prot-pl');
 
-  // Shared datalist that powers the type-to-search personnel inputs
-  var dl = document.getElementById('prot-users-datalist');
-  if (dl) {
-    dl.innerHTML = appUsers.map(function(u) {
-      return '<option value="' + escapeHtml(u.full_name || u.email || '') + '"></option>';
-    }).join('');
-  }
-
   if (alSel) {
     var alUsers = appUsers.filter(function(u) { return u.role === 'AL' || u.role === 'Admin'; });
     alSel.innerHTML = '<option value="">— AL auswählen —</option>' +
@@ -356,7 +348,7 @@ function renderProtTransport() {
       '<div class="ui-row-body">' +
         '<div class="stunden-grid">' +
           '<label class="ui-field"><span>Fahrzeugtyp</span><select onchange="updateProtTransport(' + i + ', \'type\', this.value)">' + vehicles + '</select></label>' +
-          '<label class="ui-field"><span>Fahrer</span><input type="text" placeholder="Name" value="' + escapeHtml(t.driver || '') + '" oninput="updateProtTransport(' + i + ', \'driver\', this.value)"/></label>' +
+          '<div class="ui-field"><span>Fahrer</span>' + uiComboHtml('prot-drv-' + i, t.driver || '', 'Name tippen…', 'onProtDriverName', i) + '</div>' +
         '</div>' +
         (t.type === 'Spedition' ? '<div class="ui-sub" style="margin:-4px 2px 10px;">Kosten separat per Rechnung erfassen</div>' : '') +
         '<div class="stunden-grid">' +
@@ -384,6 +376,21 @@ function updateProtTransport(idx, field, val) {
   if (sum) sum.textContent = protTransportSummary(protState.transports[idx]);
   saveProtDraft();
   if (field === 'type') { calcProtCosts(); renderProtTransport(); }
+}
+
+// Driver picked from the list or typed: a registered user sets driverUserId, free text clears it
+function onProtDriverName(idx, val) {
+  var typed = (val || '').trim();
+  var lower = typed.toLowerCase();
+  var exact = appUsers.filter(function(u) { return (u.full_name || '').toLowerCase() === lower; });
+  var t = protState.transports[idx];
+  if (!t) return;
+  t.driver = typed;
+  t.driverUserId = exact.length === 1 ? exact[0].id : '';
+  var sum = document.getElementById('prot-tsum-' + idx);
+  if (sum) sum.textContent = protTransportSummary(t);
+  saveProtDraft();
+  calcProtCosts();
 }
 
 // ── PERSONNEL ──
@@ -469,7 +476,7 @@ function renderProtPersonnel() {
     var unregistered = !p.isTemp && !p.userId && p.name;
     var nameField = p.isTemp
       ? '<input type="text" placeholder="Aushilfe Name" value="' + escapeHtml(p.tempName || '') + '" oninput="updateProtPersonnel(' + i + ', \'tempName\', this.value)"/>'
-      : '<input type="text" placeholder="Name tippen…" list="prot-users-datalist" autocomplete="off" value="' + escapeHtml(p.name || '') + '" onchange="onProtPersonnelName(' + i + ', this.value)"/>';
+      : uiComboHtml('prot-pn-' + i, p.name || '', 'Name tippen…', 'onProtPersonnelName', i);
     return '<div class="ui-row ui-row-wrap' + (protOpenRows[key] ? ' ui-row-open' : '') + '">' +
       '<div class="ui-row-main" onclick="toggleProtRow(\'' + key + '\')">' +
         '<div class="ui-row-title"><span id="prot-pname-' + i + '">' + escapeHtml(p.name || p.tempName || 'Ohne Name') + '</span> <span class="ui-pill ui-pill-info">' + escapeHtml(p.pos || '') + '</span></div>' +

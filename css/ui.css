@@ -42,6 +42,8 @@
 .ui-field { display: block; margin-bottom: 12px; text-align: left; }
 .ui-field > span { display: block; font-size: 13px; color: var(--text2); margin-bottom: 4px; }
 .ui-field input, .ui-field select, .ui-field textarea { width: 100%; min-height: 44px; padding: 10px 12px; border: 0.5px solid var(--border2); border-radius: var(--r-control); background: var(--bg); color: var(--text); font-size: 16px; box-sizing: border-box; }
+.ui-combo { position: relative; }
+.ui-combo-list { max-height: 200px; -webkit-overflow-scrolling: touch; }
 .ui-field input:focus, .ui-field select:focus, .ui-field textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
 
 /* ── Pills, avatars ── */

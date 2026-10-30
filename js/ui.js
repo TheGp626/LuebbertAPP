@@ -74,6 +74,74 @@ function closeUiMenu() {
   if (m) m.classList.remove('open');
 }
 
+// ── Name combobox (same behaviour as the login picker; iOS shows nothing for <datalist>) ──
+
+// Users whose full_name contains the query (case-insensitive), sorted by name; empty query = everyone
+function uiComboMatches(users, query) {
+  var q = String(query || '').toLowerCase().trim();
+  return (users || []).filter(function(u) { return !q || (u.full_name || '').toLowerCase().includes(q); })
+    .sort(function(a, b) {
+      if (!a.full_name !== !b.full_name) return a.full_name ? -1 : 1; // nameless entries last
+      return (a.full_name || '').localeCompare(b.full_name || '', 'de', { sensitivity: 'base' });
+    });
+}
+
+// pickFn(arg, name) is a global function; called on a pick from the list and on a typed free name (on blur)
+function uiComboHtml(id, value, placeholder, pickFn, arg) {
+  return '<div class="ui-combo"><input type="text" id="' + uiEsc(id) + '" placeholder="' + uiEsc(placeholder || '') + '" autocomplete="off" autocapitalize="words" value="' + uiEsc(value) + '"' +
+    ' data-pick="' + uiEsc(pickFn) + '" data-arg="' + uiEsc(arg) + '" />' +
+    '<div class="combo-list ui-combo-list" style="display:none;"></div></div>';
+}
+
+function uiComboRender(inp) {
+  var list = inp.parentNode.querySelector('.ui-combo-list');
+  if (!list) return;
+  var users = uiComboMatches(typeof appUsers !== 'undefined' ? appUsers : [], inp.value);
+  list.innerHTML = users.length
+    ? users.map(function(u) { return '<div class="combo-item" data-name="' + uiEsc(u.full_name || u.email || '') + '">' + uiEsc(u.full_name || u.email || '') + '</div>'; }).join('')
+    : '<div class="combo-empty">Kein Treffer</div>';
+  list.style.display = 'block';
+  // Keep the list in view above the on-screen keyboard
+  if (list.scrollIntoView) list.scrollIntoView({ block: 'nearest' });
+}
+
+function uiComboCommit(inp, name) {
+  var fn = window[inp.dataset.pick];
+  var arg = /^\d+$/.test(inp.dataset.arg) ? parseInt(inp.dataset.arg, 10) : inp.dataset.arg;
+  if (typeof fn === 'function') fn(arg, name);
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('focusin', function(e) {
+    if (e.target.closest && e.target.closest('.ui-combo') && e.target.tagName === 'INPUT') uiComboRender(e.target);
+  });
+  document.addEventListener('input', function(e) {
+    if (e.target.closest && e.target.closest('.ui-combo') && e.target.tagName === 'INPUT') uiComboRender(e.target);
+  });
+  // mousedown fires before the input's blur, so taps on entries always land
+  document.addEventListener('mousedown', function(e) {
+    var item = e.target.closest && e.target.closest('.ui-combo .combo-item');
+    if (!item) return;
+    e.preventDefault();
+    var inp = item.closest('.ui-combo').querySelector('input');
+    inp.value = item.dataset.name;
+    item.parentNode.style.display = 'none';
+    uiComboCommit(inp, item.dataset.name);
+  });
+  document.addEventListener('focusout', function(e) {
+    if (!(e.target.closest && e.target.closest('.ui-combo') && e.target.tagName === 'INPUT')) return;
+    var inp = e.target;
+    setTimeout(function() {
+      var list = inp.parentNode && inp.parentNode.querySelector('.ui-combo-list');
+      if (list) list.style.display = 'none';
+    }, 150);
+  });
+  // A name typed out as free text is committed on blur (a pick commits itself and re-renders the row)
+  document.addEventListener('change', function(e) {
+    if (e.target.closest && e.target.closest('.ui-combo') && e.target.tagName === 'INPUT') uiComboCommit(e.target, e.target.value);
+  });
+}
+
 // Modules add their own top bar "…" entries: UI_TOPBAR_ITEMS[mode] = function() { return [items] }
 var UI_TOPBAR_ITEMS = {};
 
@@ -88,5 +156,5 @@ function openTopbarMenu() {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { UI_ICONS: UI_ICONS, uiIcon: uiIcon, uiEmptyHtml: uiEmptyHtml, uiMenuHtml: uiMenuHtml,
-    UI_TOPBAR_ITEMS: UI_TOPBAR_ITEMS, topbarMenuItems: topbarMenuItems };
+    UI_TOPBAR_ITEMS: UI_TOPBAR_ITEMS, topbarMenuItems: topbarMenuItems, uiComboMatches: uiComboMatches, uiComboHtml: uiComboHtml };
 }

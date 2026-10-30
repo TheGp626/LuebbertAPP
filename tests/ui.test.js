@@ -31,6 +31,26 @@ test('uiIcon returns an svg for known names and empty svg for unknown', () => {
     .forEach(n => assert.ok(U.UI_ICONS[n], n));
 });
 
+test('uiComboMatches: empty query lists everyone by name, otherwise case-insensitive contains', () => {
+  const users = [{ id: '1', full_name: 'Zora Test' }, { id: '2', full_name: 'anna Muster' }, { id: '3', full_name: 'Bert Beispiel' }, { id: '4', email: 'x@y.z' }];
+  assert.deepEqual(U.uiComboMatches(users, '').map(u => u.id), ['2', '3', '1', '4']);
+  assert.deepEqual(U.uiComboMatches(users, '  ').length, 4);
+  assert.deepEqual(U.uiComboMatches(users, 'MUS').map(u => u.id), ['2']);
+  assert.deepEqual(U.uiComboMatches(users, 'e').map(u => u.id), ['2', '3', '1']);
+  assert.deepEqual(U.uiComboMatches(users, 'zzz'), []);
+  assert.deepEqual(U.uiComboMatches(null, 'a'), []);
+});
+
+test('uiComboHtml: input with escaped value, pick handler and arg, empty list container', () => {
+  const h = U.uiComboHtml('c1', 'A "B" <x>', 'Name', 'onPick', 3);
+  assert.match(h, /class="ui-combo"/);
+  assert.match(h, /id="c1"/);
+  assert.match(h, /value="A &quot;B&quot; &lt;x&gt;"/);
+  assert.match(h, /data-pick="onPick"/);
+  assert.match(h, /data-arg="3"/);
+  assert.match(h, /class="combo-list ui-combo-list"/);
+});
+
 // Send/save buttons are disabled while a request runs (double-submit protection); their selectors must match the markup
 test('buttons disabled during Senden / Speichern are found by the JS selectors', () => {
   const fs = require('fs'), path = require('path');
