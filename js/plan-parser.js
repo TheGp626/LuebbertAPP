@@ -647,7 +647,7 @@ function planIcsUid(key) {
 
 function planIcs(shifts, userId, stamp) {
   var lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Luebbert//Stundenzettel//DE', 'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH', 'X-WR-CALNAME:Lübbert Schichten'];
+    'METHOD:PUBLISH', 'X-WR-CALNAME:Lübbert Schichten', 'REFRESH-INTERVAL;VALUE=DURATION:PT1H', 'X-PUBLISHED-TTL:PT1H'];
   (shifts || []).forEach(function(s) {
     var wann = planLines(s.wann), when = planWhen(wann);
     var loc = planLines(s.location), plz = loc.findIndex(function(l) { return /^\d{5}\b/.test(l); });
