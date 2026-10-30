@@ -89,8 +89,24 @@ function uiComboMatches(users, query) {
 // pickFn(arg, name) is a global function; called on a pick from the list and on a typed free name (on blur)
 function uiComboHtml(id, value, placeholder, pickFn, arg) {
   return '<div class="ui-combo"><input type="text" id="' + uiEsc(id) + '" placeholder="' + uiEsc(placeholder || '') + '" autocomplete="off" autocapitalize="words" value="' + uiEsc(value) + '"' +
-    ' data-pick="' + uiEsc(pickFn) + '" data-arg="' + uiEsc(arg) + '" />' +
-    '<div class="combo-list ui-combo-list" style="display:none;"></div></div>';
+    ' role="combobox" aria-autocomplete="list" aria-expanded="false" data-pick="' + uiEsc(pickFn) + '" data-arg="' + uiEsc(arg) + '" />' +
+    '<div class="combo-list ui-combo-list" role="listbox" style="display:none;"></div></div>';
+}
+
+// Keyboard handling as a pure helper: returns { index } (new highlight), { pick }, { close } or null
+function uiComboKeyAction(key, index, count) {
+  if (key === 'Escape') return { close: true };
+  if (!count) return null;
+  if (key === 'ArrowDown') return { index: index >= count - 1 ? 0 : index + 1 };
+  if (key === 'ArrowUp') return { index: index <= 0 ? count - 1 : index - 1 };
+  if (key === 'Enter') return index >= 0 && index < count ? { pick: index } : null;
+  return null;
+}
+
+function uiComboClose(inp) {
+  var list = inp.parentNode && inp.parentNode.querySelector('.ui-combo-list');
+  if (list) list.style.display = 'none';
+  inp.setAttribute('aria-expanded', 'false');
 }
 
 function uiComboRender(inp) {
@@ -98,9 +114,10 @@ function uiComboRender(inp) {
   if (!list) return;
   var users = uiComboMatches(typeof appUsers !== 'undefined' ? appUsers : [], inp.value);
   list.innerHTML = users.length
-    ? users.map(function(u) { return '<div class="combo-item" data-name="' + uiEsc(u.full_name || u.email || '') + '">' + uiEsc(u.full_name || u.email || '') + '</div>'; }).join('')
+    ? users.map(function(u) { return '<div class="combo-item" role="option" data-name="' + uiEsc(u.full_name || u.email || '') + '">' + uiEsc(u.full_name || u.email || '') + '</div>'; }).join('')
     : '<div class="combo-empty">Kein Treffer</div>';
   list.style.display = 'block';
+  inp.setAttribute('aria-expanded', 'true');
   // Keep the list in view above the on-screen keyboard
   if (list.scrollIntoView) list.scrollIntoView({ block: 'nearest' });
 }
@@ -118,6 +135,33 @@ if (typeof document !== 'undefined') {
   document.addEventListener('input', function(e) {
     if (e.target.closest && e.target.closest('.ui-combo') && e.target.tagName === 'INPUT') uiComboRender(e.target);
   });
+  // Tapping the already focused input (e.g. after a pick) reopens the list
+  document.addEventListener('click', function(e) {
+    if (e.target.closest && e.target.closest('.ui-combo') && e.target.tagName === 'INPUT') uiComboRender(e.target);
+  });
+  document.addEventListener('keydown', function(e) {
+    var inp = e.target;
+    if (!(inp.closest && inp.closest('.ui-combo') && inp.tagName === 'INPUT')) return;
+    var list = inp.parentNode.querySelector('.ui-combo-list');
+    var items = list ? list.querySelectorAll('.combo-item') : [];
+    var open = list && list.style.display !== 'none';
+    var cur = -1;
+    for (var i = 0; i < items.length; i++) if (items[i].classList.contains('combo-active')) cur = i;
+    if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { uiComboRender(inp); return; }
+    if (!open) return;
+    var act = uiComboKeyAction(e.key, cur, items.length);
+    if (!act) return;
+    e.preventDefault();
+    if (act.close) { uiComboClose(inp); return; }
+    if (act.pick !== undefined) {
+      inp.value = items[act.pick].dataset.name;
+      uiComboClose(inp);
+      uiComboCommit(inp, items[act.pick].dataset.name);
+      return;
+    }
+    for (var j = 0; j < items.length; j++) items[j].classList.toggle('combo-active', j === act.index);
+    if (items[act.index].scrollIntoView) items[act.index].scrollIntoView({ block: 'nearest' });
+  });
   // mousedown fires before the input's blur, so taps on entries always land
   document.addEventListener('mousedown', function(e) {
     var item = e.target.closest && e.target.closest('.ui-combo .combo-item');
@@ -125,15 +169,14 @@ if (typeof document !== 'undefined') {
     e.preventDefault();
     var inp = item.closest('.ui-combo').querySelector('input');
     inp.value = item.dataset.name;
-    item.parentNode.style.display = 'none';
+    uiComboClose(inp);
     uiComboCommit(inp, item.dataset.name);
   });
   document.addEventListener('focusout', function(e) {
     if (!(e.target.closest && e.target.closest('.ui-combo') && e.target.tagName === 'INPUT')) return;
     var inp = e.target;
     setTimeout(function() {
-      var list = inp.parentNode && inp.parentNode.querySelector('.ui-combo-list');
-      if (list) list.style.display = 'none';
+      uiComboClose(inp);
     }, 150);
   });
   // A name typed out as free text is committed on blur (a pick commits itself and re-renders the row)
@@ -156,5 +199,5 @@ function openTopbarMenu() {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { UI_ICONS: UI_ICONS, uiIcon: uiIcon, uiEmptyHtml: uiEmptyHtml, uiMenuHtml: uiMenuHtml,
-    UI_TOPBAR_ITEMS: UI_TOPBAR_ITEMS, topbarMenuItems: topbarMenuItems, uiComboMatches: uiComboMatches, uiComboHtml: uiComboHtml };
+    UI_TOPBAR_ITEMS: UI_TOPBAR_ITEMS, topbarMenuItems: topbarMenuItems, uiComboMatches: uiComboMatches, uiComboHtml: uiComboHtml, uiComboKeyAction: uiComboKeyAction };
 }

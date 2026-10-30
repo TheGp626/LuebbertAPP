@@ -9,8 +9,8 @@
   --r-control: 10px; --r-card: 14px; --r-hero: 18px;
   --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px;
 }
-[data-theme="dark"] { --warn: #f2b85c; --warn-bg: #3a2a0c; --ok: #9fd06a; --ok-bg: #1e3310; --danger-bg: #3a1616; }
-@media(prefers-color-scheme:dark) { [data-theme="auto"] { --warn: #f2b85c; --warn-bg: #3a2a0c; --ok: #9fd06a; --ok-bg: #1e3310; --danger-bg: #3a1616; } }
+[data-theme="dark"] { --warn: #f2b85c; --warn-bg: #3a2a0c; --ok: #9fd06a; --ok-bg: #1e3310; --danger: #f08080; --danger-bg: #3a1616; }
+@media(prefers-color-scheme:dark) { [data-theme="auto"] { --warn: #f2b85c; --warn-bg: #3a2a0c; --ok: #9fd06a; --ok-bg: #1e3310; --danger: #f08080; --danger-bg: #3a1616; } }
 
 /* ── Type ── */
 .ui-title { font-size: 22px; font-weight: 700; line-height: 1.2; margin: 0; }
@@ -200,3 +200,4 @@ input[type=checkbox].ui-switch:checked::before { transform: translateX(18px); }
 
 /* "Meine · Alle" switch above lists */
 .prot-scope-seg { max-width: 220px; margin: 0 0 12px; }
+.toast.toast-danger { background: #A32D2D; color: #fff; border-color: transparent; }

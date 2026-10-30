@@ -63,3 +63,15 @@ test('buttons disabled during Senden / Speichern are found by the JS selectors',
   const prodForm = html.slice(html.indexOf('id="produkt-form"'), html.indexOf('PRODUKT VIEWER MODAL'));
   assert.match(prodForm, /class="ui-btn ui-btn-primary" onclick="saveProdukt\(\)"/);
 });
+
+test('uiComboNextIndex: arrows move and wrap, Enter picks, Escape closes', () => {
+  assert.deepEqual(U.uiComboKeyAction('ArrowDown', -1, 3), { index: 0 });
+  assert.deepEqual(U.uiComboKeyAction('ArrowDown', 2, 3), { index: 0 });
+  assert.deepEqual(U.uiComboKeyAction('ArrowUp', -1, 3), { index: 2 });
+  assert.deepEqual(U.uiComboKeyAction('ArrowUp', 0, 3), { index: 2 });
+  assert.deepEqual(U.uiComboKeyAction('Enter', 1, 3), { pick: 1 });
+  assert.equal(U.uiComboKeyAction('Enter', -1, 3), null);
+  assert.deepEqual(U.uiComboKeyAction('Escape', 1, 3), { close: true });
+  assert.equal(U.uiComboKeyAction('ArrowDown', -1, 0), null);
+  assert.equal(U.uiComboKeyAction('a', 0, 3), null);
+});

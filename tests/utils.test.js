@@ -177,3 +177,20 @@ test('userHasRole: main role or an additional role from the Personalbogen (first
   assert.equal(userHasRole({ role: 'MA' }, 'AL'), false);
   assert.equal(userHasRole(null, 'AL'), false);
 });
+
+test('showToast: honours type, clears the previous timer', () => {
+  const cls = new Set();
+  const t = { textContent: '', classList: { add: c => cls.add(c), remove: c => cls.delete(c), toggle: (c, on) => on ? cls.add(c) : cls.delete(c) } };
+  const timers = []; const cleared = [];
+  const fakeSet = (fn, ms) => { timers.push(fn); return timers.length; };
+  const fakeClear = id => cleared.push(id);
+  const showToast = new Function('document', 'setTimeout', 'clearTimeout', grab('showToast') + '; return showToast;')(
+    { getElementById: () => t }, fakeSet, fakeClear);
+  showToast('Fehler', 'danger');
+  assert.ok(cls.has('show') && cls.has('toast-danger'));
+  showToast('Ok', 'success');
+  assert.ok(!cls.has('toast-danger'));
+  assert.deepEqual(cleared, [1]); // first timer cleared by the second toast
+  showToast('Info');
+  assert.ok(!cls.has('toast-danger'));
+});
