@@ -7,6 +7,7 @@ export const SETTINGS_DEFAULTS = Object.freeze({
   evening_push_enabled: false,
   evening_push_hour: 18,
   plan_change_push_enabled: true,
+  folder_push_enabled: true,
   protocol_mail_enabled: true,
   mail_test_mode: true,
   billing_cutoff: 20,

@@ -482,11 +482,28 @@ async function saveOrdner() {
     return;
   }
   showToast(wasNew ? '✅ Ordner erstellt.' : '✅ Ordner aktualisiert.');
+  // Push to ALs not told about this folder yet (the function decides who; a failure must not affect the save)
+  if (einsaetze.length) {
+    try {
+      supabaseClient.functions.invoke('notify-folder', { body: { folder_id: folderId } })
+        .then(function(r) { if (r.error) console.error('Ordner-Push:', r.error); })
+        .catch(function(e) { console.error('Ordner-Push:', e); });
+    } catch (e) { console.error('Ordner-Push:', e); }
+  }
   var returnId = _ordnerFormReturnId;
   _ordnerFormReturnId = null;
   closeOrdnerForm();
   await fetchOrdner();
   if (returnId) await openOrdnerDetail(returnId);
+}
+
+// Notification tap opens ./index.html?open=ordner
+function handleOrdnerDeepLink() {
+  var params = new URLSearchParams(location.search);
+  if (params.get('open') !== 'ordner') return;
+  history.replaceState(null, '', location.pathname);
+  if (typeof currentUser === 'undefined' || !currentUser) return;
+  selectMode('ordner');
 }
 
 // Detail view: PL + jobs with protocol status

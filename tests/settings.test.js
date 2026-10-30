@@ -27,6 +27,7 @@ test('defaults when nothing is cached', () => {
   assert.equal(S.appSetting('billing_cutoff'), 20);
   assert.equal(S.appSetting('mail_test_mode'), true);
   assert.equal(S.appSetting('plan_reminders_enabled'), false);
+  assert.equal(S.appSetting('folder_push_enabled'), true);
 });
 
 test('offline: cached values are used, missing keys keep their default', () => {
