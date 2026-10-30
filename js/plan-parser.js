@@ -539,20 +539,49 @@ function planShiftFromDb(r) {
   };
 }
 
-// Plan shifts (planShiftFromDb shape) within [from, to] (ISO dates) that no protocol covers: a protocol of the
-// same date whose event name equals planEventName(shift) (trimmed, case-insensitive). One entry per day and
-// event, newest first. protocols = [{ date, event }]
+// Words too generic to tie a protocol to an event (rooms, venue, work steps, filler)
+var PLAN_MATCH_STOP = ['kongress', 'deko', 'empfang', 'estrel', 'berlin', 'aufbau', 'abbau', 'umbau', 'saal', 'foyer', 'halle',
+  'stand', 'messe', 'raum', 'allen', 'bereichen', 'und', 'der', 'die', 'das', 'fur', 'mit', 'event', 'hotel', 'forum'];
+
+// "Tierärztekongress/DGT (Aufbau)" → ['tierarztekongress', 'dgt']: lowercase, umlauts folded, 3+ letters, no stop words
+function planMatchTokens(text) {
+  return String(text || '').toLowerCase().replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ß/g, 'ss')
+    .split(/[^a-z0-9]+/).filter(function(w) { return w.length >= 3 && !/^\d+$/.test(w) && PLAN_MATCH_STOP.indexOf(w) === -1; });
+}
+
+// Same word, or long words with the same first 5 letters (typos like "Tierärtze"/"Tierärzte")
+function planTokensMatch(a, b) {
+  return a.some(function(x) {
+    return b.some(function(y) { return x === y || (x.length >= 5 && y.length >= 5 && x.slice(0, 5) === y.slice(0, 5)); });
+  });
+}
+
+// Words of a shift that name its event: event name, title and the location lines after the postcode (not the venue)
+function planShiftMatchTokens(s) {
+  var loc = planLines(s.location), i = loc.findIndex(function(l) { return /^\d{5}\b/.test(l); });
+  return planMatchTokens([planEventName(s), s.title].concat(i < 0 ? [] : loc.slice(i + 1)).join(' '));
+}
+
+// Plan shifts (planShiftFromDb shape) within [from, to] (ISO dates) that need a protocol and have none: only shifts
+// with an AL; covered = a protocol of the same date whose name shares a distinctive word with the shift (see
+// planTokensMatch). One entry per day and event (count = plan rows merged into it), newest first.
+// protocols = [{ date, event }]
 function planWithoutProtocol(shifts, protocols, from, to) {
   var norm = function(s) { return String(s || '').trim().toLowerCase(); };
-  var seen = {};
-  (protocols || []).forEach(function(p) { seen[p.date + '|' + norm(p.event)] = true; });
-  return (shifts || []).filter(function(s) {
-    if (s.date < from || s.date > to) return false;
+  var protByDate = {};
+  (protocols || []).forEach(function(p) { (protByDate[p.date] = protByDate[p.date] || []).push(planMatchTokens(p.event)); });
+  var byKey = {}, out = [];
+  (shifts || []).forEach(function(s) {
+    if (s.date < from || s.date > to) return;
+    if (!(s.people || []).some(function(p) { return p.role === 'AL'; })) return;
+    var tokens = planShiftMatchTokens(s);
+    if ((protByDate[s.date] || []).some(function(t) { return planTokensMatch(tokens, t); })) return;
     var k = s.date + '|' + norm(planEventName(s));
-    if (seen[k]) return false;
-    seen[k] = true;
-    return true;
-  }).sort(function(a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+    if (byKey[k]) { byKey[k].count++; return; }
+    byKey[k] = Object.assign({}, s, { count: 1 });
+    out.push(byKey[k]);
+  });
+  return out.sort(function(a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
 }
 
 // user_id of the registered AL of a plan_shifts row (with plan_assignments), else null

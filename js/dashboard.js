@@ -390,9 +390,10 @@ function renderDashMissing() {
   var shown = (_dashMissingAll || open.length <= DASH_MISSING_COLLAPSED) ? open : open.slice(0, DASH_MISSING_COLLAPSED);
   box.innerHTML = '<div class="ui-label">Einsätze ohne Protokoll</div><div class="ui-list" style="margin-bottom:14px;">' +
     shown.map(function(s) {
-      var head = planShiftHeading(s);
+      var ev = planEventName(s);
       return '<div class="ui-row"><div class="ui-row-main"><div class="ui-row-title">' + escapeHtml(shortDateDE(s.date)) + ' ' + escapeHtml(s.venue || '—') +
-        (head && head !== s.venue ? ' · ' + escapeHtml(head) : '') + '</div></div>' +
+        (ev && ev !== s.venue ? ' · ' + escapeHtml(ev) : '') + '</div>' +
+        (s.count > 1 ? '<div class="ui-sub">' + s.count + ' Aufträge</div>' : '') + '</div>' +
         (canWrite ? '<div class="ui-row-end"><button type="button" class="ui-btn dash-small-btn" onclick="dashStartProtokollFromPlan(' + uiArg(s.id) + ')">Protokoll anlegen</button></div>' : '') +
         '</div>';
     }).join('') + '</div>' +
@@ -406,15 +407,40 @@ function toggleDashMissing() {
   renderDashMissing();
 }
 
-// Same prefill as "Protokoll starten" in the Wochenplan; the AL is the shift's registered AL (if any)
+// Same prefill as "Protokoll starten" in the Wochenplan; the AL is the shift's registered AL (if any).
+// Several plan rows of the same event and day (one per room) become one protocol with everyone from all of them.
 function dashStartProtokollFromPlan(shiftId) {
   var row = _dashPlanRows.find(function(r) { return r.id === shiftId; });
   if (!row) return;
   var p = planShiftFromDb(row);
+  var event = planEventName(p);
+  var group = _dashPlanRows.filter(function(r) {
+    return r.date === row.date && planEventName(planShiftFromDb(r)).trim().toLowerCase() === event.trim().toLowerCase();
+  });
+  p.people = dashMergePlanPeople(group.map(planShiftFromDb), p);
   openProtokollPrefilled({
-    event: planEventName(p), date: p.date, action: planGuessAction(p.wann), alId: planAlUserId(row),
+    event: event, date: p.date, action: planGuessAction(p.wann),
+    alId: planAlUserId(row) || group.map(planAlUserId).filter(Boolean)[0] || null,
     location: [p.venue].concat(p.location.slice(0, 1)).filter(Boolean).join(', '), shift: p
   });
+}
+
+// People of several plan rows, each person once (by user id, else name). Someone from a row that starts at a
+// different time than the main row keeps that start as a personal note ("ab 14:00 Uhr"), unless they have one.
+function dashMergePlanPeople(shifts, main) {
+  var mainTime = planWhen(main.wann || []).time, seen = {}, out = [];
+  shifts.forEach(function(s) {
+    var t = planWhen(s.wann || []).time;
+    (s.people || []).forEach(function(person) {
+      var k = person.userId || String(person.name || '').trim().toLowerCase();
+      if (!k || seen[k]) return;
+      seen[k] = true;
+      var copy = Object.assign({}, person);
+      if (!copy.note && t && t !== mainTime) copy.note = 'ab ' + t + ' Uhr';
+      out.push(copy);
+    });
+  });
+  return out;
 }
 
 function renderDashboardTable() {

@@ -253,3 +253,11 @@ test('saveDashProtEdit: one renamed person = one shift update; no shift delete/i
   assert.ok(!('created_by' in prot.payload));
   assert.equal(prot.payload.al_id, 'u1');
 });
+
+test('dashMergePlanPeople: everyone of all plan rows once; other start times become personal notes', () => {
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/plan-parser.js'), 'utf8'), ctx, { filename: 'plan-parser.js' });
+  const main = { wann: ['Aufbau: 8 Uhr'], people: [{ name: 'Anna', role: 'AL', userId: 'u1' }, { name: 'Bert', role: 'MA' }] };
+  const other = { wann: ['Aufbau: 14 Uhr'], people: [{ name: 'bert', role: 'MA' }, { name: 'Carla', role: 'MA' }, { name: 'Dino', role: 'MA', note: 'ab 16 Uhr' }] };
+  const out = plain(run('dashMergePlanPeople')([main, other], main));
+  assert.deepEqual(out.map(p => [p.name, p.note || null]), [['Anna', null], ['Bert', null], ['Carla', 'ab 14:00 Uhr'], ['Dino', 'ab 16 Uhr']]);
+});

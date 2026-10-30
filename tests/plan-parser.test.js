@@ -435,7 +435,8 @@ test('planIcs: end times, night shifts and shifts without a start time', () => {
 });
 
 test('planWithoutProtocol: shifts of the window without a protocol of the same day and event name', () => {
-  const sh = (date, title, extra) => Object.assign({ id: date + title, date, venue: 'Estrel', title, location: [], wann: ['Aufbau: 8 Uhr'], sort: 1 }, extra);
+  const sh = (date, title, extra) => Object.assign({ id: date + title, date, venue: 'Estrel', title, location: [], wann: ['Aufbau: 8 Uhr'], sort: 1,
+    people: [{ name: 'Anna', role: 'AL' }] }, extra);
   const shifts = [
     sh('2026-10-29', 'Gala Nord'), sh('2026-10-29', 'Messe Süd'), sh('2026-10-20', 'Alt'), sh('2026-10-14', 'Zu alt'),
     sh('2026-10-31', 'Morgen'), sh('2026-10-28', 'Gala Nord'), sh('2026-10-28', 'Gala Nord', { id: 'dup' })
@@ -446,7 +447,40 @@ test('planWithoutProtocol: shifts of the window without a protocol of the same d
   // two plan rows of one event and day count once; newest first
   assert.deepEqual(out.map(s => s.date + ' ' + s.title), ['2026-10-29 Messe Süd', '2026-10-28 Gala Nord', '2026-10-20 Alt']);
   assert.equal(out[1].id, '2026-10-28Gala Nord');
+  assert.equal(out[1].count, 2, 'two plan rows of that event and day');
   assert.deepEqual(P.planWithoutProtocol([], [], '2026-10-16', '2026-10-30'), []);
+});
+
+test('planWithoutProtocol: shifts without an AL need no protocol', () => {
+  const shifts = [
+    { id: 'a', date: '2026-10-29', venue: 'Lager', title: 'Inventur', location: [], wann: [], people: [{ name: 'Bert', role: 'MA' }] },
+    { id: 'b', date: '2026-10-29', venue: 'Halle', title: 'Gala', location: [], wann: [], people: [] },
+    { id: 'c', date: '2026-10-29', venue: 'Hotel', title: 'Empfang', location: [], wann: [], people: [{ name: 'Anna', role: 'AL' }] }
+  ];
+  assert.deepEqual(P.planWithoutProtocol(shifts, [], '2026-10-16', '2026-10-30').map(s => s.id), ['c']);
+});
+
+test('planWithoutProtocol: tolerant matching of protocol names (shared words, small typos, generic words ignored)', () => {
+  const loc = (...tail) => ['Musterallee 1', '12345 Berlin', ...tail];
+  const al = [{ name: 'Anna', role: 'AL' }];
+  const sh = (id, title, location) => ({ id, date: '2026-10-28', venue: 'Estrel', title, location, wann: [], people: al });
+  const shifts = [
+    sh('typo', 'Saal Europa', loc('Saal Europa', 'Tierärtzekongress')),
+    sh('short', 'Foyer 3', loc('Foyer 3', 'DGT Kongress')),
+    sh('part', '6 Rollbuffet', loc('CH I', 'Lifeplus | AVA')),
+    sh('loc', 'Deko in allen Bereichen', loc('Zahnmedizin-Forum')),
+    sh('generic', 'Foyer 4', loc('XYZ Kongress')),
+    sh('venueOnly', 'CH II', loc('Andere Messe'))
+  ];
+  const protocols = [
+    { date: '2026-10-28', event: 'Tierärztekongress/DGT' },
+    { date: '2026-10-28', event: 'Estrel lifeplus (Schnellumbau)' },
+    { date: '2026-10-28', event: 'Zahnmedizin Forum' },
+    { date: '2026-10-28', event: 'ABC Kongress' }
+  ];
+  // Typo "Tierärtze" vs "Tierärzte", short "DGT", "Lifeplus" inside a longer name and the location's event line all match;
+  // "Kongress" alone and the venue name "Estrel" are too generic to count
+  assert.deepEqual(P.planWithoutProtocol(shifts, protocols, '2026-10-16', '2026-10-30').map(s => s.id).sort(), ['generic', 'venueOnly']);
 });
 
 test('planAlUserId: the registered AL of a shift row, else null', () => {
