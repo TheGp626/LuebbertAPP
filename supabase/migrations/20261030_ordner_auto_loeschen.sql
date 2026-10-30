@@ -1,4 +1,4 @@
--- Automatic deletion of old project folders (NOT applied yet; the lead applies it after review).
+-- Automatic deletion of old project folders (applied to production 2026-10-30 as migration ordner_auto_loeschen).
 -- All statements are idempotent (safe to run twice).
 -- From now on project_folders.ends_on means "deletion date": cleanup-folders removes a top-level folder
 -- (with subfolders and files) once the date has passed.
@@ -16,6 +16,7 @@ alter table public.folder_deletion_log enable row level security;
 drop policy if exists "folder_deletion_log anon select" on public.folder_deletion_log;
 create policy "folder_deletion_log anon select" on public.folder_deletion_log for select to anon using (true);
 grant select on public.folder_deletion_log to anon;
+grant select, insert on public.folder_deletion_log to service_role;
 
 -- Admin switch (default on; the app and the function also default to on when the row is missing)
 insert into public.app_settings (key, value)
