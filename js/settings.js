@@ -12,6 +12,7 @@ var APP_SETTINGS_DEFAULTS = {
   evening_push_hour: 18,
   plan_change_push_enabled: true,
   folder_push_enabled: true,
+  folder_autodelete_enabled: true,
   protocol_mail_enabled: true,
   mail_test_mode: true,
   billing_cutoff: 20
@@ -95,6 +96,9 @@ var SETTINGS_SWITCHES = [
     { key: 'evening_push_enabled', label: 'Abend-Push für ALs', hint: 'Am Vorabend: „Morgen 10:00 · Ort“', hour: true },
     { key: 'plan_change_push_enabled', label: 'Push bei Planänderungen', hint: 'Betroffene bekommen eine Nachricht, wenn ein neuer Plan-Stand hochgeladen wird' },
     { key: 'folder_push_enabled', label: 'Push an AL bei neuem Projektordner', hint: 'Jede AL eines Ordners wird einmal benachrichtigt, sobald sie dort eingeteilt ist' }
+  ] },
+  { group: 'Projektordner', items: [
+    { key: 'folder_autodelete_enabled', label: 'Alte Projektordner automatisch löschen', hint: '7 Tage nach dem letzten Einsatz, samt Dateien' }
   ] },
   { group: 'Protokoll-Mails', items: [
     { key: 'protocol_mail_enabled', label: 'Mails an die PL', hint: 'Fertige und geänderte Protokolle gehen als PDF an die PL' },
