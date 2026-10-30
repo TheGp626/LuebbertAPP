@@ -170,3 +170,96 @@ test('login refreshes the Stundenzettel name label (shared device: no stale name
   const auth = fs.readFileSync(path.join(__dirname, '../js/auth.js'), 'utf8');
   assert.match(auth, /snInput\.value = user\.full_name;[\s\S]{0,200}syncStundenName\(\)/);
 });
+
+// ── Bug round 2026-10-30 ──
+test('weekToEditorState: a stored Mo–Mi week fills the editor (buildDays must not start empty)', () => {
+  const { weekToEditorState } = load(['weekToEditorState'], ['timeToMins', 'autoPause']);
+  const w = week('MA frei', [[sh('08:00', '16:00', 'MA frei', { sig: 'SIG', ort: 'Halle' })], [sh('09:00', '17:00', 'MA frei')], [sh('10:00', '14:00', undefined), sh('15:00', '18:00', 'AL frei', { isProtocol: true, protocolId: 'p1' })], [], [], [], []]);
+  const st = weekToEditorState(w, 'MA frei');
+  assert.equal(st.shiftCounts[0], 1);
+  assert.equal(st.shiftCounts[2], 2);
+  assert.equal(st.shiftValues[0][0].von, '08:00');
+  assert.equal(st.shiftValues[0][0].ort, 'Halle');
+  assert.equal(st.shiftSigData['0-0'], 'SIG');
+  assert.equal(st.shiftValues[2][0].dept, 'MA frei');
+  assert.equal(st.shiftValues[2][1].isProtocol, true);
+  assert.equal(st.shiftValues[2][1].protocolId, 'p1');
+  assert.deepEqual(st.shiftValues[3], []);
+});
+
+test('weekSnapshot: only real input changes it (pause is derived)', () => {
+  const { weekSnapshot } = load(['weekSnapshot']);
+  const a = [[{ von: '08:00', bis: '12:00', ort: '', al: '', dept: 'MA', sig: null, pause: '0' }], [{ von: '', bis: '', ort: '', al: '', dept: 'MA', sig: null, pause: '0' }]];
+  const b = JSON.parse(JSON.stringify(a)); b[0][0].pause = '30';
+  assert.equal(weekSnapshot(a), weekSnapshot(b));
+  const c = JSON.parse(JSON.stringify(a)); c[1][0].von = '09:00';
+  assert.notEqual(weekSnapshot(a), weekSnapshot(c));
+  const d = JSON.parse(JSON.stringify(a)); d[0][0].sig = 'data:x';
+  assert.notEqual(weekSnapshot(a), weekSnapshot(d));
+});
+
+test('splitLegacyStore: legacy weeks go only to the user whose name they carry', () => {
+  const { splitLegacyStore } = load(['splitLegacyStore']);
+  const legacy = { '2026-W44': { name: 'Erika Muster' }, '2026-W43': { name: ' erika muster ' }, '2026-W42:AL': { name: 'Hans' }, '2026-W41': {} };
+  const r = splitLegacyStore(legacy, 'Erika Muster');
+  assert.deepEqual(Object.keys(r.mine).sort(), ['2026-W43', '2026-W44']);
+  assert.deepEqual(Object.keys(r.rest).sort(), ['2026-W41', '2026-W42:AL']);
+  assert.deepEqual(Object.keys(splitLegacyStore(legacy, '').mine), []);
+});
+
+test('runSerial: syncs of one week run one after the other, other weeks are independent', async () => {
+  const { runSerial, serialBusy } = load(['runSerial', 'serialBusy']);
+  const chains = {}, log = [];
+  const slow = (name, ms) => () => new Promise(r => { log.push('start ' + name); setTimeout(() => { log.push('end ' + name); r(); }, ms); });
+  const p1 = runSerial(chains, 'W1', slow('a', 30));
+  const p2 = runSerial(chains, 'W1', slow('b', 1));
+  assert.equal(serialBusy(chains, 'W1'), true);
+  assert.equal(serialBusy(chains, 'W2'), false);
+  await Promise.all([p1, p2]);
+  assert.deepEqual(log, ['start a', 'end a', 'start b', 'end b']);
+  assert.equal(serialBusy(chains, 'W1'), false);
+  await runSerial(chains, 'W1', () => Promise.reject(new Error('x'))).catch(() => {});
+  await runSerial(chains, 'W1', slow('c', 1));
+  assert.equal(log[log.length - 1], 'end c');
+});
+
+test('planWeekDelete: only open manual rows of the card, never booked ones', () => {
+  const { planWeekDelete } = load(['planWeekDelete']);
+  const ex = [
+    { id: 1, status: 'offen', position_role: 'MA frei' }, { id: 2, status: 'eingetragen', position_role: 'MA frei' },
+    { id: 3, status: 'offen', position_role: 'AL frei' }, { id: 4, status: 'offen', position_role: null },
+  ];
+  assert.deepEqual(planWeekDelete(ex, 'MA frei'), [1]);
+  assert.deepEqual(planWeekDelete(ex, null), [1, 3, 4]);
+});
+
+test('dropSyncedWeeks: empty server → synced weeks go, unsynced weeks stay', () => {
+  const { dropSyncedWeeks, weekHasUnsynced } = load(['dropSyncedWeeks', 'weekHasUnsynced']);
+  const all = { '2026-W44': { a: 1 }, '2026-W43:AL': { a: 2 }, '2026-W43:MA': { a: 3, unsynced: true }, '2026-W42': { a: 4, unsynced: true } };
+  const removed = dropSyncedWeeks(all);
+  assert.equal(removed, true);
+  assert.deepEqual(Object.keys(all).sort(), ['2026-W42', '2026-W43:AL', '2026-W43:MA']);
+  assert.equal(dropSyncedWeeks({ '2026-W42': { unsynced: true } }), false);
+});
+
+test('mergeUnseenShifts: server shifts the user never saw are added, typed entries kept, nothing duplicated', () => {
+  const { mergeUnseenShifts } = load(['mergeUnseenShifts']);
+  const empty = () => sh('', '', 'MA frei');
+  const local = week('MA frei', [[empty()], [empty()], [sh('08:00', '12:00', 'MA frei', { sig: 'S' })], [], [], [], []]);
+  const server = week('MA frei', [[sh('08:00', '16:00', 'MA frei')], [sh('09:00', '10:00', 'MA frei', { isProtocol: true })], [sh('08:00', '12:00', 'MA frei')], [], [], [], []]);
+  const r = mergeUnseenShifts(local, server);
+  assert.equal(r.added, 2);
+  assert.deepEqual(r.week.days[0].shifts.map(s => s.von), ['08:00']);
+  assert.equal(r.week.days[1].shifts[0].isProtocol, true);
+  assert.equal(r.week.days[2].shifts.length, 1);
+  assert.equal(r.week.days[2].shifts[0].sig, 'S');
+  assert.equal(mergeUnseenShifts(local, null).added, 0);
+  assert.equal(mergeUnseenShifts(r.week, server).added, 0);
+});
+
+test('weekIsBlind: a local save made without having seen the server', () => {
+  const { weekIsBlind } = load(['weekIsBlind']);
+  assert.equal(weekIsBlind({ '2026-W44:AL': { unsynced: true, blind: true } }, '2026-W44'), true);
+  assert.equal(weekIsBlind({ '2026-W44': { unsynced: true } }, '2026-W44'), false);
+  assert.equal(weekIsBlind({ '2026-W45': { blind: true } }, '2026-W44'), false);
+});

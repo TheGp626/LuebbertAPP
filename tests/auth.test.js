@@ -53,3 +53,12 @@ test('initAuth restores the login from the cached list before waiting for the ne
   const early = body.indexOf('handleSession(shown)'), fetch = body.indexOf('await fetchEmployees()');
   assert.ok(early !== -1 && fetch !== -1 && early < fetch);
 });
+
+test('sessionUserChanged: the Stundenzettel editor is reset when another user (or nobody) takes over', () => {
+  const changed = load('sessionUserChanged');
+  assert.equal(changed(undefined, 'a'), true);  // first login after start
+  assert.equal(changed('a', 'a'), false);       // same user again (cached list, then fresh list)
+  assert.equal(changed('a', 'b'), true);        // shared device: B after A
+  assert.equal(changed('a', null), true);       // logout
+  assert.equal(changed(null, null), false);
+});
