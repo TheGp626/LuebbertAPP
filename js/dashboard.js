@@ -332,10 +332,8 @@ async function refreshDashboard() {
 
   try {
     await ensureRateUsers();
-    const { data: protocols, error: protError } = await supabaseClient
-      .from('protocols')
-      .select(`
-        id, date, action, is_holiday, total_cost, al_id, pl_id,
+    const protSelect = (withCreator) => `
+        id, date, action, is_holiday, total_cost, al_id, pl_id,${withCreator ? ' created_by,' : ''}
         notes_damages, notes_incidents, notes_feedback,
         al_name_fallback, pl_name_fallback, created_at, mailed_at,
         projects(name, location),
@@ -346,9 +344,11 @@ async function refreshDashboard() {
         protocol_transports(*),
         protocol_equipments(*),
         worker_ratings(temp_worker_name, rating, is_star)
-      `)
-      .order('date', { ascending: false });
-
+      `;
+    const load = (withCreator) => supabaseClient.from('protocols').select(protSelect(withCreator)).order('date', { ascending: false });
+    let { data: protocols, error: protError } = await load(true);
+    // created_by not migrated yet: load without it (everything then counts via AL/PL)
+    if (protError && /created_by/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(false));
     if (protError) throw protError;
 
     dashboardProtocols = protocols;
@@ -424,7 +424,12 @@ function renderDashboardTable() {
 
   const searchTerm = (document.getElementById('dash-search')?.value || '').toLowerCase();
 
-  const filtered = dashboardProtocols.filter(p => {
+  // "Meine" by default; the search works within the current scope
+  const scoped = dashScopedProtocols();
+  const scopeBox = document.getElementById('dash-scope');
+  if (scopeBox) scopeBox.innerHTML = protScopeSegHtml(protScopeGet(DASH_SCOPE_KEY), 'setDashProtScope');
+
+  const filtered = scoped.filter(p => {
     const projName = (p.projects?.name || '').toLowerCase();
     const alName = (p.al?.full_name || p.al_name_fallback || '').toLowerCase();
     const location = (p.location || p.projects?.location || '').toLowerCase();
@@ -455,9 +460,23 @@ function renderDashboardTable() {
     body.appendChild(tr);
   });
   if (!filtered.length) {
-    body.innerHTML = '<tr><td colspan="6" data-label="">' + uiEmptyHtml(searchTerm ? 'Nichts gefunden' : 'Noch keine Protokolle', searchTerm ? 'Andere Suche versuchen.' : '') + '</td></tr>';
+    const own = !searchTerm && protScopeGet(DASH_SCOPE_KEY) === 'mine' && dashboardProtocols.length;
+    body.innerHTML = '<tr><td colspan="6" data-label="">' + (own
+      ? uiEmptyHtml('Noch keine eigenen Protokolle', '', '<button type="button" class="ui-btn" style="margin-top:10px;" onclick="setDashProtScope(\'all\')">Alle anzeigen</button>')
+      : uiEmptyHtml(searchTerm ? 'Nichts gefunden' : 'Noch keine Protokolle', searchTerm ? 'Andere Suche versuchen.' : '')) + '</td></tr>';
   }
   renderDashStats();
+}
+
+const DASH_SCOPE_KEY = 'luebbert_dash_prot_scope';
+
+function dashScopedProtocols() {
+  return protFilterScope(dashboardProtocols, protScopeGet(DASH_SCOPE_KEY), typeof currentUser !== 'undefined' && currentUser ? currentUser.id : '');
+}
+
+function setDashProtScope(scope) {
+  protScopeSet(DASH_SCOPE_KEY, scope);
+  renderDashboardTable();
 }
 
 // Protocols and costs of the calendar month of `now`
@@ -475,7 +494,7 @@ function dashMonthStats(protocols, now) {
 function renderDashStats() {
   var box = document.getElementById('dash-stats');
   if (!box) return;
-  var now = new Date(), s = dashMonthStats(dashboardProtocols, now);
+  var now = new Date(), s = dashMonthStats(dashScopedProtocols(), now);
   var month = now.toLocaleDateString('de-DE', { month: 'long' });
   box.innerHTML =
     '<div class="ui-stat"><span>Protokolle im ' + month + '</span><b>' + s.count + '</b></div>' +

@@ -498,3 +498,69 @@ test('typing an Aushilfe name updates the row title right away', () => {
   run('updateProtPersonnel(0, "tempName", "Zoe")');
   assert.equal(dom['prot-pname-0'].textContent, 'Zoe');
 });
+
+// ── "Meine Protokolle" ──
+test('protIsMine: creator, AL or PL counts; old rows without created_by count via AL/PL', () => {
+  const f = run('protIsMine');
+  assert.equal(f({ createdBy: 'u-me' }, 'u-me'), true);
+  assert.equal(f({ created_by: 'u-me' }, 'u-me'), true);
+  assert.equal(f({ alId: 'u-me' }, 'u-me'), true);
+  assert.equal(f({ al_id: 'u-x', pl_id: 'u-me' }, 'u-me'), true);
+  assert.equal(f({ createdBy: null, alId: 'u-x', plId: null }, 'u-me'), false);
+  assert.equal(f({}, 'u-me'), false);
+  assert.equal(f({ alId: 'u-me' }, ''), false);
+});
+
+test('protFilterScope: "mine" filters, "all" keeps everything', () => {
+  const list = [{ id: 1, alId: 'u-me' }, { id: 2, alId: 'u-x' }, { id: 3, created_by: 'u-me' }];
+  ctx.__l = list;
+  assert.deepEqual(plain(run('protFilterScope(__l, "mine", "u-me")')).map(x => x.id), [1, 3]);
+  assert.equal(run('protFilterScope(__l, "all", "u-me")').length, 3);
+});
+
+test('protScopeGet/Set: default mine, remembered per key, survives a broken storage', () => {
+  assert.equal(run('protScopeGet("k1")'), 'mine');
+  run('protScopeSet("k1", "all")');
+  assert.equal(run('protScopeGet("k1")'), 'all');
+  assert.equal(run('protScopeGet("k2")'), 'mine');
+  store.k3 = 'bogus';
+  assert.equal(run('protScopeGet("k3")'), 'mine');
+  ctx.localStorage = { getItem() { throw new Error('x'); }, setItem() { throw new Error('x'); } };
+  assert.equal(run('protScopeGet("k1")'), 'mine');
+  run('protScopeSet("k1", "all")');
+});
+
+test('protRowToEntry maps created_by to createdBy', () => {
+  assert.equal(run('protRowToEntry({ id: "p1", created_by: "u-me" })').createdBy, 'u-me');
+  assert.equal(run('protRowToEntry({ id: "p1" })').createdBy, null);
+});
+
+test('sync: INSERT sets created_by to the current user, UPDATE never touches it', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  ctx.__data = protData();
+  await run('syncProtokollToSupabase(__data, null)');
+  const ins = sb.calls.find(c => c.table === 'protocols' && c.op === 'insert');
+  assert.equal(ins.payload.created_by, 'u-me');
+  sb.calls.length = 0;
+  await run('syncProtokollToSupabase(__data, "prot-9")');
+  const up = sb.calls.find(c => c.table === 'protocols' && c.op === 'update');
+  assert.ok(!('created_by' in up.payload));
+});
+
+test('sync: before the migration (no created_by column) the insert is retried without it', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  let n = 0;
+  const orig = sb.from;
+  sb.from = t => {
+    const b = orig(t);
+    if (t !== 'protocols') return b;
+    const ins = b.insert;
+    b.insert = p => { n++; if (n === 1) sb.fail['protocols.insert'] = { message: 'column "created_by" of relation "protocols" does not exist' }; else delete sb.fail['protocols.insert']; return ins(p); };
+    return b;
+  };
+  ctx.__data = protData();
+  assert.ok(await run('syncProtokollToSupabase(__data, null)'));
+  const inserts = sb.calls.filter(c => c.table === 'protocols' && c.op === 'insert');
+  assert.equal(inserts.length, 2);
+  assert.ok(!('created_by' in inserts[1].payload));
+});

@@ -91,6 +91,33 @@ function protDraftBelongsTo(draft, userId) {
   return !draft || !draft.ownerId || !userId || draft.ownerId === userId;
 }
 
+// "Meine Protokolle": written by the user, or the user is its AL/PL (old rows have no created_by).
+// Takes history entries (createdBy/alId/plId) as well as dashboard rows (created_by/al_id/pl_id).
+function protIsMine(e, userId) {
+  if (!userId || !e) return false;
+  return (e.createdBy || e.created_by) === userId || (e.alId || e.al_id) === userId || (e.plId || e.pl_id) === userId;
+}
+
+function protFilterScope(list, scope, userId) {
+  return scope === 'all' ? (list || []) : (list || []).filter(function(e) { return protIsMine(e, userId); });
+}
+
+// Remembered per device and list; anything unknown falls back to "mine"
+function protScopeGet(key) {
+  try { return localStorage.getItem(key) === 'all' ? 'all' : 'mine'; } catch (e) { return 'mine'; }
+}
+
+function protScopeSet(key, scope) {
+  try { localStorage.setItem(key, scope === 'all' ? 'all' : 'mine'); } catch (e) { /* storage unavailable */ }
+}
+
+// "Meine · Alle" switch above a list; setFn(scope) is a global function
+function protScopeSegHtml(scope, setFn) {
+  return '<div class="ui-seg prot-scope-seg" role="group" aria-label="Anzeige">' +
+    '<button type="button" class="' + (scope === 'mine' ? 'active' : '') + '" onclick="' + setFn + '(\'mine\')">Meine</button>' +
+    '<button type="button" class="' + (scope === 'all' ? 'active' : '') + '" onclick="' + setFn + '(\'all\')">Alle</button></div>';
+}
+
 // Server protocol row (with joins) → history entry shape. Shared by the history re-sync and the dashboard PDF.
 function protRowToEntry(r) {
   var catMap = {};
@@ -137,6 +164,7 @@ function protRowToEntry(r) {
     pl: (r.pl && r.pl.full_name) || r.pl_name_fallback || '—',
     alId: r.al_id || null,
     plId: r.pl_id || null,
+    createdBy: r.created_by || null,
     totalCost: (Number(r.total_cost) || 0).toFixed(2).replace('.', ',') + ' €',
     transports: (r.protocol_transports || []).map(function(t) {
       // hours stays null for rows saved before driver hours existed → no driver cost on recalc
@@ -1003,6 +1031,9 @@ async function saveProtokoll() {
     pl: data.pl,
     alId: data.alId || null,
     plId: data.plId || null,
+    // Author stays as first saved; an edit by someone else does not take it over
+    createdBy: (protState.editingLocalId && (archive.find(x => x.id === protState.editingLocalId) || {}).createdBy) ||
+      (!isUpdate && typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null),
     totalCost: data.totalCost,
     transports: data.transports,
     personnel: data.personnel,
@@ -1104,7 +1135,14 @@ async function syncProtokollToSupabase(data, targetId, out) {
       var { error: shDelErr } = await supabaseClient.from('shifts').delete().eq('protocol_id', protId);
       if (shDelErr) { console.error('Shifts delete failed, aborting to prevent duplicates:', shDelErr); throw shDelErr; }
     } else {
-      var { data: protData, error: protError } = await supabaseClient.from('protocols').insert(protPayload).select().single();
+      // created_by is set on INSERT only (never changed by later edits)
+      var insPayload = Object.assign({ created_by: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null }, protPayload);
+      var { data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single();
+      // Column not migrated yet: save without it rather than lose the protocol
+      if (protError && /created_by/.test(protError.message || '')) {
+        delete insPayload.created_by;
+        ({ data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single());
+      }
       if (protError) throw protError;
       protId = protData.id;
     }
@@ -1400,14 +1438,36 @@ async function renderProtHistory() {
     retryPendingMails(); // fire-and-forget
   }
 
+  renderProtHistoryList();
+}
+
+var PROT_HIST_SCOPE_KEY = 'luebbert_prot_hist_scope';
+
+function setProtHistScope(scope) {
+  protScopeSet(PROT_HIST_SCOPE_KEY, scope);
+  renderProtHistoryList();
+}
+
+// Draws the history from localStorage, "Meine" by default
+function renderProtHistoryList() {
+  var list = document.getElementById('prot-history-list');
+  if (!list) return;
   var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
+  var scope = protScopeGet(PROT_HIST_SCOPE_KEY);
+  var seg = protScopeSegHtml(scope, 'setProtHistScope');
 
   if (!archive.length) {
     list.innerHTML = uiEmptyHtml('Noch keine Protokolle', 'Gesendete Protokolle erscheinen hier.');
     return;
   }
+  archive = protFilterScope(archive, scope, typeof currentUser !== 'undefined' && currentUser ? currentUser.id : '');
+  if (!archive.length) {
+    list.innerHTML = seg + uiEmptyHtml('Noch keine eigenen Protokolle', '',
+      '<button type="button" class="ui-btn" style="margin-top:10px;" onclick="setProtHistScope(\'all\')">Alle anzeigen</button>');
+    return;
+  }
 
-  var html = archive.map(function(e) {
+  var html = seg + archive.map(function(e) {
     var d = /^(\d{4})-(\d{2})-(\d{2})/.exec(e.date || '');
     var id = jsAttrArg(e.id);
     var pills = '<span class="ui-pill ui-pill-info">' + escapeHtml(e.action || '—') + '</span>' +
