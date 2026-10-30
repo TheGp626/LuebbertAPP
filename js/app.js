@@ -9,7 +9,16 @@ var ICONS = { 'auto': 'Auto', 'light': 'Hell', 'dark': 'Dunkel' };
 var currentTheme = localStorage.getItem('theme') || 'auto';
 var sigModalState = { key: null, drawing: false, last: null, hasInk: false };
 var hourlyWage = parseFloat(localStorage.getItem('stundenzettel_wage')) || 0;
-var billingCutoff = parseInt(localStorage.getItem('stundenzettel_cutoff')) || 20;
+// Central admin setting (js/settings.js), cached for offline starts; the old per-device value no longer counts
+var billingCutoff = (typeof appSettingsFromCache === 'function') ? appSettingsFromCache().billing_cutoff : 20;
+
+// Called by loadAppSettings() once fresh settings arrived
+function onAppSettingsLoaded() {
+  var c = appSetting('billing_cutoff');
+  if (c === billingCutoff) return;
+  billingCutoff = c;
+  if (typeof renderHistory === 'function' && document.getElementById('history-list')) renderHistory(true);
+}
 var DEPT_DEFAULTS = ["AL frei", "MA frei", "Fahrer frei", "Floristik", "Lager", "Stoffe", "Tischlerei"];
 var DEPT_OLD_STYLE = ["AL (Aufbauleitung)", "MA für Auf-/ Abbau"];
 var DEPT_LABELS = {
@@ -51,33 +60,54 @@ try {
 }
 
 // ── MODE SELECTION & NAVIGATION ──
-function selectMode(m) {
+var MODULE_TITLES = { stunden: 'Stundenzettel', protokoll: 'Protokoll', dashboard: 'Office Dashboard',
+  produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan' };
+
+// The office dashboard is opened from two tiles; each shows one view ('prot' | 'work'), Admin settings come via "…"
+var DASH_VIEW_TITLES = { prot: 'Protokoll-Übersicht', work: 'Buchhaltung', settings: 'Einstellungen' };
+var DASH_VIEW_KEY = 'luebbert_dash_view';
+var dashView = dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY));
+
+function moduleTitle(m) {
+  return m === 'dashboard' ? DASH_VIEW_TITLES[dashView] : (MODULE_TITLES[m] || '');
+}
+
+// Called by switchDashTab: remembers the view (settings are never restored) and retitles the top bar
+function setDashView(view) {
+  dashView = view;
+  if (view !== 'settings') localStorage.setItem(DASH_VIEW_KEY, view);
+  var topTitle = document.getElementById('topbar-title');
+  if (topTitle && activeModule === 'dashboard') topTitle.textContent = moduleTitle('dashboard');
+}
+
+function selectMode(m, view) {
   // Role-based guards (only once a user is logged in — during module restore
   // on page load the role is not resolved yet and the auth overlay blocks input)
   var loggedIn = typeof currentUser !== 'undefined' && currentUser;
-  if (loggedIn && userRole === 'Gast' && GAST_MODULES.indexOf(m) === -1) {
-    showToast('Zugriff verweigert: Gastzugang nur für Produktdatenbank und Projektordner.');
-    return;
-  }
-  if (loggedIn && m === 'protokoll' && userRole === 'MA') {
-    showToast('Zugriff verweigert: Nur für AL/PL.');
-    return;
-  }
-  if (loggedIn && m === 'dashboard' && ['AL', 'PL', 'Buchhaltung', 'Admin'].indexOf(userRole) === -1) {
-    showToast('Zugriff verweigert: Nur für AL/PL/Buchhaltung.');
+  // (moduleAllowedForRole in auth.js — enforceUI uses the same check after a login)
+  if (loggedIn && !moduleAllowedForRole(m, userRole)) {
+    showToast(userRole === 'Gast' ? 'Zugriff verweigert: Gastzugang nur für Produktdatenbank und Projektordner.'
+      : m === 'protokoll' ? 'Zugriff verweigert: Nur für AL/PL.'
+      : 'Zugriff verweigert: Nur für AL/PL/Buchhaltung.');
     return;
   }
 
   activeModule = m;
-  localStorage.setItem('luebbert_mode', m);
+  if (m === 'dashboard') dashView = view || dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY));
+  // The test build at /experimental/ shares localStorage with the live app, which doesn't know
+  // the Wochenplan module → never hand it over as the module to restore
+  if (window.IS_TEST_BUILD && m === 'wochenplan') localStorage.removeItem('luebbert_mode');
+  else localStorage.setItem('luebbert_mode', m);
   
   // Hide startup
   var startup = document.getElementById('page-startup');
   if (startup) startup.classList.remove('active');
   
-  // Show navigation buttons (Back to Menu)
-  var backBtn = document.getElementById('back-to-menu-btn');
-  if (backBtn) backBtn.style.display = 'flex';
+  // Module top bar (Back to Menu, title, Optionen)
+  var topbar = document.getElementById('topbar'), topTitle = document.getElementById('topbar-title');
+  if (topTitle) topTitle.textContent = moduleTitle(m);
+  if (topbar) topbar.style.display = 'flex';
+  updateTopBarSub();
 
   if (m === 'stunden') {
     document.getElementById('main-nav').style.display = 'flex';
@@ -93,6 +123,7 @@ function selectMode(m) {
     var pn = document.getElementById('prot-nav');
     if (pn) pn.style.display = 'none';
     navigate('dashboard');
+    if (typeof switchDashTab === 'function') switchDashTab(dashView);
     if (typeof initDashboardRealtime === 'function') initDashboardRealtime();
     if (typeof refreshDashboard === 'function') refreshDashboard();
   } else if (m === 'produkte') {
@@ -107,6 +138,13 @@ function selectMode(m) {
     if (pn3) pn3.style.display = 'none';
     navigate('ordner');
     if (typeof initOrdner === 'function') initOrdner();
+  } else if (m === 'wochenplan') {
+    document.getElementById('main-nav').style.display = 'none';
+    var pn4 = document.getElementById('prot-nav');
+    if (pn4) pn4.style.display = 'none';
+    navigate('wochenplan');
+    // The plan needs the logged-in user; a module restored before login is initialised from handleSession
+    if (typeof initWochenplan === 'function' && typeof currentUser !== 'undefined' && currentUser) initWochenplan();
   }
 }
 
@@ -122,10 +160,11 @@ function exitToMenu() {
   var pn = document.getElementById('prot-nav');
   if (pn) pn.style.display = 'none';
   
-  var backBtn = document.getElementById('back-to-menu-btn');
-  if (backBtn) backBtn.style.display = 'none';
-  
+  var topbar = document.getElementById('topbar');
+  if (topbar) topbar.style.display = 'none';
+
   updateTopBarSub();
+  if (typeof renderHome === 'function') renderHome();
 }
 
 function navigate(page) {
@@ -173,7 +212,7 @@ function updateTopBarSub() {
   } else if (activeModule === 'protokoll') {
     sub.textContent = 'Auf- & Abbauprotokoll';
   } else {
-    sub.textContent = 'Event Interiors & Logistics';
+    sub.textContent = '';
   }
 }
 
@@ -364,6 +403,8 @@ function saveSigModal() {
       if (typeof protState !== 'undefined') {
         protState.signature = data;
         if (typeof redrawProtSig === 'function') redrawProtSig();
+        // Into the draft right away: re-entering the form reloads the draft and would drop the signature
+        if (typeof saveProtDraft === 'function') saveProtDraft();
       }
     } else {
       if (typeof shiftSigData !== 'undefined') {
@@ -376,6 +417,7 @@ function saveSigModal() {
       if (typeof protState !== 'undefined') {
         protState.signature = null;
         if (typeof redrawProtSig === 'function') redrawProtSig();
+        if (typeof saveProtDraft === 'function') saveProtDraft();
       }
     } else {
       if (typeof shiftSigData !== 'undefined') {
@@ -389,9 +431,9 @@ function saveSigModal() {
 
 // ── SETTINGS ──
 function openSettingsModal() {
-  var m = document.getElementById('settings-modal'), w = document.getElementById('inp-wage'), c = document.getElementById('inp-cutoff');
-  if (w) w.value = hourlyWage > 0 ? hourlyWage : ''; 
-  if (c) c.value = billingCutoff;
+  var m = document.getElementById('settings-modal'), w = document.getElementById('inp-wage'), c = document.getElementById('inp-cutoff-info');
+  if (w) w.value = hourlyWage > 0 ? hourlyWage : '';
+  if (c) c.textContent = billingCutoff + '. des Monats (zentral eingestellt)';
   renderSettingsDepts(); 
   if (m) m.classList.add('open');
 }
@@ -402,14 +444,12 @@ function closeSettingsModal() {
 }
 
 function saveSettingsModal() {
-  var wEl = document.getElementById('inp-wage'), cEl = document.getElementById('inp-cutoff');
-  var w = wEl ? parseFloat(wEl.value) : NaN, c = cEl ? parseInt(cEl.value) : NaN;
-  
-  if (!isNaN(w) && w > 0) { hourlyWage = w; localStorage.setItem('stundenzettel_wage', w); } 
+  var wEl = document.getElementById('inp-wage');
+  var w = wEl ? parseFloat(wEl.value) : NaN;
+
+  if (!isNaN(w) && w > 0) { hourlyWage = w; localStorage.setItem('stundenzettel_wage', w); }
   else { hourlyWage = 0; localStorage.removeItem('stundenzettel_wage'); }
-  
-  if (!isNaN(c) && c >= 1 && c <= 31) { billingCutoff = c; localStorage.setItem('stundenzettel_cutoff', c); }
-  else { billingCutoff = 20; localStorage.removeItem('stundenzettel_cutoff'); }
+  // The billing cut-off is set centrally (Office Dashboard → Einstellungen)
 
   // Save per-dept wages
   departments.forEach(function(d) {
@@ -437,13 +477,13 @@ function renderSettingsDepts() {
     var safeId = 'inp-dept-wage-' + d.replace(/[^a-zA-Z0-9]/g, '_');
     var wage = deptWages[d] || '';
     return '<div class="dept-item" style="cursor:pointer;' + (act ? 'background:var(--accent-bg);border-radius:var(--radius);padding:8px 10px;margin:0 -10px;' : '') + '">' +
-           '<div style="display:flex;align-items:center;gap:8px;flex:1;" onclick="selectDepartment(\'' + d.replace(/'/g, "\\'") + '\')">' +
+           '<div style="display:flex;align-items:center;gap:8px;flex:1;" onclick="selectDepartment(\'' + jsAttrArg(d) + '\')">' +
            '<span>' + (act ? '✓' : '') + '</span>' +
-           '<span style="' + (act ? 'font-weight:600;color:var(--accent-text);' : '') + '">' + deptLabel(d) + '</span>' +
+           '<span style="' + (act ? 'font-weight:600;color:var(--accent-text);' : '') + '">' + escapeHtml(deptLabel(d)) + '</span>' +
            '</div>' +
            '<div style="display:flex;align-items:center;gap:6px;">' +
            '<input type="number" id="' + safeId + '" step="0.50" min="0" value="' + wage + '" placeholder="€/h" ' +
-           'style="width:64px;padding:4px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);" ' +
+           'style="width:64px;padding:4px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);" ' +
            'onclick="event.stopPropagation()" />' +
            '<button onclick="event.stopPropagation();deleteDepartment(' + i + ')" style="background:none;border:none;color:var(--danger);cursor:pointer;padding:4px 8px;">✕</button>' +
            '</div></div>';
@@ -463,8 +503,7 @@ function renderDeptChips() {
   var c = document.getElementById('chips-abt');
   if (!c) return;
   c.innerHTML = departments.map(function (d) {
-    var safe = d.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    return '<div class="chip' + (d === selectedAbt ? ' active' : '') + '" onclick="selectDepartment(\'' + safe + '\')">' + deptLabel(d) + '</div>';
+    return '<button type="button" class="ui-chip' + (d === selectedAbt ? ' ui-chip-on' : '') + '" onclick="selectDepartment(\'' + jsAttrArg(d) + '\')">' + escapeHtml(deptLabel(d)) + '</button>';
   }).join('');
 }
 

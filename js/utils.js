@@ -6,7 +6,17 @@ var BUCHHALTUNG_EMAIL = 'buchhaltung@peterluebbert.de';
 var DAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 var DAY_SHORT = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
-function pad(n) { 
+// Can this person act in a role (AL/PL pickers)? Main role, or an additional role of the Personalbogen
+// (app_users.role_rates entries like 'AL frei' → first word 'AL')
+function userHasRole(user, role) {
+  if (!user) return false;
+  if (user.role === role) return true;
+  return Array.isArray(user.role_rates) && user.role_rates.some(function(r) {
+    return r && String(r.role || '').split(' ')[0] === role;
+  });
+}
+
+function pad(n) {
   return String(n).padStart(2, '0'); 
 }
 
@@ -69,10 +79,10 @@ var MONTHS_DE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', '
 
 // Billing period runs from <cutoff>. of the previous month to <cutoff-1>. of
 // the key month (see getBillingPeriodLabel), so a date on or after the cutoff
-// day belongs to the NEXT month's period.
+// day belongs to the NEXT month's period. Cutoff 1 and 31 mean calendar months.
 function getBillingKeyForDate(d, billingCutoff) {
   var m = d.getMonth(), y = d.getFullYear();
-  if (billingCutoff < 31 && d.getDate() >= billingCutoff) {
+  if (billingCutoff > 1 && billingCutoff < 31 && d.getDate() >= billingCutoff) {
     m++;
     if (m > 11) { m = 0; y++; }
   }
@@ -129,12 +139,14 @@ function compressSignature(base64, callback) {
   img.src = base64;
 }
 
-function showToast(msg) {
+function showToast(msg, type) {
   var t = document.getElementById('toast');
   if (!t) return;
   t.textContent = msg;
+  if (type === 'danger') t.classList.add('toast-danger'); else t.classList.remove('toast-danger');
   t.classList.add('show');
-  setTimeout(function () { t.classList.remove('show'); }, 2200);
+  if (t._toastTimer) clearTimeout(t._toastTimer);
+  t._toastTimer = setTimeout(function () { t.classList.remove('show'); }, 2200);
 }
 
 function escapeHtml(str) {
@@ -145,6 +157,12 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+// A value passed as a '...' string argument inside an onclick="..." attribute:
+// JS-escape first, then HTML-escape (the browser decodes the entities before parsing the JS)
+function jsAttrArg(str) {
+  return escapeHtml(String(str == null ? '' : str).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
 }
 
 function safeNote(text) {
@@ -199,11 +217,18 @@ function pdfWrappedRow(doc, label, text, x, valueX, maxW, y, lineH, pageBottom) 
   return y + 1.5;
 }
 
+// Describes exactly the days getBillingKeyForDate puts into mKey: the previous
+// month's days >= cutoff plus this month's days < cutoff (short months clamp).
 function getBillingPeriodLabel(mKey, cutoff) {
   var parts = mKey.split('-'), y = +parts[0], m = +parts[1];
   var prevM = m === 1 ? 12 : m - 1;
   var prevY = m === 1 ? y - 1 : y;
-  return pad(cutoff) + '.' + pad(prevM) + '.' + prevY + ' – ' + pad(cutoff - 1) + '.' + pad(m) + '.' + y;
+  var daysIn = function (yy, mm) { return new Date(yy, mm, 0).getDate(); }; // mm is 1-based
+  var lastDay = daysIn(y, m);
+  var thisMonth = '.' + pad(m) + '.' + y;
+  if (!(cutoff > 1 && cutoff < 31)) return '01' + thisMonth + ' – ' + pad(lastDay) + thisMonth;
+  var start = cutoff <= daysIn(prevY, prevM) ? pad(cutoff) + '.' + pad(prevM) + '.' + prevY : '01' + thisMonth;
+  return start + ' – ' + pad(Math.min(cutoff - 1, lastDay)) + thisMonth;
 }
 
 // ── EINSÄTZE (AL-Erinnerung) ──
@@ -233,4 +258,19 @@ function einsatzStatus(einsatz, hasProtocol, todayStr) {
   if (hasProtocol) return 'done';
   if (einsatz.date > todayStr) return 'future';
   return 'open';
+}
+
+// Open jobs of one AL for the banner: folder jobs [{id, date, action, folderName}] plus plan rows
+// [{date, venue, action}] (one entry per date, venues joined); a folder job on the same date wins
+function mergeOpenJobs(folderJobs, planRows) {
+  var out = folderJobs.map(function(e) { return { id: e.id, date: e.date, action: e.action, folderName: e.folderName, source: 'folder' }; });
+  var taken = {};
+  out.forEach(function(e) { taken[e.date] = true; });
+  var byDate = {};
+  planRows.forEach(function(r) {
+    if (taken[r.date]) return;
+    if (!byDate[r.date]) { byDate[r.date] = { id: null, date: r.date, action: r.action, folderName: r.venue || 'Einsatz', source: 'plan' }; out.push(byDate[r.date]); }
+    else if (r.venue && byDate[r.date].folderName.split(' / ').indexOf(r.venue) === -1) byDate[r.date].folderName += ' / ' + r.venue;
+  });
+  return out.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
 }

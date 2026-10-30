@@ -9,6 +9,54 @@ var editingOrdnerId = null;
 
 var canManageOrdner = false; // PL / Admin only
 
+// project_folders.ends_on is the deletion date: a top-level folder is removed (with subfolders and files)
+// by the Edge Function cleanup-folders once this date has passed.
+var ORDNER_DELETE_DAYS = 7;
+var ORDNER_DELETE_WARN_DAYS = 7;
+var _ordnerAutoValue = ''; // auto date the open form last computed from its Einsatz rows
+
+// ISO date + n days (UTC math, no DST surprises)
+function ordnerAddDays(iso, n) {
+  var p = String(iso).split('-');
+  var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n));
+  return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2);
+}
+
+// Latest non-cancelled Einsatz date + 7 days, null without dated jobs
+function ordnerAutoDeleteDate(einsaetze) {
+  var latest = null;
+  (einsaetze || []).forEach(function(e) {
+    if (e && e.date && !e.cancelled && (!latest || e.date > latest)) latest = e.date;
+  });
+  return latest ? ordnerAddDays(latest, ORDNER_DELETE_DAYS) : null;
+}
+
+// null without a deletion date, else { date, days } (days left, 0 = today or overdue); today = ISO date
+function ordnerDeleteInfo(folder, today) {
+  if (!folder || !folder.ends_on) return null;
+  var a = folder.ends_on.split('-'), b = String(today).split('-');
+  var days = Math.round((Date.UTC(+a[0], +a[1] - 1, +a[2]) - Date.UTC(+b[0], +b[1] - 1, +b[2])) / 86400000);
+  return { date: folder.ends_on, days: Math.max(0, days) };
+}
+
+// "Löschung am 05.10.2026", '' without a date
+function ordnerDeleteLabel(endsOn) {
+  var p = String(endsOn || '').split('-');
+  return p.length === 3 ? 'Löschung am ' + p[2] + '.' + p[1] + '.' + p[0] : '';
+}
+
+// Warning text for the last days before deletion, '' otherwise
+function ordnerDeleteBadge(info) {
+  if (!info || info.days > ORDNER_DELETE_WARN_DAYS) return '';
+  return info.days === 0 ? 'wird heute gelöscht' : 'wird in ' + info.days + (info.days === 1 ? ' Tag' : ' Tagen') + ' gelöscht';
+}
+
+// Form rule: an empty field or one still equal to the previous auto value follows the jobs; a manual date stays
+function ordnerNextDeleteValue(current, oldAuto, newAuto) {
+  if (!current || current === oldAuto) return newAuto || '';
+  return current;
+}
+
 // ── INIT ──
 async function initOrdner() {
   canManageOrdner = typeof userRole !== 'undefined' && ['PL', 'Admin'].includes(userRole);
@@ -25,13 +73,13 @@ async function fetchOrdner() {
 
   var { data, error } = await supabaseClient
     .from('project_folders')
-    .select('id, name, description, created_at, parent_id, pl_id')
+    .select('id, name, description, created_at, parent_id, pl_id, ends_on')
     .order('name', { ascending: true });
 
   showOrdnerLoading(false);
   if (error) { console.error('Ordner fetch:', error); showToast('Fehler beim Laden der Ordner.', 'danger'); return; }
   alleOrdner = data || [];
-  renderOrdner(alleOrdner);
+  filterOrdner(); // keeps an active search text applied (renders everything when empty)
 }
 
 function renderOrdner(list) {
@@ -53,19 +101,23 @@ function renderOrdner(list) {
   }
   if (empty) empty.style.display = 'none';
 
-  grid.innerHTML = list.map(function(o) {
-    var date = o.created_at ? new Date(o.created_at).toLocaleDateString('de-DE') : '';
-    var editBtn = canManageOrdner
-      ? '<button class="btn" style="width:100%;margin-top:6px;padding:5px;font-size:12px;" onclick="event.stopPropagation();openOrdnerForm(\'' + o.id + '\')">Umbenennen</button>'
-      : '';
-    return '<div class="ordner-card" onclick="openOrdnerDetail(\'' + o.id + '\')">' +
-      '<div style="font-size:40px;margin-bottom:8px;">📁</div>' +
-      '<div class="produkt-name">' + escOrdner(o.name) + '</div>' +
-      (o.description ? '<div class="produkt-desc">' + escOrdner(o.description) + '</div>' : '') +
-      '<div style="font-size:11px;color:var(--text3);margin-top:6px;">' + date + '</div>' +
-      editBtn +
-      '</div>';
-  }).join('');
+  grid.innerHTML = list.map(function(o) { return ordnerFolderRowHtml(o, true); }).join('');
+}
+
+// One folder as a list row (list view and subfolders)
+function ordnerFolderRowHtml(o, showDate) {
+  var date = showDate && o.created_at ? new Date(o.created_at).toLocaleDateString('de-DE') : '';
+  // Only top-level folders carry a deletion date
+  var info = o.parent_id ? null : ordnerDeleteInfo(o, localDateStr());
+  var sub = [o.description || '', date, info ? 'Löschung am ' + shortDateDE(info.date) : ''].filter(Boolean).join(' · ');
+  var badge = ordnerDeleteBadge(info);
+  var menuBtn = canManageOrdner ? '<button type="button" class="ui-icon-btn" aria-label="Ordner-Aktionen" onclick="event.stopPropagation();ordnerFolderMenu(\'' + o.id + '\')">' + uiIcon('dots') + '</button>' : '';
+  var end = (badge ? '<span class="ui-pill ui-pill-warn">' + escOrdner(badge) + '</span>' : '') + menuBtn;
+  return '<div class="ui-row ordner-row" onclick="openOrdnerDetail(\'' + o.id + '\')">' +
+    '<span class="ui-tile-ico ordner-ico">' + uiIcon('folder') + '</span>' +
+    '<div class="ui-row-main"><div class="ui-row-title">' + escOrdner(o.name) + '</div>' + (sub ? '<div class="ui-sub">' + escOrdner(sub) + '</div>' : '') + '</div>' +
+    (end ? '<div class="ui-row-end">' + end + '</div>' : '') +
+  '</div>';
 }
 
 function filterOrdner() {
@@ -106,20 +158,17 @@ async function openOrdnerDetail(id) {
   document.getElementById('ordner-detail-view').style.display = 'block';
 
   var titleEl = document.getElementById('ordner-detail-title');
-  if (titleEl) titleEl.textContent = '📁 ' + ordnerBreadcrumb(folder);
+  if (titleEl) titleEl.textContent = ordnerBreadcrumb(folder);
+  ordnerSetTitle(ordnerBreadcrumb(folder));
+  var endsEl = document.getElementById('ordner-ends');
+  var endsInfo = folder.parent_id ? null : ordnerDeleteInfo(folder, localDateStr());
+  var endsText = endsInfo ? [ordnerDeleteLabel(endsInfo.date), ordnerDeleteBadge(endsInfo)].filter(Boolean).join(' · ') : '';
+  if (endsEl) { endsEl.textContent = endsText; endsEl.style.display = endsText ? 'block' : 'none'; }
   initOrdnerDragDrop();
 
-  var uploadBtn = document.getElementById('ordner-upload-btn');
-  if (uploadBtn) uploadBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
-
-  var subBtn = document.getElementById('ordner-add-sub-btn');
-  if (subBtn) subBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
-
-  var delFolderBtn = document.getElementById('ordner-delete-folder-btn');
-  if (delFolderBtn) delFolderBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
-
-  var einsBtn = document.getElementById('ordner-edit-einsaetze-btn');
-  if (einsBtn) einsBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
+  // Upload is the main action; Unterordner, PL & Einsätze and Löschen live in the top bar "…"
+  var uploadBar = document.getElementById('ordner-upload-bar');
+  if (uploadBar) uploadBar.style.display = canManageOrdner ? 'flex' : 'none';
   renderOrdnerEinsaetze(folder);
 
   renderSubfolders(id);
@@ -131,18 +180,8 @@ function renderSubfolders(parentId) {
   if (!grid) return;
   var children = alleOrdner.filter(function(o) { return o.parent_id === parentId; });
   if (!children.length) { grid.innerHTML = ''; grid.style.display = 'none'; return; }
-  grid.style.display = 'grid';
-  grid.innerHTML = children.map(function(o) {
-    var renameBtn = canManageOrdner
-      ? '<button class="btn" style="width:100%;margin-top:6px;padding:4px;font-size:11px;" onclick="event.stopPropagation();renameOrdnerPrompt(\'' + o.id + '\')">Umbenennen</button>'
-      : '';
-    return '<div class="ordner-card" onclick="openOrdnerDetail(\'' + o.id + '\')">' +
-      '<div style="font-size:32px;margin-bottom:6px;">📁</div>' +
-      '<div class="produkt-name">' + escOrdner(o.name) + '</div>' +
-      (o.description ? '<div class="produkt-desc">' + escOrdner(o.description) + '</div>' : '') +
-      renameBtn +
-      '</div>';
-  }).join('');
+  grid.style.display = 'block';
+  grid.innerHTML = '<div class="ui-label">Unterordner</div>' + children.map(function(o) { return ordnerFolderRowHtml(o, false); }).join('');
 }
 
 async function createSubfolder() {
@@ -176,7 +215,8 @@ function closeOrdnerDetail() {
   var detailView = document.getElementById('ordner-detail-view');
   if (listView) listView.style.display = 'block';
   if (detailView) detailView.style.display = 'none';
-  renderOrdner(alleOrdner);
+  ordnerSetTitle('Projektordner');
+  filterOrdner(); // keeps an active search text applied (renders everything when empty)
 }
 
 function initOrdnerDragDrop() {
@@ -204,7 +244,7 @@ function initOrdnerDragDrop() {
 
 async function fetchOrdnerFiles(folderId) {
   var container = document.getElementById('ordner-files-list');
-  if (container) container.innerHTML = '<div style="color:var(--text3);padding:16px;">Lade Dateien...</div>';
+  if (container && aktuellerOrdner && aktuellerOrdner.id === folderId) container.innerHTML = '<div class="ui-sub" style="padding:16px 2px;">Dateien werden geladen…</div>';
 
   var { data, error } = await supabaseClient
     .from('folder_files')
@@ -212,6 +252,8 @@ async function fetchOrdnerFiles(folderId) {
     .eq('folder_id', folderId)
     .order('name', { ascending: true });
 
+  // Stale answer: the user navigated to another folder (or left) while this was loading
+  if (!aktuellerOrdner || aktuellerOrdner.id !== folderId) return;
   if (error) { console.error('Files fetch:', error); showToast('Fehler beim Laden.', 'danger'); return; }
   ordnerFiles = data || [];
   renderOrdnerFiles(ordnerFiles);
@@ -222,25 +264,19 @@ function renderOrdnerFiles(list) {
   if (!container) return;
 
   if (!list || list.length === 0) {
-    container.innerHTML = '<div class="empty-state" style="padding:32px 0;"><div class="empty-icon">📂</div><div>Noch keine Dateien in diesem Ordner.</div></div>';
+    container.innerHTML = uiEmptyHtml('Noch keine Dateien', canManageOrdner ? 'Lade über „Datei hochladen“ die erste Datei hoch.' : 'In diesem Ordner liegen noch keine Dateien.');
     return;
   }
 
-  container.innerHTML = list.map(function(f) {
-    var icon = fileIcon(f.file_type, f.name);
+  container.innerHTML = '<div class="ui-label">Dateien</div>' + list.map(function(f) {
     var size = f.file_size_bytes ? formatBytes(f.file_size_bytes) : '';
     var date = f.created_at ? new Date(f.created_at).toLocaleDateString('de-DE') : '';
-    var delBtn = canManageOrdner
-      ? '<button class="btn" style="width:auto;padding:4px 10px;font-size:12px;color:var(--danger);flex-shrink:0;" onclick="event.stopPropagation();deleteOrdnerFile(\'' + f.id + '\',\'' + f.file_url + '\')">✕</button>'
-      : '';
-    return '<div class="ordner-file-row" onclick="openOrdnerFileById(\'' + f.id + '\')">' +
-      '<span class="ordner-file-icon">' + icon + '</span>' +
-      '<div class="ordner-file-info">' +
-        '<div class="ordner-file-name">' + escOrdner(f.name) + '</div>' +
-        '<div class="ordner-file-meta">' + [size, date].filter(Boolean).join(' · ') + '</div>' +
-      '</div>' +
-      delBtn +
-      '</div>';
+    return '<div class="ui-row ordner-row" onclick="openOrdnerFileById(\'' + f.id + '\')">' +
+      '<span class="ui-tile-ico ordner-ico">' + uiIcon(ordnerFileKind(f.file_type, f.name)) + '</span>' +
+      '<div class="ui-row-main"><div class="ui-row-title">' + escOrdner(f.name) + '</div>' +
+        '<div class="ui-sub">' + [size, date].filter(Boolean).join(' · ') + '</div></div>' +
+      (canManageOrdner ? '<div class="ui-row-end"><button type="button" class="ui-icon-btn" aria-label="Datei-Aktionen" onclick="event.stopPropagation();ordnerFileMenu(\'' + f.id + '\')">' + uiIcon('dots') + '</button></div>' : '') +
+    '</div>';
   }).join('');
 }
 
@@ -307,6 +343,8 @@ async function uploadOrdnerFile(folderId, file) {
 
   if (dbErr) {
     console.error('DB insert error for "' + file.name + '":', dbErr.message || dbErr);
+    // No row points to the uploaded object: remove it again (best effort)
+    try { await supabaseClient.storage.from('project-files').remove([filePath]); } catch (e) { /* ignore */ }
     return false;
   }
   return true;
@@ -315,13 +353,16 @@ async function uploadOrdnerFile(folderId, file) {
 async function deleteOrdnerFile(id, url) {
   if (!confirm('Datei wirklich löschen?')) return;
   try {
-    // Remove from storage
+    // DB first (row-checked: RLS answers with 0 rows), storage only after it succeeded
+    var { data: delRows, error } = await supabaseClient.from('folder_files').delete().eq('id', id).select('id');
+    if (error || !delRows || !delRows.length) throw error || new Error('Löschen abgelehnt');
     if (url) {
       var parts = url.split('/project-files/');
-      if (parts.length > 1) await supabaseClient.storage.from('project-files').remove([parts[1]]);
+      if (parts.length > 1) {
+        try { await supabaseClient.storage.from('project-files').remove([parts[1]]); }
+        catch (e2) { console.warn('Datei nicht aus Storage entfernt:', e2); }
+      }
     }
-    var { error } = await supabaseClient.from('folder_files').delete().eq('id', id);
-    if (error) throw error;
     showToast('Datei gelöscht.');
     if (aktuellerOrdner) await fetchOrdnerFiles(aktuellerOrdner.id);
   } catch(e) { showToast('Fehler beim Löschen.', 'danger'); }
@@ -337,7 +378,7 @@ var _ordnerFormReturnId = null;     // reopen this folder's detail view after sa
 async function loadOrdnerUsers() {
   if (_ordnerUsers) return _ordnerUsers;
   // Inactive users too: an already assigned AL/PL who left must still show up in the form
-  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, is_active').order('full_name');
+  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, is_active').order('full_name');
   if (error) { console.error('Ordner users:', error); return []; }
   _ordnerUsers = data || [];
   return _ordnerUsers;
@@ -346,7 +387,7 @@ async function loadOrdnerUsers() {
 function ordnerUserOptions(roles, selectedId, emptyLabel) {
   var opts = emptyLabel !== undefined ? '<option value="">' + escOrdner(emptyLabel) + '</option>' : '';
   return opts + (_ordnerUsers || []).filter(function(u) {
-    return roles.indexOf(u.role) !== -1 && (u.is_active !== false || u.id === selectedId);
+    return roles.some(function(r) { return userHasRole(u, r); }) && (u.is_active !== false || u.id === selectedId);
   }).map(function(u) {
     return '<option value="' + u.id + '"' + (u.id === selectedId ? ' selected' : '') + '>' + escOrdner(u.full_name) +
       (u.is_active === false ? ' (inaktiv)' : '') + '</option>';
@@ -373,8 +414,16 @@ function addEinsatzRow(e) {
     '</select>' +
     '<select class="meta-input einsatz-al" style="flex:2 1 160px; margin:0;">' + ordnerUserOptions(['AL', 'Admin'], e.al_id, '– AL wählen –') + '</select>' +
     '<label style="font-size:12px; display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" class="einsatz-cancelled"' + (e.cancelled ? ' checked' : '') + '> abgesagt/übernommen</label>' +
-    '<button type="button" class="btn" style="width:auto; padding:4px 10px; color:var(--danger);" title="Einsatz entfernen" onclick="this.parentElement.remove()">🗑</button>';
+    '<button type="button" class="btn" style="width:auto; padding:4px 10px; color:var(--danger);" title="Einsatz entfernen" onclick="this.parentElement.remove(); ordnerSyncDeleteField()">🗑</button>';
   list.appendChild(row);
+}
+
+// Moves the "Löschung am" field along with the Einsatz rows (unless the date was set by hand)
+function ordnerSyncDeleteField() {
+  var inp = document.getElementById('inp-ordner-ends');
+  var auto = ordnerAutoDeleteDate(readEinsatzRows()) || '';
+  if (inp) inp.value = ordnerNextDeleteValue(inp.value, _ordnerAutoValue, auto);
+  _ordnerAutoValue = auto;
 }
 
 function readEinsatzRows() {
@@ -391,14 +440,10 @@ function readEinsatzRows() {
 }
 
 async function openOrdnerForm(id) {
-  // The form lives in the list view; coming from a folder's detail view, return there after saving
+  // The form is a sheet over the current view; coming from a folder's detail view, refresh it after saving
   var detail = document.getElementById('ordner-detail-view');
-  _ordnerFormReturnId = null;
-  if (id && detail && detail.style.display !== 'none') {
-    _ordnerFormReturnId = id;
-    detail.style.display = 'none';
-    document.getElementById('ordner-list-view').style.display = 'block';
-  }
+  // Return to the folder that is open (a subfolder row's "Bearbeiten" passes the subfolder's id, not the open one)
+  _ordnerFormReturnId = id && detail && detail.style.display !== 'none' && aktuellerOrdner ? aktuellerOrdner.id : null;
   editingOrdnerId = id || null;
   var form = document.getElementById('ordner-form');
   var nameInp = document.getElementById('inp-ordner-name');
@@ -409,6 +454,12 @@ async function openOrdnerForm(id) {
   if (title) title.textContent = o ? 'Ordner bearbeiten' : 'Neuer Ordner';
   if (nameInp) nameInp.value = o ? o.name : '';
   if (descInp) descInp.value = o ? (o.description || '') : '';
+  var endsInp = document.getElementById('inp-ordner-ends');
+  if (endsInp) endsInp.value = o && o.ends_on ? o.ends_on : '';
+  // Subfolders follow their top-level folder: no deletion date of their own
+  var endsField = document.getElementById('ordner-ends-field');
+  if (endsField) endsField.style.display = o && o.parent_id ? 'none' : '';
+  _ordnerAutoValue = '';
 
   await loadOrdnerUsers();
   var plSel = document.getElementById('inp-ordner-pl');
@@ -423,17 +474,25 @@ async function openOrdnerForm(id) {
     _editEinsaetzeExisting = data || [];
     _editEinsaetzeExisting.forEach(addEinsatzRow);
   }
+  // Baseline for the follow rule: what the auto date is for the jobs as loaded
+  _ordnerAutoValue = ordnerAutoDeleteDate(readEinsatzRows()) || '';
+  if (rows && !rows.dataset.followBound) {
+    rows.dataset.followBound = '1';
+    rows.addEventListener('input', ordnerSyncDeleteField);
+    rows.addEventListener('change', ordnerSyncDeleteField);
+  }
 
   if (form) form.style.display = 'block';
+  var fm = document.getElementById('ordner-form-modal'); if (fm) fm.classList.add('open');
   if (nameInp) nameInp.focus();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function closeOrdnerForm() {
   editingOrdnerId = null;
-  var form = document.getElementById('ordner-form');
-  if (form) form.style.display = 'none';
-  if (_ordnerFormReturnId) { var back = _ordnerFormReturnId; _ordnerFormReturnId = null; openOrdnerDetail(back); }
+  var fm = document.getElementById('ordner-form-modal');
+  if (fm) fm.classList.remove('open');
+  _ordnerFormReturnId = null; // cancelled: the detail view underneath is unchanged
 }
 
 // After a partly failed save: take the DB state as the new baseline and give form rows that were
@@ -484,15 +543,21 @@ async function saveOrdner() {
   var payload = {
     name: name,
     description: desc || null,
-    pl_id: plId,
-    created_by: typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null
+    pl_id: plId
   };
+  // Deletion date: manual value, else auto from the jobs, else none (never deleted). Subfolders carry none.
+  var editing = editingOrdnerId ? alleOrdner.find(function(x) { return x.id === editingOrdnerId; }) : null;
+  if (!(editing && editing.parent_id)) {
+    payload.ends_on = ((document.getElementById('inp-ordner-ends') || {}).value || '') || ordnerAutoDeleteDate(einsaetze) || null;
+  }
 
   var folderId = editingOrdnerId;
   if (editingOrdnerId) {
     var { data: upd, error } = await supabaseClient.from('project_folders').update(payload).eq('id', editingOrdnerId).select('id');
     if (error || !upd || !upd.length) { showToast('Fehler: ' + (error ? error.message : 'Ordner nicht gespeichert'), 'danger'); return; }
   } else {
+    // created_by only on insert: an edit must not hand the folder over to the editor
+    payload.created_by = typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null;
     var { data: created, error: insErr } = await supabaseClient.from('project_folders').insert(payload).select('id').single();
     if (insErr) { showToast('Fehler: ' + insErr.message, 'danger'); return; }
     folderId = created.id;
@@ -508,11 +573,28 @@ async function saveOrdner() {
     return;
   }
   showToast(wasNew ? '✅ Ordner erstellt.' : '✅ Ordner aktualisiert.');
+  // Push to ALs not told about this folder yet (the function decides who; a failure must not affect the save)
+  if (einsaetze.length) {
+    try {
+      supabaseClient.functions.invoke('notify-folder', { body: { folder_id: folderId } })
+        .then(function(r) { if (r.error) console.error('Ordner-Push:', r.error); })
+        .catch(function(e) { console.error('Ordner-Push:', e); });
+    } catch (e) { console.error('Ordner-Push:', e); }
+  }
   var returnId = _ordnerFormReturnId;
   _ordnerFormReturnId = null;
   closeOrdnerForm();
   await fetchOrdner();
   if (returnId) await openOrdnerDetail(returnId);
+}
+
+// Notification tap opens ./index.html?open=ordner
+function handleOrdnerDeepLink() {
+  var params = new URLSearchParams(location.search);
+  if (params.get('open') !== 'ordner') return;
+  history.replaceState(null, '', location.pathname);
+  if (typeof currentUser === 'undefined' || !currentUser) return;
+  selectMode('ordner');
 }
 
 // Detail view: PL + jobs with protocol status
@@ -523,6 +605,8 @@ async function renderOrdnerEinsaetze(folder) {
   var { data: rows, error } = await supabaseClient.from('einsaetze')
     .select('id, date, action, al_id, cancelled, al:app_users!einsaetze_al_id_fkey(full_name)')
     .eq('folder_id', folder.id).order('date');
+  var stale = function() { return !aktuellerOrdner || aktuellerOrdner.id !== folder.id; };
+  if (stale()) return;
   if (error) { console.error('Einsätze:', error); return; }
   if (!rows || !rows.length) return;
   var alIds = rows.map(function(r) { return r.al_id; });
@@ -531,29 +615,21 @@ async function renderOrdnerEinsaetze(folder) {
   var done = {};
   (prots || []).forEach(function(p) { done[p.al_id + '|' + p.date] = true; });
   await loadOrdnerUsers();
+  if (stale()) return;
   var pl = (_ordnerUsers || []).find(function(u) { return u.id === folder.pl_id; });
-  var ICON = { done: '✅', open: '⏳', future: '🕓', cancelled: '✖' };
+  var PILL = { done: ['ui-pill-ok', 'erledigt'], open: ['ui-pill-warn', 'Protokoll fehlt'], future: ['ui-pill-info', 'geplant'], cancelled: ['ui-pill-danger', 'entfällt'] };
   var today = localDateStr();
-  box.innerHTML = '<div style="font-weight:600; margin-bottom:6px;">Projektleitung: ' + escOrdner(pl ? pl.full_name : '—') + '</div>' +
+  box.className = 'ui-card';
+  box.innerHTML = '<div class="ui-label" style="margin:0 0 4px;">Einsätze</div>' +
+    '<div class="ui-sub" style="margin-bottom:6px;">Projektleitung: ' + escOrdner(pl ? pl.full_name : '—') + '</div>' +
     rows.map(function(r) {
-      var st = einsatzStatus(r, !!done[r.al_id + '|' + r.date], today);
-      return '<div style="padding:2px 0;">' + ICON[st] + ' ' + shortDateDE(r.date) + ' ' + escOrdner(r.action) + ' – ' + escOrdner(r.al ? r.al.full_name : '—') + '</div>';
+      var st = einsatzStatus(r, !!done[r.al_id + '|' + r.date], today), p = PILL[st] || PILL.future;
+      return '<div class="ordner-einsatz"><span>' + shortDateDE(r.date) + ' · ' + escOrdner(r.action) + ' · AL ' + escOrdner(r.al ? r.al.full_name : '—') + '</span>' +
+        '<span class="ui-pill ' + p[0] + '">' + p[1] + '</span></div>';
     }).join('');
   box.style.display = 'block';
 }
 
-async function renameOrdnerPrompt(id) {
-  var o = alleOrdner.find(function(x) { return x.id === id; });
-  if (!o || !canManageOrdner) return;
-  var name = prompt('Neuer Name:', o.name);
-  if (!name || !name.trim() || name.trim() === o.name) return;
-  var { error } = await supabaseClient.from('project_folders').update({ name: name.trim() }).eq('id', id);
-  if (error) { showToast('Fehler: ' + error.message, 'danger'); return; }
-  showToast('✅ Umbenannt.');
-  var keepId = aktuellerOrdner ? aktuellerOrdner.id : null;
-  await fetchOrdner();
-  if (keepId) await openOrdnerDetail(keepId);
-}
 
 // Collects the folder and all nested subfolder ids (depth-first over the cached list)
 function collectOrdnerTreeIds(rootId) {
@@ -568,27 +644,34 @@ function collectOrdnerTreeIds(rootId) {
 }
 
 async function deleteCurrentOrdner() {
-  if (!aktuellerOrdner) return;
-  var treeIds = collectOrdnerTreeIds(aktuellerOrdner.id);
+  if (aktuellerOrdner) await deleteOrdner(aktuellerOrdner);
+}
+
+async function deleteOrdner(folder) {
+  var treeIds = collectOrdnerTreeIds(folder.id);
   var subCount = treeIds.length - 1;
-  var msg = 'Ordner "' + aktuellerOrdner.name + '"' +
+  var msg = 'Ordner "' + folder.name + '"' +
     (subCount > 0 ? ' inkl. ' + subCount + ' Unterordner(n)' : '') +
     ' und alle enthaltenen Dateien wirklich löschen?';
   if (!confirm(msg)) return;
 
-  // Remove storage objects of the whole subtree (DB rows cascade via FK)
+  // Collect the storage paths of the whole subtree first (DB rows cascade via FK)
   var { data: allFiles } = await supabaseClient
     .from('folder_files').select('file_url').in('folder_id', treeIds);
   var paths = (allFiles || []).map(function(f) {
     var parts = (f.file_url || '').split('/project-files/');
     return parts.length > 1 ? parts[1] : null;
   }).filter(Boolean);
-  if (paths.length) await supabaseClient.storage.from('project-files').remove(paths);
 
-  var { error } = await supabaseClient.from('project_folders').delete().eq('id', aktuellerOrdner.id);
-  if (error) { showToast('Fehler: ' + error.message, 'danger'); return; }
+  // DB first (row-checked: RLS answers with 0 rows); storage is only cleaned up after the folder is really gone
+  var { data: delRows, error } = await supabaseClient.from('project_folders').delete().eq('id', folder.id).select('id');
+  if (error || !delRows || !delRows.length) { showToast('Fehler: ' + (error ? error.message : 'Löschen abgelehnt'), 'danger'); return; }
+  if (paths.length) {
+    try { await supabaseClient.storage.from('project-files').remove(paths); }
+    catch (e) { console.warn('Ordner-Dateien nicht aus Storage entfernt:', e); }
+  }
   showToast('Ordner gelöscht.');
-  var parentId = aktuellerOrdner.parent_id;
+  var parentId = folder.parent_id;
   closeOrdnerDetail();
   await fetchOrdner();
   if (parentId) await openOrdnerDetail(parentId);
@@ -603,6 +686,15 @@ function openOrdnerFileById(id) {
   openFileViewer(f.file_url, f.name, f.file_type || '');
 }
 
+// 'image' | 'pdf' | 'file' (download only). HEIC/HEIF is not displayable in most browsers (Chrome/Android), so it is a file.
+function ordnerViewerKind(mimeType, url) {
+  var mime = String(mimeType || ''), u = String(url || '');
+  if (/image\/hei[cf]/i.test(mime) || /\.hei[cf](\?|$)/i.test(u)) return 'file';
+  if (/image\//i.test(mime) || /\.(jpe?g|png|gif|webp)(\?|$)/i.test(u)) return 'image';
+  if (/pdf/i.test(mime) || /\.pdf(\?|$)/i.test(u)) return 'pdf';
+  return 'file';
+}
+
 function openFileViewer(url, name, mimeType) {
   var modal = document.getElementById('produkt-viewer-modal');
   var titleEl = document.getElementById('viewer-title');
@@ -611,10 +703,12 @@ function openFileViewer(url, name, mimeType) {
   var dlBtn = document.getElementById('viewer-download-btn');
 
   if (titleEl) titleEl.textContent = name || 'Datei';
-  if (dlBtn) dlBtn.href = url;
+  // The download button is shared with the product viewer, which hides/relabels it: restore it here
+  if (dlBtn) { dlBtn.href = url; dlBtn.textContent = '⬇ Download'; dlBtn.style.display = 'inline-flex'; }
 
-  var isImage = /image\//i.test(mimeType) || /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
-  var isPdf = /pdf/i.test(mimeType) || /\.pdf(\?|$)/i.test(url);
+  var kind = ordnerViewerKind(mimeType, url);
+  var isImage = kind === 'image';
+  var isPdf = kind === 'pdf';
   if (subtitleEl) subtitleEl.textContent = isImage ? 'Bild' : isPdf ? 'PDF' : 'Datei';
 
   if (modal) modal.style.display = 'flex'; // visible first so the zoom viewer can measure its width
@@ -827,7 +921,7 @@ function showOrdnerLoading(show) {
   var el = document.getElementById('ordner-loading');
   var grid = document.getElementById('ordner-grid');
   if (el) el.style.display = show ? 'flex' : 'none';
-  if (grid) grid.style.display = show ? 'none' : 'grid';
+  if (grid) grid.style.display = show ? 'none' : 'block';
 }
 
 function fileIcon(mimeType, name) {
@@ -850,4 +944,47 @@ function formatBytes(bytes) {
 
 function escOrdner(str) {
   return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Redesign helpers ──
+// Folder actions in the top bar "…" (detail view); only with the right to manage folders
+function ordnerMenuItems(canManage, folderId) {
+  if (!canManage) return [];
+  return [
+    { label: 'Unterordner anlegen', action: 'createSubfolder' },
+    { label: 'PL & Einsätze', action: 'openOrdnerForm', args: [folderId] },
+    { label: 'Ordner löschen', action: 'deleteCurrentOrdner', danger: true }
+  ];
+}
+
+// Icon kind of a file row (image / video / file)
+function ordnerFileKind(mimeType, name) {
+  var t = (mimeType || '') + ' ' + (name || '');
+  if (/image/i.test(t) || /\.(jpe?g|png|gif|webp|svg|heic)\b/i.test(t)) return 'image';
+  if (/video/i.test(t) || /\.(mp4|mov|avi|webm)\b/i.test(t)) return 'video';
+  return 'file';
+}
+
+function ordnerFolderMenu(id) {
+  openUiMenu([{ label: 'Bearbeiten', action: 'openOrdnerForm', args: [id] }]);
+}
+
+function ordnerFileMenu(id) {
+  var f = (ordnerFiles || []).find(function(x) { return x.id === id; });
+  if (!f) return;
+  openUiMenu([
+    { label: 'Öffnen', action: 'openOrdnerFileById', args: [id] },
+    { label: 'Datei löschen', action: 'deleteOrdnerFile', args: [id, f.file_url], danger: true }
+  ]);
+}
+
+function ordnerSetTitle(text) {
+  var t = document.getElementById('topbar-title');
+  if (t && typeof activeModule !== 'undefined' && activeModule === 'ordner') t.textContent = text;
+}
+
+if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
+  UI_TOPBAR_ITEMS.ordner = function() {
+    return aktuellerOrdner ? ordnerMenuItems(canManageOrdner, aktuellerOrdner.id) : [];
+  };
 }

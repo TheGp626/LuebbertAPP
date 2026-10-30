@@ -15,145 +15,114 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=10">
+  <link rel="stylesheet" href="css/style.css?v=34">
+  <link rel="stylesheet" href="css/ui.css?v=13">
 </head>
 
 <body>
   <!-- ── AUTH OVERLAY ── -->
-  <div id="auth-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg); z-index: 10000; flex-direction: column; align-items: center; justify-content: center; padding: 20px;">
-    <div class="card" style="width: 100%; max-width: 400px; text-align: center;">
-      <h2 id="auth-title" style="margin-bottom: 20px;">Login</h2>
-      <p id="auth-sub" style="margin-bottom: 20px; color: var(--text2); font-size: 14px;">Wähle deinen Namen aus.</p>
-
+  <div id="auth-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg); z-index: 10000; flex-direction: column; align-items: center; justify-content: center; padding: 20px; overflow-y: auto;">
+    <div class="ui-card" style="width: 100%; max-width: 400px; padding: 24px 20px; margin: 0; cursor: default; text-align: center;">
+      <img src="icons/logo.png" alt="Lübbert" style="display: block; width: 120px; height: auto; margin: 0 auto 16px;">
+      <h2 id="auth-title" class="ui-title" style="margin-bottom: 6px;">Login</h2>
+      <p id="auth-sub" class="ui-sub" style="margin-bottom: 18px;">Wähle deinen Namen aus.</p>
       <div id="auth-error" style="color: var(--danger); font-size: 13px; margin-bottom: 12px; display: none;"></div>
-
-      <div class="field" style="margin-bottom: 12px; position: relative;">
-        <input type="text" id="auth-name-input" placeholder="Name tippen oder auswählen…" autocomplete="off" autocapitalize="words"
-          style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 16px; background: var(--bg2); color: var(--text); box-sizing: border-box;" />
+      <div class="ui-field" style="position: relative;">
+        <input type="text" id="auth-name-input" placeholder="Name tippen oder auswählen…" autocomplete="off" autocapitalize="words" />
         <div id="auth-name-list" class="combo-list" style="display: none;"></div>
       </div>
-
-      <div id="auth-password-wrapper" class="field" style="margin-bottom: 20px; display: none;">
-        <input type="password" id="auth-password" placeholder="Admin-Passwort" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 16px; background: var(--bg2); color: var(--text);" />
-        <p style="font-size: 12px; color: var(--text3); margin-top: 6px; text-align: left;">Nur für AL / PL / Admin erforderlich</p>
+      <div id="auth-password-wrapper" class="ui-field" style="display: none;">
+        <input type="password" id="auth-password" placeholder="Admin-Passwort" />
+        <p class="ui-sub" style="margin-top: 6px; text-align: left;">Nur für AL / PL / Admin erforderlich</p>
       </div>
-      
-      <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; cursor: pointer; font-size: 14px; color: var(--text2); justify-content: center;">
-        <input type="checkbox" id="auth-remember" style="width: 16px; height: 16px; cursor: pointer;" />
+      <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; cursor: pointer; font-size: 14px; color: var(--text2); justify-content: center; min-height: 32px;">
+        <input type="checkbox" id="auth-remember" style="width: 18px; height: 18px; cursor: pointer;" />
         Eingeloggt bleiben
       </label>
-
-      <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="btn primary" style="width: 100%; padding: 14px; font-size: 16px; margin-bottom: 12px;">Anmelden</button>
-
-      <div style="font-size: 12px; color: var(--text3);">Powered by Supabase</div>
+      <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="ui-btn ui-btn-primary ui-btn-block" style="margin-bottom: 12px;">Anmelden</button>
+      <div class="ui-sub" style="font-size: 12px;">Powered by Supabase</div>
     </div>
   </div>
 
   <div class="app">
-    <!-- ── GLOBAL TOP BAR ── -->
-    <div class="top-bar">
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <button class="icon-btn" id="back-to-menu-btn" style="display: none;" onclick="exitToMenu()"
-          title="Zum Hauptmenü">Menu</button>
-        <div>
-          <div class="app-title" id="app-title" onclick="titleTap()">LÜBBERT APP</div>
-          <div class="app-sub" id="top-bar-sub">Event Interiors & Logistics</div>
-        </div>
+    <!-- ── MODULE TOP BAR (hidden on the start page) ── -->
+    <div class="ui-topbar" id="topbar" style="display: none;">
+      <button type="button" class="ui-topbar-back" id="back-to-menu-btn" onclick="exitToMenu()" title="Zum Hauptmenü">
+        <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>Menü
+      </button>
+      <div class="ui-topbar-mid">
+        <div class="ui-topbar-title" id="topbar-title"></div>
+        <div class="ui-topbar-sub" id="top-bar-sub"></div>
       </div>
-      <div>
-        <button class="settings-btn" id="settings-btn" onclick="openSettingsModal()">Optionen</button>
+      <div class="ui-topbar-end">
+        <button type="button" class="ui-icon-btn" id="settings-btn" onclick="openTopbarMenu()" aria-label="Optionen">
+          <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+        </button>
       </div>
     </div>
 
-    <!-- ── TOP NAVIGATION TABS (Stundenzettel) ── -->
-    <div class="top-tabs" id="main-nav" style="display: none;">
-      <button class="top-tab active" id="nav-home" onclick="navigate('home')">
-        <span class="tab-icon"></span>Erfassen
-      </button>
-      <button class="top-tab" id="nav-history" onclick="navigate('history')">
-        <span class="tab-icon"></span>Verlauf
-      </button>
+    <!-- ── SEGMENT SWITCH (Stundenzettel) ── -->
+    <div class="ui-topnav" id="main-nav" style="display: none;">
+      <div class="ui-seg">
+        <button class="top-tab active" id="nav-home" onclick="navigate('home')">Erfassen</button>
+        <button class="top-tab" id="nav-history" onclick="navigate('history')">Verlauf</button>
+      </div>
     </div>
 
-    <!-- ── TOP NAVIGATION TABS (Protokoll) ── -->
-    <div class="top-tabs" id="prot-nav" style="display: none;">
-      <button class="top-tab active" id="nav-protokoll" onclick="navigateProt('protokoll')">
-        <span class="tab-icon"></span>Erfassen
-      </button>
-      <button class="top-tab" id="nav-protokoll-history" onclick="navigateProt('protokoll-history')">
-        <span class="tab-icon"></span>Verlauf
-      </button>
+    <!-- ── SEGMENT SWITCH (Protokoll) ── -->
+    <div class="ui-topnav" id="prot-nav" style="display: none;">
+      <div class="ui-seg">
+        <button class="top-tab active" id="nav-protokoll" onclick="navigateProt('protokoll')">Erfassen</button>
+        <button class="top-tab" id="nav-protokoll-history" onclick="navigateProt('protokoll-history')">Verlauf</button>
+      </div>
     </div>
 
     <!-- ══════════ STARTUP PAGE ══════════ -->
     <div class="page active" id="page-startup">
-      <div
-        style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; text-align: center;">
-        <div id="erinnerung-banner" style="display:none; width:100%; max-width:320px; margin-bottom:24px; text-align:left;"></div>
-        <img src="icons/logo.png" id="app-logo" alt="Lübbert Logo"
-          style="width: 180px; height: auto; margin-bottom: 40px; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.1));">
-        <h1 style="font-size: 24px; font-weight: 700; margin-bottom: 8px;">Willkommen</h1>
-        <p style="color: var(--text2); font-size: 14px; margin-bottom: 48px;">Bitte wählen Sie ein Modul aus</p>
-
-        <div style="width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 16px;">
-          <button id="btn-select-stunden" class="btn primary" style="padding: 18px; font-size: 16px; font-weight: 600;"
-            onclick="selectMode('stunden')">
-            Stundenzettel
-          </button>
-          <button id="btn-select-protokoll" class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px;"
-            onclick="selectMode('protokoll')">
-            Protokoll
-          </button>
-          <button id="btn-select-dashboard" class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px; display: none;"
-            onclick="selectMode('dashboard')">
-            Office Dashboard
-          </button>
-          <button class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px;"
-            onclick="selectMode('produkte')">
-            Produktdatenbank
-          </button>
-          <button class="btn" style="padding: 18px; font-size: 16px; font-weight: 600; border-width: 1.5px;"
-            onclick="selectMode('ordner')">
-            Projektordner
+      <div class="ui-home">
+        <div class="ui-home-head">
+          <div class="ui-sub" id="home-date"></div>
+          <button type="button" class="ui-icon-btn" onclick="openSettingsModal()" aria-label="Optionen">
+            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
           </button>
         </div>
-      </div>
-      <div style="padding: 24px; text-align: center; color: var(--text3); font-size: 11px;">
-        Lübbert App v2.0
+        <h1 class="ui-title ui-home-hello" id="home-hello" onclick="titleTap()">Hallo</h1>
+        <div id="home-next"></div>
+        <div id="erinnerung-banner" style="display:none;"></div>
+        <div class="ui-tiles" id="home-tiles"></div>
+        <div class="ui-sub" style="text-align:center; margin-top:24px;">Lübbert App v2.0</div>
       </div>
     </div>
 
     <!-- ══════════ ERFASSEN PAGE ══════════ -->
     <div class="page" id="page-home">
-      <div class="meta-section">
-        <div class="meta-fields">
-          <div class="meta-field">
-            <span class="meta-label">Name</span>
-            <input type="text" id="inp-name" class="meta-input" placeholder="Vorname Nachname" />
-          </div>
-          <div class="meta-field">
-            <span class="meta-label">Woche auswählen</span>
-            <input type="week" id="inp-week" class="meta-input" />
-          </div>
+      <div class="stunden-scroll">
+      <div class="ui-page stunden-head">
+        <div class="ui-weeknav">
+          <button type="button" class="ui-icon-btn" onclick="stundenWeekStep(-1)" aria-label="Vorige Woche">
+            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <button type="button" class="ui-weeknav-label" id="week-strip-label" onclick="openStundenWeekPicker()">–</button>
+          <button type="button" class="ui-icon-btn" onclick="stundenWeekStep(1)" aria-label="Nächste Woche">
+            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <!-- source of truth for the week (buildDays listens to its change event); arrows and the label write into it -->
+          <input type="week" id="inp-week" class="stunden-week-input" tabindex="-1" aria-label="Woche auswählen" />
         </div>
-        <div class="dept-label">Abteilung</div>
-        <div class="chips" id="chips-abt">
-          <!-- Chips generated via JS -->
+        <div class="stunden-name-row">
+          <span class="ui-sub" id="stunden-name-text"></span>
+          <button type="button" class="stunden-link" onclick="editStundenName()">Ändern</button>
         </div>
-      </div>
-
-      <div class="week-strip-section">
-        <div class="week-strip-header" id="week-strip-label">—</div>
-        <div class="week-strip" id="week-strip">
-          <!-- Bubbles generated via JS -->
-        </div>
-      </div>
-
-      <div class="week-total-chip">
-        <div class="wtc-label">Gesamtstunden dieser Woche</div>
-        <div style="text-align: right;">
-          <div class="wtc-val"><span id="total-hours">0</span><span class="wtc-unit">h</span></div>
-          <div id="total-earnings" class="wtc-earnings"></div>
+        <label class="ui-field" id="stunden-name-field" style="display:none;">
+          <span>Name</span>
+          <input type="text" id="inp-name" placeholder="Vorname Nachname" oninput="syncStundenName()" />
+        </label>
+        <div class="ui-label" style="margin-top:12px;">Abteilung</div>
+        <div class="ui-chipbar" id="chips-abt"></div>
+        <div class="ui-daystrip" id="week-strip" style="margin-top:14px;"></div>
+        <div class="stunden-total">
+          <div class="ui-num"><b id="total-hours">0</b> <span>h</span></div>
+          <div id="total-earnings" class="ui-sub"></div>
         </div>
       </div>
 
@@ -161,53 +130,55 @@
         <!-- Day editor generated via JS -->
       </div>
 
-      <div class="fab-area">
-        <button class="btn primary" onclick="saveWeek()">Speichern</button>
-        <button class="btn send" onclick="downloadWeekPDF()">PDF herunterladen</button>
+      </div>
+
+      <div class="ui-actionbar">
+        <button type="button" class="ui-btn" onclick="downloadWeekPDF()">PDF</button>
+        <button type="button" class="ui-btn ui-btn-primary" onclick="saveWeek()">Speichern</button>
       </div>
     </div>
 
     <!-- ══════════ VERLAUF PAGE ══════════ -->
     <div class="page" id="page-history">
       <div class="history-scroll">
-        <div class="history-page-header">
-          <div class="history-page-title">Verlauf</div>
+        <div class="ui-page">
+          <div class="ui-card stunden-chart">
+            <div class="ui-label" style="margin:0 0 8px;">Letzte 10 Wochen</div>
+            <div class="stunden-chart-box"><canvas id="historyChart"></canvas></div>
+          </div>
+          <div id="history-list"></div>
         </div>
-        <div class="chart-container">
-          <canvas id="historyChart"></canvas>
-        </div>
-        <div id="history-list"></div>
       </div>
     </div>
 
     <!-- ══════════ PROTOKOLL PAGE ══════════ -->
     <div class="page" id="page-protokoll">
-      <div class="day-editor-area" style="padding-top: 16px;">
-        <!-- Section: Basis-Details -->
-        <div class="meta-section" style="padding: 0 0 16px 0;">
-          <div class="field">
-            <label>Veranstaltung / Projekt</label>
-            <input type="text" id="prot-event" class="meta-input" placeholder="Name des Projekts"
-              oninput="saveProtDraft()" />
-          </div>
-          <div class="field">
-            <label>Einsatzort / Location</label>
-            <input type="text" id="prot-location" class="meta-input" placeholder="Ort" oninput="saveProtDraft()" />
-          </div>
-          <div class="meta-fields">
-            <div class="meta-field">
-              <span class="meta-label">Datum</span>
-              <div style="display: flex; gap: 8px; align-items: center;">
-                <input type="date" id="prot-date" class="meta-input" style="flex:1; margin-bottom: 0;" onchange="saveProtDraft(); calcProtCosts()" />
-                <label style="display: flex; align-items: center; gap: 4px; margin: 0; font-size: 13px; font-weight: normal; color: var(--text2); white-space: nowrap; cursor: pointer;">
-                  <input type="checkbox" id="prot-isholiday" style="width: 16px; height: 16px; margin: 0; accent-color: var(--accent);" onchange="saveProtDraft(); calcProtCosts()" />
-                  Feiertag
-                </label>
-              </div>
+      <div class="prot-scroll" id="prot-scroll">
+        <div class="prot-nav-wrap"><div class="ui-chipbar" id="prot-section-nav"></div></div>
+        <div class="ui-page">
+
+          <!-- Section: Basis -->
+          <section class="ui-section" id="prot-sec-basis">
+            <div class="ui-section-head"><span class="ui-label">Basis</span></div>
+            <label class="ui-field"><span>Veranstaltung / Projekt</span>
+              <input type="text" id="prot-event" placeholder="Name des Projekts" oninput="saveProtDraft()" /></label>
+            <label class="ui-field"><span>Einsatzort / Location</span>
+              <input type="text" id="prot-location" placeholder="Ort" oninput="saveProtDraft()" /></label>
+            <div class="prot-date-row">
+              <label class="ui-field"><span>Datum</span>
+                <input type="date" id="prot-date" onchange="saveProtDraft(); calcProtCosts(); protRefreshDriverHints()" /></label>
+              <label class="prot-switch-label"><input type="checkbox" class="ui-switch" id="prot-isholiday" onchange="saveProtDraft(); calcProtCosts()" /> Feiertag</label>
             </div>
-            <div class="meta-field">
-              <span class="meta-label">Aktion</span>
-              <select id="prot-action" class="meta-input" onchange="saveProtDraft()">
+            <div class="ui-field"><span>Aktion</span>
+              <div class="ui-seg prot-action-seg" id="prot-action-seg" role="group" aria-label="Aktion">
+                <button type="button" data-value="Aufbau" onclick="setProtAction('Aufbau')">Aufbau</button>
+                <button type="button" data-value="Teilaufbau" onclick="setProtAction('Teilaufbau')">Teilaufbau</button>
+                <button type="button" data-value="Umbau" onclick="setProtAction('Umbau')">Umbau</button>
+                <button type="button" data-value="Teilabbau" onclick="setProtAction('Teilabbau')">Teilabbau</button>
+                <button type="button" data-value="Abbau" onclick="setProtAction('Abbau')">Abbau</button>
+              </div>
+              <!-- data source for the segment (read by save/load) -->
+              <select id="prot-action" hidden onchange="saveProtDraft()">
                 <option value="Aufbau">Aufbau</option>
                 <option value="Teilaufbau">Teilaufbau</option>
                 <option value="Umbau">Umbau</option>
@@ -215,201 +186,136 @@
                 <option value="Abbau">Abbau</option>
               </select>
             </div>
-          </div>
-          <div class="meta-fields">
-            <div class="meta-field">
-              <span class="meta-label">Aufbauleitung (AL)</span>
-              <select id="prot-al" class="meta-input" onchange="saveProtDraft()">
-                <option value="">— AL auswählen —</option>
-              </select>
+            <div class="stunden-grid">
+              <label class="ui-field"><span>Aufbauleitung (AL)</span>
+                <select id="prot-al" onchange="saveProtDraft()"><option value="">— AL auswählen —</option></select></label>
+              <label class="ui-field"><span>Projektleitung (PL)</span>
+                <select id="prot-pl" onchange="saveProtDraft()"><option value="">— PL auswählen —</option></select></label>
             </div>
-            <div class="meta-field">
-              <span class="meta-label">Projektleitung (PL)</span>
-              <select id="prot-pl" class="meta-input" onchange="saveProtDraft()">
-                <option value="">— PL auswählen —</option>
-              </select>
-            </div>
-          </div>
-        </div>
+          </section>
 
-        <!-- Section: Transport & Logistik -->
-        <div class="day-editor-head" style="padding-top: 0;">
-          <div class="day-editor-title">Transport & Logistik</div>
-        </div>
-        <div id="prot-transport-list">
-          <!-- Transport slots generated via JS -->
-        </div>
-        <button class="add-shift-btn" onclick="addProtTransport()">＋ Transport hinzufügen</button>
+          <!-- Section: Transport -->
+          <section class="ui-section" id="prot-sec-transport">
+            <div class="ui-section-head"><span class="ui-label">Transport &amp; Logistik</span></div>
+            <div id="prot-transport-list"></div>
+            <button type="button" class="ui-add-row" onclick="addProtTransport()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Transport hinzufügen</button>
+          </section>
 
-        <!-- Section: Equipment Status -->
-        <div class="day-editor-head" style="margin-top: 24px;">
-          <div class="day-editor-title">Infos zum Equipment für Anlieferung & Rücklauf</div>
-          <div class="day-editor-date">Kategorien abwählen, falls nicht vorhanden</div>
-        </div>
-        <div id="prot-categories-list">
-          <!-- Category blocks generated via JS -->
-        </div>
+          <!-- Section: Equipment -->
+          <section class="ui-section" id="prot-sec-equipment">
+            <div class="ui-section-head"><span class="ui-label">Equipment für Anlieferung &amp; Rücklauf</span></div>
+            <div class="ui-sub" style="margin:-4px 2px 8px;">Kategorien ausschalten, falls nicht vorhanden</div>
+            <div id="prot-categories-list"></div>
+          </section>
 
-        <!-- Section: Personal -->
-        <div class="day-editor-head" style="margin-top: 24px;">
-          <div class="day-editor-title">Personal-Erfassung</div>
-        </div>
-        <div id="prot-personnel-list">
-          <!-- Personnel slots generated via JS -->
-        </div>
-        <button class="add-shift-btn" onclick="addProtPersonnel()">＋ Personal hinzufügen</button>
+          <!-- Section: Personal -->
+          <section class="ui-section" id="prot-sec-personal">
+            <div class="ui-section-head"><span class="ui-label">Personal</span></div>
+            <div id="prot-personnel-list"></div>
+            <button type="button" class="ui-add-row" onclick="addProtPersonnel()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Personal hinzufügen</button>
+          </section>
 
-        <!-- Section: Vorkommnisse -->
-        <div class="day-editor-head" style="margin-top: 24px;">
-          <div class="day-editor-title">Vorkommnisse & Feedback</div>
-        </div>
-        <div class="shift-block">
-          <div class="field">
-            <label>Beschädigungen / Mängel</label>
-            <textarea id="prot-damages" class="meta-input" style="height: 60px; font-family: inherit;"
-              placeholder="Falls vorhanden, bitte beschreiben..." oninput="saveProtDraft()"></textarea>
-          </div>
-          <div class="field">
-            <label>Besondere Vorkommnisse</label>
-            <textarea id="prot-incidents" class="meta-input" style="height: 60px; font-family: inherit;"
-              placeholder="z. B. Verzögerungen, Probleme vor Ort" oninput="saveProtDraft()"></textarea>
-          </div>
-          <div class="field">
-            <label>Feedback zur Location / Sonstiges</label>
-            <textarea id="prot-feedback" class="meta-input" style="height: 60px; font-family: inherit;"
-              placeholder="Lob, Kritik, Verbesserungsvorschläge" oninput="saveProtDraft()"></textarea>
-          </div>
-        </div>
+          <!-- Section: Vorkommnisse -->
+          <section class="ui-section" id="prot-sec-vorkommnisse">
+            <div class="ui-section-head"><span class="ui-label">Vorkommnisse &amp; Feedback</span></div>
+            <label class="ui-field"><span>Beschädigungen / Mängel</span>
+              <textarea id="prot-damages" class="prot-text" placeholder="Falls vorhanden, bitte beschreiben…" oninput="saveProtDraft(); growProtText(this)"></textarea></label>
+            <label class="ui-field"><span>Besondere Vorkommnisse</span>
+              <textarea id="prot-incidents" class="prot-text" placeholder="z. B. Verzögerungen, Probleme vor Ort" oninput="saveProtDraft(); growProtText(this)"></textarea></label>
+            <label class="ui-field"><span>Feedback zur Location / Sonstiges</span>
+              <textarea id="prot-feedback" class="prot-text" placeholder="Lob, Kritik, Verbesserungsvorschläge" oninput="saveProtDraft(); growProtText(this)"></textarea></label>
+          </section>
 
-        <!-- Section: Signature -->
-        <div class="day-editor-head" style="margin-top: 24px;">
-          <div class="day-editor-title">Unterschrift AL</div>
-        </div>
-        <div class="shift-block">
-          <div class="field">
-            <button class="sig-full-btn" type="button" onclick="openProtSig()">🖊️ Vollbild-Unterschrift öffnen</button>
-            <div class="sig-wrap" style="margin-top:8px;" onclick="openProtSig()">
+          <!-- Section: Unterschrift -->
+          <section class="ui-section" id="prot-sec-unterschrift">
+            <div class="ui-section-head"><span class="ui-label">Unterschrift AL</span><span class="ui-pill ui-pill-warn" id="prot-sig-pill">fehlt</span></div>
+            <div class="sig-wrap" onclick="openProtSig()">
               <canvas id="sigc-prot"></canvas>
               <div class="sig-placeholder" id="sigph-prot">Tippen für Unterschrift</div>
               <button class="sig-clear" type="button" onclick="event.stopPropagation();clearProtSig()">löschen</button>
             </div>
-          </div>
-        </div>
-
-        <!-- Section: Costs -->
-        <div class="week-total-chip" style="margin: 24px 0 0 0;">
-          <div class="wtc-label">Voraussichtliche Nachkalkulation</div>
-          <div style="text-align: right;">
-            <div class="wtc-val"><span id="prot-total-cost">0,00</span><span class="wtc-unit">€</span></div>
-            <div style="font-size: 11px; color: var(--accent-text); opacity: 0.8;">Logistik + Personal</div>
-          </div>
+          </section>
         </div>
       </div>
 
-      <div class="fab-area">
-        <button class="btn" onclick="clearProtForm()">Löschen</button>
-        <button class="btn primary" onclick="saveProtokoll()">Senden</button>
+      <div class="ui-actionbar">
+        <div class="ui-actionbar-info" onclick="openProtCostSheet()" role="button" tabindex="0">
+          <span class="ui-sub">Nachkalkulation</span>
+          <b><span id="prot-total-cost">0,00</span> €</b>
+        </div>
+        <button type="button" class="ui-btn ui-btn-primary" style="flex:0 0 auto; min-width:140px;" onclick="saveProtokoll()">Senden</button>
       </div>
     </div>
 
     <!-- ══════════ PROTOKOLL VERLAUF PAGE ══════════ -->
     <div class="page" id="page-protokoll-history">
       <div class="history-scroll">
-        <div class="history-page-header">
-          <div class="history-page-title">Protokoll-Verlauf</div>
-        </div>
-        <div id="prot-history-list"></div>
+        <div class="ui-page"><div id="prot-history-list"></div></div>
       </div>
     </div>
 
     <!-- ══════════ OFFICE DASHBOARD PAGE ══════════ -->
     <div class="page" id="page-dashboard">
       <div class="dash-container">
-        
-        <!-- DASHBOARD NAVIGATION TABS -->
-        <div class="dash-tab-row" style="display: flex; gap: 10px; margin-bottom: 24px;">
-          <button id="dash-tab-prot" class="btn primary" style="flex: 0 0 auto; width: auto; padding: 10px 20px;" onclick="switchDashTab('prot')">Protokolle</button>
-          <button id="dash-tab-work" class="btn" style="flex: 0 0 auto; width: auto; padding: 10px 20px;" onclick="switchDashTab('work')">Buchhaltung (Personal)</button>
+
+        <!-- DASHBOARD TABS -->
+        <div class="ui-seg dash-tabs" role="tablist" style="display: none;">
+          <button type="button" id="dash-tab-prot" class="active" onclick="switchDashTab('prot')">Protokolle</button>
+          <button type="button" id="dash-tab-work" onclick="switchDashTab('work')">Buchhaltung</button>
+          <button type="button" id="dash-tab-settings" style="display: none;" onclick="switchDashTab('settings')">Einstellungen</button>
         </div>
+
+        <!-- TAB: EINSTELLUNGEN (Admin only, js/settings.js) -->
+        <div id="dash-view-settings" class="table-card set-card" style="display: none;"></div>
 
         <!-- TAB: PROTOKOLLE -->
-        <div id="dash-view-prot" class="table-card" style="display: block;">
-          <div class="table-header">
-            <h3 style="margin:0; font-size: 16px;">Verschickte Protokolle</h3>
-            <div style="display:flex; gap:8px; align-items:center;">
-              <input type="text" id="dash-search" placeholder="Suchen..." class="meta-input"
-                style="width: 180px; margin: 0; padding: 8px 12px; font-size: 13px;" oninput="renderDashboardTable()">
-              <button class="btn" id="btn-recalc-costs" style="width:auto; padding:8px 14px; font-size:13px; white-space:nowrap;" onclick="recalcAllProtocolCosts()" title="Gesamtkosten aller Protokolle neu berechnen">↻ Kosten neu berechnen</button>
-            </div>
+        <div id="dash-view-prot" style="display: block;">
+          <div id="dash-scope"></div>
+          <div class="ui-stats" id="dash-stats"></div>
+          <div id="dash-missing"></div>
+          <div class="ui-search dash-search">
+            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+            <input type="search" id="dash-search" placeholder="Projekt, AL, Ort oder Datum suchen" oninput="renderDashboardTable()">
           </div>
-          <div style="overflow-x: auto;">
-            <table id="protocol-table">
-              <thead>
-                <tr>
-                  <th>Datum</th>
-                  <th>Projekt</th>
-                  <th>Aktion</th>
-                  <th>AL/PL</th>
-                  <th>Kosten</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="protocol-body">
-                <!-- Rows via JS -->
-              </tbody>
-            </table>
-          </div>
+          <table id="protocol-table" class="ui-table">
+            <thead>
+              <tr><th>Datum</th><th>Projekt</th><th>Aktion</th><th>AL / PL</th><th>Kosten</th><th></th></tr>
+            </thead>
+            <tbody id="protocol-body"></tbody>
+          </table>
         </div>
 
-        <!-- TAB: PERSONAL/BUCHHALTUNG -->
-        <div id="dash-view-work" class="table-card" style="display: none;">
-          <div class="table-header">
-            <h3 style="margin:0; font-size: 16px;">Schichten & Abrechnung</h3>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <button class="btn primary" style="width: auto; padding: 8px 12px; font-size: 13px;" onclick="toggleAddUserForm()">Mitarbeiter hinzufügen</button>
-              <select id="dash-worker-select" class="meta-input" style="width: 250px; margin: 0; padding: 8px 12px; font-size: 13px;" onchange="renderWorkerShifts(); updateEditWorkerBtn();">
+        <!-- TAB: PERSONAL/BUCHHALTUNG — list (master) + detail -->
+        <div id="dash-view-work" style="display: none;">
+          <div class="dash-work" id="dash-work">
+            <aside class="dash-work-list">
+              <button type="button" class="ui-btn ui-btn-block" onclick="toggleAddUserForm()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Mitarbeiter hinzufügen</button>
+              <div class="ui-search" style="margin:10px 0 4px;">
+                <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+                <input type="search" id="dash-worker-search" placeholder="Mitarbeiter suchen" oninput="renderDashWorkerList()">
+              </div>
+              <div id="pending-workers-panel" style="display:none;">
+                <div class="ui-label">Neue Stunden eingereicht</div>
+                <div id="pending-workers-chips" class="ui-list"></div>
+              </div>
+              <div class="ui-label">Alle Mitarbeiter</div>
+              <div id="dash-worker-list" class="ui-list"></div>
+              <!-- data source for the selection (read by the dashboard code) -->
+              <select id="dash-worker-select" hidden onchange="renderWorkerShifts(); updateEditWorkerBtn();">
                 <option value="">-- Mitarbeiter wählen --</option>
               </select>
-              <button id="edit-worker-btn" class="btn" style="width:auto; padding:8px 12px; font-size:13px; display:none;" onclick="openEditWorker()">✏️ Bearbeiten</button>
-              <select id="dash-month-filter" class="meta-input" style="width: 160px; margin: 0; padding: 8px 12px; font-size: 13px; display: none;">
-                <option value="">-- Monat --</option>
-              </select>
-              <button id="dash-export-month-btn" class="btn" style="width: auto; padding: 8px 14px; font-size: 13px; display: none;" onclick="exportDashboardMonthlyPDF()">📄 Monat als PDF</button>
-            </div>
-          </div>
-          
-          <!-- ADD USER FORM (HIDDEN) -->
-          <div id="add-user-form" style="display: none; padding: 20px; background: var(--bg2); border-bottom: 1px solid var(--border);">
-            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-              <input type="text" id="new-user-firstname" placeholder="Vorname" class="meta-input" style="flex: 1; min-width: 120px;">
-              <input type="text" id="new-user-lastname" placeholder="Nachname" class="meta-input" style="flex: 1; min-width: 120px;">
-              <select id="new-user-role" class="meta-input" style="flex: 1; min-width: 100px;">
-                <option value="MA">MA (Mitarbeiter)</option>
-                <option value="AL">AL (Aufbauleitung)</option>
-                <option value="PL">PL (Projektleitung)</option>
-                <option value="Buchhaltung">Buchhaltung</option>
-                <option value="Admin">Admin</option>
-                <option value="Gast">Gast (nur Produkte &amp; Ordner)</option>
-              </select>
-              <input type="text" id="new-user-dept" placeholder="Abteilung" class="meta-input" style="flex: 2; min-width: 150px;">
-              <input type="number" id="new-user-rate-conni" step="0.50" min="0" placeholder="Lohn Conni (€/h)" class="meta-input" style="flex: 1; min-width: 130px;">
-              <input type="number" id="new-user-rate-internal" step="0.50" min="0" placeholder="Satz intern (€/h)" class="meta-input" style="flex: 1; min-width: 130px;">
-              <input type="number" id="new-user-income-limit" step="1" min="0" placeholder="Einkommensgrenze (€)" class="meta-input" style="flex: 1; min-width: 150px;">
-              <button class="btn primary" style="width: auto; padding: 0 20px;" onclick="addDashboardUser()">Speichern</button>
-              <button class="btn" style="width: auto; padding: 0 20px;" onclick="toggleAddUserForm()">Abbrechen</button>
-            </div>
-          </div>
-          <!-- PENDING PANEL: Mitarbeiter mit neuen Stunden -->
-          <div id="pending-workers-panel" style="display:none; padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--bg2);">
-            <div style="font-size:13px; font-weight:600; color:var(--text2); margin-bottom:10px;">Neue Stunden eingereicht</div>
-            <div id="pending-workers-chips" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
-          </div>
-
-          <div id="worker-shifts-container" style="padding: 24px;">
-            <div class="empty-state">
-              <div class="empty-icon">👥</div>
-              <div>Bitte wählen Sie einen Mitarbeiter aus, um die Schichten zu sehen.</div>
-            </div>
+            </aside>
+            <section class="dash-work-detail">
+              <button type="button" class="stunden-link dash-work-back" onclick="closeDashWorker()">‹ Alle Mitarbeiter</button>
+              <div class="dash-worker-head" id="dash-worker-head"></div>
+              <div class="dash-worker-controls">
+                <button id="edit-worker-btn" type="button" class="ui-btn dash-small-btn" style="display:none;" onclick="openEditWorker()">Bearbeiten</button>
+                <label class="ui-field dash-month"><span>Monat für den PDF-Export</span>
+                  <select id="dash-month-filter" style="display: none;"><option value="">-- Monat --</option></select></label>
+                <button id="dash-export-month-btn" type="button" class="ui-btn dash-small-btn" style="display: none;" onclick="exportDashboardMonthlyPDF()">Monat als PDF</button>
+              </div>
+              <div id="worker-shifts-container"></div>
+            </section>
           </div>
         </div>
 
@@ -419,155 +325,188 @@
     <!-- ══════════ PRODUKTDATENBANK PAGE ══════════ -->
     <div class="page" id="page-produkte">
       <div class="dash-container">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 12px;">
-          <h2 style="margin: 0; font-size: 20px;">Produktdatenbank</h2>
-          <button id="btn-add-produkt" class="btn primary" style="width: auto; padding: 10px 18px; display: none;" onclick="openProduktForm()">
-            + Produkt hinzufügen
+        <div class="produkt-head">
+          <div class="ui-search">
+            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+            <input type="search" id="prod-search" placeholder="Produkt suchen" oninput="filterProdukte()">
+          </div>
+          <button id="btn-add-produkt" type="button" class="ui-btn ui-btn-primary produkt-add" style="display: none;" onclick="openProduktForm()" aria-label="Produkt hinzufügen">
+            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="produkt-add-label">Produkt</span>
           </button>
         </div>
-        <div style="position: relative; margin-bottom: 20px;">
-          <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:16px; pointer-events:none;">🔍</span>
-          <input type="text" id="prod-search" placeholder="Produkt suchen..." class="meta-input"
-            style="margin: 0; padding: 10px 12px 10px 36px; font-size: 14px; width: 100%; box-sizing: border-box;" oninput="filterProdukte()">
-        </div>
 
-        <!-- ADD/EDIT FORM (hidden by default) -->
-        <div id="produkt-form" style="display: none; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px;">
-          <h3 style="margin: 0 0 16px; font-size: 15px;" id="produkt-form-title">Neues Produkt</h3>
-          <div style="display: flex; flex-direction: column; gap: 12px;">
-            <div class="field">
-              <label>Produktname *</label>
-              <input type="text" id="inp-prod-name" class="meta-input" placeholder="z. B. Stehtisch rund" />
-            </div>
-            <div class="field">
-              <label>Beschreibung</label>
-              <textarea id="inp-prod-desc" class="meta-input" rows="3" placeholder="Kurze Beschreibung des Produkts..." style="resize: vertical;"></textarea>
-            </div>
-            <div class="field">
-              <label>Aufbauanleitung (Text)</label>
-              <textarea id="inp-prod-content" class="meta-input" rows="4" placeholder="Aufbauanleitung, Hinweise, Schritte..." style="resize: vertical;"></textarea>
-            </div>
-            <div class="field">
-              <label>Bilder &amp; Videos hinzufügen</label>
-              <input type="file" id="inp-prod-images" accept="image/*,video/*" multiple class="meta-input" style="padding: 8px;" />
-            </div>
-            <div id="prod-existing-images" style="display: none;"></div>
-            <div class="field">
-              <label>Aufbau-Datei (PDF oder Bild, optional)</label>
-              <input type="file" id="inp-prod-pdf" accept=".pdf,.jpg,.jpeg,.png" class="meta-input" style="padding: 8px;" />
-              <div id="inp-prod-pdf-current" style="font-size: 12px; color: var(--text3); margin-top: 4px; display: none;"></div>
-            </div>
-          </div>
-          <div style="display: flex; gap: 10px; margin-top: 16px;">
-            <button class="btn primary" style="width: auto; padding: 10px 20px;" onclick="saveProdukt()">Speichern</button>
-            <button class="btn" style="width: auto; padding: 10px 20px;" onclick="closeProduktForm()">Abbrechen</button>
-            <button id="btn-delete-produkt" class="btn" style="width: auto; padding: 10px 20px; color: var(--danger); display: none;" onclick="deleteProdukt()">Löschen</button>
-          </div>
-        </div>
+        <div id="produkt-grid" class="produkt-grid"></div>
 
-        <!-- PRODUCT GRID -->
-        <div id="produkt-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px;">
-          <!-- Rendered by JS -->
+        <div id="produkt-empty" class="ui-empty" style="display: none;">
+          <div class="ui-empty-title">Noch keine Produkte</div>
+          <div class="ui-sub">Neue Produkte erscheinen hier.</div>
         </div>
-
-        <div id="produkt-empty" class="empty-state" style="display: none;">
-          <div class="empty-icon">📦</div>
-          <div>Noch keine Produkte vorhanden.</div>
-        </div>
-        <div id="produkt-loading" class="empty-state">
-          <div class="empty-icon" style="animation: spin 1s linear infinite;">⟳</div>
-          <div>Lade Produkte...</div>
+        <div id="produkt-loading" class="ui-empty">
+          <div class="ui-sub">Produkte werden geladen…</div>
         </div>
       </div>
     </div>
 
     <!-- ══════════ PROJEKTORDNER PAGE ══════════ -->
+    <!-- ══════════ WOCHENPLAN PAGE ══════════ -->
+    <div class="page" id="page-wochenplan" style="overflow-y:auto; -webkit-overflow-scrolling:touch;">
+      <div class="dash-container wp-wrap">
+        <div id="wp-main">
+          <div class="wp-titlebar">
+            <h2>Wochenplan</h2>
+            <button id="wp-upload-btn" class="btn wp-upload" style="display:none;" onclick="wpPickFile()">
+              <svg class="wp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V5M7 10l5-5 5 5M5 19h14"/></svg> Plan hochladen</button>
+            <input type="file" id="wp-file" accept="application/pdf,.pdf" style="display:none;" onchange="wpFileChosen(this)">
+          </div>
+          <div id="wp-push-hint"></div>
+          <div class="wp-sticky" id="wp-sticky">
+            <div class="ui-seg" role="tablist">
+              <button type="button" class="active" id="wp-tab-mine" role="tab" aria-selected="true" onclick="wpSetView('mine')">Meine Schichten</button>
+              <button type="button" id="wp-tab-all" role="tab" aria-selected="false" onclick="wpSetView('all')">Ganze Woche</button>
+            </div>
+            <div id="wp-week-nav" class="wp-weeknav" style="display:none;">
+              <button type="button" id="wp-prev" aria-label="Vorige Woche" onclick="wpStepWeek(-1)"><svg class="wp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6"/></svg></button>
+              <div id="wp-week-label"></div>
+              <button type="button" id="wp-next" aria-label="Nächste Woche" onclick="wpStepWeek(1)"><svg class="wp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6l6 6-6 6"/></svg></button>
+            </div>
+            <div id="wp-days" class="wp-days" style="display:none;"></div>
+          </div>
+          <div id="wp-content"></div>
+        </div>
+        <div id="wp-import" style="display:none;">
+          <div class="wp-titlebar"><h2>Plan prüfen</h2></div>
+          <div id="wp-import-body"></div>
+          <div class="wp-actions">
+            <button class="btn" onclick="wpCancelImport()">Abbrechen</button>
+            <button id="wp-save-btn" class="btn primary" onclick="wpSaveImport()">Übernehmen</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="page" id="page-ordner" style="overflow-y:auto; -webkit-overflow-scrolling:touch;">
-      <div class="dash-container">
+      <div class="dash-container ordner-wrap">
 
         <!-- ── ORDNER LIST VIEW ── -->
         <div id="ordner-list-view">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:12px;">
-            <h2 style="margin:0; font-size:20px;">Projektordner</h2>
-            <button id="btn-add-ordner" class="btn primary" style="width:auto; padding:10px 18px; display:none;" onclick="openOrdnerForm()">
-              + Neuer Ordner
+          <div class="produkt-head">
+            <div class="ui-search">
+              <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+              <input type="search" id="ordner-search" placeholder="Ordner suchen" oninput="filterOrdner()">
+            </div>
+            <button id="btn-add-ordner" type="button" class="ui-btn ui-btn-primary produkt-add" style="display:none;" onclick="openOrdnerForm()" aria-label="Neuer Ordner">
+              <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="produkt-add-label">Ordner</span>
             </button>
           </div>
-          <div style="position:relative; margin-bottom:20px;">
-            <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:16px; pointer-events:none;">🔍</span>
-            <input type="text" id="ordner-search" placeholder="Ordner suchen..." class="meta-input"
-              style="margin:0; padding:10px 12px 10px 36px; font-size:14px; width:100%; box-sizing:border-box;" oninput="filterOrdner()">
-          </div>
-
-          <!-- CREATE/EDIT FORM -->
-          <div id="ordner-form" style="display:none; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:20px;">
-            <h3 style="margin:0 0 16px; font-size:15px;" id="ordner-form-title">Neuer Ordner</h3>
-            <div style="display:flex; flex-direction:column; gap:12px;">
-              <div class="field">
-                <label>Ordnername *</label>
-                <input type="text" id="inp-ordner-name" class="meta-input" placeholder="z. B. Projekt Berlin 2024" />
-              </div>
-              <div class="field">
-                <label>Beschreibung</label>
-                <input type="text" id="inp-ordner-desc" class="meta-input" placeholder="Kurze Beschreibung..." />
-              </div>
-              <div class="field">
-                <label>Projektleitung (PL)</label>
-                <select id="inp-ordner-pl" class="meta-input"></select>
-              </div>
-              <div class="field">
-                <label>Einsätze (für die Protokoll-Erinnerung an die AL)</label>
-                <div id="ordner-einsatz-rows" style="display:flex; flex-direction:column; gap:8px;"></div>
-                <button type="button" class="btn" style="width:auto; padding:6px 14px; margin-top:8px; font-size:13px;" onclick="addEinsatzRow()">+ Einsatz</button>
-              </div>
-            </div>
-            <div style="display:flex; gap:10px; margin-top:16px;">
-              <button class="btn primary" style="width:auto; padding:10px 20px;" onclick="saveOrdner()">Speichern</button>
-              <button class="btn" style="width:auto; padding:10px 20px;" onclick="closeOrdnerForm()">Abbrechen</button>
-            </div>
-          </div>
-
-          <!-- FOLDER GRID -->
-          <div id="ordner-loading" style="display:none;" class="empty-state">
-            <div class="empty-icon" style="animation:spin 1s linear infinite;">⟳</div>
-            <div>Lade Ordner...</div>
-          </div>
-          <div id="ordner-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:16px;">
-          </div>
-          <div id="ordner-empty" class="empty-state" style="display:none;">
-            <div class="empty-icon">📁</div>
-            <div>Noch keine Ordner vorhanden.</div>
+          <div id="ordner-loading" style="display:none;" class="ui-empty"><div class="ui-sub">Ordner werden geladen…</div></div>
+          <div id="ordner-grid" class="ui-list"></div>
+          <div id="ordner-empty" class="ui-empty" style="display:none;">
+            <div class="ui-empty-title">Noch keine Ordner</div>
+            <div class="ui-sub">Neue Projektordner erscheinen hier.</div>
           </div>
         </div>
 
-        <!-- ── ORDNER DETAIL VIEW (file list) ── -->
+        <!-- ── ORDNER DETAIL VIEW ── -->
         <div id="ordner-detail-view" style="display:none;">
-          <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
-            <button class="btn" style="width:auto; padding:8px 16px;" onclick="ordnerGoBack()">← Zurück</button>
-            <h2 id="ordner-detail-title" style="margin:0; font-size:18px; flex:1;">📁 Ordner</h2>
-            <button id="ordner-add-sub-btn" class="btn" style="width:auto; padding:8px 16px; display:none;" onclick="createSubfolder()">
-              + Unterordner
-            </button>
-            <button id="ordner-upload-btn" class="btn primary" style="width:auto; padding:8px 16px; display:none;" onclick="triggerOrdnerUpload()">
-              + Datei hochladen
-            </button>
-            <button id="ordner-edit-einsaetze-btn" class="btn" style="width:auto; padding:8px 16px; display:none;" onclick="openOrdnerForm(aktuellerOrdner && aktuellerOrdner.id)">
-              PL &amp; Einsätze
-            </button>
-            <button id="ordner-delete-folder-btn" class="btn" style="width:auto; padding:8px 16px; color:var(--danger); display:none;" onclick="deleteCurrentOrdner()">
-              Ordner löschen
-            </button>
-          </div>
-          <div id="ordner-einsaetze" style="display:none; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:12px 16px; margin-bottom:16px; font-size:13px;"></div>
+          <button type="button" class="stunden-link ordner-back" onclick="ordnerGoBack()">‹ Zurück</button>
+          <h2 id="ordner-detail-title" class="ui-title ordner-title">Ordner</h2>
+          <div id="ordner-ends" class="ui-sub" style="display:none; margin:-6px 2px 10px;"></div>
+          <div id="ordner-einsaetze" style="display:none;"></div>
           <input type="file" id="ordner-file-input" multiple style="display:none;" onchange="handleOrdnerFileInput(this)">
-          <div id="ordner-subfolder-grid" style="display:none; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:12px; margin-bottom:16px;"></div>
-          <div id="ordner-files-list">
-            <!-- Rendered by JS -->
+          <div id="ordner-subfolder-grid" style="display:none;"></div>
+          <div id="ordner-files-list"></div>
+          <div class="ui-actionbar ordner-upload-bar" id="ordner-upload-bar" style="display:none;">
+            <button id="ordner-upload-btn" type="button" class="ui-btn ui-btn-primary" onclick="triggerOrdnerUpload()">+ Datei hochladen</button>
           </div>
         </div>
 
       </div>
     </div>
+
+  <!-- ── MITARBEITER HINZUFÜGEN (Sheet; toggleAddUserForm opens/closes it) ── -->
+  <div id="add-user-modal" class="sig-modal ui-sheet" style="--sheet-w:520px">
+    <div class="sig-modal-inner" id="add-user-form">
+      <div class="ui-sheet-head">
+        <h3 class="ui-title" style="font-size:18px;">Mitarbeiter hinzufügen</h3>
+        <button type="button" class="ui-icon-btn" onclick="toggleAddUserForm()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="stunden-grid">
+        <label class="ui-field"><span>Vorname</span><input type="text" id="new-user-firstname" placeholder="Vorname"></label>
+        <label class="ui-field"><span>Nachname</span><input type="text" id="new-user-lastname" placeholder="Nachname"></label>
+      </div>
+      <div class="stunden-grid">
+        <label class="ui-field"><span>Rolle</span>
+          <select id="new-user-role">
+            <option value="MA">MA (Mitarbeiter)</option>
+            <option value="AL">AL (Aufbauleitung)</option>
+            <option value="PL">PL (Projektleitung)</option>
+            <option value="Buchhaltung">Buchhaltung</option>
+            <option value="Admin">Admin</option>
+            <option value="Gast">Gast (nur Produkte &amp; Ordner)</option>
+          </select></label>
+        <label class="ui-field"><span>Abteilung</span><input type="text" id="new-user-dept" placeholder="z.B. MA frei"></label>
+      </div>
+      <div class="stunden-grid">
+        <label class="ui-field"><span>Lohn Conni (€/h)</span><input type="number" id="new-user-rate-conni" step="0.50" min="0" placeholder="z.B. 21.50"></label>
+        <label class="ui-field"><span>Satz intern (€/h)</span><input type="number" id="new-user-rate-internal" step="0.50" min="0" placeholder="z.B. 25.00"></label>
+      </div>
+      <label class="ui-field"><span>Einkommensgrenze (€)</span><input type="number" id="new-user-income-limit" step="1" min="0" placeholder="z.B. 520"></label>
+      <div class="ui-sheet-actions">
+        <button type="button" class="ui-btn" onclick="toggleAddUserForm()">Abbrechen</button>
+        <button type="button" class="ui-btn ui-btn-primary" onclick="addDashboardUser()">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PRODUKT FORMULAR (Sheet) ── -->
+  <div id="produkt-form-modal" class="sig-modal ui-sheet" style="--sheet-w:560px">
+    <div class="sig-modal-inner" id="produkt-form">
+      <div class="ui-sheet-head">
+        <h3 class="ui-title" style="font-size:18px;" id="produkt-form-title">Neues Produkt</h3>
+        <button type="button" class="ui-icon-btn" onclick="closeProduktForm()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <label class="ui-field"><span>Produktname *</span><input type="text" id="inp-prod-name" placeholder="z. B. Stehtisch rund" /></label>
+      <label class="ui-field"><span>Beschreibung</span><textarea id="inp-prod-desc" rows="3" placeholder="Kurze Beschreibung des Produkts…" style="resize: vertical;"></textarea></label>
+      <label class="ui-field"><span>Aufbauanleitung (Text)</span><textarea id="inp-prod-content" rows="4" placeholder="Aufbauanleitung, Hinweise, Schritte…" style="resize: vertical;"></textarea></label>
+      <label class="ui-field"><span>Bilder &amp; Videos hinzufügen</span><input type="file" id="inp-prod-images" accept="image/*,video/*" multiple /></label>
+      <div id="prod-existing-images" style="display: none; margin-bottom: 12px;"></div>
+      <div class="ui-field"><span>Aufbau-Datei (PDF oder Bild, optional)</span>
+        <input type="file" id="inp-prod-pdf" accept="application/pdf,.pdf,image/*" onchange="produktPdfSelected()" />
+        <div id="inp-prod-pdf-selected" class="ui-sub" style="margin-top: 4px; display: none;"></div>
+        <div id="inp-prod-pdf-current" class="ui-sub" style="margin-top: 4px; display: none;"></div>
+      </div>
+      <div id="produkt-form-error" role="alert" style="display: none; margin-top: 12px; padding: 10px 12px; border-radius: var(--r-control); border: 1px solid var(--danger); color: var(--danger); font-size: 13px; white-space: pre-wrap;"></div>
+      <div class="ui-sheet-actions">
+        <button type="button" class="ui-btn" onclick="closeProduktForm()">Abbrechen</button>
+        <button type="button" class="ui-btn ui-btn-primary" onclick="saveProdukt()">Speichern</button>
+      </div>
+      <div style="text-align:center; margin-top:8px;">
+        <button id="btn-delete-produkt" type="button" class="ui-btn ui-btn-danger" style="border:0; display: none;" onclick="deleteProdukt()">Produkt löschen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── ORDNER FORMULAR (Sheet) ── -->
+  <div id="ordner-form-modal" class="sig-modal ui-sheet" style="--sheet-w:520px">
+    <div class="sig-modal-inner" id="ordner-form">
+      <div class="ui-sheet-head">
+        <h3 class="ui-title" style="font-size:18px;" id="ordner-form-title">Neuer Ordner</h3>
+        <button type="button" class="ui-icon-btn" onclick="closeOrdnerForm()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <label class="ui-field"><span>Ordnername *</span><input type="text" id="inp-ordner-name" placeholder="z. B. Projekt Berlin 2024" /></label>
+      <label class="ui-field"><span>Beschreibung</span><input type="text" id="inp-ordner-desc" placeholder="Kurze Beschreibung…" /></label>
+      <label class="ui-field"><span>Projektleitung (PL)</span><select id="inp-ordner-pl"></select></label>
+      <label class="ui-field" id="ordner-ends-field"><span>Löschung am</span><input type="date" id="inp-ordner-ends" /><small class="ui-sub">Automatisch 7 Tage nach dem letzten Einsatz – bei Bedarf verschieben</small></label>
+      <div class="ui-field"><span>Einsätze (für die Protokoll-Erinnerung an die AL)</span>
+        <div id="ordner-einsatz-rows" style="display:flex; flex-direction:column; gap:8px;"></div>
+        <button type="button" class="ui-add-row" style="margin-top:8px;" onclick="addEinsatzRow()">+ Einsatz</button>
+      </div>
+      <div class="ui-sheet-actions">
+        <button type="button" class="ui-btn" onclick="closeOrdnerForm()">Abbrechen</button>
+        <button type="button" class="ui-btn ui-btn-primary" onclick="saveOrdner()">Speichern</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ── PRODUKT VIEWER MODAL ── -->
   <div id="produkt-viewer-modal" class="sig-modal" style="display:none;">
@@ -601,8 +540,8 @@
   <div class="toast" id="toast"></div>
 
   <!-- DASHBOARD DETAIL MODAL -->
-  <div id="dash-detail-modal" class="sig-modal">
-    <div class="sig-modal-inner" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+  <div id="dash-detail-modal" class="sig-modal ui-sheet" style="--sheet-w:800px">
+    <div class="sig-modal-inner" style="max-height: 90vh; overflow-y: auto;">
       <div class="sig-modal-head">
         <div>
           <div class="sig-modal-title" id="det-title">Protokoll-Details</div>
@@ -635,81 +574,62 @@
     </div>
   </div>
 
-  <!-- DASHBOARD PROTOCOL EDIT MODAL -->
-  <div id="dash-prot-edit-modal" class="sig-modal">
-    <div class="sig-modal-inner" style="max-width:700px; width:95%; padding:24px; max-height:92vh; overflow-y:auto;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-        <h3 style="margin:0; font-size:17px;">Protokoll bearbeiten</h3>
-        <button onclick="closeDashProtEdit()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2);">✕</button>
+  <!-- DASHBOARD PROTOCOL EDIT SHEET -->
+  <div id="dash-prot-edit-modal" class="sig-modal ui-sheet" style="--sheet-w:640px">
+    <div class="sig-modal-inner">
+      <div class="ui-sheet-head">
+        <h3 class="ui-title" style="font-size:18px;">Protokoll bearbeiten</h3>
+        <button type="button" class="ui-icon-btn" onclick="closeDashProtEdit()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
 
-      <!-- Basic info -->
-      <div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
-        <div class="field" style="flex:1; min-width:140px;">
-          <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px;">Datum</label>
-          <input type="date" id="pe-date" class="meta-input">
+      <!-- Basis -->
+      <section class="ui-section">
+        <div class="ui-section-head"><span class="ui-label">Basis</span></div>
+        <div class="prot-date-row">
+          <label class="ui-field"><span>Datum</span><input type="date" id="pe-date"></label>
+          <label class="prot-switch-label"><input type="checkbox" class="ui-switch" id="pe-holiday"> Feiertag</label>
         </div>
-        <div class="field" style="flex:1; min-width:140px;">
-          <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px;">Aktion</label>
-          <select id="pe-action" class="meta-input">
-            <option value="Aufbau">Aufbau</option>
-            <option value="Abbau">Abbau</option>
-            <option value="Aufbau & Abbau">Aufbau & Abbau</option>
-            <option value="Lieferung">Lieferung</option>
-            <option value="Sonstiges">Sonstiges</option>
-          </select>
+        <div class="ui-field"><span>Aktion</span>
+          <div class="ui-seg prot-action-seg" id="pe-action-seg" role="group" aria-label="Aktion"></div>
+          <input type="hidden" id="pe-action">
         </div>
-        <div class="field" style="display:flex; align-items:center; gap:8px; padding-top:20px;">
-          <input type="checkbox" id="pe-holiday" style="width:18px;height:18px;">
-          <label for="pe-holiday" style="font-size:13px;">Feiertag</label>
+        <div class="stunden-grid">
+          <div class="ui-field"><span>Aufbauleitung (AL)</span><div id="pe-al-wrap"></div></div>
+          <div class="ui-field"><span>Projektleitung (PL)</span><div id="pe-pl-wrap"></div></div>
         </div>
-      </div>
-      <div style="display:flex; gap:12px; margin-bottom:16px;">
-        <div class="field" style="flex:1;">
-          <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px;">AL Name</label>
-          <input type="text" id="pe-al" class="meta-input" placeholder="Aufbauleitung">
-        </div>
-        <div class="field" style="flex:1;">
-          <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px;">PL Name</label>
-          <input type="text" id="pe-pl" class="meta-input" placeholder="Projektleitung">
-        </div>
-      </div>
+      </section>
 
-      <!-- Notes -->
-      <div style="margin-bottom:16px;">
-        <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px;">Mängel / Schäden</label>
-        <textarea id="pe-damages" class="meta-input" rows="2" style="resize:vertical;"></textarea>
-      </div>
-      <div style="margin-bottom:16px;">
-        <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px;">Vorkommnisse</label>
-        <textarea id="pe-incidents" class="meta-input" rows="2" style="resize:vertical;"></textarea>
-      </div>
-      <div style="margin-bottom:20px;">
-        <label style="font-size:12px;color:var(--text3);display:block;margin-bottom:4px;">Feedback Location</label>
-        <textarea id="pe-feedback" class="meta-input" rows="2" style="resize:vertical;"></textarea>
-      </div>
+      <!-- Transporte -->
+      <section class="ui-section">
+        <div class="ui-section-head"><span class="ui-label">Transporte</span></div>
+        <div id="pe-transports"></div>
+        <button type="button" class="ui-add-row" onclick="addDashProtTransport()">+ Transport</button>
+      </section>
 
-      <!-- Transports -->
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <h4 style="margin:0; font-size:14px; color:var(--text3); text-transform:uppercase;">Logistik & Transport</h4>
-        <button onclick="addDashProtTransport()" style="font-size:12px;padding:4px 10px;border:0.5px solid var(--accent);border-radius:var(--radius);background:var(--accent-bg);color:var(--accent-text);cursor:pointer;">+ Hinzufügen</button>
-      </div>
-      <div id="pe-transports" style="margin-bottom:20px; display:flex; flex-direction:column; gap:8px;"></div>
+      <!-- Personal -->
+      <section class="ui-section">
+        <div class="ui-section-head"><span class="ui-label">Personal</span></div>
+        <div id="pe-shifts"></div>
+        <button type="button" class="ui-add-row" onclick="addDashPeShift()">+ Person</button>
+      </section>
 
-      <!-- Equipment -->
-      <h4 style="margin:0 0 10px; font-size:14px; color:var(--text3); text-transform:uppercase;">Gewerke & Ausrüstung</h4>
-      <div id="pe-equipment" style="margin-bottom:24px; display:flex; flex-direction:column; gap:10px;"></div>
+      <!-- Kategorien -->
+      <section class="ui-section">
+        <div class="ui-section-head"><span class="ui-label">Gewerke &amp; Ausrüstung</span></div>
+        <div id="pe-equipment"></div>
+      </section>
 
-      <!-- Shifts -->
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <h4 style="margin:0; font-size:14px; color:var(--text3); text-transform:uppercase;">Personal & Schichten</h4>
-        <button onclick="openAddProtShift()" style="font-size:12px;padding:4px 10px;border:0.5px solid var(--accent);border-radius:var(--radius);background:var(--accent-bg);color:var(--accent-text);cursor:pointer;">+ Hinzufügen</button>
-      </div>
-      <div id="pe-shifts" style="margin-bottom:24px; display:flex; flex-direction:column; gap:6px;"></div>
+      <!-- Notizen -->
+      <section class="ui-section">
+        <div class="ui-section-head"><span class="ui-label">Notizen</span></div>
+        <label class="ui-field"><span>Mängel / Schäden</span><textarea id="pe-damages" rows="2" style="resize: vertical;"></textarea></label>
+        <label class="ui-field"><span>Vorkommnisse</span><textarea id="pe-incidents" rows="2" style="resize: vertical;"></textarea></label>
+        <label class="ui-field"><span>Feedback Location</span><textarea id="pe-feedback" rows="2" style="resize: vertical;"></textarea></label>
+      </section>
 
-      <div style="display:flex; gap:10px;">
-        <button class="btn primary" style="flex:1;" onclick="saveDashProtEdit()">Speichern</button>
-        <button class="btn" style="flex:1;" onclick="closeDashProtEdit()">Abbrechen</button>
+      <div class="ui-sheet-actions">
+        <button type="button" class="ui-btn" onclick="closeDashProtEdit()">Abbrechen</button>
+        <button type="button" class="ui-btn ui-btn-primary" id="pe-save-btn" onclick="saveDashProtEdit()">Speichern</button>
       </div>
     </div>
   </div>
@@ -735,7 +655,7 @@
   </div>
 
   <!-- ── SETTINGS MODAL ── -->
-  <div class="sig-modal" id="settings-modal">
+  <div class="sig-modal ui-sheet" id="settings-modal" style="--sheet-w:560px">
     <div class="sig-modal-inner" style="max-height: 90vh; overflow-y: auto;">
       <div class="sig-modal-head">
         <div class="sig-modal-title">Einstellungen</div>
@@ -749,7 +669,7 @@
 
       <div class="field" style="margin-top: 16px;">
         <label>Abrechnungsschluss (Tag)</label>
-        <input type="number" id="inp-cutoff" min="1" max="31" class="meta-input" placeholder="Standard: 20" />
+        <div id="inp-cutoff-info" style="font-size:14px; color:var(--text2); padding:6px 0;"></div>
       </div>
 
       <div class="field" style="margin-top: 16px;">
@@ -783,73 +703,51 @@
   </div>
 
   <!-- ══════════ SCHICHT BEARBEITEN MODAL ══════════ -->
-  <div id="shift-edit-modal" class="sig-modal">
-    <div class="sig-modal-inner" style="max-width:420px; width:90%; padding:24px; max-height:90vh; overflow-y:auto;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-        <h3 id="shift-edit-title" style="margin:0; font-size:17px;">Schicht bearbeiten</h3>
-        <button onclick="closeShiftEditModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2);">✕</button>
+  <div id="shift-edit-modal" class="sig-modal ui-sheet" style="--sheet-w:420px">
+    <div class="sig-modal-inner">
+      <div class="ui-sheet-head">
+        <h3 id="shift-edit-title" class="ui-title" style="font-size:18px;">Schicht bearbeiten</h3>
+        <button type="button" class="ui-icon-btn" onclick="closeShiftEditModal()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
-      <div style="display:flex; flex-direction:column; gap:14px;">
-        <div id="shift-edit-person-row" class="field" style="display:none;">
-          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Person</label>
-          <select id="shift-edit-worker-select" class="meta-input" onchange="onShiftWorkerSelect(this.value)">
-            <option value="">— Temp / Agentur (Name eingeben) —</option>
-          </select>
-          <input type="text" id="shift-edit-temp-name" class="meta-input" placeholder="Name (Zenjob, Rockit, ...)" style="margin-top:6px;">
-        </div>
-        <div class="field">
-          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Datum</label>
-          <input type="date" id="shift-edit-date" class="meta-input">
-        </div>
-        <div class="field">
-          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Einsatzort</label>
-          <input type="text" id="shift-edit-ort" class="meta-input" placeholder="z.B. Estrel Berlin">
-        </div>
-        <div class="field">
-          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Rolle / Position</label>
-          <select id="shift-edit-role" class="meta-input">
-            <option value="MA frei">Mitarbeiter für Auf-/ Abbau</option>
-            <option value="AL frei">Aufbauleitung</option>
-            <option value="Fahrer frei">Fahrer</option>
-            <option value="MA fest">Mitarbeiter für Auf-/ Abbau (fest)</option>
-            <option value="AL fest">Aufbauleitung (fest)</option>
-            <option value="Fahrer fest">Fahrer (fest)</option>
-            <option value="Floristik">Floristik</option>
-            <option value="Lager">Lager</option>
-            <option value="Stoffe">Stoffe</option>
-            <option value="Tischlerei">Tischlerei</option>
-            <option value="Zenjob">Zenjob</option>
-            <option value="Rockit">Rockit</option>
-          </select>
-        </div>
-        <div style="display:flex; gap:10px;">
-          <div class="field" style="flex:1;">
-            <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Von</label>
-            <input type="time" id="shift-edit-start" class="meta-input">
-          </div>
-          <div class="field" style="flex:1;">
-            <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Bis</label>
-            <input type="time" id="shift-edit-end" class="meta-input">
-          </div>
-        </div>
-        <div class="field">
-          <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Hinweis (z.B. Urlaub, Sonderauszahlung)</label>
-          <input type="text" id="shift-edit-note" class="meta-input" placeholder="Optional">
-        </div>
+      <div class="stunden-grid">
+        <label class="ui-field"><span>Datum</span><input type="date" id="shift-edit-date"></label>
+        <label class="ui-field"><span>Einsatzort</span><input type="text" id="shift-edit-ort" placeholder="z.B. Estrel Berlin"></label>
       </div>
-      <div style="display:flex; gap:10px; margin-top:20px;">
-        <button class="btn primary" style="flex:1;" onclick="saveShiftEdit()">Speichern</button>
-        <button class="btn" style="flex:1;" onclick="closeShiftEditModal()">Abbrechen</button>
+      <label class="ui-field"><span>Rolle / Position</span>
+        <select id="shift-edit-role">
+          <option value="MA frei">Mitarbeiter für Auf-/ Abbau</option>
+          <option value="AL frei">Aufbauleitung</option>
+          <option value="Fahrer frei">Fahrer</option>
+          <option value="MA fest">Mitarbeiter für Auf-/ Abbau (fest)</option>
+          <option value="AL fest">Aufbauleitung (fest)</option>
+          <option value="Fahrer fest">Fahrer (fest)</option>
+          <option value="Floristik">Floristik</option>
+          <option value="Lager">Lager</option>
+          <option value="Stoffe">Stoffe</option>
+          <option value="Tischlerei">Tischlerei</option>
+          <option value="Zenjob">Zenjob</option>
+          <option value="Rockit">Rockit</option>
+        </select>
+      </label>
+      <div class="stunden-times">
+        <label class="ui-field"><span>Von</span><input type="time" id="shift-edit-start"></label>
+        <span class="stunden-dash" aria-hidden="true">–</span>
+        <label class="ui-field"><span>Bis</span><input type="time" id="shift-edit-end"></label>
       </div>
-      <div id="shift-edit-delete-row" style="margin-top:12px; text-align:center; display:none;">
-        <button onclick="deleteShiftFromModal()" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:13px;">Schicht löschen</button>
+      <label class="ui-field"><span>Hinweis (z.B. Urlaub, Sonderauszahlung)</span><input type="text" id="shift-edit-note" placeholder="Optional"></label>
+      <div class="ui-sheet-actions">
+        <button type="button" class="ui-btn" onclick="closeShiftEditModal()">Abbrechen</button>
+        <button type="button" class="ui-btn ui-btn-primary" onclick="saveShiftEdit()">Speichern</button>
+      </div>
+      <div id="shift-edit-delete-row" style="margin-top:8px; text-align:center; display:none;">
+        <button type="button" class="ui-btn ui-btn-danger" style="border:0;" onclick="deleteShiftFromModal()">Schicht löschen</button>
       </div>
     </div>
   </div>
 
   <!-- ══════════ MITARBEITER BEARBEITEN MODAL ══════════ -->
-  <div id="edit-worker-modal" class="sig-modal">
-    <div class="sig-modal-inner" style="max-width:460px; width:90%; padding:24px; max-height:90vh; display:flex; flex-direction:column;">
+  <div id="edit-worker-modal" class="sig-modal ui-sheet" style="--sheet-w:460px">
+    <div class="sig-modal-inner" style="max-height:90vh; display:flex; flex-direction:column;">
       <div style="overflow-y:auto; flex:1; padding-bottom:8px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
           <h3 style="margin:0; font-size:17px;">Mitarbeiter bearbeiten</h3>
@@ -922,22 +820,25 @@
     </div>
   </div>
 
-  <!-- Shared name suggestions for Protokoll personnel inputs -->
-  <datalist id="prot-users-datalist"></datalist>
-
   <!-- Scripts -->
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=11"></script>
+  <script src="js/auth.js?v=22"></script>
   <script src="js/logo.js?v=9"></script>
-  <script src="js/formulas.js?v=9"></script>
-  <script src="js/utils.js?v=15"></script>
-  <script src="js/stundenzettel.js?v=9"></script>
-  <script src="js/protokoll.js?v=20"></script>
-  <script src="js/erinnerung.js?v=3"></script>
-  <script src="js/dashboard.js?v=14"></script>
-  <script src="js/produkte.js?v=10"></script>
-  <script src="js/ordner.js?v=13"></script>
-  <script src="js/app.js?v=11"></script>
+  <script src="js/formulas.js?v=10"></script>
+  <script src="js/utils.js?v=19"></script>
+  <script src="js/ui.js?v=3"></script>
+  <script src="js/settings.js?v=6"></script>
+  <script src="js/stundenzettel.js?v=17"></script>
+  <script src="js/protokoll.js?v=33"></script>
+  <script src="js/erinnerung.js?v=9"></script>
+  <script src="js/plan-pdf.js?v=1"></script>
+  <script src="js/plan-parser.js?v=17"></script>
+  <script src="js/wochenplan.js?v=13"></script>
+  <script src="js/home.js?v=6"></script>
+  <script src="js/dashboard.js?v=26"></script>
+  <script src="js/produkte.js?v=17"></script>
+  <script src="js/ordner.js?v=19"></script>
+  <script src="js/app.js?v=20"></script>
 </body>
 
 </html>

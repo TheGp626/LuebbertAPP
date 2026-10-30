@@ -9,6 +9,8 @@ let dashboardCurrentShifts = [];
 let _dashboardRealtimeChannel = null;
 let _dashboardPollInterval = null;
 let _dashboardRefreshing = false;
+let _dashboardRefreshPending = false; // a refresh was requested while one was running → run once more afterwards
+let _dashboardRefreshPromise = null;
 
 function initDashboardRealtime() {
   if (typeof supabaseClient === 'undefined') return;
@@ -48,20 +50,103 @@ const BUCHHALTUNG_MIN_HOURS = 3;         // Minimum booking floor in hours
 const BUCHHALTUNG_MIN_HOURS_ENABLED = true; // Set to false to show raw hours
 
 function switchDashTab(tab) {
-  document.getElementById('dash-tab-prot').classList.toggle('primary', tab === 'prot');
-  document.getElementById('dash-tab-work').classList.toggle('primary', tab === 'work');
-  
+  document.getElementById('dash-tab-prot').classList.toggle('active', tab === 'prot');
+  document.getElementById('dash-tab-work').classList.toggle('active', tab === 'work');
+  document.getElementById('dash-tab-settings').classList.toggle('active', tab === 'settings');
+
   document.getElementById('dash-view-prot').style.display = tab === 'prot' ? 'block' : 'none';
   document.getElementById('dash-view-work').style.display = tab === 'work' ? 'block' : 'none';
+  document.getElementById('dash-view-settings').style.display = tab === 'settings' ? 'block' : 'none';
 
-  if (tab === 'work' && dashboardWorkers.length === 0) {
-    loadDashboardWorkers();
+  if (typeof setDashView === 'function') setDashView(tab);
+
+  if (tab === 'settings' && typeof renderSettingsTab === 'function') renderSettingsTab();
+
+  // Reload on every entry: the "neue Stunden" badges must not show a stale snapshot
+  if (tab === 'work') loadDashboardWorkers();
+}
+
+// Opens/closes the "Mitarbeiter hinzufügen" sheet (name kept: addDashboardUser closes it after saving)
+function toggleAddUserForm() {
+  const m = document.getElementById('add-user-modal');
+  if (m) m.classList.toggle('open');
+}
+
+// Employee list: people with new hours first, then by name; filtered by a name search
+function dashWorkerList(workers, pendingMap, query) {
+  var q = String(query || '').trim().toLowerCase();
+  return (workers || [])
+    .filter(function(w) { return !q || String(w.full_name || '').toLowerCase().indexOf(q) !== -1; }) // real names only, not the placeholder
+    .map(function(w) { return { id: w.id, name: w.full_name || 'Unbekannt', role: w.role || '', pending: (pendingMap || {})[w.id] || 0 }; })
+    .sort(function(a, b) { return (b.pending > 0) - (a.pending > 0) || a.name.localeCompare(b.name, 'de'); });
+}
+
+var dashPendingMap = {};
+
+function dashWorkerRowHtml(w, selectedId) {
+  return '<button type="button" class="ui-row dash-worker-row' + (w.id === selectedId ? ' ui-row-me' : '') + '" onclick="selectDashWorker(\'' + jsAttrArg(w.id) + '\')">' +
+    '<span class="ui-row-main"><span class="ui-row-title">' + escapeHtml(w.name) + '</span><span class="ui-sub">' + escapeHtml(w.role) + '</span></span>' +
+    (w.pending ? '<span class="ui-pill ui-pill-info" title="Neue Stunden">' + w.pending + '</span>' : '') +
+  '</button>';
+}
+
+function renderDashWorkerList() {
+  var listEl = document.getElementById('dash-worker-list');
+  if (!listEl) return;
+  var selected = (document.getElementById('dash-worker-select') || {}).value || '';
+  var query = (document.getElementById('dash-worker-search') || {}).value || '';
+  var rows = dashWorkerList(dashboardWorkers, dashPendingMap, query);
+  listEl.innerHTML = rows.length ? rows.map(function(w) { return dashWorkerRowHtml(w, selected); }).join('') : uiEmptyHtml('Niemand gefunden', '');
+  var panel = document.getElementById('pending-workers-panel'), chips = document.getElementById('pending-workers-chips');
+  var pending = rows.filter(function(w) { return w.pending > 0; });
+  if (panel && chips) {
+    panel.style.display = pending.length && !query.trim() ? 'block' : 'none';
+    chips.innerHTML = pending.map(function(w) { return dashWorkerRowHtml(w, selected); }).join('');
   }
 }
 
-function toggleAddUserForm() {
-  const form = document.getElementById('add-user-form');
-  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+// Selecting a person: the hidden select stays the source the rest of the dashboard reads
+function selectDashWorker(id) {
+  var sel = document.getElementById('dash-worker-select');
+  if (!sel) return;
+  sel.value = id;
+  renderWorkerShifts();
+  updateEditWorkerBtn();
+  renderDashWorkerList();
+  var work = document.getElementById('dash-work');
+  if (work) work.classList.add('dash-work-detail-open');
+}
+
+function closeDashWorker() {
+  var work = document.getElementById('dash-work');
+  if (work) work.classList.remove('dash-work-detail-open');
+}
+
+// Share of the income limit: {pct 0–100, over}; null without pay or without a limit
+function incomeLimitShare(earned, limit) {
+  if (earned === null || earned === undefined || !limit || limit <= 0) return null;
+  return { pct: Math.min(100, Math.round(earned / limit * 100)), over: earned > limit };
+}
+
+// Net minutes of one booked shift, same rules as the table (overnight, minimum booking floor)
+function dashShiftNetMins(s) {
+  var st = s.start_time ? s.start_time.substring(0, 5) : null, en = s.end_time ? s.end_time.substring(0, 5) : null;
+  if (!st || !en) return 0;
+  var a = st.split(':').map(Number), b = en.split(':').map(Number);
+  if (isNaN(a[0]) || isNaN(b[0])) return 0;
+  var startMins = a[0] * 60 + a[1], endMins = b[0] * 60 + b[1];
+  if (endMins < startMins) endMins += 1440;
+  var net = endMins - startMins - (s.pause_mins || 0);
+  if (BUCHHALTUNG_MIN_HOURS_ENABLED) net = Math.max(BUCHHALTUNG_MIN_HOURS * 60, net);
+  return net > 0 ? net : 0;
+}
+
+function dashWorkerHeadHtml(w) {
+  if (!w) return '';
+  var rates = [w.hourly_rate_conni ? 'Lohn ' + parseFloat(w.hourly_rate_conni).toFixed(2).replace('.', ',') + ' €/h' : '',
+    w.hourly_rate_internal ? 'intern ' + parseFloat(w.hourly_rate_internal).toFixed(2).replace('.', ',') + ' €/h' : ''].filter(Boolean).join(' · ');
+  return '<div class="ui-title" style="font-size:20px;">' + escapeHtml(w.full_name || 'Unbekannt') + '</div>' +
+    '<div class="ui-sub">' + escapeHtml([w.role, w.default_dept].filter(Boolean).join(' · ')) + (rates ? ' · ' + escapeHtml(rates) : '') + '</div>';
 }
 
 function updateEditWorkerBtn() {
@@ -131,11 +216,21 @@ async function deactivateWorker() {
   if (!worker) return;
   if (!confirm('Mitarbeiter "' + (worker.full_name || '') + '" wirklich deaktivieren?\nDie Person verschwindet aus allen Dropdowns.')) return;
   try {
-    const { error } = await supabaseClient.from('app_users').update({ is_active: false }).eq('id', worker.id);
+    const { data: rows, error } = await supabaseClient.from('app_users').update({ is_active: false }).eq('id', worker.id).select('id');
     if (error) throw error;
+    // RLS answers with 0 rows instead of an error
+    if (!rows || rows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung');
     closeEditWorker();
     showToast('Mitarbeiter deaktiviert.');
+    // The person is gone from the list: close the detail and refresh the rate source (their old shifts keep their rate)
+    const sel = document.getElementById('dash-worker-select');
+    if (sel) sel.value = '';
+    dashboardCurrentWorker = null;
     await loadDashboardWorkers();
+    await dashRefreshRateUsers();
+    renderWorkerShifts();
+    updateEditWorkerBtn();
+    closeDashWorker();
   } catch (err) {
     showToast('Fehler: ' + (err.message || 'Deaktivierung fehlgeschlagen'), 'danger');
   }
@@ -170,11 +265,14 @@ async function saveEditWorker() {
   };
 
   try {
-    const { error } = await supabaseClient.from('app_users').update(payload).eq('id', worker.id);
+    const { data: rows, error } = await supabaseClient.from('app_users').update(payload).eq('id', worker.id).select('id');
     if (error) throw error;
+    // RLS answers with 0 rows instead of an error
+    if (!rows || rows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung');
     showToast('Mitarbeiter gespeichert!');
     closeEditWorker();
     await loadDashboardWorkers();
+    await dashRefreshRateUsers(); // new rates count for the next cost calculation
     // Re-select the same worker after reload
     const sel = document.getElementById('dash-worker-select');
     if (sel) { sel.value = worker.id; renderWorkerShifts(); }
@@ -241,16 +339,32 @@ async function addDashboardUser() {
   });
 })();
 
-async function refreshDashboard() {
-  if (typeof supabaseClient === 'undefined') return;
-  if (_dashboardRefreshing) return;
+// Realtime events arrive while a refresh (or the save that triggered them) is still running: remember the request
+// and load once more afterwards, so the list never keeps the snapshot from the middle of a save.
+// Returns a promise that resolves after the last needed load.
+function refreshDashboard() {
+  if (typeof supabaseClient === 'undefined') return Promise.resolve();
+  if (_dashboardRefreshing) { _dashboardRefreshPending = true; return _dashboardRefreshPromise; }
   _dashboardRefreshing = true;
+  _dashboardRefreshPromise = (async function() {
+    try {
+      do {
+        _dashboardRefreshPending = false;
+        await refreshDashboardOnce();
+      } while (_dashboardRefreshPending);
+    } finally {
+      _dashboardRefreshing = false;
+      _dashboardRefreshPromise = null;
+    }
+  })();
+  return _dashboardRefreshPromise;
+}
 
+async function refreshDashboardOnce() {
   try {
-    const { data: protocols, error: protError } = await supabaseClient
-      .from('protocols')
-      .select(`
-        id, date, action, is_holiday, total_cost,
+    await ensureRateUsers();
+    const protSelect = (withCreator) => `
+        id, date, action, is_holiday, total_cost, al_id, pl_id,${withCreator ? ' created_by,' : ''}
         notes_damages, notes_incidents, notes_feedback,
         al_name_fallback, pl_name_fallback, created_at, mailed_at,
         projects(name, location),
@@ -261,19 +375,101 @@ async function refreshDashboard() {
         protocol_transports(*),
         protocol_equipments(*),
         worker_ratings(temp_worker_name, rating, is_star)
-      `)
-      .order('date', { ascending: false });
-
+      `;
+    const load = (withCreator) => supabaseClient.from('protocols').select(protSelect(withCreator)).order('date', { ascending: false });
+    let { data: protocols, error: protError } = await load(true);
+    // created_by not migrated yet: load without it (everything then counts via AL/PL)
+    if (protError && /created_by/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(false));
     if (protError) throw protError;
 
     dashboardProtocols = protocols;
     renderDashboardTable();
+    loadDashMissing();
   } catch (err) {
     console.error('Dash Load Error:', err);
     if (typeof showToast === 'function') showToast('Fehler beim Laden der Dashboard-Daten', 'danger');
-  } finally {
-    _dashboardRefreshing = false;
   }
+}
+
+// ── Einsätze ohne Protokoll: plan shifts of the last 14 days that no protocol covers yet ──
+var _dashPlanRows = [];      // plan_shifts rows (with plan_assignments) of the window
+var _dashMissingAll = false; // list collapsed to 5 entries by default
+var DASH_MISSING_DAYS = 14, DASH_MISSING_COLLAPSED = 5;
+
+async function loadDashMissing() {
+  if (typeof supabaseClient === 'undefined' || typeof planWithoutProtocol !== 'function') return;
+  var today = localDateStr();
+  var { data, error } = await supabaseClient.from('plan_shifts').select('*, plan_assignments(*)')
+    .gte('date', wpAddDays(today, -DASH_MISSING_DAYS)).lte('date', today);
+  if (error) { console.error('Einsätze ohne Protokoll:', error); return; }
+  _dashPlanRows = data || [];
+  renderDashMissing();
+}
+
+function renderDashMissing() {
+  var box = document.getElementById('dash-missing');
+  if (!box) return;
+  var today = localDateStr();
+  var rowsById = {};
+  var shifts = _dashPlanRows.map(function(r) { var s = planShiftFromDb(r); rowsById[s.id] = r; return s; });
+  var protocols = dashboardProtocols.map(function(p) { return { date: p.date, event: p.projects && p.projects.name }; });
+  var open = planWithoutProtocol(shifts, protocols, wpAddDays(today, -DASH_MISSING_DAYS), today);
+  if (!open.length) { box.innerHTML = ''; return; }
+  var canWrite = typeof moduleAllowedForRole === 'function' && moduleAllowedForRole('protokoll', userRole);
+  var shown = (_dashMissingAll || open.length <= DASH_MISSING_COLLAPSED) ? open : open.slice(0, DASH_MISSING_COLLAPSED);
+  box.innerHTML = '<div class="ui-label">Einsätze ohne Protokoll</div><div class="ui-list" style="margin-bottom:14px;">' +
+    shown.map(function(s) {
+      var ev = planEventName(s);
+      return '<div class="ui-row"><div class="ui-row-main"><div class="ui-row-title">' + escapeHtml(shortDateDE(s.date)) + ' ' + escapeHtml(s.venue || '—') +
+        (ev && ev !== s.venue ? ' · ' + escapeHtml(ev) : '') + '</div>' +
+        (s.count > 1 ? '<div class="ui-sub">' + s.count + ' Aufträge</div>' : '') + '</div>' +
+        (canWrite ? '<div class="ui-row-end"><button type="button" class="ui-btn dash-small-btn" onclick="dashStartProtokollFromPlan(' + uiArg(s.id) + ')">Protokoll anlegen</button></div>' : '') +
+        '</div>';
+    }).join('') + '</div>' +
+    (open.length > DASH_MISSING_COLLAPSED
+      ? '<button type="button" class="stunden-link" style="margin:-6px 0 14px;" onclick="toggleDashMissing()">' + (_dashMissingAll ? 'Weniger zeigen' : 'Alle zeigen (' + open.length + ')') + '</button>'
+      : '');
+}
+
+function toggleDashMissing() {
+  _dashMissingAll = !_dashMissingAll;
+  renderDashMissing();
+}
+
+// Same prefill as "Protokoll starten" in the Wochenplan; the AL is the shift's registered AL (if any).
+// Several plan rows of the same event and day (one per room) become one protocol with everyone from all of them.
+function dashStartProtokollFromPlan(shiftId) {
+  var row = _dashPlanRows.find(function(r) { return r.id === shiftId; });
+  if (!row) return;
+  var p = planShiftFromDb(row);
+  var event = planEventName(p);
+  var group = _dashPlanRows.filter(function(r) {
+    return r.date === row.date && planEventName(planShiftFromDb(r)).trim().toLowerCase() === event.trim().toLowerCase();
+  });
+  p.people = dashMergePlanPeople(group.map(planShiftFromDb), p);
+  openProtokollPrefilled({
+    event: event, date: p.date, action: planGuessAction(p.wann),
+    alId: planAlUserId(row) || group.map(planAlUserId).filter(Boolean)[0] || null,
+    location: [p.venue].concat(p.location.slice(0, 1)).filter(Boolean).join(', '), shift: p
+  });
+}
+
+// People of several plan rows, each person once (by user id, else name). Someone from a row that starts at a
+// different time than the main row keeps that start as a personal note ("ab 14:00 Uhr"), unless they have one.
+function dashMergePlanPeople(shifts, main) {
+  var mainTime = planWhen(main.wann || []).time, seen = {}, out = [];
+  shifts.forEach(function(s) {
+    var t = planWhen(s.wann || []).time;
+    (s.people || []).forEach(function(person) {
+      var k = person.userId || String(person.name || '').trim().toLowerCase();
+      if (!k || seen[k]) return;
+      seen[k] = true;
+      var copy = Object.assign({}, person);
+      if (!copy.note && t && t !== mainTime) copy.note = 'ab ' + t + ' Uhr';
+      out.push(copy);
+    });
+  });
+  return out;
 }
 
 function renderDashboardTable() {
@@ -283,7 +479,12 @@ function renderDashboardTable() {
 
   const searchTerm = (document.getElementById('dash-search')?.value || '').toLowerCase();
 
-  const filtered = dashboardProtocols.filter(p => {
+  // "Meine" by default; the search works within the current scope
+  const scoped = dashScopedProtocols();
+  const scopeBox = document.getElementById('dash-scope');
+  if (scopeBox) scopeBox.innerHTML = protScopeSegHtml(protScopeGet(DASH_SCOPE_KEY), 'setDashProtScope');
+
+  const filtered = scoped.filter(p => {
     const projName = (p.projects?.name || '').toLowerCase();
     const alName = (p.al?.full_name || p.al_name_fallback || '').toLowerCase();
     const location = (p.location || p.projects?.location || '').toLowerCase();
@@ -297,29 +498,78 @@ function renderDashboardTable() {
     const alName = p.al ? p.al.full_name : (p.al_name_fallback || '—');
     const plName = p.pl ? p.pl.full_name : (p.pl_name_fallback || '');
     const costStr = (p.total_cost || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €';
-    const holidayTag = p.is_holiday
-      ? ' <span style="font-size:10px;background:#f59e0b;color:#fff;padding:1px 5px;border-radius:8px;vertical-align:middle;margin-left:4px;">Feiertag</span>'
-      : '';
-    const plLine = plName
-      ? `<div style="font-size:11px; color:var(--text3);">PL: ${escapeHtml(plName)}</div>`
-      : '';
+    const holidayTag = p.is_holiday ? ' <span class="ui-pill ui-pill-warn">Feiertag</span>' : '';
+    const plLine = plName ? `<div class="ui-sub">PL ${escapeHtml(plName)}</div>` : '';
 
     tr.innerHTML = `
-      <td data-label="Datum">${new Date(p.date).toLocaleDateString('de-DE')}</td>
-      <td data-label="Projekt" style="font-weight:600;">${escapeHtml(projName)}</td>
-      <td data-label="Aktion"><span class="badge ${p.action === 'Abbau' ? 'badge-al' : 'badge-pl'}">${escapeHtml(p.action)}</span>${holidayTag}</td>
-      <td data-label="AL/PL" style="font-size: 13px; color: var(--text2);">
-        <div>${escapeHtml(alName)}</div>
-        ${plLine}
-      </td>
-      <td data-label="Kosten" style="font-weight:700; color: var(--accent);">${escapeHtml(costStr)}</td>
-      <td data-label="" style="text-align:right; display:flex; gap:8px; justify-content:flex-end;">
-        <button class="view-btn" data-action="pdf" data-id="${escapeHtml(p.id)}">PDF</button>
-        <button class="view-btn" data-action="detail" data-id="${escapeHtml(p.id)}">Details</button>
+      <td data-label="Datum" class="dash-num">${new Date(p.date).toLocaleDateString('de-DE')}</td>
+      <td data-label="Projekt"><span class="ui-row-title">${escapeHtml(projName)}</span></td>
+      <td data-label="Aktion"><span class="ui-pill ui-pill-info">${escapeHtml(p.action)}</span>${holidayTag}</td>
+      <td data-label="AL / PL"><div>${escapeHtml(alName)}</div>${plLine}</td>
+      <td data-label="Kosten" class="dash-num"><b>${escapeHtml(costStr)}</b></td>
+      <td data-label="" class="dash-actions">
+        <button type="button" class="ui-btn dash-small-btn" data-action="pdf" data-id="${escapeHtml(p.id)}">PDF</button>
+        <button type="button" class="ui-btn dash-small-btn" data-action="detail" data-id="${escapeHtml(p.id)}">Details</button>
       </td>
     `;
     body.appendChild(tr);
   });
+  if (!filtered.length) {
+    const own = !searchTerm && protScopeGet(DASH_SCOPE_KEY) === 'mine' && dashboardProtocols.length;
+    body.innerHTML = '<tr><td colspan="6" data-label="">' + (own
+      ? uiEmptyHtml('Noch keine eigenen Protokolle', '', '<button type="button" class="ui-btn" style="margin-top:10px;" onclick="setDashProtScope(\'all\')">Alle anzeigen</button>')
+      : uiEmptyHtml(searchTerm ? 'Nichts gefunden' : 'Noch keine Protokolle', searchTerm ? 'Andere Suche versuchen.' : '')) + '</td></tr>';
+  }
+  renderDashStats();
+}
+
+const DASH_SCOPE_KEY = 'luebbert_dash_prot_scope';
+
+function dashScopedProtocols() {
+  return protFilterScope(dashboardProtocols, protScopeGet(DASH_SCOPE_KEY), typeof currentUser !== 'undefined' && currentUser ? currentUser.id : '');
+}
+
+function setDashProtScope(scope) {
+  protScopeSet(DASH_SCOPE_KEY, scope);
+  renderDashboardTable();
+}
+
+// Protocols and costs of the calendar month of `now`
+function dashMonthStats(protocols, now) {
+  var ym = now.getFullYear() + '-' + ('0' + (now.getMonth() + 1)).slice(-2);
+  var count = 0, cost = 0;
+  (protocols || []).forEach(function(p) {
+    if (String(p.date || '').slice(0, 7) !== ym) return;
+    count++;
+    cost += Number(p.total_cost) || 0;
+  });
+  return { count: count, cost: cost };
+}
+
+function renderDashStats() {
+  var box = document.getElementById('dash-stats');
+  if (!box) return;
+  var now = new Date(), s = dashMonthStats(dashScopedProtocols(), now);
+  var month = now.toLocaleDateString('de-DE', { month: 'long' });
+  box.innerHTML =
+    '<div class="ui-stat"><span>Protokolle im ' + month + '</span><b>' + s.count + '</b></div>' +
+    '<div class="ui-stat"><span>Kosten im ' + month + '</span><b>' + s.cost.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</b></div>';
+}
+
+if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
+  UI_TOPBAR_ITEMS.dashboard = function() {
+    var view = typeof dashView !== 'undefined' ? dashView : 'prot';
+    var items = [];
+    if (view === 'prot') items.push({ label: 'Kosten aller Protokolle neu berechnen', action: 'recalcAllProtocolCosts' });
+    if (view === 'work' && typeof dashboardCurrentWorker !== 'undefined' && dashboardCurrentWorker) items.push({ label: 'Monat als PDF (' + (dashboardCurrentWorker.full_name || 'Mitarbeiter') + ')', action: 'exportDashboardMonthlyPDF' });
+    // The tab bar is hidden (tiles open one view each): settings and the way back are reachable from here
+    if (typeof dashView !== 'undefined' && dashView === 'settings') {
+      items.push({ label: 'Einstellungen schließen', action: 'switchDashTab', args: [dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY))] });
+    } else if (typeof userRole !== 'undefined' && userRole === 'Admin') {
+      items.push({ label: 'Einstellungen', action: 'switchDashTab', args: ['settings'] });
+    }
+    return items;
+  };
 }
 
 // ── BUCHHALTUNG SHIFTS LOGIC ──
@@ -344,25 +594,10 @@ async function loadDashboardWorkers() {
       if (s.user_id) pendingMap[s.user_id] = (pendingMap[s.user_id] || 0) + 1;
     });
     dashboardWorkers = users || [];
-
-    // Render pending-workers panel
-    const panel = document.getElementById('pending-workers-panel');
-    const chips = document.getElementById('pending-workers-chips');
-    const pendingWorkers = dashboardWorkers.filter(w => pendingMap[w.id]);
-    if (panel && chips) {
-      if (pendingWorkers.length > 0) {
-        chips.innerHTML = pendingWorkers.map(w =>
-          `<button class="btn" style="width:auto;padding:6px 14px;font-size:13px;border:2px solid var(--accent);" onclick="document.getElementById('dash-worker-select').value='${escapeHtml(w.id)}';renderWorkerShifts();">` +
-          `${escapeHtml(w.full_name || 'Unbekannt')} <span style="background:var(--accent);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:6px;">${pendingMap[w.id]}</span>` +
-          `</button>`
-        ).join('');
-        panel.style.display = 'block';
-      } else {
-        panel.style.display = 'none';
-      }
-    }
+    dashPendingMap = pendingMap;
 
     const sel = document.getElementById('dash-worker-select');
+    const prevSelected = sel.value; // the rebuild below would drop the open employee
     sel.innerHTML = '<option value="">-- Mitarbeiter wählen --</option>';
     dashboardWorkers.forEach(w => {
       const indicator = pendingMap[w.id] ? ' 🔴' : '';
@@ -371,6 +606,8 @@ async function loadDashboardWorkers() {
       opt.textContent = (w.full_name || 'Unbekannt') + ' (' + (w.role || '') + ')' + indicator;
       sel.appendChild(opt);
     });
+    if (prevSelected) sel.value = prevSelected;
+    renderDashWorkerList();
   } catch (err) {
     console.error("Worker fetch err:", err);
   }
@@ -380,14 +617,17 @@ async function renderWorkerShifts() {
   const userId = document.getElementById('dash-worker-select').value;
   const cont = document.getElementById('worker-shifts-container');
   
+  const head = document.getElementById('dash-worker-head');
   if (!userId) {
-    cont.innerHTML = `<div class="empty-state"><div class="empty-icon">👥</div><div>Bitte wählen Sie einen Mitarbeiter aus.</div></div>`;
+    if (head) head.innerHTML = '';
+    cont.innerHTML = uiEmptyHtml('Mitarbeiter wählen', 'Wähle links eine Person, um ihre Schichten zu sehen.');
     populateDashboardMonthFilter([]);
     return;
   }
-  
+
   dashboardCurrentWorker = dashboardWorkers.find(w => w.id === userId);
-  cont.innerHTML = `<div style="text-align:center; padding: 20px; color:var(--text3);">Lade Schichten...</div>`;
+  if (head) head.innerHTML = dashWorkerHeadHtml(dashboardCurrentWorker);
+  cont.innerHTML = '<div class="ui-sub" style="padding:20px 2px;">Schichten werden geladen…</div>';
   
   try {
     const { data: shifts, error } = await supabaseClient
@@ -397,6 +637,9 @@ async function renderWorkerShifts() {
         protocols(date, projects(name))
       `)
       .eq('user_id', userId);
+
+    // Another person was selected while this one loaded: drop the late answer
+    if (document.getElementById('dash-worker-select').value !== userId) return;
 
     // Sort by date descending (protocol date → shift_date → created_at)
     if (shifts) {
@@ -413,28 +656,28 @@ async function renderWorkerShifts() {
     const canEdit = (typeof userRole !== 'undefined') && (userRole === 'Buchhaltung' || userRole === 'Admin');
 
     if (dashboardCurrentShifts.length === 0) {
-      cont.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><div>Keine Schichten für diesen Mitarbeiter gefunden.</div></div>` +
-        (canEdit ? `<div style="margin-top:16px; text-align:right;"><button class="btn" style="width:auto; padding:10px 16px;" onclick="openAddShift()">+ Schicht hinzufügen</button></div>` : '');
+      cont.innerHTML = uiEmptyHtml('Keine Schichten', 'Für diese Person sind noch keine Schichten erfasst.',
+        canEdit ? '<button type="button" class="ui-btn" onclick="openAddShift()">+ Schicht hinzufügen</button>' : '');
       populateDashboardMonthFilter([]);
       return;
     }
-    let html = `<table class="compact-table" style="width:100%; margin-top: 10px;">
+    let html = `<table class="ui-table dash-shift-table">
       <thead>
         <tr>
-          <th>Datum/Projekt</th>
+          <th>Datum / Projekt</th>
           <th>Rolle</th>
           <th>Zeiten</th>
           <th>Netto</th>
-          <th style="text-align:center;">Verbucht</th>
-          ${canEdit ? '<th style="text-align:center;"></th>' : ''}
+          <th>Verbucht</th>
+          ${canEdit ? '<th></th>' : ''}
         </tr>
       </thead>
       <tbody>`;
-      
+
     dashboardCurrentShifts.forEach(s => {
       let dateLabel = "Unbekannt";
       let projLabel = "Manuell erfasst";
-      
+
       if (s.protocols) {
         dateLabel = s.protocols.date ? new Date(s.protocols.date).toLocaleDateString('de-DE') : '—';
         projLabel = s.protocols.projects ? s.protocols.projects.name : '—';
@@ -443,100 +686,68 @@ async function renderWorkerShifts() {
       } else if (s.created_at) {
         dateLabel = new Date(s.created_at).toLocaleDateString('de-DE');
       }
-      
+
       const st = s.start_time ? s.start_time.substring(0, 5) : '—';
       const en = s.end_time ? s.end_time.substring(0, 5) : '—';
-      const timeStr = st !== '—' ? `${st} - ${en} (${s.pause_mins}m P)` : '—';
-      
-      let netStr = '—';
-      if (st !== '—' && en !== '—') {
-        const [sh, sm] = st.split(':').map(Number);
-        const [eh, em] = en.split(':').map(Number);
-        if (!isNaN(sh) && !isNaN(eh)) {
-          const startMins = sh * 60 + sm;
-          let endMins = eh * 60 + em;
-          if (endMins < startMins) endMins += 1440; // overnight
-          let netMins = endMins - startMins - (s.pause_mins || 0);
-          if (BUCHHALTUNG_MIN_HOURS_ENABLED) netMins = Math.max(BUCHHALTUNG_MIN_HOURS * 60, netMins);
-          if (netMins > 0) {
-            netStr = (netMins / 60).toFixed(2).replace('.', ',') + ' h';
-          }
-        }
-      }
-      
+      const timeStr = st !== '—' ? `${st}–${en}` + (s.pause_mins ? ` · ${s.pause_mins} min` : '') : '—';
+      const netMins = dashShiftNetMins(s);
+      const netStr = netMins > 0 ? (netMins / 60).toFixed(2).replace('.', ',') + ' h' : '—';
+
       const isBooked = s.status === 'eingetragen';
-      const checkedAttr = isBooked ? 'checked' : '';
-      const checkboxHtml = `<input type="checkbox" ${checkedAttr} data-shift-id="${escapeHtml(s.id)}" class="shift-booked-cb" style="width:18px;height:18px;cursor:pointer;">`;
+      const checkboxHtml = `<input type="checkbox" ${isBooked ? 'checked' : ''} data-shift-id="${escapeHtml(s.id)}" class="shift-booked-cb ui-switch" aria-label="Verbucht">`;
 
       html += `<tr>
-        <td data-label="Datum/Projekt">
-          <div style="font-weight:600;">${escapeHtml(dateLabel)}</div>
-          <div style="font-size:11px; color:var(--text3);">${escapeHtml(projLabel)}</div>
-        </td>
-        <td data-label="Rolle" style="font-size:12px;">${escapeHtml(s.position_role || '—')}</td>
-        <td data-label="Zeiten" style="font-size:13px;">${escapeHtml(timeStr)}</td>
-        <td data-label="Netto" style="font-weight:600; color:var(--accent); font-size:13px;">${escapeHtml(netStr)}</td>
-        <td data-label="" style="text-align:center;">${checkboxHtml}</td>
-        ${canEdit ? `<td style="text-align:center;"><button onclick="openShiftEdit('${escapeHtml(s.id)}')" style="background:none;border:none;cursor:pointer;font-size:15px;color:var(--text3);" title="Bearbeiten">✏️</button></td>` : ''}
+        <td data-label="Datum / Projekt"><div class="dash-num"><b>${escapeHtml(dateLabel)}</b></div><div class="ui-sub">${escapeHtml(projLabel)}</div></td>
+        <td data-label="Rolle">${escapeHtml(s.position_role || '—')}</td>
+        <td data-label="Zeiten" class="dash-num">${escapeHtml(timeStr)}</td>
+        <td data-label="Netto" class="dash-num"><b>${escapeHtml(netStr)}</b></td>
+        <td data-label="Verbucht">${checkboxHtml}</td>
+        ${canEdit ? `<td data-label="" class="dash-actions"><button type="button" class="ui-icon-btn" onclick="openShiftEdit('${escapeHtml(s.id)}')" aria-label="Schicht bearbeiten">${uiIcon('edit')}</button></td>` : ''}
       </tr>`;
     });
-    
+
     html += `</tbody></table>`;
 
-    // Summary row: total net hours
+    // Key figures: total net hours (all shifts), pay, and the income limit of the current billing period
     let totalNetMins = 0;
-    dashboardCurrentShifts.forEach(s => {
-      const st = s.start_time ? s.start_time.substring(0, 5) : null;
-      const en = s.end_time ? s.end_time.substring(0, 5) : null;
-      if (st && en) {
-        const [sh, sm] = st.split(':').map(Number);
-        const [eh, em] = en.split(':').map(Number);
-        if (!isNaN(sh) && !isNaN(eh)) {
-          let startMins = sh * 60 + sm;
-          let endMins = eh * 60 + em;
-          if (endMins < startMins) endMins += 1440;
-          let net = endMins - startMins - (s.pause_mins || 0);
-          if (BUCHHALTUNG_MIN_HOURS_ENABLED) net = Math.max(BUCHHALTUNG_MIN_HOURS * 60, net);
-          if (net > 0) totalNetMins += net;
-        }
-      }
-    });
+    dashboardCurrentShifts.forEach(s => { totalNetMins += dashShiftNetMins(s); });
     const totalH = Math.floor(totalNetMins / 60);
     const totalM = totalNetMins % 60;
-    const totalNetStr = totalNetMins > 0 ? (totalM > 0 ? `${totalH}h ${totalM}m` : `${totalH}h`) : '—';
+    const totalNetStr = totalNetMins > 0 ? (totalM > 0 ? `${totalH} h ${totalM} min` : `${totalH} h`) : '—';
     const worker = dashboardCurrentWorker;
     const rateConni = worker && worker.hourly_rate_conni ? parseFloat(worker.hourly_rate_conni) : null;
     const rateInternal = worker && worker.hourly_rate_internal ? parseFloat(worker.hourly_rate_internal) : null;
     const totalNetHrs = totalNetMins / 60;
-    const earningsConni = rateConni && totalNetHrs > 0 ? (totalNetHrs * rateConni).toFixed(2).replace('.', ',') + ' €' : null;
-    const earningsInternal = rateInternal && totalNetHrs > 0 ? (totalNetHrs * rateInternal).toFixed(2).replace('.', ',') + ' €' : null;
-    html += `<div style="display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:16px; padding:12px 4px; border-top:1px solid var(--border); margin-top:4px;">
-      <div style="display:flex; align-items:center; gap:8px;">
-        <span style="font-size:13px; color:var(--text3);">Gesamtstunden (netto):</span>
-        <span style="font-size:16px; font-weight:700; color:var(--accent);">${totalNetStr}</span>
-      </div>
-      ${rateConni ? `<div style="display:flex; align-items:center; gap:8px;">
-        <span style="font-size:13px; color:var(--text3);">Lohn (${rateConni.toFixed(2).replace('.',',')} €/h):</span>
-        <span style="font-size:16px; font-weight:700; color:var(--accent);">${earningsConni}</span>
-      </div>` : ''}
-      ${rateInternal ? `<div style="display:flex; align-items:center; gap:8px;">
-        <span style="font-size:13px; color:var(--text3);">Intern (${rateInternal.toFixed(2).replace('.',',')} €/h):</span>
-        <span style="font-size:14px; font-weight:600; color:var(--text2);">${earningsInternal}</span>
-      </div>` : ''}
-    </div>`;
+    const eur = n => n.toFixed(2).replace('.', ',') + ' €';
+    const cutoff = (typeof billingCutoff !== 'undefined') ? billingCutoff : 20;
+    const periodKey = getBillingKeyForDate(new Date(), cutoff);
+    let periodMins = 0;
+    dashboardCurrentShifts.forEach(s => {
+      const d = s.protocols?.date || s.shift_date || (s.created_at || '').slice(0, 10);
+      if (d && getBillingKeyForDate(new Date(d + 'T12:00:00'), cutoff).key === periodKey.key) periodMins += dashShiftNetMins(s);
+    });
+    const share = incomeLimitShare(rateConni ? periodMins / 60 * rateConni : null, worker && worker.income_limit ? parseFloat(worker.income_limit) : null);
+    let statsHtml = '<div class="ui-stats">' +
+      `<div class="ui-stat"><span>Netto-Stunden gesamt</span><b>${totalNetStr}</b></div>` +
+      (rateConni ? `<div class="ui-stat"><span>Lohn (${rateConni.toFixed(2).replace('.', ',')} €/h)</span><b>${totalNetHrs > 0 ? eur(totalNetHrs * rateConni) : '—'}</b></div>` : '') +
+      (rateInternal ? `<div class="ui-stat"><span>Intern (${rateInternal.toFixed(2).replace('.', ',')} €/h)</span><b>${totalNetHrs > 0 ? eur(totalNetHrs * rateInternal) : '—'}</b></div>` : '') +
+      (share ? `<div class="ui-stat"><span>Grenze ${eur(parseFloat(worker.income_limit))} · ${escapeHtml(periodKey.label)}</span>` +
+        `<b>${eur(periodMins / 60 * rateConni)}</b>` +
+        `<div class="ui-bar${share.over ? ' ui-bar-over' : share.pct >= 80 ? ' ui-bar-warn' : ''}"><i style="width:${share.pct}%"></i></div></div>` : '') +
+      '</div>';
 
-    // Quick actions row
+    // Actions above the table
     const pendingCount = dashboardCurrentShifts.filter(s => s.status !== 'eingetragen').length;
-    html += `<div style="margin-top: 16px; display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;">`;
+    statsHtml += `<div class="dash-shift-actions">`;
     if (canEdit) {
-      html += `<button class="btn" style="width:auto; padding: 10px 16px;" onclick="openAddShift()">+ Schicht hinzufügen</button>`;
+      statsHtml += `<button type="button" class="ui-btn dash-small-btn" onclick="openAddShift()">+ Schicht hinzufügen</button>`;
     }
     if (pendingCount > 0) {
-      html += `<button class="btn primary" style="width:auto; padding: 10px 20px;" data-action="mark-all" data-user-id="${escapeHtml(userId)}">Alle offenen (${escapeHtml(String(pendingCount))}) verbuchen</button>`;
+      statsHtml += `<button type="button" class="ui-btn ui-btn-primary dash-small-btn" data-action="mark-all" data-user-id="${escapeHtml(userId)}">Alle offenen (${escapeHtml(String(pendingCount))}) verbuchen</button>`;
     }
-    html += `</div>`;
+    statsHtml += `</div>`;
 
-    cont.innerHTML = html;
+    cont.innerHTML = statsHtml + html;
     populateDashboardMonthFilter(dashboardCurrentShifts);
 
     // Delegate change events for shift booking checkboxes
@@ -561,12 +772,15 @@ async function renderWorkerShifts() {
 async function toggleShiftBooked(shiftId, checked) {
   const newStat = checked ? 'eingetragen' : 'offen';
   try {
-    const { error } = await supabaseClient
+    const { data: rows, error } = await supabaseClient
       .from('shifts')
       .update({ status: newStat })
-      .eq('id', shiftId);
+      .eq('id', shiftId)
+      .select('id');
       
     if (error) throw error;
+    // RLS answers with 0 rows instead of an error
+    if (!rows || rows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung');
     if (typeof showToast === 'function') showToast(checked ? "Schicht verbucht!" : "Verbuchung aufgehoben");
     
     // Update local state without full rerender to avoid jumpiness
@@ -583,13 +797,17 @@ async function toggleShiftBooked(shiftId, checked) {
 async function markAllShiftsBooked(userId) {
   if (!confirm("Alle offenen Schichten dieses Mitarbeiters als eingetragen markieren?")) return;
   try {
-    const { error } = await supabaseClient
+    const { data: rows, error } = await supabaseClient
       .from('shifts')
       .update({ status: 'eingetragen' })
       .eq('user_id', userId)
-      .neq('status', 'eingetragen');
+      .neq('status', 'eingetragen')
+      .select('id');
       
     if (error) throw error;
+    // RLS answers with 0 rows instead of an error
+    // 0 rows: nothing was open, or RLS refused – both mean nothing changed, which is not a failure the user caused
+    if (!rows || rows.length === 0) { if (typeof showToast === 'function') showToast('Keine offenen Schichten zum Verbuchen.', 'info'); return; }
     if (typeof showToast === 'function') showToast("Alle Schichten erfolgreich gebucht!");
     renderWorkerShifts();
   } catch(e) {
@@ -601,138 +819,55 @@ async function markAllShiftsBooked(userId) {
 // ── SCHICHT BEARBEITEN / HINZUFÜGEN ──
 
 let _shiftEditId = null; // null = neuer Eintrag, sonst Supabase-ID
-let _shiftEditContext = 'worker'; // 'worker' | 'protocol-edit' | 'protocol-add'
-
-function _shiftModalBase() {
-  document.getElementById('shift-edit-person-row').style.display = 'none';
-  document.getElementById('shift-edit-temp-name').value = '';
-  const sel = document.getElementById('shift-edit-worker-select');
-  if (sel) sel.value = '';
-}
-
 function openShiftEdit(shiftId) {
   const shift = dashboardCurrentShifts.find(s => s.id === shiftId);
   if (!shift) return;
   _shiftEditId = shiftId;
-  _shiftEditContext = 'worker';
-  _shiftModalBase();
   document.getElementById('shift-edit-title').textContent = 'Schicht bearbeiten';
   const dateVal = shift.protocols?.date || shift.shift_date || '';
   document.getElementById('shift-edit-date').value  = dateVal;
   document.getElementById('shift-edit-ort').value   = shift.ort || '';
+  dashShiftRoleOption(shift.position_role);
   document.getElementById('shift-edit-role').value  = shift.position_role || 'MA frei';
   document.getElementById('shift-edit-start').value = (shift.start_time || '').substring(0, 5);
   document.getElementById('shift-edit-end').value   = (shift.end_time   || '').substring(0, 5);
   document.getElementById('shift-edit-note').value  = shift.note || '';
   document.getElementById('shift-edit-delete-row').style.display = 'block';
   document.getElementById('shift-edit-modal').classList.add('open');
+}
+
+// A stored role the select does not offer (legacy "MA" without fest/frei) gets a temporary option,
+// otherwise saving would blank it. Options added earlier are removed first.
+function dashShiftRoleOption(role) {
+  var sel = document.getElementById('shift-edit-role');
+  if (!sel || !sel.options) return;
+  for (var i = sel.options.length - 1; i >= 0; i--) if (sel.options[i].dataset && sel.options[i].dataset.extra) sel.removeChild(sel.options[i]);
+  if (!role) return;
+  for (var j = 0; j < sel.options.length; j++) if (sel.options[j].value === role) return;
+  var opt = document.createElement('option');
+  opt.value = role; opt.textContent = role; opt.dataset.extra = '1';
+  sel.appendChild(opt);
+}
+
+// Break for a saved shift: the stored one stays unless start/end changed (then the automatic break applies again)
+function dashEditPause(old, startVal, endVal, autoVal) {
+  if (!old || old.pause_mins === null || old.pause_mins === undefined) return autoVal;
+  var timesChanged = (old.start_time || '').substring(0, 5) !== startVal || (old.end_time || '').substring(0, 5) !== endVal;
+  return timesChanged ? autoVal : (parseInt(old.pause_mins, 10) || 0);
 }
 
 function openAddShift() {
   _shiftEditId = null;
-  _shiftEditContext = 'worker';
-  _shiftModalBase();
   document.getElementById('shift-edit-title').textContent = 'Schicht hinzufügen';
   document.getElementById('shift-edit-date').value  = localDateStr();
   document.getElementById('shift-edit-ort').value   = '';
+  dashShiftRoleOption(null);
   document.getElementById('shift-edit-role').value  = 'MA frei';
   document.getElementById('shift-edit-start').value = '';
   document.getElementById('shift-edit-end').value   = '';
   document.getElementById('shift-edit-note').value  = '';
   document.getElementById('shift-edit-delete-row').style.display = 'none';
   document.getElementById('shift-edit-modal').classList.add('open');
-}
-
-function openProtShiftEdit(shiftId) {
-  const p = dashboardProtocols.find(x => x.id === _editProtId);
-  if (!p) return;
-  const shift = (p.shifts || []).find(s => s.id === shiftId);
-  if (!shift) return;
-  _shiftEditId = shiftId;
-  _shiftEditContext = 'protocol-edit';
-  _shiftModalBase();
-  document.getElementById('shift-edit-title').textContent = 'Schicht bearbeiten';
-  document.getElementById('shift-edit-date').value  = shift.shift_date || p.date || '';
-  document.getElementById('shift-edit-ort').value   = shift.ort || '';
-  document.getElementById('shift-edit-role').value  = shift.position_role || 'MA frei';
-  document.getElementById('shift-edit-start').value = (shift.start_time || '').substring(0, 5);
-  document.getElementById('shift-edit-end').value   = (shift.end_time   || '').substring(0, 5);
-  document.getElementById('shift-edit-note').value  = shift.note || '';
-  document.getElementById('shift-edit-delete-row').style.display = 'block';
-  document.getElementById('shift-edit-modal').classList.add('open');
-}
-
-function openAddProtShift() {
-  const p = dashboardProtocols.find(x => x.id === _editProtId);
-  if (!p) return;
-  _shiftEditId = null;
-  _shiftEditContext = 'protocol-add';
-  // Populate worker dropdown
-  const sel = document.getElementById('shift-edit-worker-select');
-  if (sel) {
-    sel.innerHTML = '<option value="">— Temp / Agentur (Name eingeben) —</option>' +
-      (dashboardWorkers || []).map(function(w) {
-        return '<option value="' + w.id + '">' + escapeHtml(w.full_name || '') + '</option>';
-      }).join('');
-  }
-  document.getElementById('shift-edit-person-row').style.display = 'block';
-  document.getElementById('shift-edit-temp-name').style.display = '';
-  document.getElementById('shift-edit-title').textContent = 'Schicht hinzufügen';
-  document.getElementById('shift-edit-date').value  = p.date || '';
-  document.getElementById('shift-edit-ort').value   = (p.projects && p.projects.location) || '';
-  document.getElementById('shift-edit-role').value  = 'MA frei';
-  document.getElementById('shift-edit-start').value = '';
-  document.getElementById('shift-edit-end').value   = '';
-  document.getElementById('shift-edit-note').value  = '';
-  document.getElementById('shift-edit-delete-row').style.display = 'none';
-  document.getElementById('shift-edit-modal').classList.add('open');
-}
-
-function onShiftWorkerSelect(val) {
-  const inp = document.getElementById('shift-edit-temp-name');
-  if (!inp) return;
-  if (val) {
-    const w = (dashboardWorkers || []).find(function(x) { return x.id === val; });
-    inp.value = w ? (w.full_name || '') : '';
-    inp.style.display = 'none';
-  } else {
-    inp.value = '';
-    inp.style.display = '';
-  }
-}
-
-async function _refreshProtocolShifts() {
-  if (!_editProtId) return;
-  const { data } = await supabaseClient
-    .from('shifts')
-    .select('id, user_id, temp_worker_name, position_role, start_time, end_time, pause_mins, status, shift_date, ort, app_users(full_name)')
-    .eq('protocol_id', _editProtId);
-  const p = dashboardProtocols.find(function(x) { return x.id === _editProtId; });
-  if (p) p.shifts = data || [];
-}
-
-function renderProtShiftsInEdit() {
-  const c = document.getElementById('pe-shifts');
-  if (!c) return;
-  const p = dashboardProtocols.find(function(x) { return x.id === _editProtId; });
-  const shifts = p ? (p.shifts || []) : [];
-  if (!shifts.length) {
-    c.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:6px 0;">Keine Schichten erfasst.</div>';
-    return;
-  }
-  c.innerHTML = shifts.map(function(s) {
-    const name = s.temp_worker_name || (s.app_users ? s.app_users.full_name : '—');
-    const von  = (s.start_time || '').substring(0, 5);
-    const bis  = (s.end_time   || '').substring(0, 5);
-    const time = von && bis ? von + '–' + bis : '—';
-    return '<div style="display:flex;gap:8px;align-items:center;background:var(--bg2);border-radius:8px;padding:8px 10px;">' +
-      '<div style="flex:1;min-width:0;">' +
-        '<div style="font-size:13px;font-weight:600;">' + escapeHtml(name) + '</div>' +
-        '<div style="font-size:11px;color:var(--text3);">' + escapeHtml(s.position_role || '—') + ' · ' + time + (s.ort ? ' · ' + escapeHtml(s.ort) : '') + '</div>' +
-      '</div>' +
-      '<button onclick="openProtShiftEdit(\'' + s.id + '\')" style="font-size:12px;padding:4px 10px;border:0.5px solid var(--border2);border-radius:var(--radius);background:var(--bg3);cursor:pointer;">✏️</button>' +
-    '</div>';
-  }).join('');
 }
 
 function closeShiftEditModal() {
@@ -747,55 +882,34 @@ async function saveShiftEdit() {
   const endVal   = document.getElementById('shift-edit-end').value;
   const ortVal   = (document.getElementById('shift-edit-ort') || {}).value || '';
   const rawMins  = (timeToMins(endVal) || 0) - (timeToMins(startVal) || 0);
-  const pause    = autoPause(rawMins < 0 ? rawMins + 1440 : rawMins);
+  let pause      = autoPause(rawMins < 0 ? rawMins + 1440 : rawMins);
 
   if (!dateVal || !startVal || !endVal) {
     if (typeof showToast === 'function') showToast('Bitte Datum, Von und Bis ausfüllen.', 'danger');
     return;
   }
 
-  const isProtocol = _shiftEditContext === 'protocol-edit' || _shiftEditContext === 'protocol-add';
-
   try {
     if (_shiftEditId) {
-      // Edit existing shift (works for both worker and protocol context)
-      const { error } = await supabaseClient.from('shifts').update({
+      // Edit existing shift (a manually set break stays unless the times changed)
+      pause = dashEditPause(dashboardCurrentShifts.find(function(x) { return x.id === _shiftEditId; }), startVal, endVal, pause);
+      const { data: uRows, error } = await supabaseClient.from('shifts').update({
         shift_date:    dateVal,
         position_role: role,
         start_time:    startVal,
         end_time:      endVal,
         pause_mins:    pause,
         ort:           ortVal || null,
-      }).eq('id', _shiftEditId);
+      }).eq('id', _shiftEditId).select('id');
       if (error) throw error;
+      // RLS answers with 0 rows instead of an error
+      if (!uRows || uRows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung');
       if (typeof showToast === 'function') showToast('Schicht gespeichert!');
-    } else if (_shiftEditContext === 'protocol-add') {
-      // New shift linked to a protocol
-      const workerId = (document.getElementById('shift-edit-worker-select') || {}).value || '';
-      const tempName = (document.getElementById('shift-edit-temp-name') || {}).value.trim();
-      if (!workerId && !tempName) {
-        if (typeof showToast === 'function') showToast('Bitte Person angeben.', 'danger');
-        return;
-      }
-      const { error } = await supabaseClient.from('shifts').insert({
-        protocol_id:      _editProtId,
-        user_id:          workerId || null,
-        temp_worker_name: workerId ? null : (tempName || null),
-        shift_date:       dateVal,
-        position_role:    role,
-        start_time:       startVal,
-        end_time:         endVal,
-        pause_mins:       pause,
-        ort:              ortVal || null,
-        status:           'offen',
-      });
-      if (error) throw error;
-      if (typeof showToast === 'function') showToast('Schicht hinzugefügt!');
     } else {
       // New shift linked to a worker (existing worker-dashboard flow)
       const userId = document.getElementById('dash-worker-select').value;
       if (!userId) { if (typeof showToast === 'function') showToast('Kein Mitarbeiter ausgewählt.', 'danger'); return; }
-      const { error } = await supabaseClient.from('shifts').insert({
+      const { data: iRows, error } = await supabaseClient.from('shifts').insert({
         user_id:       userId,
         shift_date:    dateVal,
         position_role: role,
@@ -804,18 +918,14 @@ async function saveShiftEdit() {
         pause_mins:    pause,
         ort:           ortVal || null,
         status:        'offen',
-      });
+      }).select('id');
       if (error) throw error;
+      if (!iRows || iRows.length === 0) throw new Error('Einfügen abgelehnt – keine Berechtigung');
       if (typeof showToast === 'function') showToast('Schicht hinzugefügt!');
     }
 
     closeShiftEditModal();
-    if (isProtocol) {
-      await _refreshProtocolShifts();
-      renderProtShiftsInEdit();
-    } else {
-      renderWorkerShifts();
-    }
+    renderWorkerShifts();
   } catch (err) {
     console.error('saveShiftEdit error:', err);
     if (typeof showToast === 'function') showToast('Fehler: ' + (err.message || 'Speichern fehlgeschlagen'), 'danger');
@@ -825,27 +935,186 @@ async function saveShiftEdit() {
 async function deleteShiftFromModal() {
   if (!_shiftEditId) return;
   if (!confirm('Schicht wirklich löschen?')) return;
-  const isProtocol = _shiftEditContext === 'protocol-edit';
   try {
-    const { error } = await supabaseClient.from('shifts').delete().eq('id', _shiftEditId);
+    const { data: rows, error } = await supabaseClient.from('shifts').delete().eq('id', _shiftEditId).select('id');
     if (error) throw error;
+    // RLS answers with 0 rows instead of an error
+    if (!rows || rows.length === 0) throw new Error('Löschen abgelehnt – keine Berechtigung');
     if (typeof showToast === 'function') showToast('Schicht gelöscht.');
     closeShiftEditModal();
-    if (isProtocol) {
-      await _refreshProtocolShifts();
-      renderProtShiftsInEdit();
-    } else {
-      renderWorkerShifts();
-    }
+    renderWorkerShifts();
   } catch (err) {
     console.error('deleteShift error:', err);
-    if (typeof showToast === 'function') showToast('Fehler beim Löschen.', 'danger');
+    if (typeof showToast === 'function') showToast('Fehler beim Löschen: ' + (err.message || 'unbekannt'), 'danger');
   }
 }
 
 // ── PROTOCOL COST RECALCULATION ──
 
+// All employees incl. deactivated ones by id – appUsers (protokoll.js) only holds the active ones
+var _dashRateUsers = {};
+var _dashRateUsersLoaded = false;
+
+// Same lookup as getEffectivePersonnelRate (role rate, then base rate) on a user object; undefined = none
+function dashUserRate(user, basePos) {
+  if (!user) return undefined;
+  if (Array.isArray(user.role_rates)) {
+    var match = user.role_rates.find(function(r) { return r.role === basePos; });
+    if (match && parseFloat(match.rate_internal) > 0) return parseFloat(match.rate_internal);
+  }
+  if (parseFloat(user.hourly_rate_internal) > 0) return parseFloat(user.hourly_rate_internal);
+  return undefined;
+}
+
+async function dashRefreshRateUsers() {
+  if (typeof supabaseClient === 'undefined') return;
+  try {
+    // appUsers drives the pickers and the rates of new work: reload it as well (rates may just have changed)
+    if (typeof fetchAppUsers === 'function') await fetchAppUsers();
+    var { data, error } = await supabaseClient.from('app_users').select('id, role, role_rates, hourly_rate_internal, is_active');
+    if (error) throw error;
+    var map = {};
+    (data || []).forEach(function(u) { map[u.id] = u; });
+    _dashRateUsers = map;
+    _dashRateUsersLoaded = true;
+  } catch (e) { console.warn('Stundensätze nicht geladen:', e); }
+}
+
+// Cost lines of one stored shift, with the employee's own rate like the app (getEffectivePersonnelRate)
+function dashShiftCosts(date, isHoliday, s) {
+  var von = (s.start_time || '').substring(0, 5);
+  var bis = (s.end_time || '').substring(0, 5);
+  if (!von || !bis || typeof calcSplitShiftCosts !== 'function') return [];
+  var sp = von.split(':').map(Number), ep = bis.split(':').map(Number);
+  if (sp.length !== 2 || ep.length !== 2 || isNaN(sp[0]) || isNaN(ep[0])) return [];
+  var v = sp[0] * 60 + (sp[1] || 0);
+  var b = ep[0] * 60 + (ep[1] || 0);
+  if (b < v) b += 1440;
+  if (b <= v) return [];
+  var basePos = s.position_role || 'MA frei';
+  var customRate = (s.user_id && typeof getEffectivePersonnelRate === 'function')
+    ? getEffectivePersonnelRate(basePos, s.user_id) : undefined;
+  // Not among the active app users (deactivated, or not loaded yet): the dashboard's own copy has the rates
+  if (customRate === undefined && s.user_id) customRate = dashUserRate(_dashRateUsers[s.user_id], basePos);
+  return calcSplitShiftCosts(basePos, date, !!isHoliday, v, b, parseInt(s.pause_mins) || 0, customRate);
+}
+
+// protocol_transports rows → { type, hours, driverUserId, driver } (the shape of the app's transports)
+function dashTransportsFromRows(rows) {
+  return (rows || []).map(function(t) {
+    return { type: t.vehicle_type, driver: t.driver_name || '', hours: t.driver_hours == null ? null : Number(t.driver_hours),
+      driverUserId: t.driver_user_id || '' };
+  });
+}
+
+// Protocol total with the same formula as calcProtCosts in the app; transports = [{ type, hours, driverUserId, driver }]
+// (rows without hours cost no driver, so totals of old protocols stay as they were)
+function calcDashProtTotal(date, isHoliday, transports, shifts) {
+  var total = 0;
+  (transports || []).forEach(function(t) {
+    total += (typeof calcTransportCost === 'function') ? calcTransportCost(t.type, date) : 0;
+    var drv = (typeof protDriverCost === 'function') ? protDriverCost(t, typeof appUsers !== 'undefined' ? appUsers : []) : null;
+    if (drv) total += drv.amount;
+  });
+  (shifts || []).forEach(function(s) {
+    dashShiftCosts(date, isHoliday, s).forEach(function(c) { total += c.hrs * c.rate; });
+  });
+  return isNaN(total) ? 0 : Math.round(total * 100) / 100;
+}
+
+// AL/PL typed in the edit modal → { id, fallback }. Unchanged name keeps the id; a changed name
+// gets an id only on a unique exact (case-insensitive) match, else it stays free text.
+function dashResolvePerson(typed, currentName, currentId, users) {
+  var name = (typed || '').trim();
+  if (!name) return { id: null, fallback: null };
+  if (name === (currentName || '').trim()) return { id: currentId || null, fallback: name };
+  var lower = name.toLowerCase();
+  var hits = (users || []).filter(function(u) { return (u.full_name || '').trim().toLowerCase() === lower; });
+  return { id: hits.length === 1 ? hits[0].id : null, fallback: name };
+}
+
+// ── Protokoll bearbeiten: personnel rows ──
+// Editor row: { id?, userId, name, pos (AL/MA/Fahrer/Zenjob/…), fest, start, end, pause }
+
+function dashShiftToRow(s) {
+  var role = s.position_role || '';
+  return {
+    id: s.id,
+    userId: s.user_id || '',
+    name: (s.app_users && s.app_users.full_name) || s.temp_worker_name || ((typeof appUsers !== 'undefined' ? appUsers : []).find(function(u) { return u.id === s.user_id; }) || {}).full_name || '',
+    pos: role.replace(/ (fest|frei)$/, ''),
+    fest: / fest$/.test(role),
+    start: (s.start_time || '').substring(0, 5),
+    end: (s.end_time || '').substring(0, 5),
+    pause: s.pause_mins || 0
+  };
+}
+
+// Editor row → the writable shift fields (fest/frei via protBasePos like the Protokoll form)
+function dashShiftRowToDb(row, users) {
+  var userId = row.userId || null;
+  var name = (row.name || '').trim();
+  return {
+    user_id: userId,
+    temp_worker_name: userId ? null : (name || null),
+    position_role: protBasePos({ pos: row.pos, isTemp: !userId, userId: userId, fest: row.fest }, users),
+    start_time: row.start || null,
+    end_time: row.end || null,
+    pause_mins: parseInt(row.pause, 10) || 0
+  };
+}
+
+// Diff of the stored shifts against the edited rows. Existing shifts are only ever updated in place
+// (patch = changed fields), so status ('verbucht') and ids survive; ids missing from the rows are deleted.
+function dashShiftChanges(oldShifts, editedRows, users) {
+  var kept = {}, updates = [], inserts = [], deletes = [];
+  (editedRows || []).forEach(function(row) {
+    var old = row.id ? (oldShifts || []).find(function(s) { return s.id === row.id; }) : null;
+    var next = dashShiftRowToDb(row, users);
+    if (!old) { inserts.push(Object.assign(next, { status: 'offen' })); return; }
+    kept[old.id] = true;
+    var patch = {};
+    var oldBase = (old.position_role || '').replace(/ (fest|frei)$/, '');
+    if ((old.user_id || null) !== next.user_id || (old.temp_worker_name || null) !== next.temp_worker_name) {
+      patch.user_id = next.user_id;
+      patch.temp_worker_name = next.temp_worker_name;
+    }
+    // Same base position and person: keep the stored role as it is (fest/frei, legacy values)
+    if (!(row.pos === oldBase && (old.user_id || null) === next.user_id) && old.position_role !== next.position_role) patch.position_role = next.position_role;
+    if ((old.start_time || '').substring(0, 5) !== (next.start_time || '')) patch.start_time = next.start_time;
+    if ((old.end_time || '').substring(0, 5) !== (next.end_time || '')) patch.end_time = next.end_time;
+    if ((parseInt(old.pause_mins, 10) || 0) !== next.pause_mins) patch.pause_mins = next.pause_mins;
+    // Hours that were already booked for someone else / for other times are open again for the accounting
+    if (old.status && old.status !== 'offen' && ('user_id' in patch || 'start_time' in patch || 'end_time' in patch || 'pause_mins' in patch)) patch.status = 'offen';
+    if (Object.keys(patch).length) updates.push({ id: old.id, patch: patch });
+  });
+  (oldShifts || []).forEach(function(s) { if (!kept[s.id]) deletes.push(s.id); });
+  return { updates: updates, inserts: inserts, deletes: deletes };
+}
+
+// Dashboard protocol row → archive entry for buildProtPdfDoc (one PDF builder for app and dashboard)
+function dashProtToEntry(p, signature) {
+  var entry = protRowToEntry(p);
+  entry.signature = signature || null;
+  return entry;
+}
+
+// Employee rates live in appUsers (protokoll.js); load them when the dashboard opens first
+async function ensureRateUsers() {
+  if (typeof appUsers !== 'undefined' && appUsers.length === 0 && typeof fetchAppUsers === 'function') {
+    try { await fetchAppUsers(); } catch (e) { console.warn('app_users für Stundensätze nicht geladen:', e); }
+  }
+  if (!_dashRateUsersLoaded && typeof supabaseClient !== 'undefined') await dashRefreshRateUsers();
+}
+
+var _recalcRunning = false; // the menu item has no button to disable → guard against a second tap
 async function recalcAllProtocolCosts() {
+  if (_recalcRunning) return;
+  _recalcRunning = true;
+  try { await recalcAllProtocolCostsRun(); } finally { _recalcRunning = false; }
+}
+
+async function recalcAllProtocolCostsRun() {
   if (!dashboardProtocols || dashboardProtocols.length === 0) {
     if (typeof showToast === 'function') showToast('Keine Protokolle geladen.', 'danger');
     return;
@@ -855,42 +1124,20 @@ async function recalcAllProtocolCosts() {
 
   let updated = 0, errors = 0;
 
+  await ensureRateUsers();
   for (const p of dashboardProtocols) {
-    let total = 0;
-
-    // Transport costs
-    (p.protocol_transports || []).forEach(function(t) {
-      total += (typeof calcTransportCost !== 'undefined') ? calcTransportCost(t.vehicle_type, p.date) : 0;
-    });
-
-    // Personnel costs
-    (p.shifts || []).forEach(function(s) {
-      const von = (s.start_time || '').substring(0, 5);
-      const bis = (s.end_time  || '').substring(0, 5);
-      const pa  = parseInt(s.pause_mins) || 0;
-      if (!von || !bis) return;
-      const [sh, sm] = von.split(':').map(Number);
-      const [eh, em] = bis.split(':').map(Number);
-      if (isNaN(sh) || isNaN(eh)) return;
-      let v = sh * 60 + sm;
-      let b = eh * 60 + em;
-      if (b < v) b += 1440;
-      if (b <= v) return;
-      const basePos = s.position_role || 'MA frei';
-      if (typeof calcSplitShiftCosts === 'function') {
-        const costs = calcSplitShiftCosts(basePos, p.date, p.is_holiday || false, v, b, pa);
-        costs.forEach(c => { total += c.hrs * c.rate; });
-      }
-    });
-
-    const rounded = isNaN(total) ? 0 : Math.round(total * 100) / 100;
+    const rounded = calcDashProtTotal(p.date, p.is_holiday,
+      dashTransportsFromRows(p.protocol_transports), p.shifts || []);
 
     try {
-      const { error } = await supabaseClient
+      const { data: upd, error } = await supabaseClient
         .from('protocols')
         .update({ total_cost: rounded })
-        .eq('id', p.id);
+        .eq('id', p.id)
+        .select('id');
       if (error) throw error;
+      // RLS answers with 0 rows instead of an error
+      if (!upd || upd.length === 0) throw new Error('Update abgelehnt (keine Berechtigung)');
       p.total_cost = rounded;
       updated++;
     } catch (e) {
@@ -981,7 +1228,7 @@ function openDashDetail(id) {
         : 'color:#22c55e;font-weight:600;';
       transHtml += `<tr>
         <td>${escapeHtml(t.vehicle_type || '—')}</td>
-        <td>${escapeHtml(t.driver_name || '—')}</td>
+        <td>${escapeHtml(t.driver_name || '—')}${t.driver_hours > 0 ? ' · ' + escapeHtml(String(Number(t.driver_hours)).replace('.', ',')) + ' h' : ''}</td>
         <td style="${punctStyle}">${escapeHtml(t.punctuality || '—')}</td>
         <td>${delay}</td>
       </tr>`;
@@ -1082,32 +1329,21 @@ function openDashDetail(id) {
         logTotal += r;
         rows.push({ section: 'transport', label: label, detail: escapeHtml(t.driver_name || ''), cost: r });
       }
+      var drv = (typeof protDriverCost === 'function') ? protDriverCost(dashTransportsFromRows([t])[0], typeof appUsers !== 'undefined' ? appUsers : []) : null;
+      if (drv) {
+        logTotal += drv.amount;
+        rows.push({ section: 'transport', label: 'Fahrer ' + escapeHtml(t.driver_name || ''), detail: drv.hrs.toFixed(2) + 'h × ' + drv.rate.toFixed(2) + ' €', cost: drv.amount });
+      }
     });
 
     // Personnel costs
     (p.shifts || []).forEach(function(s) {
       var name = s.temp_worker_name || (s.app_users ? s.app_users.full_name : 'Mitarbeiter');
-      var von = (s.start_time || '').substring(0, 5);
-      var bis = (s.end_time || '').substring(0, 5);
-      var pa = parseInt(s.pause_mins) || 0;
-      var v = null, b = null;
-      if (von && bis) {
-        var sp = von.split(':'), ep = bis.split(':');
-        if (sp.length === 2 && ep.length === 2) {
-          v = parseInt(sp[0]) * 60 + parseInt(sp[1]);
-          b = parseInt(ep[0]) * 60 + parseInt(ep[1]);
-        }
-      }
-      var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
-      if (v !== null && b !== null && effB > v && typeof calcSplitShiftCosts === 'function') {
-        var basePos = s.position_role || 'MA frei';
-        var costs = calcSplitShiftCosts(basePos, p.date, p.is_holiday || false, v, effB, pa);
-        costs.forEach(function(c) {
-          var sub = c.hrs * c.rate;
-          persTotal += sub;
-          rows.push({ section: 'personal', label: escapeHtml(name), detail: escapeHtml(c.desc), hrs: c.hrs, rate: c.rate, cost: sub });
-        });
-      }
+      dashShiftCosts(p.date, p.is_holiday, s).forEach(function(c) {
+        var sub = c.hrs * c.rate;
+        persTotal += sub;
+        rows.push({ section: 'personal', label: escapeHtml(name), detail: escapeHtml(c.desc), hrs: c.hrs, rate: c.rate, cost: sub });
+      });
     });
 
     var grandTotal = logTotal + persTotal;
@@ -1169,6 +1405,7 @@ function closeDashDetail() {
 
 var _editProtId = null;
 var _editProtTransports = [];
+var _editProtShifts = []; // editor rows, see dashShiftToRow
 
 var _PE_CATEGORIES = [
   { id: 'mobiliar',  label: 'Mobiliar' },
@@ -1178,15 +1415,37 @@ var _PE_CATEGORIES = [
   { id: 'logistik',  label: 'Lager / Logistik' }
 ];
 
+var _PE_ACTIONS = ['Aufbau', 'Teilaufbau', 'Umbau', 'Teilabbau', 'Abbau'];
+var _PE_POSITIONS = ['AL', 'MA', 'Fahrer', 'Zenjob', 'Rockit'];
+
+// Aktion as a segmented control (like the Protokoll form); the hidden #pe-action is the data source.
+// A stored action outside the list (older protocols) stays selectable.
+function renderDashPeActionSeg() {
+  var inp = document.getElementById('pe-action'), seg = document.getElementById('pe-action-seg');
+  if (!inp || !seg) return;
+  var cur = inp.value;
+  var acts = (cur && _PE_ACTIONS.indexOf(cur) === -1) ? _PE_ACTIONS.concat([cur]) : _PE_ACTIONS;
+  seg.innerHTML = acts.map(function(a) {
+    return '<button type="button" class="' + (a === cur ? 'active' : '') + '" onclick="setDashPeAction(' + uiArg(a) + ')">' + escapeHtml(a) + '</button>';
+  }).join('');
+}
+
+function setDashPeAction(v) {
+  document.getElementById('pe-action').value = v;
+  renderDashPeActionSeg();
+}
+
 function openDashProtEdit() {
   const p = dashboardProtocols.find(x => x.id === _editProtId);
   if (!p) return;
 
   document.getElementById('pe-date').value    = p.date || '';
   document.getElementById('pe-action').value  = p.action || 'Aufbau';
+  renderDashPeActionSeg();
   document.getElementById('pe-holiday').checked = !!p.is_holiday;
-  document.getElementById('pe-al').value      = p.al ? p.al.full_name : (p.al_name_fallback || '');
-  document.getElementById('pe-pl').value      = p.pl ? p.pl.full_name : (p.pl_name_fallback || '');
+  // AL/PL: picking a name from the list resolves to the user id on save (dashResolvePerson); free text stays a name
+  document.getElementById('pe-al-wrap').innerHTML = uiComboHtml('pe-al', p.al ? p.al.full_name : (p.al_name_fallback || ''), 'Name wählen oder eingeben', '', '');
+  document.getElementById('pe-pl-wrap').innerHTML = uiComboHtml('pe-pl', p.pl ? p.pl.full_name : (p.pl_name_fallback || ''), 'Name wählen oder eingeben', '', '');
   document.getElementById('pe-damages').value  = p.notes_damages || '';
   document.getElementById('pe-incidents').value = p.notes_incidents || '';
   document.getElementById('pe-feedback').value  = p.notes_feedback || '';
@@ -1194,13 +1453,17 @@ function openDashProtEdit() {
   _editProtTransports = (p.protocol_transports || []).map(t => ({
     type: t.vehicle_type || 'Sprinter',
     driver: t.driver_name || '',
+    driverUserId: t.driver_user_id || '',
+    hours: t.driver_hours == null ? null : Number(t.driver_hours),
     punctuality: t.punctuality || 'pünktlich',
     delay: t.delay_mins || ''
   }));
+  _editProtShifts = (p.shifts || []).map(dashShiftToRow);
 
+  ensureRateUsers(); // the name comboboxes list appUsers
   renderDashProtTransports();
   renderDashProtEquipment(p.protocol_equipments || []);
-  renderProtShiftsInEdit();
+  renderDashPeShifts();
 
   document.getElementById('dash-prot-edit-modal').classList.add('open');
 }
@@ -1213,35 +1476,118 @@ function renderDashProtTransports() {
   var c = document.getElementById('pe-transports');
   if (!c) return;
   if (!_editProtTransports.length) {
-    c.innerHTML = '<div style="font-size:13px;color:var(--text3);">Kein Transport erfasst.</div>';
+    c.innerHTML = '<div class="ui-sub" style="margin-bottom:8px;">Kein Transport erfasst.</div>';
     return;
   }
-  var vehicleOpts = Object.keys(PROT_VEHICLE_RATES).map(function(v) {
-    return '<option value="' + v + '">' + v + '</option>';
-  }).join('');
   c.innerHTML = _editProtTransports.map(function(t, i) {
-    var delayField = t.punctuality === 'verspätet'
-      ? '<input type="number" placeholder="Min" value="' + (t.delay || '') + '" oninput="_editProtTransports[' + i + '].delay=this.value" class="meta-input" style="width:70px;padding:5px 6px;font-size:12px;">'
-      : '';
-    var selOpts = Object.keys(PROT_VEHICLE_RATES).map(function(v) {
-      return '<option value="' + v + '"' + (t.type === v ? ' selected' : '') + '>' + v + '</option>';
+    var vehicles = Object.keys(PROT_VEHICLE_RATES);
+    if (t.type && vehicles.indexOf(t.type) === -1) vehicles.push(t.type);
+    var selOpts = vehicles.map(function(v) {
+      return '<option value="' + escapeHtml(v) + '"' + (t.type === v ? ' selected' : '') + '>' + escapeHtml(v) + '</option>';
     }).join('');
-    return '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
-      '<select oninput="_editProtTransports[' + i + '].type=this.value" class="meta-input" style="flex:1;min-width:110px;padding:5px 6px;font-size:12px;">' + selOpts + '</select>' +
-      '<input type="text" placeholder="Fahrer" value="' + (t.driver || '') + '" oninput="_editProtTransports[' + i + '].driver=this.value" class="meta-input" style="flex:1;min-width:100px;padding:5px 6px;font-size:12px;">' +
-      '<select oninput="_editProtTransports[' + i + '].punctuality=this.value;renderDashProtTransports()" class="meta-input" style="flex:1;min-width:100px;padding:5px 6px;font-size:12px;">' +
-        '<option value="pünktlich"' + (t.punctuality === 'pünktlich' ? ' selected' : '') + '>Pünktlich</option>' +
-        '<option value="verspätet"' + (t.punctuality === 'verspätet' ? ' selected' : '') + '>Verspätet</option>' +
-      '</select>' +
+    var delayField = t.punctuality === 'verspätet'
+      ? '<label class="ui-field"><span>Verspätung (Min)</span><input type="number" inputmode="numeric" placeholder="Min" value="' + escapeHtml(t.delay || '') + '" oninput="_editProtTransports[' + i + '].delay=this.value"></label>'
+      : '';
+    return '<div class="ui-card">' +
+      '<div class="stunden-grid">' +
+        '<label class="ui-field"><span>Fahrzeug</span><select onchange="_editProtTransports[' + i + '].type=this.value">' + selOpts + '</select></label>' +
+        '<div class="ui-field"><span>Fahrer</span>' + uiComboHtml('pe-drv-' + i, t.driver || '', 'Name', 'onDashDriverName', i) + '</div>' +
+      '</div>' +
+      '<div class="stunden-grid">' +
+        '<label class="ui-field"><span>Fahrerstunden</span><input type="number" step="0.5" min="0" inputmode="decimal" placeholder="Std" value="' + escapeHtml(t.hours == null ? '' : t.hours) + '" oninput="_editProtTransports[' + i + '].hours=this.value"></label>' +
+        '<label class="ui-field"><span>Pünktlichkeit</span><select onchange="_editProtTransports[' + i + '].punctuality=this.value;renderDashProtTransports()">' +
+          '<option value="pünktlich"' + (t.punctuality === 'pünktlich' ? ' selected' : '') + '>Pünktlich</option>' +
+          '<option value="verspätet"' + (t.punctuality === 'verspätet' ? ' selected' : '') + '>Verspätet</option>' +
+        '</select></label>' +
+      '</div>' +
       delayField +
-      '<button onclick="_editProtTransports.splice(' + i + ',1);renderDashProtTransports()" style="color:var(--danger);background:none;border:none;cursor:pointer;font-size:16px;padding:0 4px;">✕</button>' +
+      '<button type="button" class="ui-btn ui-btn-danger prot-remove" onclick="_editProtTransports.splice(' + i + ',1);renderDashProtTransports()">Transport entfernen</button>' +
     '</div>';
   }).join('');
 }
 
+// Driver picked from the combobox or typed: a registered user sets the user id (rate lookup), free text clears it
+function onDashDriverName(idx, val) {
+  var t = _editProtTransports[idx];
+  if (!t) return;
+  var typed = (val || '').trim();
+  if (typed === (t.driver || '') && (t.driverUserId || !typed)) return; // untouched (keeps the id of duplicate names)
+  var hits = (typeof appUsers !== 'undefined' ? appUsers : []).filter(function(u) { return (u.full_name || '').trim().toLowerCase() === typed.toLowerCase(); });
+  t.driver = typed;
+  t.driverUserId = hits.length === 1 ? hits[0].id : '';
+}
+
 function addDashProtTransport() {
-  _editProtTransports.push({ type: 'Sprinter', driver: '', punctuality: 'pünktlich', delay: '' });
+  _editProtTransports.push({ type: 'Sprinter', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
   renderDashProtTransports();
+}
+
+// ── Personnel rows (edited in place, see dashShiftChanges) ──
+
+function renderDashPeShifts() {
+  var c = document.getElementById('pe-shifts');
+  if (!c) return;
+  if (!_editProtShifts.length) {
+    c.innerHTML = '<div class="ui-sub" style="margin-bottom:8px;">Keine Personen erfasst.</div>';
+    return;
+  }
+  c.innerHTML = _editProtShifts.map(function(r, i) {
+    var positions = _PE_POSITIONS.indexOf(r.pos) === -1 && r.pos ? _PE_POSITIONS.concat([r.pos]) : _PE_POSITIONS;
+    var opts = positions.map(function(o) {
+      return '<option value="' + escapeHtml(o) + '"' + (r.pos === o ? ' selected' : '') + '>' + escapeHtml(o) + '</option>';
+    }).join('');
+    return '<div class="ui-card">' +
+      '<div class="stunden-grid">' +
+        '<div class="ui-field"><span>Name</span>' + uiComboHtml('pe-sh-' + i, r.name || '', 'Name wählen oder eingeben', 'onDashShiftName', i) + '</div>' +
+        '<label class="ui-field"><span>Position</span><select onchange="updateDashPeShift(' + i + ',\'pos\',this.value)">' + opts + '</select></label>' +
+      '</div>' +
+      '<div class="prot-time-grid">' +
+        '<label class="ui-field"><span>Start</span><input type="time" id="pe-sh-start-' + i + '" value="' + escapeHtml(r.start || '') + '" oninput="updateDashPeShift(' + i + ',\'start\',this.value)"></label>' +
+        '<label class="ui-field"><span>Ende</span><input type="time" id="pe-sh-end-' + i + '" value="' + escapeHtml(r.end || '') + '" oninput="updateDashPeShift(' + i + ',\'end\',this.value)"></label>' +
+        '<label class="ui-field"><span>Pause</span><input type="number" inputmode="numeric" id="pe-sh-pause-' + i + '" placeholder="Min" value="' + escapeHtml(r.pause || 0) + '" oninput="updateDashPeShift(' + i + ',\'pause\',this.value)"></label>' +
+      '</div>' +
+      '<button type="button" class="ui-btn ui-btn-danger prot-remove" onclick="removeDashPeShift(' + i + ')">Person entfernen</button>' +
+    '</div>';
+  }).join('');
+}
+
+// Name picked from the combobox or typed: a registered user sets the id (and fest/frei), free text becomes an Externe(r)
+function onDashShiftName(idx, val) {
+  var r = _editProtShifts[idx];
+  if (!r) return;
+  var typed = (val || '').trim();
+  if (typed === (r.name || '')) return; // untouched (keeps the id of duplicate names)
+  var hits = (typeof appUsers !== 'undefined' ? appUsers : []).filter(function(u) { return (u.full_name || '').trim().toLowerCase() === typed.toLowerCase(); });
+  r.name = typed;
+  if (hits.length === 1) { r.userId = hits[0].id; r.fest = !!hits[0].is_fest; }
+  else { r.userId = ''; r.fest = false; }
+}
+
+function updateDashPeShift(idx, field, val) {
+  var r = _editProtShifts[idx];
+  if (!r) return;
+  r[field] = val;
+  if (field === 'pause') r.pauseTouched = true;
+  // A new row suggests the break from its length until the break was typed by hand
+  if ((field === 'start' || field === 'end') && !r.id && !r.pauseTouched && r.start && r.end) {
+    var raw = (timeToMins(r.end) || 0) - (timeToMins(r.start) || 0);
+    r.pause = autoPause(raw < 0 ? raw + 1440 : raw);
+    var el = document.getElementById('pe-sh-pause-' + idx);
+    if (el) el.value = r.pause;
+  }
+}
+
+function addDashPeShift() {
+  _editProtShifts.push({ userId: '', name: '', pos: 'MA', fest: false, start: '', end: '', pause: 0 });
+  renderDashPeShifts();
+}
+
+function removeDashPeShift(idx) {
+  var r = _editProtShifts[idx];
+  if (!r) return;
+  if (!confirm('Person' + (r.name ? ' „' + r.name + '“' : '') + ' aus dem Protokoll entfernen?')) return;
+  _editProtShifts.splice(idx, 1);
+  renderDashPeShifts();
 }
 
 function renderDashProtEquipment(existing) {
@@ -1258,66 +1604,157 @@ function renderDashProtEquipment(existing) {
     var hDel   = e.hussen_delivered || '';
     var hRet   = e.hussen_returned  || '';
     var hussenHtml = cat.id === 'stoffe'
-      ? '<div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap;">' +
-          '<span style="font-size:11px;color:var(--text3);">Hussen geliefert:</span>' +
-          '<input type="number" id="pe-hd-' + cat.id + '" value="' + hDel + '" class="meta-input" style="width:60px;padding:4px 6px;font-size:12px;">' +
-          '<span style="font-size:11px;color:var(--text3);">zurück:</span>' +
-          '<input type="number" id="pe-hr-' + cat.id + '" value="' + hRet + '" class="meta-input" style="width:60px;padding:4px 6px;font-size:12px;">' +
+      ? '<div class="stunden-grid">' +
+          '<label class="ui-field"><span>Hussen geliefert</span><input type="number" inputmode="numeric" id="pe-hd-' + cat.id + '" value="' + hDel + '"></label>' +
+          '<label class="ui-field"><span>Hussen zurück</span><input type="number" inputmode="numeric" id="pe-hr-' + cat.id + '" value="' + hRet + '"></label>' +
         '</div>'
       : '';
-    return '<div style="background:var(--bg2);border-radius:10px;padding:10px 12px;">' +
-      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">' +
-        '<span style="font-size:13px;font-weight:600;flex:1;">' + cat.label + '</span>' +
-        '<select id="pe-st-' + cat.id + '" class="meta-input" style="width:auto;padding:4px 8px;font-size:12px;">' +
+    return '<div class="ui-card">' +
+      '<label class="ui-field"><span>' + escapeHtml(cat.label) + '</span>' +
+        '<select id="pe-st-' + cat.id + '">' +
           '<option value=""' + (status === '' ? ' selected' : '') + '>Ausgeblendet</option>' +
           ['okay','unsauber','beschädigt','unvollständig'].map(function(s) {
             return '<option value="' + s + '"' + (status === s ? ' selected' : '') + '>' + s.charAt(0).toUpperCase() + s.slice(1) + '</option>';
           }).join('') +
-        '</select>' +
-      '</div>' +
-      '<input type="text" id="pe-nt-' + cat.id + '" value="' + escapeHtml(note) + '" placeholder="Notiz (optional)" class="meta-input" style="font-size:12px;padding:5px 8px;">' +
+        '</select></label>' +
+      '<label class="ui-field"><span>Notiz</span><input type="text" id="pe-nt-' + cat.id + '" value="' + escapeHtml(note) + '" placeholder="Notiz (optional)"></label>' +
       hussenHtml +
     '</div>';
   }).join('');
 }
 
+// Replace the child rows of a protocol: insert the new rows first, then delete the old ones by id.
+// Every write must touch the expected number of rows (RLS answers with 0 rows instead of an error).
+// prot[prop] follows what is really stored, so a retry after a failure deletes exactly what exists.
+async function dashReplaceRows(table, prot, prop, newRows) {
+  const oldRows = prot[prop] || [];
+  let inserted = [];
+  if (newRows.length) {
+    const { data, error } = await supabaseClient.from(table).insert(newRows).select('id');
+    if (error) throw error;
+    if (!data || data.length !== newRows.length) throw new Error('Einfügen abgelehnt – keine Berechtigung (' + table + ')');
+    inserted = newRows.map(function(r, k) { return Object.assign({}, r, { id: data[k].id }); });
+    prot[prop] = oldRows.concat(inserted);
+  }
+  const ids = oldRows.map(function(r) { return r.id; }).filter(Boolean);
+  if (ids.length) {
+    const { data, error } = await supabaseClient.from(table).delete().in('id', ids).select('id');
+    if (error) throw error;
+    if (!data || data.length !== ids.length) throw new Error('Löschen abgelehnt – keine Berechtigung (' + table + ')');
+  }
+  prot[prop] = inserted;
+}
+
+// Did the transports (type, driver, driver hours – the cost-relevant parts) change against the stored rows?
+function dashTransportsChanged(storedRows, edited) {
+  const key = function(t) {
+    const h = parseFloat(t.hours);
+    return [t.type || '', (t.driver || '').trim(), t.driverUserId || '', h >= 0 ? h : ''].join('|');
+  };
+  const a = dashTransportsFromRows(storedRows).map(key), b = (edited || []).map(key);
+  return a.length !== b.length || a.some(function(k, i) { return k !== b[i]; });
+}
+
 async function saveDashProtEdit() {
   const p = dashboardProtocols.find(x => x.id === _editProtId);
   if (!p) return;
+  const saveBtn = document.getElementById('pe-save-btn');
+  if (saveBtn && saveBtn.disabled) return;
+
+  // A name typed but not yet committed (no blur before the tap) still counts
+  _editProtShifts.forEach(function(r, i) { const el = document.getElementById('pe-sh-' + i); if (el) onDashShiftName(i, el.value); });
+  _editProtTransports.forEach(function(t, i) { const el = document.getElementById('pe-drv-' + i); if (el) onDashDriverName(i, el.value); });
+  if (_editProtShifts.some(function(r) { return !r.userId && !(r.name || '').trim(); })) {
+    showToast('Bitte bei jeder Person einen Namen angeben.', 'danger');
+    return;
+  }
 
   const alVal = document.getElementById('pe-al').value.trim();
   const plVal = document.getElementById('pe-pl').value.trim();
+  const newDate = document.getElementById('pe-date').value || p.date;
+  const isHoliday = document.getElementById('pe-holiday').checked;
+
+  // A changed AL/PL name must not be hidden behind the old al_id/pl_id (the join wins in the display)
+  await ensureRateUsers();
+  const users = (typeof dashboardWorkers !== 'undefined' && dashboardWorkers.length) ? dashboardWorkers
+    : (typeof appUsers !== 'undefined' ? appUsers : []);
+  const al = dashResolvePerson(alVal, p.al ? p.al.full_name : (p.al_name_fallback || ''), p.al_id, users);
+  const pl = dashResolvePerson(plVal, p.pl ? p.pl.full_name : (p.pl_name_fallback || ''), p.pl_id, users);
+  const rateUsers = typeof appUsers !== 'undefined' ? appUsers : [];
+  // p.shifts is kept in step with what is already written (see below), so a second Speichern after a partial failure continues cleanly
+  const ch = dashShiftChanges(p.shifts || [], _editProtShifts, rateUsers);
+  // Old totals must not drift with today's rates: recompute only if something that costs money changed
+  const costChanged = newDate !== p.date || isHoliday !== !!p.is_holiday
+    || dashTransportsChanged(p.protocol_transports, _editProtTransports)
+    || ch.updates.length > 0 || ch.inserts.length > 0 || ch.deletes.length > 0;
 
   const protPayload = {
-    date:            document.getElementById('pe-date').value,
+    date:            newDate,
     action:          document.getElementById('pe-action').value,
-    is_holiday:      document.getElementById('pe-holiday').checked,
-    al_name_fallback: alVal || null,
-    pl_name_fallback: plVal || null,
+    is_holiday:      isHoliday,
+    al_id:           al.id,
+    pl_id:           pl.id,
+    al_name_fallback: al.fallback,
+    pl_name_fallback: pl.fallback,
     notes_damages:   document.getElementById('pe-damages').value.trim()   || null,
     notes_incidents: document.getElementById('pe-incidents').value.trim() || null,
     notes_feedback:  document.getElementById('pe-feedback').value.trim()  || null,
   };
+  // Same formula as the app, from the edited transports and the edited personnel (not the stored ones)
+  if (costChanged) protPayload.total_cost = calcDashProtTotal(newDate, isHoliday, _editProtTransports,
+    _editProtShifts.map(function(r) { return dashShiftRowToDb(r, rateUsers); }));
 
+  if (saveBtn) saveBtn.disabled = true;
   try {
-    const { error: pErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', _editProtId);
+    const { data: pRows, error: pErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', _editProtId).select('id');
     if (pErr) throw pErr;
+    // RLS answers with 0 rows instead of an error
+    if (!pRows || pRows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung (protocols)');
 
-    // Re-insert transports (delete first, check error before inserting)
-    const { error: tDelErr } = await supabaseClient.from('protocol_transports').delete().eq('protocol_id', _editProtId);
-    if (tDelErr) throw tDelErr;
-    if (_editProtTransports.length) {
-      const tInserts = _editProtTransports.map(function(t) {
-        return { protocol_id: _editProtId, vehicle_type: t.type, driver_name: t.driver || null,
-                 punctuality: t.punctuality, delay_mins: t.delay ? parseInt(t.delay) : 0 };
-      });
-      const { error: tErr } = await supabaseClient.from('protocol_transports').insert(tInserts);
-      if (tErr) throw tErr;
+    // Shifts carry their own date (Buchhaltung) → follow a date change
+    if (newDate && newDate !== p.date && (p.shifts || []).length) {
+      const { data: sdRows, error: sdErr } = await supabaseClient.from('shifts').update({ shift_date: newDate }).eq('protocol_id', _editProtId).select('id');
+      if (sdErr) throw sdErr;
+      if (!sdRows || sdRows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung (shifts)');
     }
 
-    // Re-insert equipment (delete first, check error before inserting)
-    const { error: eDelErr } = await supabaseClient.from('protocol_equipments').delete().eq('protocol_id', _editProtId);
-    if (eDelErr) throw eDelErr;
+    // Personnel: update existing shifts in place (status and ids survive), insert new rows, delete removed ones
+    const stored = p.shifts || (p.shifts = []);
+    for (const u of ch.updates) {
+      const { data: uRows, error: uErr } = await supabaseClient.from('shifts').update(u.patch).eq('id', u.id).select('id');
+      if (uErr) throw uErr;
+      if (!uRows || uRows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung (shifts)');
+      Object.assign(stored.find(function(s) { return s.id === u.id; }) || {}, u.patch);
+    }
+    if (ch.inserts.length) {
+      const ort = (p.projects && p.projects.location) || null;
+      const rows = ch.inserts.map(function(r) { return Object.assign({ protocol_id: _editProtId, shift_date: newDate, ort: ort }, r); });
+      const { data: iRows, error: iErr } = await supabaseClient.from('shifts').insert(rows).select('id');
+      if (iErr) throw iErr;
+      if (!iRows || iRows.length !== rows.length) throw new Error('Einfügen abgelehnt – keine Berechtigung (shifts)');
+      // Remember the new ids right away: a second Speichern after a later failure must not insert (and pay) them again
+      const fresh = _editProtShifts.filter(function(r) { return !(r.id && stored.some(function(s) { return s.id === r.id; })); });
+      rows.forEach(function(row, k) {
+        if (fresh[k]) fresh[k].id = iRows[k].id;
+        stored.push(Object.assign({}, row, { id: iRows[k].id }));
+      });
+    }
+    if (ch.deletes.length) {
+      const { data: dRows, error: dErr } = await supabaseClient.from('shifts').delete().in('id', ch.deletes).select('id');
+      if (dErr) throw dErr;
+      if (!dRows || dRows.length !== ch.deletes.length) throw new Error('Löschen abgelehnt – keine Berechtigung (shifts)');
+      p.shifts = stored.filter(function(s) { return ch.deletes.indexOf(s.id) === -1; });
+    }
+
+    // Transports: write the new rows first, then remove the old ones by id (a failure never leaves the protocol without them)
+    const tInserts = _editProtTransports.map(function(t) {
+      return { protocol_id: _editProtId, vehicle_type: t.type, driver_name: t.driver || null,
+               punctuality: t.punctuality, delay_mins: t.delay ? parseInt(t.delay) : 0,
+               driver_hours: parseFloat(t.hours) >= 0 ? parseFloat(t.hours) : null, driver_user_id: t.driverUserId || null };
+    });
+    await dashReplaceRows('protocol_transports', p, 'protocol_transports', tInserts);
+
+    // Equipment: same order
     const eInserts = _PE_CATEGORIES.filter(function(cat) {
       return (document.getElementById('pe-st-' + cat.id) || {}).value !== '';
     }).map(function(cat) {
@@ -1330,10 +1767,7 @@ async function saveDashProtEdit() {
         hussen_returned:  cat.id === 'stoffe' ? (parseInt((document.getElementById('pe-hr-stoffe') || {}).value) || null) : null,
       };
     });
-    if (eInserts.length) {
-      const { error: eErr } = await supabaseClient.from('protocol_equipments').insert(eInserts);
-      if (eErr) throw eErr;
-    }
+    await dashReplaceRows('protocol_equipments', p, 'protocol_equipments', eInserts);
 
     showToast('✅ Protokoll gespeichert!');
     closeDashProtEdit();
@@ -1343,204 +1777,37 @@ async function saveDashProtEdit() {
   } catch (err) {
     console.error('saveDashProtEdit error:', err);
     showToast('Fehler: ' + (err.message || 'Speichern fehlgeschlagen'), 'danger');
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 
 // PDF EXPORT FROM DASHBOARD
+// Same builder as the app (buildProtPdfDoc): holiday, date-based transport rates, employee rates,
+// category labels and minimum hours all match the PDF the AL mails.
 async function exportDashProtPDF(pId) {
   const p = dashboardProtocols.find(x => x.id === pId);
   if (!p) return;
   if (!window.jspdf || !window.jspdf.jsPDF) {
     alert("PDF Engine nicht geladen!"); return;
   }
-  
+
   if (typeof showToast === 'function') showToast('Generiere Protokoll-PDF...');
+  try {
+    await ensureRateUsers();
+    // The signature is only fetched here, so the dashboard list doesn't load every base64 image
+    let signature = null;
+    const { data: sigRow, error: sigErr } = await supabaseClient
+      .from('protocols').select('signature_text').eq('id', pId).maybeSingle();
+    if (sigErr) console.warn('Unterschrift nicht geladen:', sigErr);
+    else if (sigRow) signature = sigRow.signature_text || null;
 
-  // Map Dashboard Data exactly to traditional data format
-  // totalCost is missing from p if it was not computed correctly, but it has total_cost
-  var data = {
-    event: p.projects ? p.projects.name : 'Unbekannt', 
-    location: p.location || (p.projects ? p.projects.location : '—'),
-    date: p.date ? p.date : localDateStr(), 
-    action: p.action || '—',
-    al: p.al ? p.al.full_name : p.al_name_fallback || '—', 
-    pl: p.pl ? p.pl.full_name : p.pl_name_fallback || '—',
-    damages: p.notes_damages || 'nein', 
-    incidents: p.notes_incidents || 'nein',
-    feedback: p.notes_feedback || '—',
-    totalCost: (p.total_cost || 0).toLocaleString('de-DE', {minimumFractionDigits: 2}) + ' €',
-    transports: (p.protocol_transports || []).map(t => ({
-      type: t.vehicle_type, driver: t.driver_name, punctuality: t.punctuality, delay: t.delay_mins
-    })), 
-    personnel: (p.shifts || []).map(s => {
-      const r = isAgencyShift(s) ? ratingForShift(p, s) : null;
-      return {
-        pos: s.position_role,
-        name: s.temp_worker_name || (s.app_users ? s.app_users.full_name : 'Fest'),
-        start: (s.start_time||'').substring(0,5),
-        end: (s.end_time||'').substring(0,5),
-        pause: s.pause_mins,
-        fest: true,
-        isAgency: isAgencyShift(s),
-        rating: r ? r.rating : null,
-        isStar: r ? !!r.is_star : false
-      };
-    }),
-    categories: {}
-  };
-
-  if (p.protocol_equipments) {
-    p.protocol_equipments.forEach(eq => {
-      data.categories[eq.category_id] = {
-        active: true, status: eq.status, note: eq.note, hussenDelivered: eq.hussen_delivered, hussenReturned: eq.hussen_returned
-      };
-    });
+    const entry = dashProtToEntry(p, signature);
+    buildProtPdfDoc(entry).save(protPdfFileName(entry));
+  } catch (err) {
+    console.error('exportDashProtPDF error:', err);
+    if (typeof showToast === 'function') showToast('PDF konnte nicht erstellt werden', 'danger');
   }
-
-  // Backup protState and temporarily inject dashboard state into protState so formulas.js functions work seamlessly
-  var savedProtState = window.protState;
-  window.protState = { holiday: false, signature: p.signature_base64 || null };
-
-  var doc = new window.jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
-  if (typeof LOGO_BASE64 !== 'undefined') {
-    try { var lw = 30, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100; doc.addImage(LOGO_BASE64, 'PNG', 160, 10, lw, lh); } catch(e) {}
-  }
-  
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text('Einsatzprotokoll', ml, 20);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120); doc.text('Lübbert Event Interiors', ml, 26); doc.setTextColor(0);
-  var y = 38;
-
-  doc.setDrawColor(230); doc.setFillColor(248,248,246); doc.rect(ml, y, cw, 32, 'F');
-  doc.setFontSize(9); doc.setFont('helvetica','bold');
-  doc.text('Projekt:', ml+4, y+6); doc.setFont('helvetica','normal'); doc.text(data.event, ml+25, y+6);
-  doc.setFont('helvetica','bold'); doc.text('Ort:', ml+4, y+12); doc.setFont('helvetica','normal'); doc.text(data.location, ml+25, y+12);
-  doc.setFont('helvetica','bold'); doc.text('Datum:', ml+4, y+18); doc.setFont('helvetica','normal'); doc.text(new Date(data.date).toLocaleDateString('de-DE'), ml+25, y+18);
-  doc.setFont('helvetica','bold'); doc.text('Aktion:', ml+80, y+18); doc.setFont('helvetica','normal'); doc.text(data.action, ml+100, y+18);
-  doc.setFont('helvetica','bold'); doc.text('AL:', ml+4, y+24); doc.setFont('helvetica','normal'); doc.text(data.al, ml+25, y+24);
-  doc.setFont('helvetica','bold'); doc.text('PL:', ml+80, y+24); doc.setFont('helvetica','normal'); doc.text(data.pl, ml+100, y+24);
-  y += 40;
-
-  // Transports
-  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Logistik & Transport', ml, y); y += 6;
-  if (!data.transports.length) {
-    doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Keine Lieferung.', ml, y); y += 8;
-  } else {
-    doc.setFillColor(30,30,28); doc.rect(ml,y,cw,8,'F'); doc.setTextColor(255); doc.setFontSize(8);
-    doc.text('Fahrzeug',ml+2,y+5.5); doc.text('Fahrer',ml+40,y+5.5); doc.text('Status',ml+80,y+5.5); doc.text('Verspätung',ml+120,y+5.5);
-    doc.setTextColor(0); y += 8;
-    data.transports.forEach(function(t,i) {
-      if (i%2===1){doc.setFillColor(248,248,246);doc.rect(ml,y,cw,8,'F');}
-      doc.text(t.type,ml+2,y+5.5); doc.text(t.driver||'—',ml+40,y+5.5); doc.text(t.punctuality,ml+80,y+5.5); doc.text(t.delay?t.delay+' Min':'—',ml+120,y+5.5); y += 8;
-    }); y += 4;
-  }
-
-  // Categories
-  if (y > 240) { doc.addPage(); y = 20; }
-  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Equipment & Gewerke', ml, y); y += 6;
-  var activeCatKeys = Object.keys(data.categories);
-  if (activeCatKeys.length === 0) {
-    doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Keine Gewerke dokumentiert.', ml, y); y += 8;
-  } else {
-    activeCatKeys.forEach(function(catId) {
-      var s = data.categories[catId];
-      const fallbackLabels = { 'stoffe': 'Vorhänge & Stoffe', 'moebel': 'Möbel & Ausstattung', 'buehne': 'Bühne & Rigging', 'sonstiges': 'Sonstiges Equipment' };
-      const catLabel = fallbackLabels[catId] || catId;
-      doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text(catLabel+':', ml, y);
-      doc.setFont('helvetica','normal'); doc.text((s.status||'okay').toUpperCase(), ml+40, y);
-      if (s.note) {
-        doc.setFontSize(8); doc.setTextColor(100);
-        doc.splitTextToSize(String(s.note), cw - 5).forEach(function(line) { y += 4; if (y > 280) { doc.addPage(); y = 20; } doc.text(line, ml+5, y); });
-        doc.setTextColor(0);
-      }
-      y += 7; if (y > 270) { doc.addPage(); y = 20; }
-    }); y += 4;
-  }
-
-  // Personnel
-  if (y > 250) { doc.addPage(); y = 20; }
-  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Personal', ml, y); y += 6;
-  if (!data.personnel.length) {
-    doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Keine Personaldaten.', ml, y); y += 8;
-  } else {
-    doc.setFillColor(30,30,28); doc.rect(ml,y,cw,8,'F'); doc.setTextColor(255); doc.setFontSize(8);
-    doc.text('Pos',ml+2,y+5.5); doc.text('Name',ml+25,y+5.5); doc.text('Arbeitszeit',ml+72,y+5.5); doc.text('Pause',ml+100,y+5.5); doc.text('Netto',ml+118,y+5.5); doc.text('Bewertung',ml+138,y+5.5);
-    doc.setTextColor(0); y += 8;
-    data.personnel.forEach(function(pen,i) {
-      if (i%2===1){doc.setFillColor(248,248,246);doc.rect(ml,y,cw,8,'F');}
-      var v=null,b=null,pa=parseInt(pen.pause)||0;
-      if (pen.start && pen.end) {
-        var sp=pen.start.split(':'), ep=pen.end.split(':');
-        if(sp.length===2 && ep.length===2) { v=parseInt(sp[0])*60+parseInt(sp[1]); b=parseInt(ep[0])*60+parseInt(ep[1]); }
-      }
-      var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
-      var netStr='—'; if(v!==null&&b!==null&&effB>v){var n=(effB-v-pa)/60;netStr=n.toFixed(2)+' h';}
-      var posLabel = pen.pos || 'MA';
-      doc.text(truncatePdf(doc,posLabel,22),ml+2,y+5.5); doc.text(truncatePdf(doc,pen.name||'—',45),ml+25,y+5.5); doc.text((pen.start||'—')+' - '+(pen.end||'—'),ml+72,y+5.5); doc.text(pa+' Min',ml+100,y+5.5); doc.text(netStr,ml+118,y+5.5);
-      if (pen.isAgency) doc.text(ratingPdfLabel(pen.rating, pen.isStar),ml+138,y+5.5);
-      y+=8; if(y>270){doc.addPage();y=20;}
-    }); y += 4;
-  }
-
-  // Incidents
-  if (y > 230) { doc.addPage(); y = 20; }
-  y += 4;
-  doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.text('Vorkommnisse / Feedback', ml, y); y += 6;
-  doc.setFontSize(9);
-  y = pdfWrappedRow(doc, 'Mängel:', data.damages, ml, ml+40, cw-40, y, 4.5, 280);
-  y = pdfWrappedRow(doc, 'Vorkommnisse:', data.incidents, ml, ml+40, cw-40, y, 4.5, 280);
-  y = pdfWrappedRow(doc, 'Feedback:', data.feedback, ml, ml+40, cw-40, y, 4.5, 280); y += 6;
-  if (y > 250) { doc.addPage(); y = 20; }
-
-  // Costs (Matches protokoll.js style identically)
-  doc.setDrawColor(24,95,165); doc.setLineWidth(0.5); doc.line(ml,y,ml+cw,y); y += 8;
-  doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.text('Nebenkalkulation (itemisiert):', ml, y); y += 6;
-  doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(100);
-  
-  data.transports.forEach(function(t) {
-    if (typeof PROT_VEHICLE_RATES !== 'undefined') {
-      var r = PROT_VEHICLE_RATES[t.type] || 0;
-      doc.text('- ' + t.type + ': ' + r.toFixed(2) + ' EUR', ml + 5, y); y += 4;
-      if (y > 280) { doc.addPage(); y = 20; }
-    }
-  });
-  
-  data.personnel.forEach(function(pen) {
-    var v=null,b=null,pa=parseInt(pen.pause)||0;
-    if (pen.start && pen.end) {
-      var sp=pen.start.split(':'), ep=pen.end.split(':');
-      if(sp.length===2 && ep.length===2) { v=parseInt(sp[0])*60+parseInt(sp[1]); b=parseInt(ep[0])*60+parseInt(ep[1]); }
-    }
-    var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
-    if (v !== null && b !== null && effB > v) {
-      var basePos = pen.pos;
-      if (['AL', 'MA', 'Fahrer'].includes(pen.pos)) basePos += (pen.fest ? ' fest' : ' frei');
-      var costs = [];
-      if (typeof calcSplitShiftCosts === 'function') costs = calcSplitShiftCosts(basePos, data.date, false, v, effB, pa);
-      costs.forEach(function(c) {
-        var sub = c.hrs * c.rate;
-        doc.text('- ' + pen.name + ' (' + c.desc + '): ' + c.hrs.toFixed(2) + 'h x ' + c.rate.toFixed(2) + ' EUR = ' + sub.toFixed(2) + ' EUR', ml + 5, y); y += 4;
-        if (y > 280) { doc.addPage(); y = 20; }
-      });
-    }
-  });
-  y += 2;
-  doc.setFontSize(14); doc.setFont('helvetica','bold'); doc.setTextColor(24,95,165); 
-  doc.text('Gesamtkosten (geschätzt): ' + data.totalCost, ml, y); y += 12;
-
-  // Signature
-  if (window.protState.signature) {
-    if (y+35>270){doc.addPage();y=20;}
-    doc.setDrawColor(24,95,165); doc.setLineWidth(0.3); doc.line(ml,y,ml+cw,y); y+=8;
-    doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.setTextColor(0); doc.text('Unterschrift Aufbauleitung:', ml, y); y+=6;
-    try { doc.addImage(window.protState.signature,'PNG',ml,y,60,30); } catch(e){}
-    y+=35; doc.setDrawColor(180); doc.line(ml,y,ml+70,y); y+=4;
-  }
-
-  var fName = 'protokoll_' + data.date + '_' + data.event.replace(/\s+/g,'_') + '.pdf';
-  doc.save(fName);
-
-  // Revert temporary protState injection
-  window.protState = savedProtState;
 }
 
 // Expose shift-edit functions globally (belt-and-suspenders for inline onclick handlers)
@@ -1581,6 +1848,15 @@ function populateDashboardMonthFilter(shifts) {
 }
 
 async function exportDashboardMonthlyPDF() {
+  try {
+    await exportDashboardMonthlyPDFRun();
+  } catch (err) {
+    console.error('exportDashboardMonthlyPDF error:', err);
+    showToast('PDF konnte nicht erstellt werden', 'danger');
+  }
+}
+
+async function exportDashboardMonthlyPDFRun() {
   const mKey = (document.getElementById('dash-month-filter') || {}).value;
   if (!mKey || !dashboardCurrentWorker) return;
 

@@ -55,7 +55,148 @@ function getShiftData(dayIdx, shiftIdx) {
   return { von: sv.von || '', bis: sv.bis || '', pause: sv.pause || '0', ort: sv.ort || '', al: sv.al || '', dept: sv.dept || selectedAbt, sig: shiftSigData[key] || null, isProtocol: sv.isProtocol || false, protocolId: sv.protocolId || null };
 }
 
-function buildDays() {
+// ── PER-USER STORAGE ──
+// Weeks live in localStorage 'stundenzettel:<userId>' — on a shared device every user has their own history.
+// The old shared key 'stundenzettel' is only migrated (see migrateLegacyStore), never read or pushed otherwise.
+function szStoreKey() {
+  return (typeof currentUser !== 'undefined' && currentUser && currentUser.id) ? 'stundenzettel:' + currentUser.id : null;
+}
+
+// Legacy weeks → { mine: weeks carrying this user's name, rest: everybody else's (stay where they are) }
+// The name on a saved week was editable ("Ändern"): "Max" or "Mustermann Max" still means "Max Mustermann".
+// Same words (case/umlauts ignored), or every word of one name appears in the other.
+function szNameMatches(weekName, fullName) {
+  var words = function (s) {
+    return String(s || '').toLowerCase().replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ß/g, 'ss')
+      .split(/[^a-z0-9]+/).filter(Boolean);
+  };
+  var a = words(weekName), b = words(fullName);
+  if (!a.length || !b.length) return false;
+  var within = function (x, y) { return x.every(function (w) { return y.indexOf(w) !== -1; }); };
+  return within(a, b) || within(b, a);
+}
+
+function splitLegacyStore(legacy, fullName) {
+  var out = { mine: {}, rest: {} };
+  Object.keys(legacy || {}).forEach(function (k) {
+    var e = legacy[k];
+    if (fullName && e && szNameMatches(e.name, fullName)) out.mine[k] = e; else out.rest[k] = e;
+  });
+  return out;
+}
+
+// Weeks still in the old shared store after the migration (other names): shown in the Verlauf to take over
+function legacySummary(legacy) {
+  var keys = Object.keys(legacy || {});
+  if (!keys.length) return null;
+  var names = [];
+  keys.forEach(function (k) { var n = String((legacy[k] && legacy[k].name) || '').trim(); if (n && names.indexOf(n) === -1) names.push(n); });
+  return { count: keys.length, unsent: keys.filter(function (k) { return legacy[k] && legacy[k].unsynced; }).length, names: names.sort() };
+}
+
+function readLegacyStore() {
+  try { return JSON.parse(localStorage.getItem('stundenzettel') || 'null'); } catch (e) { return null; }
+}
+
+// "Übernehmen": the logged-in person takes the remaining old weeks of this device (unsent ones are then sent under them)
+function takeOverLegacyWeeks() {
+  var legacy = readLegacyStore(), s = legacySummary(legacy);
+  if (!s || !currentUser) return;
+  if (!confirm(s.count + (s.count === 1 ? ' ältere Woche' : ' ältere Wochen') + ' (Name: ' + (s.names.join(', ') || '—') + ') auf diesem Gerät als deine übernehmen?' +
+      (s.unsent ? '\n\n' + s.unsent + ' davon wurden noch nicht übertragen und werden jetzt unter deinem Namen gesendet.' : ''))) return;
+  var all = loadStore();
+  Object.keys(legacy).forEach(function (k) { if (!(k in all)) all[k] = legacy[k]; });
+  saveStore(all);
+  localStorage.removeItem('stundenzettel');
+  showToast('Wochen übernommen.');
+  renderHistory();
+}
+
+function legacyNoticeHtml() {
+  var s = legacySummary(readLegacyStore());
+  if (!s) return '';
+  return '<div class="ui-card" style="margin-bottom:12px;"><div class="ui-row-title">Ältere Wochen auf diesem Gerät</div>' +
+    '<div class="ui-sub" style="margin:4px 0 10px;">' + s.count + (s.count === 1 ? ' Woche' : ' Wochen') + ' unter dem Namen ' + escapeHtml(s.names.join(', ') || '—') +
+    (s.unsent ? ', davon ' + s.unsent + ' noch nicht übertragen' : '') + '. Gehören sie dir?</div>' +
+    '<button type="button" class="ui-btn" onclick="takeOverLegacyWeeks()">Übernehmen</button></div>';
+}
+
+var _szMigrated = {};
+function migrateLegacyStore(key) {
+  if (_szMigrated[key]) return;
+  _szMigrated[key] = true;
+  try {
+    var raw = localStorage.getItem('stundenzettel');
+    if (!raw) return;
+    var sp = splitLegacyStore(JSON.parse(raw), currentUser.full_name);
+    // Unsent weeks under another name stay behind: point to the "Übernehmen" notice in the Verlauf once
+    var left = legacySummary(sp.rest);
+    if (left && left.unsent && typeof showToast === 'function') {
+      setTimeout(function () { showToast('Auf diesem Gerät liegen noch nicht übertragene Wochen – bitte im Verlauf prüfen.', 'info'); }, 800);
+    }
+    if (!Object.keys(sp.mine).length) return;
+    var mine = JSON.parse(localStorage.getItem(key) || '{}');
+    Object.keys(sp.mine).forEach(function (k) { if (!(k in mine)) mine[k] = sp.mine[k]; });
+    localStorage.setItem(key, JSON.stringify(mine));
+    if (Object.keys(sp.rest).length) localStorage.setItem('stundenzettel', JSON.stringify(sp.rest));
+    else localStorage.removeItem('stundenzettel');
+  } catch (e) { console.warn('Stundenzettel-Migration:', e); }
+}
+
+function loadStore() {
+  var key = szStoreKey();
+  if (!key) return {};
+  migrateLegacyStore(key);
+  try { return JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch (e) { return {}; }
+}
+
+function saveStore(all) {
+  var key = szStoreKey();
+  if (key) localStorage.setItem(key, JSON.stringify(all));
+}
+
+// ── EDITOR STATE ──
+var _editorBaseline = null; // snapshot of the editor right after it was filled/saved → "untouched" check
+var _editorWeek = null;
+
+// Editor state (shifts per day, signatures) of a stored week; all dept parts merged by the caller
+function weekToEditorState(w, fallbackDept) {
+  var st = { shiftCounts: {}, shiftValues: {}, shiftSigData: {} };
+  (w.days || []).forEach(function (dd, i) {
+    var shs = dd.shifts || [{ von: dd.von || '', bis: dd.bis || '', pause: dd.pause || '0', ort: dd.ort || '', al: dd.al || '', sig: dd.sig || null }];
+    st.shiftCounts[i] = shs.length;
+    st.shiftValues[i] = shs.map(function (sh, s) {
+      if (sh.sig) st.shiftSigData[i + '-' + s] = sh.sig;
+      var _v = timeToMins(sh.von || ''), _b = timeToMins(sh.bis || '');
+      var _p = (_v !== null && _b !== null) ? autoPause(_b < _v ? _b + 1440 - _v : _b - _v) : 0;
+      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: _p.toString(), dept: sh.dept || fallbackDept, protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
+    });
+  });
+  return st;
+}
+
+// days = [[shift, ...], ...] → string that changes only when real input changes (pause is derived)
+function weekSnapshot(days) {
+  return JSON.stringify(days.map(function (shs) {
+    return shs.map(function (s) { return [s.von || '', s.bis || '', s.ort || '', s.al || '', s.dept || '', s.sig || '']; });
+  }));
+}
+
+function editorSnapshot() {
+  var days = [];
+  for (var i = 0; i < DAYS.length; i++) {
+    var shs = [];
+    for (var s = 0; s < (shiftCounts[i] || 1); s++) shs.push(getShiftData(i, s));
+    days.push(shs);
+  }
+  return weekSnapshot(days);
+}
+
+function markEditorClean() { _editorBaseline = editorSnapshot(); }
+function editorIsDirty() { return _editorBaseline !== null && editorSnapshot() !== _editorBaseline; }
+
+// Empty editor, then (if given) the stored week on top
+function resetEditorState(w, fallbackDept) {
   shiftSigCanvases = {};
   shiftSigData = {};
   shiftValues = {};
@@ -64,11 +205,47 @@ function buildDays() {
     shiftCounts[i] = 1;
     shiftValues[i] = [{ von: '', bis: '', ort: '', al: '', pause: '0', dept: selectedAbt }];
   }
+  if (w) {
+    var st = weekToEditorState(w, fallbackDept || selectedAbt);
+    Object.keys(st.shiftCounts).forEach(function (i) { shiftCounts[i] = st.shiftCounts[i]; shiftValues[i] = st.shiftValues[i]; });
+    shiftSigData = st.shiftSigData;
+  }
   activeDayIdx = null;
+}
+
+function renderEditorFromState() {
   renderWeekStrip();
+  for (var i = 0; i < DAYS.length; i++) updateBubble(i);
   renderDayEditorArea();
   calcTotal();
   updateTopBarSub();
+  _editorWeek = (document.getElementById('inp-week') || {}).value || currentWeekVal();
+  markEditorClean();
+}
+
+// The sync brought a newer state of the week that is open — show it, but never over unsaved input
+function refreshEditorIfClean() {
+  if (!document.getElementById('inp-week') || editorIsDirty()) return;
+  var wk = document.getElementById('inp-week').value || currentWeekVal();
+  var w = mergeWeekParts(loadStore(), wk);
+  if (!w) return;
+  resetEditorState(w);
+  renderEditorFromState();
+}
+
+// force = true: reset without asking (user change). As a 'change' listener the first argument is an Event.
+function buildDays(force) {
+  var inp = document.getElementById('inp-week');
+  if (force !== true && inp && editorIsDirty()) {
+    if (!confirm('Du hast ungespeicherte Eingaben (auch Unterschriften). Beim Wechsel der Woche gehen sie verloren. Trotzdem wechseln?')) {
+      if (_editorWeek) inp.value = _editorWeek;
+      return;
+    }
+  }
+  var wk = (inp && inp.value) || currentWeekVal();
+  // The week as saved so far (all dept parts), otherwise the next save would replace it with a nearly empty form
+  resetEditorState(mergeWeekParts(loadStore(), wk));
+  renderEditorFromState();
 
   if (typeof currentUser !== 'undefined' && currentUser) {
     fetchSupabaseShifts();
@@ -76,12 +253,34 @@ function buildDays() {
 }
 
 var _shiftsSyncRunning = false;
-async function fetchSupabaseShifts() {
+var _shiftsSyncPromise = null;
+var _serverSeenFor = null; // user id whose server shifts this session has loaded successfully at least once
+
+// One sync at a time; callers (saveWeek) can await the one that is already running
+function fetchSupabaseShifts() {
+  if (_shiftsSyncPromise) return _shiftsSyncPromise;
+  _shiftsSyncPromise = fetchShiftsNow().then(function () { _shiftsSyncPromise = null; }, function () { _shiftsSyncPromise = null; });
+  return _shiftsSyncPromise;
+}
+
+async function fetchShiftsNow() {
   if (typeof supabaseClient === 'undefined' || !currentUser) return;
   if (_shiftsSyncRunning) return;
   _shiftsSyncRunning = true;
 
   try {
+    // Weeks whose last save didn't reach the server (offline, failed check) are retried first —
+    // like protocols, instead of waiting for the user to save again
+    if (navigator.onLine !== false) {
+      var pending = loadStore();
+      for (var pw of unsyncedWeekKeys(pending)) {
+        if (weekIsBlind(pending, pw)) continue; // saved without seeing the server: merged below, never planned against it
+        if (serialBusy(_weekSyncChains, pw)) continue; // a save of this week is syncing right now — no second sync on top
+        var pData = mergeWeekParts(pending, pw);
+        if (pData) { try { await syncWeekToSupabase(pData, true); } catch (e) { console.warn('Woche erneut synchronisieren:', pw, e); } }
+      }
+    }
+
     var { data, error } = await supabaseClient
       .from('shifts')
       .select(`
@@ -92,7 +291,21 @@ async function fetchSupabaseShifts() {
       .in('status', ['offen', 'eingetragen']);
 
     if (error) throw error;
-    if (!data || data.length === 0) return;
+    _serverSeenFor = currentUser.id;
+    // Nothing on the server = empty server state: synced local weeks are stale and go (unsynced ones stay)
+    if (!data || data.length === 0) {
+      resolveBlindWeeks({});
+      var staleAll = loadStore();
+      if (dropSyncedWeeks(staleAll)) {
+        saveStore(staleAll);
+        if (typeof renderHistory === 'function' && document.getElementById('history-list')) {
+          renderHistory(true);
+          if (typeof renderHistoryChart === 'function' && document.getElementById('historyChart')) renderHistoryChart();
+        }
+        refreshEditorIfClean();
+      }
+      return;
+    }
 
     // Deduplicate: same protocol + same start + same end = one shift
     var seen = {};
@@ -154,23 +367,27 @@ async function fetchSupabaseShifts() {
       }
     });
 
+    resolveBlindWeeks(userWeeks);
+
     // Calculate totals for each week and inject into history
-    var allLocal = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+    var allLocal = loadStore();
     var changed = false;
 
     Object.keys(userWeeks).forEach(function(wKey) {
       var weekObj = userWeeks[wKey];
 
+      // A local save that hasn't reached the server yet (offline, failed sync) wins —
+      // replacing it with the server state would silently drop those shifts
+      if (weekHasUnsynced(allLocal, wKey)) return;
+
       // Use proper week label matching the Stundenzettel format
       weekObj.weekLabel = weekLabelFromVal(wKey);
 
       // AL signatures and AL names on manual shifts exist ONLY locally (they are
-      // never synced to the server) — carry them over before the local entries
-      // for this week get replaced below, or they'd be wiped on every sync.
-      var oldEntries = [];
-      Object.keys(allLocal).forEach(function(k) {
-        if (k === wKey || k.indexOf(wKey + ':') === 0) oldEntries.push(allLocal[k]);
-      });
+      // never synced to the server) — carry them over while the local entries
+      // for this week get replaced (both combined key and any dept-split keys),
+      // or they'd be wiped on every sync.
+      var oldEntries = removeWeekEntries(allLocal, wKey);
       mergeLocalShiftExtras(weekObj, oldEntries);
 
       var wTotal = 0;
@@ -185,42 +402,21 @@ async function fetchSupabaseShifts() {
       });
       weekObj.total = wTotal % 1 === 0 ? wTotal.toFixed(0) : wTotal.toFixed(2);
 
-      // Remove stale entries for this week (both combined key and any old dept-split keys)
-      Object.keys(allLocal).forEach(function(k) {
-        if (k === wKey || k.indexOf(wKey + ':') === 0) {
-          delete allLocal[k];
-        }
-      });
-
-      // Split by dept and save separate cards (matches saveWeek() behaviour)
+      // Split by dept and save separate cards (same as saveWeek())
       // so Lager, AL, MA etc. each get their own history card
-      var syncPages = splitWeekByDepts(weekObj);
-      if (syncPages.length <= 1) {
-        allLocal[wKey] = weekObj;
-      } else {
-        syncPages.forEach(function(page) {
-          var shortKey = page.abt.split(' ')[0]; // 'AL', 'Lager', 'MA', etc.
-          var hKey = wKey + ':' + shortKey;
-          allLocal[hKey] = Object.assign({}, page, {
-            histKey: hKey,
-            weekStart: wKey,
-            weekLabel: weekObj.weekLabel,
-            name: weekObj.name,
-            isSupabaseSync: true
-          });
-        });
-      }
+      Object.assign(allLocal, buildWeekEntries(weekObj));
       changed = true;
     });
 
     if (changed) {
-      localStorage.setItem('stundenzettel', JSON.stringify(allLocal));
+      saveStore(allLocal);
       // Re-render WITHOUT re-triggering the sync — renderHistory(false, true)
       // would otherwise call fetchSupabaseShifts again in an endless loop
       if (typeof renderHistory === 'function' && document.getElementById('history-list')) {
         renderHistory(true);
         if (typeof renderHistoryChart === 'function' && document.getElementById('historyChart')) renderHistoryChart();
       }
+      refreshEditorIfClean();
     }
   } catch(e) { console.error("Error fetching shifts:", e); }
   finally { _shiftsSyncRunning = false; }
@@ -250,6 +446,53 @@ function mergeLocalShiftExtras(weekObj, oldEntries) {
   });
 }
 
+// True while a local save of this week was made without having seen the server's state of it
+function weekIsBlind(all, weekStart) {
+  return Object.keys(all).some(function (k) {
+    return (k === weekStart || k.indexOf(weekStart + ':') === 0) && all[k] && all[k].unsynced && all[k].blind;
+  });
+}
+
+// Adds shifts the server has but the local week lacks (same day + von + bis + dept); keeps everything local
+function mergeUnseenShifts(local, server) {
+  var added = 0;
+  var keyOf = function (s, w) { return [s.von, s.bis, s.dept || w.abt].join('|'); };
+  var days = (local.days || []).map(function (dd, i) {
+    var have = (dd.shifts || []).filter(function (s) { return s.von || s.bis; });
+    var keys = {};
+    have.forEach(function (s) { keys[keyOf(s, local)] = true; });
+    var sd = server && server.days && server.days[i];
+    ((sd && sd.shifts) || []).forEach(function (s) {
+      if (!s.von || !s.bis) return;
+      var k = keyOf(s, server);
+      if (keys[k]) return;
+      keys[k] = true;
+      have.push(Object.assign({}, s, { dept: s.dept || server.abt }));
+      added++;
+    });
+    return Object.assign({}, dd, { shifts: have.length ? have : (dd.shifts || []) });
+  });
+  return { week: Object.assign({}, local, { days: days }), added: added };
+}
+
+// Offline saves ('blind') meet the server for the first time: merge its shifts in (never delete them), then sync
+function resolveBlindWeeks(userWeeks) {
+  var all = loadStore(), done = [];
+  unsyncedWeekKeys(all).forEach(function (ws) {
+    if (!weekIsBlind(all, ws)) return;
+    var local = mergeWeekParts(all, ws);
+    var m = mergeUnseenShifts(local, userWeeks[ws] || null);
+    var w = Object.assign({}, m.week, { saved: new Date().toISOString(), unsynced: true });
+    delete w.blind;
+    removeWeekEntries(all, ws);
+    Object.assign(all, buildWeekEntries(w));
+    done.push(w);
+  });
+  if (!done.length) return;
+  saveStore(all);
+  done.forEach(function (w) { syncWeekToSupabase(w, true); });
+}
+
 function getWeekString(d) {
   var date = new Date(d.getTime());
   date.setHours(0, 0, 0, 0);
@@ -261,13 +504,59 @@ function getWeekString(d) {
 }
 
 // ── UI RENDERING ──
+// ISO week `delta` weeks away from 'YYYY-Www' (via the Thursday of the target week)
+function shiftWeekVal(val, delta) {
+  var mon = getMondayFromWeekVal(val);
+  var thu = new Date(Date.UTC(mon.getFullYear(), mon.getMonth(), mon.getDate() + delta * 7 + 3));
+  var year = thu.getUTCFullYear();
+  var week = Math.ceil(((thu - Date.UTC(year, 0, 1)) / 86400000 + 1) / 7);
+  return year + '-W' + pad(week);
+}
+
+// Day tile state: empty / partial (a shift lacks Von or Bis) / done / signed (all done + a signature)
+function dayStatus(shifts, signedCount) {
+  var filled = (shifts || []).filter(function (s) { return s && (s.von || s.bis); });
+  if (!filled.length) return 'empty';
+  if (filled.some(function (s) { return !s.von || !s.bis; })) return 'partial';
+  return signedCount > 0 ? 'signed' : 'done';
+}
+
+// Week arrows: the hidden #inp-week stays the source of truth (buildDays listens to its change event)
+function stundenWeekStep(delta) {
+  var inp = document.getElementById('inp-week');
+  inp.value = shiftWeekVal(inp.value || currentWeekVal(), delta);
+  inp.dispatchEvent(new Event('change'));
+}
+
+function openStundenWeekPicker() {
+  var inp = document.getElementById('inp-week');
+  // Safari has no week picker: the field is plain text there, and focusing it would open a keyboard for an invisible field
+  if (inp.type !== 'week') return;
+  try { if (inp.showPicker) { inp.showPicker(); return; } } catch (e) { /* not allowed here */ }
+  inp.focus();
+}
+
+// Name comes from the login; "Ändern" reveals the old field
+function syncStundenName() {
+  var inp = document.getElementById('inp-name'), txt = document.getElementById('stunden-name-text');
+  if (inp && txt) txt.textContent = inp.value || 'Name fehlt';
+}
+
+function editStundenName() {
+  var wrap = document.getElementById('stunden-name-field');
+  if (!wrap) return;
+  wrap.style.display = wrap.style.display === 'none' ? '' : 'none';
+  if (wrap.style.display === '') document.getElementById('inp-name').focus();
+}
+
 function renderWeekStrip() {
   var val = document.getElementById('inp-week').value || currentWeekVal();
   var mon = getMondayFromWeekVal(val);
   var sun = new Date(mon.getTime() + 6 * 86400000);
   var parts = val.split('-W');
   var lbl = document.getElementById('week-strip-label');
-  if (lbl) lbl.textContent = 'KW ' + parseInt(parts[1]) + '  ·  ' + fmtDate(mon) + ' – ' + fmtDateFull(sun);
+  if (lbl) lbl.textContent = 'KW ' + parseInt(parts[1]) + ' · ' + fmtDate(mon) + '.–' + fmtDate(sun) + '.';
+  syncStundenName();
 
   var strip = document.getElementById('week-strip');
   if (!strip) return;
@@ -275,14 +564,13 @@ function renderWeekStrip() {
   for (var i = 0; i < DAYS.length; i++) {
     (function (i) {
       var d = new Date(mon.getTime() + i * 86400000);
-      var wrap = document.createElement('div');
-      wrap.className = 'day-bubble-wrap';
-      wrap.onclick = (function (idx) { return function () { selectDay(idx); }; })(i);
-      wrap.innerHTML =
-        '<span class="day-bubble-name">' + DAY_SHORT[i] + '</span>' +
-        '<div class="day-bubble" id="bubble-' + i + '">—</div>' +
-        '<span class="day-bubble-date">' + fmtDate(d) + '</span>';
-      strip.appendChild(wrap);
+      var tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = 'ui-day';
+      tile.id = 'dayw-' + i;
+      tile.onclick = function () { selectDay(i); };
+      tile.innerHTML = '<span>' + DAY_SHORT[i] + '</span><b id="bubble-' + i + '">–</b><span>' + fmtDate(d) + '</span><i></i>';
+      strip.appendChild(tile);
     })(i);
   }
 }
@@ -296,8 +584,8 @@ function selectDay(i) {
   }
   activeDayIdx = i;
   for (var j = 0; j < DAYS.length; j++) {
-    var b = document.getElementById('bubble-' + j);
-    if (b) b.classList.toggle('active', j === i);
+    var t = document.getElementById('dayw-' + j);
+    if (t) t.classList.toggle('ui-day-active', j === i);
   }
   renderDayEditorArea();
 }
@@ -305,26 +593,24 @@ function selectDay(i) {
 function updateBubble(dayIdx) {
   var bubble = document.getElementById('bubble-' + dayIdx);
   if (!bubble) return;
-  var totalMins = 0, hasInput = false;
+  var totalMins = 0, shifts = [], signed = 0;
   for (var s = 0; s < (shiftCounts[dayIdx] || 1); s++) {
     var data = getShiftData(dayIdx, s);
-    if (data.von || data.bis) hasInput = true;
+    shifts.push(data);
+    if (shiftSigData[dayIdx + '-' + s]) signed++;
     var von = timeToMins(data.von), bis = timeToMins(data.bis);
     var pause = parseInt(data.pause) || 0;
     var effB = (bis < von) ? bis + 1440 : bis;
     if (von !== null && bis !== null && effB > von) totalMins += Math.max(180, effB - von - pause);
   }
-  var isActive = (activeDayIdx === dayIdx);
-  bubble.className = 'day-bubble' + (isActive ? ' active' : '');
+  var status = dayStatus(shifts, signed);
+  var tile = document.getElementById('dayw-' + dayIdx);
+  if (tile) tile.className = 'ui-day' + (activeDayIdx === dayIdx ? ' ui-day-active' : '') + (status !== 'empty' ? ' ui-dot-' + status : '');
   if (totalMins > 0) {
     var h = totalMins / 60;
-    bubble.textContent = (h % 1 === 0 ? h.toFixed(0) : h.toFixed(1)) + 'h';
-    bubble.classList.add('done');
-  } else if (hasInput) {
-    bubble.textContent = '?';
-    bubble.classList.add('partial');
+    bubble.textContent = h % 1 === 0 ? h.toFixed(0) : h.toFixed(1).replace('.', ',');
   } else {
-    bubble.textContent = '—';
+    bubble.textContent = status === 'partial' ? '?' : '–';
   }
 }
 
@@ -332,7 +618,7 @@ function renderDayEditorArea() {
   var area = document.getElementById('day-editor-area');
   if (!area) return;
   if (activeDayIdx === null) {
-    area.innerHTML = '<div class="day-empty-state"><div class="day-empty-icon">☝️</div><div>Tag im Wochenstreifen antippen,<br/>um Stunden einzutragen.</div></div>';
+    area.innerHTML = uiEmptyHtml('Tag antippen', 'Wähle oben einen Tag, um Stunden einzutragen.');
     return;
   }
   var i = activeDayIdx;
@@ -340,9 +626,9 @@ function renderDayEditorArea() {
   var mon = getMondayFromWeekVal(val);
   var d = new Date(mon.getTime() + i * 86400000);
   area.innerHTML =
-    '<div class="day-editor-head"><div class="day-editor-title">' + DAYS[i] + '</div><div class="day-editor-date">' + fmtDateFull(d) + '</div></div>' +
+    '<div class="ui-section-head"><span class="ui-title" style="font-size:18px;">' + DAYS[i] + '</span><span class="ui-sub">' + fmtDateFull(d) + '</span></div>' +
     '<div id="shifts-' + i + '"></div>' +
-    '<button class="add-shift-btn" onclick="addShift(' + i + ')">＋ Schicht hinzufügen</button>';
+    '<button type="button" class="ui-add-row" onclick="addShift(' + i + ')">' + uiIcon('plus') + ' Schicht hinzufügen</button>';
 
   for (var s = 0; s < (shiftCounts[i] || 1); s++) renderShift(i, s);
 
@@ -368,29 +654,30 @@ function renderDayEditorArea() {
 function renderShift(dayIdx, shiftIdx) {
   var container = document.getElementById('shifts-' + dayIdx);
   if (!container) return;
+  var key = dayIdx + '-' + shiftIdx;
   var block = document.createElement('div');
-  block.className = 'shift-block';
-  block.id = 'shift-' + dayIdx + '-' + shiftIdx;
-  var removeBtn = shiftIdx > 0 ? '<button class="shift-remove" onclick="removeShift(' + dayIdx + ',' + shiftIdx + ')">×</button>' : '';
-  // Build dept options
+  block.className = 'ui-card stunden-shift';
+  block.id = 'shift-' + key;
+  var removeBtn = shiftIdx > 0 ? '<button type="button" class="ui-icon-btn shift-remove" onclick="removeShift(' + dayIdx + ',' + shiftIdx + ')" aria-label="Schicht entfernen">' + uiIcon('trash') + '</button>' : '';
   var deptOpts = (typeof departments !== 'undefined' ? departments : []).map(function(d) {
-    return '<option value="' + d.replace(/"/g,'&quot;') + '">' + (typeof deptLabel === 'function' ? deptLabel(d) : d) + '</option>';
+    return '<option value="' + escapeHtml(d) + '">' + escapeHtml(typeof deptLabel === 'function' ? deptLabel(d) : d) + '</option>';
   }).join('');
   block.innerHTML =
-    '<div class="shift-label">Schicht ' + (shiftIdx + 1) + removeBtn + '</div>' +
-    '<div class="field"><label>Abteilung (diese Schicht)</label>' +
-    '<select id="dept-' + dayIdx + '-' + shiftIdx + '" class="meta-input" style="margin-bottom:0" onchange="calcTotal()">' + deptOpts + '</select></div>' +
-    '<div class="time-pair">' +
-    ' <div class="field"><label>Von</label><input type="time" id="von-' + dayIdx + '-' + shiftIdx + '" oninput="calcDay(' + dayIdx + ')"/></div>' +
-    ' <div class="field"><label>Bis</label><input type="time" id="bis-' + dayIdx + '-' + shiftIdx + '" oninput="calcDay(' + dayIdx + ')"/></div>' +
+    '<div class="stunden-shift-head"><span class="ui-label">Schicht ' + (shiftIdx + 1) + ' · ' + DAYS[dayIdx] + '</span>' + removeBtn + '</div>' +
+    '<div class="stunden-times">' +
+      '<label class="ui-field"><span>Von</span><input type="time" id="von-' + key + '" oninput="calcDay(' + dayIdx + ')"/></label>' +
+      '<span class="stunden-dash" aria-hidden="true">–</span>' +
+      '<label class="ui-field"><span>Bis</span><input type="time" id="bis-' + key + '" oninput="calcDay(' + dayIdx + ')"/></label>' +
     '</div>' +
-    '<div class="field"><label>Pause</label><div class="pause-badge" id="pbadge-' + dayIdx + '-' + shiftIdx + '">wird automatisch berechnet</div><input type="hidden" id="pause-' + dayIdx + '-' + shiftIdx + '" value="0"/></div>' +
-    '<div class="field"><label>Ort</label><input type="text" id="ort-' + dayIdx + '-' + shiftIdx + '" placeholder="Einsatzort"/></div>' +
-    '<div class="field"><label>Name AL</label><input type="text" id="al-' + dayIdx + '-' + shiftIdx + '" placeholder="Vorname Nachname"/></div>' +
-    '<div class="field"><label>Unterschrift AL</label>' +
-    ' <button class="sig-full-btn" type="button" onclick="openSignaturePad(' + dayIdx + ',' + shiftIdx + ')">🖊️ Vollbild-Unterschrift öffnen</button>' +
-    ' <div class="sig-wrap" onclick="openSignaturePad(' + dayIdx + ',' + shiftIdx + ')"><canvas id="sigc-' + dayIdx + '-' + shiftIdx + '"></canvas><div class="sig-placeholder" id="sigph-' + dayIdx + '-' + shiftIdx + '">Tippen für Unterschrift</div><button class="sig-clear" type="button" onclick="event.stopPropagation();clearShiftSig(' + dayIdx + ',' + shiftIdx + ')">löschen</button></div>' +
-    '</div>';
+    '<div class="ui-sub stunden-summary" id="pbadge-' + key + '">Von und Bis eintragen – die Pause wird automatisch berechnet</div>' +
+    '<input type="hidden" id="pause-' + key + '" value="0"/>' +
+    '<div class="stunden-grid">' +
+      '<label class="ui-field"><span>Ort</span><input type="text" id="ort-' + key + '" placeholder="Einsatzort"/></label>' +
+      '<label class="ui-field"><span>Name AL</span><input type="text" id="al-' + key + '" placeholder="Vorname Nachname"/></label>' +
+    '</div>' +
+    '<label class="ui-field"><span>Abteilung (diese Schicht)</span><select id="dept-' + key + '" onchange="calcTotal()">' + deptOpts + '</select></label>' +
+    '<div class="stunden-sig-head"><span>Unterschrift AL</span><span class="ui-pill ui-pill-warn" id="sigpill-' + key + '">fehlt</span></div>' +
+    '<div class="sig-wrap" onclick="openSignaturePad(' + dayIdx + ',' + shiftIdx + ')"><canvas id="sigc-' + key + '"></canvas><div class="sig-placeholder" id="sigph-' + key + '">Tippen für Unterschrift</div><button class="sig-clear" type="button" onclick="event.stopPropagation();clearShiftSig(' + dayIdx + ',' + shiftIdx + ')">löschen</button></div>';
   container.appendChild(block);
   setTimeout(function () { initShiftSig(dayIdx, shiftIdx); }, 0);
 }
@@ -420,6 +707,16 @@ function removeShift(dayIdx, shiftIdx) {
 }
 
 // ── CALC ──
+// "7,5 h netto · 30 min Pause"; same rules as the day tiles (minimum 3 h, over midnight). '' while Von/Bis is missing
+function shiftSummaryLine(von, bis, pauseMins) {
+  var v = timeToMins(von), b = timeToMins(bis);
+  if (v === null || b === null) return '';
+  var effB = b < v ? b + 1440 : b;
+  if (effB <= v) return '';
+  var pause = parseInt(pauseMins) || 0, h = Math.max(180, effB - v - pause) / 60;
+  return (h % 1 === 0 ? h.toFixed(0) : h.toFixed(1).replace('.', ',')) + ' h netto' + (pause > 0 ? ' · ' + pause + ' min Pause' : '');
+}
+
 function calcDay(dayIdx) {
   var totalMins = 0;
   for (var s = 0; s < shiftCounts[dayIdx]; s++) {
@@ -431,11 +728,11 @@ function calcDay(dayIdx) {
     if (von !== null && bis !== null && effB > von) {
       var raw = effB - von, pause = autoPause(raw), net = Math.max(180, raw - pause);
       if (pauseEl) pauseEl.value = pause;
-      if (badge) { badge.textContent = pause > 0 ? pause + ' min (automatisch)' : 'keine Pause'; badge.className = 'pause-badge' + (pause > 0 ? ' auto' : ''); }
+      if (badge) badge.textContent = shiftSummaryLine(vonEl.value, bisEl.value, pause);
       totalMins += net;
     } else {
       if (pauseEl) pauseEl.value = 0;
-      if (badge) { badge.textContent = 'wird automatisch berechnet'; badge.className = 'pause-badge'; }
+      if (badge) badge.textContent = 'Von und Bis eintragen – die Pause wird automatisch berechnet';
     }
   }
   updateBubble(dayIdx);
@@ -573,17 +870,24 @@ function updateShiftLockState(key) {
     if (sigWrap) sigWrap.style.pointerEvents = locked ? 'none' : '';
     var hint = block.querySelector('.shift-lock-hint');
     if (locked && !hint) {
-      hint = document.createElement('div');
-      hint.className = 'shift-lock-hint';
-      hint.style.cssText = 'font-size:11px;color:var(--text3);margin-top:6px;';
-      hint.textContent = sv.isProtocol && !shiftSigData[key]
-        ? '🔒 Aus Protokoll übernommen – Änderungen nur durch AL/PL möglich.'
-        : '🔒 Vom AL abgezeichnet – Zeiten können nicht mehr geändert werden.';
-      block.appendChild(hint);
+      hint = document.createElement('span');
+      hint.className = 'shift-lock-hint ui-pill';
+      var fromProtocol = sv.isProtocol && !shiftSigData[key];
+      hint.textContent = fromProtocol ? 'aus Protokoll' : 'abgezeichnet';
+      hint.title = fromProtocol ? 'Aus Protokoll übernommen – Änderungen nur durch AL/PL möglich.'
+        : 'Vom AL abgezeichnet – Zeiten können nicht mehr geändert werden.';
+      (block.querySelector('.stunden-shift-head') || block).appendChild(hint);
     } else if (!locked && hint) {
       hint.remove();
     }
+    // Signature status pill next to "Unterschrift AL"
+    var pill = document.getElementById('sigpill-' + key);
+    if (pill) {
+      pill.className = 'ui-pill ' + (shiftSigData[key] ? 'ui-pill-ok' : 'ui-pill-warn');
+      pill.textContent = shiftSigData[key] ? 'unterschrieben' : 'fehlt';
+    }
   }
+  if (!isNaN(dayIdx)) updateBubble(dayIdx);
 }
 
 function redrawSigModalFromState() {
@@ -629,9 +933,10 @@ function renderHistory(skipSync) {
   if (!skipSync) fetchSupabaseShifts(); // Background sync when entering history (not when called FROM the sync)
 
   var list = document.getElementById('history-list');
-  var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+  var all = loadStore();
   var keys = Object.keys(all).sort().reverse();
-  if (!keys.length) { list.innerHTML = '<div class="empty-state"><div class="empty-icon"></div><div>Noch keine Wochen gespeichert</div></div>'; return; }
+  var legacyNotice = legacyNoticeHtml();
+  if (!keys.length) { list.innerHTML = legacyNotice + uiEmptyHtml('Noch keine Wochen', 'Gespeicherte Wochen erscheinen hier.'); return; }
   var months = {};
   keys.forEach(function (k) {
     var w = all[k];
@@ -647,26 +952,35 @@ function renderHistory(skipSync) {
     var m = months[mKey];
     var hrs = m.totalHours % 1 === 0 ? m.totalHours.toFixed(0) : m.totalHours.toFixed(2);
     var bilRange = getBillingPeriodLabel(mKey, billingCutoff);
-    html += '<div class="month-group"><div class="month-header"><div><div class="month-title">' + m.label + '</div><div class="month-stats">' + bilRange + ' · ' + hrs + ' h</div></div><button class="month-export-btn" onclick="exportMonthlyPDF(\'' + mKey + '\')">⤵ Monat exportieren</button></div>';
+    html += '<div class="ui-section"><div class="ui-section-head"><div><div class="ui-row-title">' + escapeHtml(m.label) + '</div>' +
+      '<div class="ui-sub">' + bilRange + ' · ' + hrs.replace('.', ',') + ' h</div></div>' +
+      '<button type="button" class="ui-icon-btn" aria-label="Monat-Aktionen" onclick="historyMonthMenu(\'' + jsAttrArg(mKey) + '\')">' + uiIcon('dots') + '</button></div>';
     html += m.weeks.map(function (w) {
       var hKey = w.histKey || w.weekStart;
       var earnW = formatEarnings(parseFloat((w.total || '0').replace(',', '.')), w.abt);
-      return '<div class="card" onclick="loadWeek(\'' + hKey + '\')">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center">' +
-        '<div><div class="history-week">' + w.weekLabel + '</div>' +
-        '<div class="history-sub">' + w.name + ' · <span class="badge">' + w.abt + '</span></div></div>' +
-        '<div style="text-align:right"><div class="history-hours">' + w.total + 'h</div>' +
-        (earnW ? '<div class="history-earnings" style="display:block">' + earnW + '</div>' : '') +
-        '<button onclick="deleteWeek(event,\'' + hKey + '\')" style="font-size:11px;color:var(--danger);background:none;border:none;cursor:pointer;margin-top:4px">löschen</button>' +
-        '</div></div></div>';
+      var kw = w.weekStart ? parseInt(String(w.weekStart).split('-W')[1]) : '';
+      var range = '';
+      if (w.weekStart) {
+        var mon = getMondayFromWeekVal(String(w.weekStart).split(':')[0]);
+        range = fmtDate(mon) + '.–' + fmtDate(new Date(mon.getTime() + 6 * 86400000)) + '.';
+      }
+      return '<div class="ui-row" onclick="loadWeek(\'' + jsAttrArg(hKey) + '\')">' +
+        '<div class="stunden-kw"><span>KW</span><b>' + kw + '</b></div>' +
+        '<div class="ui-row-main"><div class="ui-row-title">' + escapeHtml(range || w.weekLabel || '') + '</div>' +
+          '<div class="ui-sub">' + escapeHtml(w.name || '') + (w.abt ? ' <span class="ui-pill ui-pill-info">' + escapeHtml(w.abt) + '</span>' : '') + '</div>' +
+          (w.unsynced ? '<span class="ui-pill ui-pill-warn" style="margin-top:4px;">nicht synchronisiert</span>' : '') + '</div>' +
+        '<div class="ui-row-end"><div><b class="stunden-h">' + escapeHtml(String(w.total || '0').replace('.', ',')) + ' h</b>' +
+          (earnW ? '<div class="ui-sub">' + earnW + '</div>' : '') + '</div>' +
+          '<button type="button" class="ui-icon-btn" aria-label="Woche-Aktionen" onclick="event.stopPropagation();historyWeekMenu(\'' + jsAttrArg(hKey) + '\')">' + uiIcon('dots') + '</button></div>' +
+        '</div>';
     }).join('') + '</div>';
   });
-  list.innerHTML = html;
+  list.innerHTML = legacyNotice + html;
 }
 
 function renderHistoryChart() {
   var ctx = document.getElementById('historyChart'); if (!ctx) return;
-  var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+  var all = loadStore();
   // Aggregate hours per base week key (merges "2026-W12:AL" + "2026-W12:MA" into "2026-W12")
   var weekTotals = {};
   Object.keys(all).forEach(function(k) {
@@ -678,10 +992,140 @@ function renderHistoryChart() {
   var labels = keys.map(function(k) { return 'KW ' + parseInt(k.split('-W')[1]); });
   var data = keys.map(function(k) { return weekTotals[k]; });
   if (historyChart) historyChart.destroy();
+  // Colours from the theme tokens so the chart follows light/dark
+  var css = getComputedStyle(document.documentElement);
+  var accent = (css.getPropertyValue('--accent') || '#185FA5').trim(), muted = (css.getPropertyValue('--text2') || '#888').trim();
   historyChart = new Chart(ctx, {
-    type: 'bar', data: { labels: labels, datasets: [{ label: 'Wochenstunden', data: data, backgroundColor: 'rgba(24, 95, 165, 0.4)', borderColor: 'rgba(24, 95, 165, 1)', borderWidth: 1, borderRadius: 6 }] },
-    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } }, x: { grid: { display: false } } }, plugins: { legend: { display: false } } }
+    type: 'bar', data: { labels: labels, datasets: [{ label: 'Wochenstunden', data: data, backgroundColor: accent, borderRadius: 6, maxBarThickness: 28 }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      scales: { y: { beginAtZero: true, grid: { color: 'rgba(128,128,128,0.15)' }, ticks: { color: muted } }, x: { grid: { display: false }, ticks: { color: muted } } },
+      plugins: { legend: { display: false } } }
   });
+}
+
+function historyMonthMenu(mKey) {
+  openUiMenu([{ label: 'Monat als PDF exportieren', action: 'exportMonthlyPDF', args: [mKey] }]);
+}
+
+function historyWeekMenu(key) {
+  openUiMenu([{ label: 'Woche öffnen', action: 'loadWeek', args: [key] }, { label: 'Woche löschen', action: 'deleteWeekFromMenu', args: [key], danger: true }]);
+}
+
+// The old delete expects a click event (stopPropagation); the menu has none
+function deleteWeekFromMenu(key) {
+  deleteWeek({ stopPropagation: function () {} }, key);
+}
+
+// ── WEEK STORAGE HELPERS ──
+// localStorage 'stundenzettel' holds one entry per week ("2026-W44") or, for
+// weeks with several departments, one per department ("2026-W44:AL frei").
+
+// Full department name in the key: the first word alone made "AL fest" and "AL frei" collide
+function weekPartKey(weekStart, dept) {
+  return weekStart + ':' + dept;
+}
+
+// Removes the plain entry and every department part of a week; returns the removed entries
+function removeWeekEntries(all, weekStart) {
+  var removed = [];
+  Object.keys(all).forEach(function (k) {
+    if (k === weekStart || k.indexOf(weekStart + ':') === 0) { removed.push(all[k]); delete all[k]; }
+  });
+  return removed;
+}
+
+// The entries a week is stored as: { key: entry }
+function buildWeekEntries(w) {
+  var out = {};
+  var pages = splitWeekByDepts(w);
+  if (pages.length <= 1) { out[w.weekStart] = w; return out; }
+  pages.forEach(function (page) {
+    var k = weekPartKey(w.weekStart, page.abt);
+    out[k] = Object.assign({}, page, { histKey: k });
+  });
+  return out;
+}
+
+// All stored parts of a week combined into one week (for editing); a single entry is returned as is
+function mergeWeekParts(all, weekStart) {
+  var keys = Object.keys(all).filter(function (k) { return k === weekStart || k.indexOf(weekStart + ':') === 0; }).sort();
+  if (!keys.length) return null;
+  if (keys.length === 1) return all[keys[0]];
+  var base = all[keys[0]];
+  var days = (base.days || []).map(function (dd) { return { day: dd.day, date: dd.date, isoDate: dd.isoDate, shifts: [] }; });
+  keys.forEach(function (k) {
+    var part = all[k];
+    (part.days || []).forEach(function (dd, i) {
+      if (!days[i]) days[i] = { day: dd.day, date: dd.date, isoDate: dd.isoDate, shifts: [] };
+      (dd.shifts || []).forEach(function (s) {
+        var shift = Object.assign({}, s, { dept: s.dept || part.abt });
+        // An old plain week key can sit next to its department keys with the same shifts (pre-fix double count):
+        // keep one copy (the signed one), or the next save would write the duplicates to the server
+        var dupKey = [shift.von, shift.bis, shift.pause, shift.dept].join('|');
+        var j = days[i].shifts.findIndex(function (x) { return [x.von, x.bis, x.pause, x.dept].join('|') === dupKey; });
+        if (j === -1) days[i].shifts.push(shift);
+        else if (!days[i].shifts[j].sig && shift.sig) days[i].shifts[j] = shift;
+      });
+    });
+  });
+  var merged = Object.assign({}, base, { days: days });
+  delete merged.histKey;
+  return merged;
+}
+
+// True while a local save of this week has not reached the server yet
+function weekHasUnsynced(all, weekStart) {
+  return Object.keys(all).some(function (k) {
+    return (k === weekStart || k.indexOf(weekStart + ':') === 0) && all[k] && all[k].unsynced;
+  });
+}
+
+// Week keys (without the ':dept' part) that still have a local save waiting for the server
+function unsyncedWeekKeys(all) {
+  var out = [];
+  Object.keys(all).forEach(function (k) {
+    if (!all[k] || !all[k].unsynced) return;
+    var wk = k.split(':')[0];
+    if (out.indexOf(wk) === -1) out.push(wk);
+  });
+  return out.sort();
+}
+
+// Clears the flag after a successful sync — only on entries of that exact save (a newer save keeps its flag)
+function clearUnsyncedFlag(all, weekStart, saved) {
+  var changed = false;
+  Object.keys(all).forEach(function (k) {
+    if ((k === weekStart || k.indexOf(weekStart + ':') === 0) && all[k] && all[k].unsynced && all[k].saved === saved) {
+      delete all[k].unsynced;
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+// What a week save changes on the server. existing = manual shifts of the user in that week
+// (DB rows), desired = rows to insert built from the local week.
+// - Shifts not 'offen' (accounting set them to 'eingetragen') are never deleted, and a desired
+//   shift on the same date/time is not inserted again.
+// - 'offen' shifts identical to a desired one stay untouched; the other 'offen' ones are deleted.
+function planWeekSync(existing, desired) {
+  var hm = function (t) { return (t || '').substring(0, 5); };
+  var slot = function (r) { return r.shift_date + '|' + hm(r.start_time) + '|' + hm(r.end_time); };
+  var full = function (r) { return slot(r) + '|' + (r.position_role || '') + '|' + (parseInt(r.pause_mins) || 0) + '|' + (r.ort || ''); };
+  var booked = {}, open = {};
+  existing.forEach(function (r) {
+    if (r.status === 'offen') (open[full(r)] = open[full(r)] || []).push(r.id);
+    else booked[slot(r)] = (booked[slot(r)] || 0) + 1;
+  });
+  var insert = [];
+  desired.forEach(function (d) {
+    if (booked[slot(d)]) { booked[slot(d)]--; return; }
+    if (open[full(d)] && open[full(d)].length) { open[full(d)].shift(); return; }
+    insert.push(d);
+  });
+  var deleteIds = [];
+  Object.keys(open).forEach(function (k) { deleteIds = deleteIds.concat(open[k]); });
+  return { deleteIds: deleteIds, insert: insert };
 }
 
 // ── DATA COLLECT / SAVE ──
@@ -699,36 +1143,43 @@ function collectData() {
   return { name: document.getElementById('inp-name').value || '', abt: selectedAbt, weekStart: v, weekLabel: weekLabelFromVal(v), days: days, total: document.getElementById('total-hours').textContent, saved: new Date().toISOString(), depts: Object.keys(depsUsed) };
 }
 
-function saveWeek() {
+async function saveWeek() {
+  if (!szStoreKey()) { showToast('Bitte zuerst anmelden'); return; }
   var d = collectData(); if (!d.name) { showToast('Bitte Namen eingeben'); return; }
-  var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
 
-  var depts = d.depts && d.depts.length ? d.depts : [d.abt];
-
-  if (depts.length > 1) {
-    // Mixed week: save one history entry per dept (PDF only via download button)
-    depts.forEach(function(dept) {
-      var filteredDays = d.days.map(function(dd) {
-        return {
-          day: dd.day, date: dd.date,
-          shifts: dd.shifts.filter(function(sh) { return (sh.dept || d.abt) === dept && sh.von && sh.bis; })
-        };
-      });
-      var deptTotal = 0;
-      filteredDays.forEach(function(dd) {
-        dd.shifts.forEach(function(sh) { deptTotal += shiftNetHours(sh); });
-      });
-      var shortKey = dept.split(' ')[0]; // 'AL' or 'MA'
-      var histKey = d.weekStart + ':' + shortKey;
-      var entry = Object.assign({}, d, { abt: dept, days: filteredDays, total: deptTotal % 1 === 0 ? deptTotal.toFixed(0) : deptTotal.toFixed(2), histKey: histKey });
-      all[histKey] = entry;
-    });
-    localStorage.setItem('stundenzettel', JSON.stringify(all));
-  } else {
-    // Single dept: classic save
-    all[d.weekStart] = d;
-    localStorage.setItem('stundenzettel', JSON.stringify(all));
+  // A save replaces the week on the server (deletes open shifts that are not in the form) — so the server state of
+  // the week must have been seen first. Never delete what the user never saw.
+  var blind = false;
+  if (typeof supabaseClient !== 'undefined' && _serverSeenFor !== currentUser.id) {
+    if (navigator.onLine !== false) await fetchSupabaseShifts();
+    if (_serverSeenFor === currentUser.id) {
+      d = collectData(); // the sync may have refreshed an untouched editor
+      var stored = loadStore();
+      if (!weekHasUnsynced(stored, d.weekStart)) {
+        var sw = mergeWeekParts(stored, d.weekStart);
+        var m = sw ? mergeUnseenShifts(d, sw) : { added: 0 };
+        if (m.added > 0) {
+          resetEditorState(m.week);
+          renderEditorFromState();
+          _editorBaseline = ''; // merged but not saved yet → counts as changed
+          showToast('Für diese Woche gab es schon Einträge auf dem Server – bitte prüfen und erneut speichern');
+          return;
+        }
+      }
+    } else {
+      blind = true; // offline / server unreachable: save locally, merge with the server later
+    }
   }
+  var all = loadStore();
+
+  // The saved week replaces ALL stored parts of that week (plain key and every
+  // dept part) — otherwise an old split/unsplit entry stays and totals double-count.
+  // Mixed weeks get one history entry per dept. 'unsynced' stays until the server has it.
+  removeWeekEntries(all, d.weekStart);
+  Object.assign(all, buildWeekEntries(Object.assign({}, d, blind ? { unsynced: true, blind: true } : { unsynced: true })));
+  saveStore(all);
+  markEditorClean();
+  if (blind) { showToast('💾 Woche lokal gespeichert – wird beim nächsten Online-Abgleich mit dem Server zusammengeführt'); return; }
   showToast('💾 Woche gespeichert!');
 
   // ── PUSH TO SUPABASE (Async) ──
@@ -743,29 +1194,33 @@ function isoWeekToDate(weekStr, dayIdx) {
   return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 }
 
-async function syncWeekToSupabase(data) {
+// Runs fn after everything queued before it under the same key (never two syncs of one week at once)
+function runSerial(chains, key, fn) {
+  var c = chains[key] || (chains[key] = { p: Promise.resolve(), n: 0 });
+  c.n++;
+  var run = c.p.then(fn);
+  c.p = run.then(function () { c.n--; }, function () { c.n--; });
+  return run;
+}
+
+function serialBusy(chains, key) {
+  return !!(chains[key] && chains[key].n > 0);
+}
+
+var _weekSyncChains = {};
+
+// quiet = background retry: no toasts (the user did not ask for it)
+function syncWeekToSupabase(data, quiet) {
+  return runSerial(_weekSyncChains, data.weekStart, function () { return syncWeekNow(data, quiet); });
+}
+
+async function syncWeekNow(data, quiet) {
   if (typeof supabaseClient === 'undefined' || !currentUser) return;
 
   try {
     // Calculate the date range for this week (Mon–Sun), using local dates
     var weekStart = isoWeekToDate(data.weekStart, 0);
     var weekEnd   = isoWeekToDate(data.weekStart, 6);
-
-    // Extend the delete range one day earlier to clean up any shifts stored with the old
-    // UTC-offset date bug (which saved Monday as the previous Sunday in UTC+2 timezones)
-    var mon = getMondayFromWeekVal(data.weekStart);
-    var dayBefore = new Date(mon.getTime() - 86400000);
-    var deleteFrom = dayBefore.getFullYear() + '-' + pad(dayBefore.getMonth() + 1) + '-' + pad(dayBefore.getDate());
-
-    // Delete existing manual (non-protocol) shifts for this user+week
-    // This prevents duplicates when saving the same week multiple times
-    await supabaseClient
-      .from('shifts')
-      .delete()
-      .eq('user_id', currentUser.id)
-      .is('protocol_id', null)
-      .gte('shift_date', deleteFrom)
-      .lte('shift_date', weekEnd);
 
     // Build the fresh shift list — skip shifts that came from a protocol (isSynced)
     // Those already live in Supabase under their protocol_id; re-inserting them causes duplicates
@@ -788,41 +1243,114 @@ async function syncWeekToSupabase(data) {
       });
     });
 
-    if (shiftsToSync.length > 0) {
-      const { error } = await supabaseClient.from('shifts').insert(shiftsToSync);
-      if (error) throw error;
+    // Existing manual (non-protocol) shifts of this user in exactly this week (Mon–Sun)
+    var ex = await supabaseClient
+      .from('shifts')
+      .select('id, shift_date, start_time, end_time, status, position_role, pause_mins, ort')
+      .eq('user_id', currentUser.id)
+      .is('protocol_id', null)
+      .gte('shift_date', weekStart)
+      .lte('shift_date', weekEnd);
+    if (ex.error) throw ex.error;
+
+    // Shifts accounting already marked 'eingetragen' are left alone (see planWeekSync)
+    var plan = planWeekSync(ex.data || [], shiftsToSync);
+
+    if (plan.deleteIds.length > 0) {
+      var del = await supabaseClient.from('shifts').delete()
+        .in('id', plan.deleteIds).eq('status', 'offen').select('id');
+      if (del.error) throw del.error;
+      // RLS returns 0 rows without an error — inserting anyway would create duplicates
+      var delCount = (del.data || []).length;
+      if (delCount !== plan.deleteIds.length) throw new Error('shifts delete: ' + delCount + ' of ' + plan.deleteIds.length + ' rows');
     }
 
-    showToast('✅ Stundenzettel mit Server synchronisiert!');
+    if (plan.insert.length > 0) {
+      var ins = await supabaseClient.from('shifts').insert(plan.insert).select('id');
+      if (ins.error) throw ins.error;
+      var insCount = (ins.data || []).length;
+      if (insCount !== plan.insert.length) throw new Error('shifts insert: ' + insCount + ' of ' + plan.insert.length + ' rows');
+    }
+
+    // Only now the server has this save → clear the flag (re-read: storage may have changed meanwhile)
+    var allNow = loadStore();
+    if (clearUnsyncedFlag(allNow, data.weekStart, data.saved)) {
+      saveStore(allNow);
+    }
+
+    if (!quiet) showToast('✅ Stundenzettel mit Server synchronisiert!');
   } catch(e) {
+    // The local week keeps its 'unsynced' flag → the history sync won't overwrite it; it is retried in the background
     console.error("Week Sync Error:", e);
-    showToast("Server-Backup fehlgeschlagen (Offline).", "info");
+    if (!quiet) showToast('Server-Sync fehlgeschlagen – Woche ist nur lokal gespeichert und wird später erneut übertragen.');
   }
 }
 
+// Server ids of the open, manual shifts a deleted history card stands for (role null = every role).
+// Protocol shifts and anything accounting already booked ('eingetragen') are never touched.
+function planWeekDelete(existing, role) {
+  return (existing || []).filter(function (r) {
+    return r.status === 'offen' && (role === null || r.position_role === role);
+  }).map(function (r) { return r.id; });
+}
+
+// Removes every stored week part that has nothing waiting for the server (weeks with an unsynced part stay)
+function dropSyncedWeeks(all) {
+  var changed = false;
+  Object.keys(all).forEach(function (k) {
+    if (!weekHasUnsynced(all, k.split(':')[0])) { delete all[k]; changed = true; }
+  });
+  return changed;
+}
+
 function loadWeek(key) {
-  var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}'), w = all[key]; if (!w) return;
+  var all = loadStore(), clicked = all[key]; if (!clicked) return;
+  if (editorIsDirty() && !confirm('Du hast ungespeicherte Eingaben. Beim Laden dieser Woche gehen sie verloren. Trotzdem laden?')) return;
+  // Edit the whole week (all dept parts): saving replaces every part locally and on the server,
+  // so loading only the clicked part would drop the other departments' shifts
+  var w = mergeWeekParts(all, clicked.weekStart) || clicked;
   document.getElementById('inp-name').value = w.name;
   document.getElementById('inp-week').value = w.weekStart;
-  selectedAbt = w.abt;
-  shiftSigCanvases = {}; shiftSigData = {}; shiftValues = {}; shiftCounts = {}; activeDayIdx = null;
-  w.days.forEach(function (dd, i) {
-    var shs = dd.shifts || [{ von: dd.von || '', bis: dd.bis || '', pause: dd.pause || '0', ort: dd.ort || '', al: dd.al || '', sig: dd.sig || null }];
-    shiftCounts[i] = shs.length;
-    shiftValues[i] = shs.map(function (sh, s) {
-      if (sh.sig) shiftSigData[i + '-' + s] = sh.sig;
-      var _v = timeToMins(sh.von||''), _b = timeToMins(sh.bis||'');
-      var _p = (_v!==null&&_b!==null) ? autoPause(_b<_v ? _b+1440-_v : _b-_v) : 0;
-      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: _p.toString(), dept: sh.dept || w.abt || selectedAbt, protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
-    });
-  });
-  renderWeekStrip();
-  for (var i = 0; i < DAYS.length; i++) updateBubble(i);
-  renderDayEditorArea(); calcTotal(); updateTopBarSub(); navigate('home');
+  selectedAbt = clicked.abt;
+  resetEditorState(w, clicked.abt || selectedAbt);
+  renderEditorFromState();
+  navigate('home');
   showToast('Backup geladen!');
 }
 
-function deleteWeek(e, k) { e.stopPropagation(); if (!confirm('Woche löschen?')) return; var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}'); delete all[k]; localStorage.setItem('stundenzettel', JSON.stringify(all)); renderHistory(); showToast('Gelöscht'); }
+// Deletes the card locally AND its open manual shifts on the server — otherwise the next history sync
+// rebuilds the week from the server and it stays billed
+async function deleteWeek(e, k) {
+  e.stopPropagation();
+  if (!confirm('Woche löschen?')) return;
+  var all = loadStore(), entry = all[k];
+  if (!entry) return;
+  if (typeof supabaseClient !== 'undefined' && currentUser) {
+    var ws = entry.weekStart || k.split(':')[0];
+    // A plain key next to dept parts only stands for its own department
+    var hasParts = Object.keys(all).some(function (x) { return x !== k && x.indexOf(ws + ':') === 0; });
+    var role = (k === ws && !hasParts) ? null : (entry.abt || null);
+    var failed = await runSerial(_weekSyncChains, ws, async function () {
+      try {
+        var ex = await supabaseClient.from('shifts').select('id, status, position_role')
+          .eq('user_id', currentUser.id).is('protocol_id', null)
+          .gte('shift_date', isoWeekToDate(ws, 0)).lte('shift_date', isoWeekToDate(ws, 6));
+        if (ex.error) throw ex.error;
+        var ids = planWeekDelete(ex.data || [], role);
+        if (ids.length) {
+          var del = await supabaseClient.from('shifts').delete().in('id', ids).eq('status', 'offen').select('id');
+          if (del.error) throw del.error;
+          var n = (del.data || []).length;
+          if (n !== ids.length) throw new Error('shifts delete: ' + n + ' of ' + ids.length + ' rows');
+        }
+        return false;
+      } catch (err) { console.error('Woche löschen (Server):', err); return true; }
+    });
+    if (failed) { showToast('Löschen auf dem Server fehlgeschlagen – Woche bleibt erhalten.'); return; }
+  }
+  all = loadStore(); delete all[k]; saveStore(all);
+  renderHistory(); showToast('Gelöscht');
+}
 
 // ── SIGNATURE LAZY-LOADER ──
 // Fetches signature_text only for the protocol IDs present in the given week data array.
@@ -906,7 +1434,7 @@ async function downloadWeekPDF() {
 var sendToBuchhaltung = downloadWeekPDF;
 
 async function exportMonthlyPDF(mKey) {
-  var all = JSON.parse(localStorage.getItem('stundenzettel') || '{}');
+  var all = loadStore();
   var ks = Object.keys(all).sort();
   var monthW = [], mLab = monthLabelFromKey(mKey), mTot = 0, name = '';
   ks.forEach(function (k) {
@@ -1046,5 +1574,5 @@ function drawPDFContent(doc, data, ml, cw) {
   }
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(150);
   doc.text('Es werden nur Stunden angerechnet, die auf diesem Nachweis eingetragen und vom AL abgezeichnet sind.', ml, 285);
-  doc.text('Einzureichen bis zum 20. Tag eines Monats.', ml, 290);
+  doc.text('Einzureichen bis zum ' + billingCutoff + '. Tag eines Monats.', ml, 290);
 }

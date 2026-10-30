@@ -33,20 +33,42 @@ function pinLockoutRemaining() {
   return Math.ceil(remaining / 60000); // minutes
 }
 
+// Only a definite "false" from verify_admin_pin counts toward the lockout;
+// a request error (offline, server down) is not a wrong password
+function pinCheckOutcome(valid, rpcError) {
+  if (rpcError) return 'error';
+  return valid ? 'ok' : 'wrong';
+}
+
+// Last good employee list, so an offline start can still restore the session and show the login list
+const USERS_CACHE_KEY = 'luebbert_app_users';
+function parseCachedUsers(raw) {
+  try {
+    const list = JSON.parse(raw || 'null');
+    return Array.isArray(list) ? list.filter(u => u && u.id) : [];
+  } catch (e) { return []; }
+}
+
 // Fetches the latest employee list from the public app_users table
 async function fetchEmployees() {
-  const { data, error } = await supabaseClient
-    .from('app_users')
-    .select('id, full_name, role, default_dept, hourly_rate_conni, hourly_rate_internal')
-    .or('is_active.is.null,is_active.eq.true')
-    .order('full_name', { ascending: true });
+  let data = null, error = null;
+  try {
+    ({ data, error } = await supabaseClient
+      .from('app_users')
+      .select('id, full_name, role, default_dept, hourly_rate_conni, hourly_rate_internal')
+      .or('is_active.is.null,is_active.eq.true')
+      .order('full_name', { ascending: true }));
+  } catch (e) { error = e; }
 
   if (error) {
     console.error('Fehler beim Laden der Mitarbeiter:', error);
+    allUsers = parseCachedUsers(localStorage.getItem(USERS_CACHE_KEY));
+    populateDropdown();
     return;
   }
-  
+
   allUsers = data || [];
+  try { localStorage.setItem(USERS_CACHE_KEY, JSON.stringify(allUsers)); } catch (e) { /* storage full */ }
   populateDropdown();
 }
 
@@ -116,54 +138,88 @@ function initAuthNamePicker() {
   });
 }
 
+// After the fresh employee list arrived: log in again only if the person changed (role, name, rates),
+// was deactivated, or nothing was shown from the cache yet
+function authSessionChanged(shown, fresh) {
+  if (!shown || !fresh) return true;
+  return ['full_name', 'role', 'default_dept', 'hourly_rate_conni', 'hourly_rate_internal']
+    .some(function(k) { return String(shown[k] == null ? '' : shown[k]) !== String(fresh[k] == null ? '' : fresh[k]); });
+}
+
 async function initAuth() {
   initAuthNamePicker();
-  await fetchEmployees();
 
   // Check if we have an active local session (with expiry)
-  const activeUserId = localStorage.getItem('local_app_user_id');
+  let activeUserId = localStorage.getItem('local_app_user_id');
   const sessionTs = parseInt(localStorage.getItem('local_app_session_ts') || '0');
   const rememberMe = localStorage.getItem('local_app_remember_me') === '1';
   const activeTTL = rememberMe ? REMEMBER_ME_TTL_MS : SESSION_TTL_MS;
-  if (activeUserId && (Date.now() - sessionTs) < activeTTL) {
-    const user = allUsers.find(u => u.id === activeUserId);
-    if (user) {
-      handleSession(user);
-      return;
-    }
-  } else if (activeUserId) {
+  if (activeUserId && (Date.now() - sessionTs) >= activeTTL) {
     // Expired session — clear it
     localStorage.removeItem('local_app_user_id');
     localStorage.removeItem('local_app_session_ts');
     localStorage.removeItem('local_app_remember_me');
+    activeUserId = null;
   }
 
-  handleSession(null);
+  // Weak network: start from the cached employee list instead of an empty page until the server answers
+  const shown = activeUserId ? parseCachedUsers(localStorage.getItem(USERS_CACHE_KEY)).find(u => u.id === activeUserId) || null : null;
+  if (shown) handleSession(shown);
+
+  await fetchEmployees();
+  const fresh = activeUserId ? allUsers.find(u => u.id === activeUserId) || null : null;
+  if (authSessionChanged(shown, fresh)) handleSession(fresh);
 }
+
+// True when the session now belongs to someone else than before (login, user switch, logout)
+function sessionUserChanged(prevId, nextId) {
+  return prevId === undefined || (prevId || null) !== (nextId || null);
+}
+
+var lastSessionUserId; // undefined until the first handleSession
 
 function handleSession(user) {
   const overlay = document.getElementById('auth-overlay');
   if (!overlay) return;
+  const userChanged = sessionUserChanged(lastSessionUserId, user ? user.id : null);
+  lastSessionUserId = user ? user.id : null;
 
   if (user) {
-    currentUser = { id: user.id, email: '' }; // Mock basic GoTrue object for backwards compatibility
+    currentUser = { id: user.id, email: '', full_name: user.full_name || '' }; // Mock basic GoTrue object for backwards compatibility (+ name for the start page greeting)
     userRole = user.role;
     
     // Auto-sync the user's name across the app (Stundenzettel tracking)
     const snInput = document.getElementById('inp-name');
     if (snInput) {
       snInput.value = user.full_name;
+      if (typeof syncStundenName === 'function') syncStundenName(); // label above the week (shared device: no stale name)
     }
     localStorage.setItem('stundenzettel_name', user.full_name);
     window.currentUserRateConni    = parseFloat(user.hourly_rate_conni)    || 0;
     window.currentUserRateInternal = parseFloat(user.hourly_rate_internal) || 0;
 
+    // Shared device: the Stundenzettel editor (weeks, drawn signatures) belongs to the previous user — start clean,
+    // buildDays loads this user's own stored week
+    if (userChanged && typeof buildDays === 'function') {
+      const weekInp = document.getElementById('inp-week');
+      if (weekInp && typeof currentWeekVal === 'function') weekInp.value = currentWeekVal();
+      buildDays(true);
+    }
+
     overlay.style.display = 'none';
 
     console.log('User logged in locally:', user.full_name, 'Role:', userRole);
     enforceUI();
-    if (typeof loadErinnerungen === 'function') loadErinnerungen();
+    // The reminder banner depends on the admin switches → load them first (cached values if offline)
+    var settingsReady = (typeof loadAppSettings === 'function') ? loadAppSettings() : Promise.resolve();
+    settingsReady.then(function() { if (typeof loadErinnerungen === 'function') loadErinnerungen(); });
+    // A ?open=wochenplan link goes through selectMode(), which already initialises the plan
+    const wpDeepLink = new URLSearchParams(location.search).get('open') === 'wochenplan';
     if (typeof handleEinsatzDeepLink === 'function') handleEinsatzDeepLink();
+    if (typeof handleWochenplanDeepLink === 'function') handleWochenplanDeepLink();
+    if (typeof handleOrdnerDeepLink === 'function') handleOrdnerDeepLink();
+    // Wochenplan restored from before the login needs the user to load "Meine Schichten"
+    if (!wpDeepLink && typeof activeModule !== 'undefined' && activeModule === 'wochenplan' && typeof initWochenplan === 'function') initWochenplan();
     // If Projektordner is already rendered, re-render with correct permissions
     if (typeof activeModule !== 'undefined' && activeModule === 'ordner' &&
         typeof renderOrdner === 'function' && typeof alleOrdner !== 'undefined') {
@@ -181,6 +237,7 @@ function handleSession(user) {
     currentUser = null;
     userRole = 'MA';
     authSelectedUserId = null;
+    if (userChanged && typeof buildDays === 'function') buildDays(true); // no editor content of the logged-out user stays in memory
     const nameInp = document.getElementById('auth-name-input');
     if (nameInp) nameInp.value = '';
     const pwWrapper = document.getElementById('auth-password-wrapper');
@@ -199,25 +256,27 @@ function isPasswordlessRole(role) {
 // Gast (Zenjob/Rockit guest login) may only open the Produktdatenbank and Projektordner
 var GAST_MODULES = ['produkte', 'ordner'];
 
-function enforceUI() {
-  const stundenBtn = document.getElementById('btn-select-stunden');
-  const protBtn = document.getElementById('btn-select-protokoll');
-  const dashBtn = document.getElementById('btn-select-dashboard');
+// Role guards for modules (used by selectMode and for a module still open from before the login)
+function moduleAllowedForRole(m, role) {
+  if (role === 'Gast') return GAST_MODULES.indexOf(m) !== -1;
+  if (m === 'protokoll') return role !== 'MA';
+  if (m === 'dashboard') return ['AL', 'PL', 'Buchhaltung', 'Admin'].indexOf(role) !== -1;
+  return true;
+}
 
-  if (stundenBtn) {
-    stundenBtn.style.display = (userRole === 'Gast') ? 'none' : 'block';
-  }
-  if (protBtn) {
-    protBtn.style.display = (userRole === 'MA' || userRole === 'Gast') ? 'none' : 'block';
-  }
-  // A module restored from before the login may be off-limits for a guest
-  if (userRole === 'Gast' && typeof activeModule !== 'undefined' && activeModule && GAST_MODULES.indexOf(activeModule) === -1 &&
+function enforceUI() {
+  // Start page: tiles per role, greeting and next shift (home.js)
+  if (typeof renderHome === 'function') renderHome();
+  // A module restored from before the login (or left open by the previous user) may be off-limits for this role
+  if (typeof activeModule !== 'undefined' && activeModule && !moduleAllowedForRole(activeModule, userRole) &&
       typeof exitToMenu === 'function') {
     exitToMenu();
   }
-  if (dashBtn) {
-    const isAdmin = ['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole);
-    dashBtn.style.display = isAdmin ? 'block' : 'none';
+  // Settings tab only for the Admin role (saving additionally needs the admin password)
+  const setTab = document.getElementById('dash-tab-settings');
+  if (setTab) {
+    setTab.style.display = userRole === 'Admin' ? '' : 'none';
+    if (userRole !== 'Admin' && setTab.classList.contains('active') && typeof switchDashTab === 'function') switchDashTab('prot');
   }
 }
 
@@ -274,8 +333,21 @@ async function handleAuthSubmit() {
       return;
     }
 
-    const { data: valid, error: rpcError } = await supabaseClient.rpc('verify_admin_pin', { input_pin: passVal });
-    if (rpcError || !valid) {
+    let valid = null, rpcError = null;
+    try {
+      ({ data: valid, error: rpcError } = await supabaseClient.rpc('verify_admin_pin', { input_pin: passVal }));
+    } catch (e) { rpcError = e; }
+    const pinOutcome = pinCheckOutcome(valid, rpcError);
+    if (pinOutcome === 'error') {
+      // Offline / server unreachable: the password could not be checked, so it is not a failed attempt
+      console.error('verify_admin_pin:', rpcError);
+      errorEl.textContent = 'Passwort konnte nicht geprüft werden (keine Verbindung). Bitte später erneut versuchen.';
+      errorEl.style.display = 'block';
+      btn.textContent = 'Anmelden';
+      btn.disabled = false;
+      return;
+    }
+    if (pinOutcome === 'wrong') {
       const attempts = recordPinFailure();
       const remaining = PIN_MAX_ATTEMPTS - attempts;
       errorEl.textContent = remaining > 0
@@ -312,8 +384,10 @@ async function handleLogout() {
   localStorage.removeItem('local_app_user_id');
   localStorage.removeItem('local_app_session_ts');
   localStorage.removeItem('local_app_remember_me');
+  // Close the open module so the next user doesn't land in e.g. the dashboard of the previous one
+  if (typeof exitToMenu === 'function') exitToMenu();
   handleSession(null);
-  
+
   if (typeof closeSettingsModal === 'function') {
     closeSettingsModal();
   }
