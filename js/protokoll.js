@@ -182,14 +182,14 @@ function populateAlPlSelects() {
   var plSel = document.getElementById('prot-pl');
 
   if (alSel) {
-    var alUsers = appUsers.filter(function(u) { return u.role === 'AL' || u.role === 'Admin'; });
+    var alUsers = appUsers.filter(function(u) { return userHasRole(u, 'AL') || u.role === 'Admin'; });
     alSel.innerHTML = '<option value="">— AL auswählen —</option>' +
       alUsers.map(function(u) { return '<option value="' + escapeHtml(u.id) + '">' + escapeHtml(u.full_name || u.email) + '</option>'; }).join('');
     if (protState.alId) alSel.value = protState.alId;
   }
 
   if (plSel) {
-    var plUsers = appUsers.filter(function(u) { return u.role === 'PL' || u.role === 'Admin'; });
+    var plUsers = appUsers.filter(function(u) { return userHasRole(u, 'PL') || u.role === 'Admin'; });
     plSel.innerHTML = '<option value="">— PL auswählen —</option>' +
       plUsers.map(function(u) { return '<option value="' + escapeHtml(u.id) + '">' + escapeHtml(u.full_name || u.email) + '</option>'; }).join('');
     if (protState.plId) plSel.value = protState.plId;

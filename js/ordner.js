@@ -314,7 +314,7 @@ var _ordnerFormReturnId = null;     // reopen this folder's detail view after sa
 async function loadOrdnerUsers() {
   if (_ordnerUsers) return _ordnerUsers;
   // Inactive users too: an already assigned AL/PL who left must still show up in the form
-  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, is_active').order('full_name');
+  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, is_active').order('full_name');
   if (error) { console.error('Ordner users:', error); return []; }
   _ordnerUsers = data || [];
   return _ordnerUsers;
@@ -323,7 +323,7 @@ async function loadOrdnerUsers() {
 function ordnerUserOptions(roles, selectedId, emptyLabel) {
   var opts = emptyLabel !== undefined ? '<option value="">' + escOrdner(emptyLabel) + '</option>' : '';
   return opts + (_ordnerUsers || []).filter(function(u) {
-    return roles.indexOf(u.role) !== -1 && (u.is_active !== false || u.id === selectedId);
+    return roles.some(function(r) { return userHasRole(u, r); }) && (u.is_active !== false || u.id === selectedId);
   }).map(function(u) {
     return '<option value="' + u.id + '"' + (u.id === selectedId ? ' selected' : '') + '>' + escOrdner(u.full_name) +
       (u.is_active === false ? ' (inaktiv)' : '') + '</option>';

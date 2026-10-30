@@ -164,3 +164,16 @@ test('jsAttrArg: safe as a quoted JS string inside an HTML attribute', () => {
   assert.equal(jsAttrArg("O'Neil"), "O\\&#039;Neil");
   assert.equal(jsAttrArg('a"b<c>\\'), 'a&quot;b&lt;c&gt;\\\\');
 });
+
+const userHasRole = new Function(grab('userHasRole') + '; return userHasRole;')();
+
+test('userHasRole: main role or an additional role from the Personalbogen (first word)', () => {
+  assert.equal(userHasRole({ role: 'AL' }, 'AL'), true);
+  assert.equal(userHasRole({ role: 'MA', role_rates: [{ role: 'AL frei', rate_internal: '25' }] }, 'AL'), true);
+  assert.equal(userHasRole({ role: 'MA', role_rates: [{ role: 'PL', rate_internal: '' }] }, 'PL'), true);
+  assert.equal(userHasRole({ role: 'MA', role_rates: [{ role: 'AL frei' }] }, 'PL'), false);
+  assert.equal(userHasRole({ role: 'MA', role_rates: [{ role: 'ALT frei' }] }, 'AL'), false);
+  assert.equal(userHasRole({ role: 'MA', role_rates: null }, 'AL'), false);
+  assert.equal(userHasRole({ role: 'MA' }, 'AL'), false);
+  assert.equal(userHasRole(null, 'AL'), false);
+});
