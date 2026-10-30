@@ -134,3 +134,13 @@ test('produktMenuItems: editing only for AL, PL and Admin', () => {
     assert.deepEqual(items[0].args, ['p1']);
   }
 });
+
+test('produktPayload: created_by only on insert, never on update', () => {
+  const f = { name: ' Tisch ', desc: ' ', pdfUrl: 'u', contentText: 'x ' };
+  const ins = P.produktPayload(f, 'user1', true);
+  assert.deepEqual(ins, { name: 'Tisch', description: null, pdf_url: 'u', content_text: 'x', created_by: 'user1' });
+  const upd = P.produktPayload(f, 'user1', false);
+  assert.equal('created_by' in upd, false);
+  assert.equal(upd.name, 'Tisch');
+  assert.equal(P.produktPayload(f, undefined, true).created_by, null);
+});

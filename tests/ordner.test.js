@@ -92,3 +92,13 @@ test('ordnerNextDeleteValue: the form follows the jobs unless the date was moved
   assert.equal(ctx.ordnerNextDeleteValue('2026-12-01', '2026-10-19', '2026-10-26'), '2026-12-01');
   assert.equal(ctx.ordnerNextDeleteValue('2026-12-01', '', '2026-10-26'), '2026-12-01');
 });
+
+test('ordnerViewerKind: HEIC/HEIF is download-only, other images/PDFs are viewable', () => {
+  assert.equal(ctx.ordnerViewerKind('image/heic', 'https://x/a.heic'), 'file');
+  assert.equal(ctx.ordnerViewerKind('image/heif', 'https://x/a'), 'file');
+  assert.equal(ctx.ordnerViewerKind('', 'https://x/IMG.HEIC?t=1'), 'file');
+  assert.equal(ctx.ordnerViewerKind('image/jpeg', 'https://x/a.jpg'), 'image');
+  assert.equal(ctx.ordnerViewerKind('', 'https://x/a.png?x=1'), 'image');
+  assert.equal(ctx.ordnerViewerKind('application/pdf', 'https://x/a'), 'pdf');
+  assert.equal(ctx.ordnerViewerKind('application/zip', 'https://x/a.zip'), 'file');
+});
