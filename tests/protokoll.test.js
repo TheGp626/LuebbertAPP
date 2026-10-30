@@ -326,6 +326,72 @@ test('protCostLines: same total as calcProtCosts, one line per transport and per
   assert.deepEqual(r2, { lines: [], total: 0 });
 });
 
+// ── Driver hours (cost only) ──
+const withDriver = (t, extra) => Object.assign(JSON.parse(JSON.stringify(COST_FIXTURE)), { transports: [Object.assign({ type: 'Sprinter', driver: 'Tom', punctuality: 'pünktlich', delay: '' }, t)] }, extra || {});
+
+test('protCostLines: driver with hours adds a line, unregistered driver is billed as Fahrer frei', () => {
+  const r = plain(ctx.protCostLines(withDriver({ hours: 5 }), '2026-10-28', false));
+  assert.equal(r.lines.length, 5);
+  assert.deepEqual(r.lines[1], { label: 'Fahrer Tom', amount: 150 });
+  assert.equal(r.total.toFixed(2), (529.52 + 150).toFixed(2));
+  // hours typed into the field arrive as strings
+  assert.equal(plain(ctx.protCostLines(withDriver({ hours: '2.5' }), '2026-10-28', false)).lines[1].amount, 75);
+});
+
+test('protCostLines: no hours (old draft / row), zero hours or no driver → no driver line, fixture total unchanged', () => {
+  [{}, { hours: 0 }, { hours: null }, { hours: '' }, { hours: 5, driver: '' }].forEach(t => {
+    const r = plain(ctx.protCostLines(withDriver(t), '2026-10-28', false));
+    assert.equal(r.lines.length, 4);
+    assert.equal(r.total.toFixed(2), '529.52');
+  });
+});
+
+test('protCostLines: registered driver uses fest/frei and the personal rate', () => {
+  run("appUsers = [{ id: 'd-fest', is_fest: true }, { id: 'd-frei', role_rates: [{ role: 'Fahrer frei', rate_internal: '28' }] }, { id: 'd-std' }]");
+  const amount = id => plain(ctx.protCostLines(withDriver({ hours: 5, driverUserId: id }), '2026-10-28', false)).lines[1].amount;
+  assert.equal(amount('d-fest'), 0);
+  assert.equal(amount('d-frei'), 140);
+  assert.equal(amount('d-std'), 150);
+});
+
+test('protDriverBusyCount / protDriverHint: same driver by id, else by name, in the form and on other protocols', () => {
+  const form = [{ driver: 'Tom', driverUserId: 'u1' }, { driver: 'tom ', driverUserId: '' }, { driver: 'Zoe' }, { driver: '' }];
+  const others = [{ driver_name: 'Tom', driver_user_id: 'u1' }, { driver_name: 'Zoe', driver_user_id: null }, { driver_name: 'Tom', driver_user_id: 'u2' }];
+  // id match: other form row has no id → compared by name; db row with other id doesn't count
+  assert.equal(ctx.protDriverBusyCount(form, 0, others), 2);
+  assert.equal(ctx.protDriverBusyCount(form, 2, others), 1);
+  assert.equal(ctx.protDriverBusyCount(form, 3, others), 0);
+  assert.equal(ctx.protDriverHint('Tom', 1), 'Tom hat an diesem Tag schon 1 weitere Tour – Stunden ggf. aufteilen.');
+  assert.equal(ctx.protDriverHint('Tom', 2), 'Tom hat an diesem Tag schon 2 weitere Touren – Stunden ggf. aufteilen.');
+  assert.equal(ctx.protDriverHint('Tom', 0), '');
+});
+
+test('protTransportSummary shows the driver hours', () => {
+  assert.equal(ctx.protTransportSummary({ type: 'Sprinter', driver: 'Marcin', hours: 5, punctuality: 'pünktlich' }), 'Sprinter · Marcin · 5 h · pünktlich');
+  assert.equal(ctx.protTransportSummary({ type: 'Sprinter', driver: 'Marcin', punctuality: 'pünktlich' }), 'Sprinter · Marcin · pünktlich');
+});
+
+test('sync: driver hours and user id are saved on the transport row', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  ctx.__data = protData({ transports: [{ type: 'Sprinter', driver: 'Tom', driverUserId: 'u-tom', hours: '5', punctuality: 'pünktlich', delay: '' }, { type: 'PKW', driver: '', punctuality: 'pünktlich', delay: '' }] });
+  await run('syncProtokollToSupabase(__data, null)');
+  const ins = plain(sb.calls.find(c => c.table === 'protocol_transports' && c.op === 'insert').payload);
+  assert.equal(ins[0].driver_hours, 5);
+  assert.equal(ins[0].driver_user_id, 'u-tom');
+  assert.equal(ins[1].driver_hours, null);
+  assert.equal(ins[1].driver_user_id, null);
+});
+
+test('protRowToEntry maps driver hours and user id back; old rows stay without hours', () => {
+  const e = plain(ctx.protRowToEntry({ id: 'x', protocol_transports: [
+    { vehicle_type: 'Sprinter', driver_name: 'Tom', driver_hours: 5, driver_user_id: 'u1', punctuality: 'pünktlich', delay_mins: 0 },
+    { vehicle_type: 'PKW', driver_name: 'Zoe', driver_hours: null, driver_user_id: null, punctuality: 'pünktlich', delay_mins: 0 }] }));
+  assert.equal(e.transports[0].hours, 5);
+  assert.equal(e.transports[0].driverUserId, 'u1');
+  assert.equal(e.transports[1].hours, null);
+  assert.equal(e.transports[1].driverUserId, '');
+});
+
 // ── Personnel prefill from a Wochenplan shift ──
 const planShift = extra => Object.assign({ date: '2026-10-30', wann: ['Aufbau: 8 Uhr'], people: [] }, extra);
 const users = [{ id: 'u-anna', full_name: 'Anna Albers', is_fest: true }, { id: 'u-bert', full_name: 'Bert Brandt', is_fest: false }];

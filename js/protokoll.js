@@ -139,7 +139,9 @@ function protRowToEntry(r) {
     plId: r.pl_id || null,
     totalCost: (Number(r.total_cost) || 0).toFixed(2).replace('.', ',') + ' €',
     transports: (r.protocol_transports || []).map(function(t) {
-      return { type: t.vehicle_type, driver: t.driver_name, punctuality: t.punctuality, delay: t.delay_mins };
+      // hours stays null for rows saved before driver hours existed → no driver cost on recalc
+      return { type: t.vehicle_type, driver: t.driver_name, punctuality: t.punctuality, delay: t.delay_mins,
+        hours: t.driver_hours == null ? null : Number(t.driver_hours), driverUserId: t.driver_user_id || '' };
     }),
     personnel: personnel,
     categories: catMap,
@@ -296,11 +298,37 @@ function protShiftOpenRows(kind, idx) {
   protOpenRows = next;
 }
 
-// "Sprinter · Max · pünktlich" / "LKW · ohne Fahrer · 20 min Verspätung"
+// "Sprinter · Max · 5 h · pünktlich" / "LKW · ohne Fahrer · 20 min Verspätung"
 function protTransportSummary(t) {
   var driver = (t.driver || '').trim() || 'ohne Fahrer';
+  var hrs = parseFloat(t.hours);
   var when = t.punctuality === 'verspätet' ? ((t.delay ? t.delay + ' min ' : '') + 'Verspätung') : 'pünktlich';
-  return (t.type || 'Fahrzeug') + ' · ' + driver + ' · ' + when;
+  return (t.type || 'Fahrzeug') + ' · ' + driver + (hrs > 0 ? ' · ' + String(hrs).replace('.', ',') + ' h' : '') + ' · ' + when;
+}
+
+// Same driver: by user id when both sides have one, else by name (case-insensitive)
+function protDriverSame(a, b) {
+  if (a.driverUserId && b.driverUserId) return a.driverUserId === b.driverUserId;
+  var na = (a.driver || '').trim().toLowerCase();
+  return !!na && na === (b.driver || '').trim().toLowerCase();
+}
+
+// Other tours of the driver of form row idx: in this form (other rows) and on other protocols of the day
+// (others = rows of protocol_transports: { driver_name, driver_user_id })
+function protDriverBusyCount(transports, idx, others) {
+  var me = transports[idx];
+  if (!me || (!me.driverUserId && !(me.driver || '').trim())) return 0;
+  var n = 0;
+  transports.forEach(function(t, j) { if (j !== idx && protDriverSame(me, t)) n++; });
+  (others || []).forEach(function(o) {
+    if (protDriverSame(me, { driver: o.driver_name, driverUserId: o.driver_user_id })) n++;
+  });
+  return n;
+}
+
+function protDriverHint(name, n) {
+  if (!n) return '';
+  return name + ' hat an diesem Tag schon ' + n + ' weitere ' + (n === 1 ? 'Tour' : 'Touren') + ' – Stunden ggf. aufteilen.';
 }
 
 // "08:00–16:30 · 30 min"
@@ -317,7 +345,7 @@ function protRowChevron(key) {
 }
 
 function addProtTransport() {
-  protState.transports.push({ type: 'Sprinter', driver: '', punctuality: 'pünktlich', delay: '' });
+  protState.transports.push({ type: 'Sprinter', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
   protOpenRows['t' + (protState.transports.length - 1)] = true;
   renderProtTransport();
   saveProtDraft();
@@ -350,6 +378,8 @@ function renderProtTransport() {
           '<label class="ui-field"><span>Fahrzeugtyp</span><select onchange="updateProtTransport(' + i + ', \'type\', this.value)">' + vehicles + '</select></label>' +
           '<div class="ui-field"><span>Fahrer</span>' + uiComboHtml('prot-drv-' + i, t.driver || '', 'Name tippen…', 'onProtDriverName', i) + '</div>' +
         '</div>' +
+        '<label class="ui-field"><span>Fahrerstunden</span><input type="number" step="0.5" min="0" placeholder="0" value="' + escapeHtml(t.hours == null ? '' : t.hours) + '" oninput="updateProtTransport(' + i + ', \'hours\', this.value)"/></label>' +
+        '<div class="ui-sub" id="prot-drvhint-' + i + '" style="margin:-6px 2px 10px;"></div>' +
         (t.type === 'Spedition' ? '<div class="ui-sub" style="margin:-4px 2px 10px;">Kosten separat per Rechnung erfassen</div>' : '') +
         '<div class="stunden-grid">' +
           '<label class="ui-field"><span>Pünktlichkeit</span><select onchange="updateProtTransport(' + i + ', \'punctuality\', this.value)">' +
@@ -364,6 +394,7 @@ function renderProtTransport() {
       '</div>' +
     '</div>';
   }).join('');
+  protRefreshDriverHints();
 }
 
 function updateProtTransport(idx, field, val) {
@@ -376,6 +407,33 @@ function updateProtTransport(idx, field, val) {
   if (sum) sum.textContent = protTransportSummary(protState.transports[idx]);
   saveProtDraft();
   if (field === 'type') { calcProtCosts(); renderProtTransport(); }
+  if (field === 'hours') calcProtCosts();
+}
+
+// Transport rows of other protocols on the form's date (read-only), cached per date + edited protocol;
+// feeds the "driver already has another tour today" hint
+var protDayDrivers = { key: null, rows: [] };
+function protRefreshDriverHints() {
+  var dateEl = document.getElementById('prot-date');
+  var date = dateEl && dateEl.value;
+  var apply = function() {
+    protState.transports.forEach(function(t, i) {
+      var el = document.getElementById('prot-drvhint-' + i);
+      if (el) el.textContent = protDriverHint((t.driver || '').trim(), protDriverBusyCount(protState.transports, i, protDayDrivers.rows));
+    });
+  };
+  apply();
+  var key = date + '|' + (protState.editingId || '');
+  if (!date || protDayDrivers.key === key || typeof supabaseClient === 'undefined' || !navigator.onLine) return;
+  protDayDrivers = { key: key, rows: [] };
+  var q = supabaseClient.from('protocol_transports').select('driver_name, driver_user_id, protocol_id, protocols!inner(date)').eq('protocols.date', date);
+  if (protState.editingId) q = q.neq('protocol_id', protState.editingId);
+  q.then(function(res) {
+    if (protDayDrivers.key !== key) return;
+    if (res.error) { protDayDrivers.key = null; return; }
+    protDayDrivers.rows = res.data || [];
+    apply();
+  }, function() { protDayDrivers.key = null; });
 }
 
 // Driver picked from the list or typed: a registered user sets driverUserId, free text clears it
@@ -391,6 +449,7 @@ function onProtDriverName(idx, val) {
   if (sum) sum.textContent = protTransportSummary(t);
   saveProtDraft();
   calcProtCosts();
+  protRefreshDriverHints();
 }
 
 // ── PERSONNEL ──
@@ -616,11 +675,24 @@ function updateProtCategory(id, field, val) {
 }
 
 // ── CALCULATIONS ──
-// Cost lines of a protocol: one per transport and per person with valid times; total = their sum
+// Driver cost of a transport: hours × rate of position "Fahrer" (fest/frei and personal rate for a registered
+// driver, else "Fahrer frei"). null without hours (old rows) or without a driver. Shared with the dashboard.
+function protDriverCost(t, users) {
+  var hrs = parseFloat(t.hours);
+  if (!(hrs > 0) || (!t.driverUserId && !(t.driver || '').trim())) return null;
+  var basePos = protBasePos({ pos: 'Fahrer', userId: t.driverUserId || '' }, users);
+  var custom = t.driverUserId ? getEffectivePersonnelRate(basePos, t.driverUserId) : undefined;
+  var rate = (typeof custom === 'number' && custom > 0) ? custom : (PROT_PERSONNEL_RATES[basePos] || 0);
+  return { hrs: hrs, rate: rate, amount: hrs * rate };
+}
+
+// Cost lines of a protocol: one per transport, driver (with hours) and per person with valid times; total = their sum
 function protCostLines(state, date, holiday) {
   var lines = [];
   (state.transports || []).forEach(function(t) {
     lines.push({ label: t.type || 'Fahrzeug', amount: calcTransportCost(t.type, date) });
+    var drv = protDriverCost(t, appUsers);
+    if (drv) lines.push({ label: 'Fahrer ' + ((t.driver || '').trim() || 'ohne Name'), amount: drv.amount });
   });
   (state.personnel || []).forEach(function(p) {
     var v = timeToMins(p.start), b = timeToMins(p.end), pa = parseInt(p.pause) || 0;
@@ -1048,7 +1120,9 @@ async function syncProtokollToSupabase(data, targetId, out) {
           vehicle_type: t.type,
           driver_name: t.driver || null,
           punctuality: t.punctuality,
-          delay_mins: t.delay ? parseInt(t.delay) : 0
+          delay_mins: t.delay ? parseInt(t.delay) : 0,
+          driver_hours: (t.hours === null || t.hours === undefined || t.hours === '' || isNaN(parseFloat(t.hours))) ? null : parseFloat(t.hours),
+          driver_user_id: t.driverUserId || null
         };
       });
       var { error: trErr } = await supabaseClient.from('protocol_transports').insert(transInserts);
@@ -1512,7 +1586,7 @@ function buildProtPdfDoc(entry) {
     doc.setTextColor(0); y += 8;
     data.transports.forEach(function(t,i) {
       if (i%2===1){doc.setFillColor(248,248,246);doc.rect(ml,y,cw,8,'F');}
-      doc.text(pdfStr(t.type,'—'),ml+2,y+5.5); doc.text(pdfStr(t.driver,'—'),ml+40,y+5.5); doc.text(pdfStr(t.punctuality,'—'),ml+80,y+5.5); doc.text(t.delay?t.delay+' Min':'—',ml+120,y+5.5); y += 8;
+      doc.text(pdfStr(t.type,'—'),ml+2,y+5.5); doc.text(truncatePdf(doc,pdfStr(t.driver,'—') + (parseFloat(t.hours) > 0 ? ' · ' + String(parseFloat(t.hours)).replace('.', ',') + ' h' : ''),38),ml+40,y+5.5); doc.text(pdfStr(t.punctuality,'—'),ml+80,y+5.5); doc.text(t.delay?t.delay+' Min':'—',ml+120,y+5.5); y += 8;
     }); y += 4;
   }
 
@@ -1587,6 +1661,11 @@ function buildProtPdfDoc(entry) {
     var r = calcTransportCost(t.type, calcDate);
     doc.text('- ' + t.type + (t.driver ? ' (' + t.driver + ')' : '') + ': ' + r.toFixed(2) + ' EUR', ml + 5, y); y += 4;
     if (y > 280) { doc.addPage(); y = 20; }
+    var drv = protDriverCost(t, appUsers);
+    if (drv) {
+      doc.text('- Fahrer ' + pdfStr(t.driver, '—') + ': ' + drv.hrs.toFixed(2) + 'h x ' + drv.rate.toFixed(2) + ' EUR = ' + drv.amount.toFixed(2) + ' EUR', ml + 5, y); y += 4;
+      if (y > 280) { doc.addPage(); y = 20; }
+    }
   });
   data.personnel.forEach(function(p) {
     var v = timeToMins(p.start), b = timeToMins(p.end), pa = parseInt(p.pause) || 0;

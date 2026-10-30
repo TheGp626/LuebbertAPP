@@ -42,10 +42,22 @@ test('dashShiftCosts uses the employee rate (role_rates / hourly_rate_internal)'
 test('calcDashProtTotal matches the app formula (date-dependent transport, holiday, minimum hours)', () => {
   const f = run('calcDashProtTotal');
   // Bischoff on a Sunday costs 837.50; Zenjob 2h on a holiday → 4h minimum × 35.25
-  const total = f('2026-11-01', true, ['Bischoff'], [
+  const total = f('2026-11-01', true, [{ type: 'Bischoff' }], [
     { position_role: 'Zenjob', start_time: '10:00', end_time: '12:00', pause_mins: 0 },
   ]);
   assert.equal(total, 837.5 + 4 * 35.25);
+});
+
+test('calcDashProtTotal: driver hours count like in the form; old rows without hours do not', () => {
+  run("appUsers = [{ id: 'd1', role_rates: [{ role: 'Fahrer frei', rate_internal: '28' }] }]");
+  const f = run('calcDashProtTotal');
+  const transports = [{ type: 'Sprinter', hours: 5, driverUserId: 'd1', driver: 'Tom' }, { type: 'PKW', hours: null, driver: 'Zoe' }];
+  const shifts = [{ position_role: 'MA frei', start_time: '08:00', end_time: '16:00', pause_mins: 0 }];
+  const dash = f('2026-10-28', false, transports, shifts);
+  assert.equal(dash, 40 + 20 + 5 * 28 + 8 * 21.5);
+  const form = run('protCostLines')({ transports, personnel: [{ pos: 'MA', isTemp: true, name: 'X', start: '08:00', end: '16:00', pause: '0' }] }, '2026-10-28', false);
+  assert.equal(dash, Math.round(form.total * 100) / 100);
+  assert.equal(f('2026-10-28', false, [{ type: 'PKW', driver: 'Zoe' }], []), 20);
 });
 
 // ── Finding 10: AL/PL names typed in the edit modal ──

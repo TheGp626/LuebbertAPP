@@ -930,11 +930,22 @@ function dashShiftCosts(date, isHoliday, s) {
   return calcSplitShiftCosts(basePos, date, !!isHoliday, v, b, parseInt(s.pause_mins) || 0, customRate);
 }
 
-// Protocol total with the same formula as calcProtCosts in the app
-function calcDashProtTotal(date, isHoliday, vehicleTypes, shifts) {
+// protocol_transports rows → { type, hours, driverUserId, driver } (the shape of the app's transports)
+function dashTransportsFromRows(rows) {
+  return (rows || []).map(function(t) {
+    return { type: t.vehicle_type, driver: t.driver_name || '', hours: t.driver_hours == null ? null : Number(t.driver_hours),
+      driverUserId: t.driver_user_id || '' };
+  });
+}
+
+// Protocol total with the same formula as calcProtCosts in the app; transports = [{ type, hours, driverUserId, driver }]
+// (rows without hours cost no driver, so totals of old protocols stay as they were)
+function calcDashProtTotal(date, isHoliday, transports, shifts) {
   var total = 0;
-  (vehicleTypes || []).forEach(function(type) {
-    total += (typeof calcTransportCost === 'function') ? calcTransportCost(type, date) : 0;
+  (transports || []).forEach(function(t) {
+    total += (typeof calcTransportCost === 'function') ? calcTransportCost(t.type, date) : 0;
+    var drv = (typeof protDriverCost === 'function') ? protDriverCost(t, typeof appUsers !== 'undefined' ? appUsers : []) : null;
+    if (drv) total += drv.amount;
   });
   (shifts || []).forEach(function(s) {
     dashShiftCosts(date, isHoliday, s).forEach(function(c) { total += c.hrs * c.rate; });
@@ -987,7 +998,7 @@ async function recalcAllProtocolCostsRun() {
   await ensureRateUsers();
   for (const p of dashboardProtocols) {
     const rounded = calcDashProtTotal(p.date, p.is_holiday,
-      (p.protocol_transports || []).map(t => t.vehicle_type), p.shifts || []);
+      dashTransportsFromRows(p.protocol_transports), p.shifts || []);
 
     try {
       const { data: upd, error } = await supabaseClient
@@ -1088,7 +1099,7 @@ function openDashDetail(id) {
         : 'color:#22c55e;font-weight:600;';
       transHtml += `<tr>
         <td>${escapeHtml(t.vehicle_type || '—')}</td>
-        <td>${escapeHtml(t.driver_name || '—')}</td>
+        <td>${escapeHtml(t.driver_name || '—')}${t.driver_hours > 0 ? ' · ' + escapeHtml(String(Number(t.driver_hours)).replace('.', ',')) + ' h' : ''}</td>
         <td style="${punctStyle}">${escapeHtml(t.punctuality || '—')}</td>
         <td>${delay}</td>
       </tr>`;
@@ -1189,6 +1200,11 @@ function openDashDetail(id) {
         logTotal += r;
         rows.push({ section: 'transport', label: label, detail: escapeHtml(t.driver_name || ''), cost: r });
       }
+      var drv = (typeof protDriverCost === 'function') ? protDriverCost(dashTransportsFromRows([t])[0], typeof appUsers !== 'undefined' ? appUsers : []) : null;
+      if (drv) {
+        logTotal += drv.amount;
+        rows.push({ section: 'transport', label: 'Fahrer ' + escapeHtml(t.driver_name || ''), detail: drv.hrs.toFixed(2) + 'h × ' + drv.rate.toFixed(2) + ' €', cost: drv.amount });
+      }
     });
 
     // Personnel costs
@@ -1285,10 +1301,13 @@ function openDashProtEdit() {
   _editProtTransports = (p.protocol_transports || []).map(t => ({
     type: t.vehicle_type || 'Sprinter',
     driver: t.driver_name || '',
+    driverUserId: t.driver_user_id || '',
+    hours: t.driver_hours == null ? null : Number(t.driver_hours),
     punctuality: t.punctuality || 'pünktlich',
     delay: t.delay_mins || ''
   }));
 
+  ensureRateUsers(); // the driver combobox lists appUsers
   renderDashProtTransports();
   renderDashProtEquipment(p.protocol_equipments || []);
   renderProtShiftsInEdit();
@@ -1319,7 +1338,9 @@ function renderDashProtTransports() {
     }).join('');
     return '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
       '<select oninput="_editProtTransports[' + i + '].type=this.value" class="meta-input" style="flex:1;min-width:110px;padding:5px 6px;font-size:12px;">' + selOpts + '</select>' +
-      '<input type="text" placeholder="Fahrer" value="' + escapeHtml(t.driver || '') + '" oninput="_editProtTransports[' + i + '].driver=this.value" class="meta-input" style="flex:1;min-width:100px;padding:5px 6px;font-size:12px;">' +
+      '<div style="flex:1;min-width:100px;">' + uiComboHtml('pe-drv-' + i, t.driver || '', 'Fahrer', 'onDashDriverName', i)
+        .replace('<input ', '<input class="meta-input" style="width:100%;padding:5px 6px;font-size:12px;box-sizing:border-box;" ') + '</div>' +
+      '<input type="number" step="0.5" min="0" placeholder="Std" title="Fahrerstunden" value="' + escapeHtml(t.hours == null ? '' : t.hours) + '" oninput="_editProtTransports[' + i + '].hours=this.value" class="meta-input" style="width:60px;padding:5px 6px;font-size:12px;">' +
       '<select oninput="_editProtTransports[' + i + '].punctuality=this.value;renderDashProtTransports()" class="meta-input" style="flex:1;min-width:100px;padding:5px 6px;font-size:12px;">' +
         '<option value="pünktlich"' + (t.punctuality === 'pünktlich' ? ' selected' : '') + '>Pünktlich</option>' +
         '<option value="verspätet"' + (t.punctuality === 'verspätet' ? ' selected' : '') + '>Verspätet</option>' +
@@ -1330,8 +1351,18 @@ function renderDashProtTransports() {
   }).join('');
 }
 
+// Driver picked from the combobox or typed: a registered user sets the user id (rate lookup), free text clears it
+function onDashDriverName(idx, val) {
+  var t = _editProtTransports[idx];
+  if (!t) return;
+  var typed = (val || '').trim();
+  var hits = (typeof appUsers !== 'undefined' ? appUsers : []).filter(function(u) { return (u.full_name || '').trim().toLowerCase() === typed.toLowerCase(); });
+  t.driver = typed;
+  t.driverUserId = hits.length === 1 ? hits[0].id : '';
+}
+
 function addDashProtTransport() {
-  _editProtTransports.push({ type: 'Sprinter', driver: '', punctuality: 'pünktlich', delay: '' });
+  _editProtTransports.push({ type: 'Sprinter', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
   renderDashProtTransports();
 }
 
@@ -1397,7 +1428,7 @@ async function saveDashProtEdit() {
     al_name_fallback: al.fallback,
     pl_name_fallback: pl.fallback,
     // Same formula as the app (transports by date, holiday, employee rates, minimum hours)
-    total_cost:      calcDashProtTotal(newDate, isHoliday, _editProtTransports.map(t => t.type), p.shifts || []),
+    total_cost:      calcDashProtTotal(newDate, isHoliday, _editProtTransports, p.shifts || []),
     notes_damages:   document.getElementById('pe-damages').value.trim()   || null,
     notes_incidents: document.getElementById('pe-incidents').value.trim() || null,
     notes_feedback:  document.getElementById('pe-feedback').value.trim()  || null,
@@ -1421,7 +1452,8 @@ async function saveDashProtEdit() {
     if (_editProtTransports.length) {
       const tInserts = _editProtTransports.map(function(t) {
         return { protocol_id: _editProtId, vehicle_type: t.type, driver_name: t.driver || null,
-                 punctuality: t.punctuality, delay_mins: t.delay ? parseInt(t.delay) : 0 };
+                 punctuality: t.punctuality, delay_mins: t.delay ? parseInt(t.delay) : 0,
+                 driver_hours: parseFloat(t.hours) >= 0 ? parseFloat(t.hours) : null, driver_user_id: t.driverUserId || null };
       });
       const { error: tErr } = await supabaseClient.from('protocol_transports').insert(tInserts);
       if (tErr) throw tErr;

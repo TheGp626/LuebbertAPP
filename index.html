@@ -166,7 +166,7 @@
               <input type="text" id="prot-location" placeholder="Ort" oninput="saveProtDraft()" /></label>
             <div class="prot-date-row">
               <label class="ui-field"><span>Datum</span>
-                <input type="date" id="prot-date" onchange="saveProtDraft(); calcProtCosts()" /></label>
+                <input type="date" id="prot-date" onchange="saveProtDraft(); calcProtCosts(); protRefreshDriverHints()" /></label>
               <label class="prot-switch-label"><input type="checkbox" class="ui-switch" id="prot-isholiday" onchange="saveProtDraft(); calcProtCosts()" /> Feiertag</label>
             </div>
             <div class="ui-field"><span>Aktion</span>
