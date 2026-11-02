@@ -577,6 +577,9 @@ function removeProtPersonnel(idx) {
   calcProtCosts();
 }
 
+// Zenjob has no API: ALs rate the Zenjobber in Zenjob's own company portal (login is Lübbert's Zenjob account)
+var PROT_ZENJOB_RATE_URL = 'https://company.zenjob.com/163/homepage';
+
 function protRatingButtons(p, i) {
   return '<span class="prot-rating">' +
     '<button type="button" class="prot-rate' + (p.rating === 'up' ? ' on' : '') + '" onclick="event.stopPropagation();updateProtRating(' + i + ',\'rating\',' + (p.rating === 'up' ? 'null' : '\'up\'') + ')" title="Daumen hoch">👍</button>' +
@@ -617,6 +620,8 @@ function renderProtPersonnel() {
           '<label class="ui-field"><span>Ende</span><input type="time" value="' + (p.end || '') + '" oninput="updateProtPersonnel(' + i + ', \'end\', this.value)"/></label>' +
           '<label class="ui-field"><span>Pause</span><input type="number" placeholder="Min" value="' + (p.pause || '0') + '" oninput="updateProtPersonnel(' + i + ', \'pause\', this.value)"/></label>' +
         '</div>' +
+        // A plain link opens reliably in iOS/Android PWAs, a window.open after the save would be popup-blocked
+        (p.pos === 'Zenjob' ? '<a class="ui-btn" href="' + PROT_ZENJOB_RATE_URL + '" target="_blank" rel="noopener" style="margin-bottom:8px;">Bei Zenjob bewerten ↗</a>' : '') +
         '<button type="button" class="ui-btn ui-btn-danger prot-remove" onclick="removeProtPersonnel(' + i + ')">Person entfernen</button>' +
       '</div>' +
     '</div>';
