@@ -1518,7 +1518,7 @@ function onDashDriverName(idx, val) {
 }
 
 function addDashProtTransport() {
-  _editProtTransports.push({ type: 'Sprinter', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
+  _editProtTransports.push({ type: 'Hängerzug', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
   renderDashProtTransports();
 }
 
@@ -1767,7 +1767,23 @@ async function saveDashProtEdit() {
         hussen_returned:  cat.id === 'stoffe' ? (parseInt((document.getElementById('pe-hr-stoffe') || {}).value) || null) : null,
       };
     });
-    await dashReplaceRows('protocol_equipments', p, 'protocol_equipments', eInserts);
+    // Unique (protocol_id, category_id) forbids insert-before-delete: upsert per category, then drop removed ones
+    let eRows = [];
+    if (eInserts.length) {
+      const { data, error } = await supabaseClient.from('protocol_equipments').upsert(eInserts, { onConflict: 'protocol_id,category_id' }).select('*');
+      if (error) throw error;
+      if (!data || data.length !== eInserts.length) throw new Error('Speichern abgelehnt – keine Berechtigung (protocol_equipments)');
+      eRows = data;
+    }
+    const keepCats = eInserts.map(function(r) { return r.category_id; });
+    const dropIds = (p.protocol_equipments || []).filter(function(r) { return keepCats.indexOf(r.category_id) === -1; })
+      .map(function(r) { return r.id; }).filter(Boolean);
+    if (dropIds.length) {
+      const { data, error } = await supabaseClient.from('protocol_equipments').delete().in('id', dropIds).select('id');
+      if (error) throw error;
+      if (!data || data.length !== dropIds.length) throw new Error('Löschen abgelehnt – keine Berechtigung (protocol_equipments)');
+    }
+    p.protocol_equipments = eRows;
 
     showToast('✅ Protokoll gespeichert!');
     closeDashProtEdit();

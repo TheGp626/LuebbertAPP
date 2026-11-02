@@ -5,6 +5,7 @@
 var PROT_VEHICLE_RATES = {
   'Hängerzug':      80,
   'Solo':           70,
+  'Leih LKW':        0,   // Satz folgt von Jenni
   'Sprinter':       40,
   'PKW':            20,
   'Spedition':       0,

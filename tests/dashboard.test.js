@@ -224,7 +224,7 @@ test('saveDashProtEdit: one renamed person = one shift update; no shift delete/i
       const b = {
         select() { return b; }, order() { return b; },
         eq(k, v) { q.filters.push([k, v]); return b; }, in(k, v) { q.filters.push([k, v]); return b; },
-        insert(p) { q.op = 'insert'; q.payload = p; return b; }, update(p) { q.op = 'update'; q.payload = p; return b; }, delete() { q.op = 'delete'; return b; },
+        insert(p) { q.op = 'insert'; q.payload = p; return b; }, upsert(p, o) { q.op = 'upsert'; q.payload = p; q.onConflict = o && o.onConflict; return b; }, update(p) { q.op = 'update'; q.payload = p; return b; }, delete() { q.op = 'delete'; return b; },
         then(res, rej) { calls.push(q); return Promise.resolve({ data: [{ id: 'x' }], error: null }).then(res, rej); },
       };
       return b;
@@ -274,12 +274,12 @@ function mkSb(respond) {
       const b = {
         select() { q.selected = true; return b; }, order() { return b; },
         eq(k, v) { q.filters.push([k, v]); return b; }, in(k, v) { q.filters.push([k, v]); return b; }, neq() { return b; },
-        insert(p) { q.op = 'insert'; q.payload = p; return b; }, update(p) { q.op = 'update'; q.payload = p; return b; }, delete() { q.op = 'delete'; return b; },
+        insert(p) { q.op = 'insert'; q.payload = p; return b; }, upsert(p, o) { q.op = 'upsert'; q.payload = p; q.onConflict = o && o.onConflict; return b; }, update(p) { q.op = 'update'; q.payload = p; return b; }, delete() { q.op = 'delete'; return b; },
         then(res, rej) {
           calls.push(q);
           let r = respond && respond(q);
           if (!r) {
-            const rows = q.op === 'insert' ? [].concat(q.payload).map(() => ({ id: 'n' + (++n) })) : [{ id: 'x' }];
+            const rows = (q.op === 'insert' || q.op === 'upsert') ? [].concat(q.payload).map(() => ({ id: 'n' + (++n) })) : [{ id: 'x' }];
             r = { data: rows, error: null };
           }
           return Promise.resolve(r).then(res, rej);
@@ -376,9 +376,21 @@ test('saveDashProtEdit: new transports are inserted before the old ones are dele
   assert.deepEqual(t.map(c => c.op), ['insert', 'delete']);
   assert.deepEqual(t[1].filters, [['id', ['t1']]]);
   assert.ok(t[1].selected);
+  // Equipment has a unique (protocol_id, category_id): an existing category is upserted, never inserted twice
   const e = sb.calls.filter(c => c.table === 'protocol_equipments');
-  assert.deepEqual(e.map(c => c.op), ['insert', 'delete']);
-  assert.deepEqual(e[1].filters, [['id', ['e1']]]);
+  assert.deepEqual(e.map(c => c.op), ['upsert']);
+  assert.equal(e[0].onConflict, 'protocol_id,category_id');
+});
+
+test('saveDashProtEdit: equipment categories switched off are deleted by id after the upsert', async () => {
+  const sb = mkSb();
+  const p = baseProt({ protocol_equipments: [{ id: 'e1', category_id: 'mobiliar', status: 'okay' }, { id: 'e2', category_id: 'stoffe', status: 'okay' }] });
+  const { dom } = setupEdit(sb, p);
+  dom['pe-st-mobiliar'] = { value: 'beschädigt' }; dom['pe-nt-mobiliar'] = { value: '' };
+  await run('saveDashProtEdit()');
+  const e = sb.calls.filter(c => c.table === 'protocol_equipments');
+  assert.deepEqual(e.map(c => c.op), ['upsert', 'delete']);
+  assert.deepEqual(e[1].filters, [['id', ['e2']]]);
 });
 
 test('saveDashProtEdit: an RLS-blocked transport delete (0 rows) is an error, not a silent duplicate', async () => {

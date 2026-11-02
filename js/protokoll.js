@@ -262,7 +262,7 @@ function initProtokoll() {
     protState.alId = currentUser.id;
     saveProtDraft();
   }
-  // Default Sprinter only for a brand-new form; a draft whose transports were removed stays without
+  // Default transport (Hängerzug) only for a brand-new form; a draft whose transports were removed stays without
   if (!hadDraft && protState.transports.length === 0) addProtTransport();
   if (protState.personnel.length === 0) addProtPersonnel();
 
@@ -405,7 +405,7 @@ function protRowChevron(key) {
 }
 
 function addProtTransport() {
-  protState.transports.push({ type: 'Sprinter', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
+  protState.transports.push({ type: 'Hängerzug', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
   protOpenRows['t' + (protState.transports.length - 1)] = true;
   renderProtTransport();
   saveProtDraft();
