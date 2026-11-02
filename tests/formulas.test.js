@@ -52,3 +52,9 @@ test('calcTransportCost: default rates by weekday (Mo–Fr / Sa / So), admin rat
   assert.equal(c('Bischoff', '2026-11-02'), 0, 'a type removed in Einstellungen costs nothing');
   vm.runInContext('delete appSetting', ctx);
 });
+
+test('a break longer than the shift never yields negative hours', () => {
+  const r = calc('Zenjob', '2026-10-28', false, 8 * 60, 10 * 60, 180);
+  assert.ok(r.every(x => x.hrs >= 0));
+  assert.ok(calc('MA frei', '2026-10-28', false, 8 * 60, 10 * 60, 180).every(x => x.hrs >= 0));
+});

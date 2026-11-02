@@ -228,7 +228,15 @@ function refreshEditorIfClean() {
   if (!document.getElementById('inp-week') || editorIsDirty()) return;
   var wk = document.getElementById('inp-week').value || currentWeekVal();
   var w = mergeWeekParts(loadStore(), wk);
-  if (!w) return;
+  if (!w) {
+    // The open week is gone from the store (deleted on the server): an untouched editor must not keep showing it
+    var hasInput = false;
+    for (var i = 0; i < DAYS.length; i++) for (var s = 0; s < (shiftCounts[i] || 1); s++) {
+      var d = getShiftData(i, s);
+      if (d.von || d.bis || d.sig) hasInput = true;
+    }
+    if (!hasInput) return;
+  }
   resetEditorState(w);
   renderEditorFromState();
 }
@@ -267,6 +275,9 @@ async function fetchShiftsNow() {
   if (typeof supabaseClient === 'undefined' || !currentUser) return;
   if (_shiftsSyncRunning) return;
   _shiftsSyncRunning = true;
+  // Shared device: if another user logs in while this sync waits for the server, its result must not land in their store
+  var uid = currentUser.id;
+  var sameUser = function () { return !!currentUser && currentUser.id === uid; };
 
   try {
     // Weeks whose last save didn't reach the server (offline, failed check) are retried first —
@@ -274,6 +285,7 @@ async function fetchShiftsNow() {
     if (navigator.onLine !== false) {
       var pending = loadStore();
       for (var pw of unsyncedWeekKeys(pending)) {
+        if (!sameUser()) { setTimeout(fetchSupabaseShifts, 0); return; }
         if (weekIsBlind(pending, pw)) continue; // saved without seeing the server: merged below, never planned against it
         if (serialBusy(_weekSyncChains, pw)) continue; // a save of this week is syncing right now — no second sync on top
         var pData = mergeWeekParts(pending, pw);
@@ -291,6 +303,7 @@ async function fetchShiftsNow() {
       .in('status', ['offen', 'eingetragen']);
 
     if (error) throw error;
+    if (!sameUser()) { setTimeout(fetchSupabaseShifts, 0); return; } // the new user gets their own sync
     _serverSeenFor = currentUser.id;
     // Nothing on the server = empty server state: synced local weeks are stale and go (unsynced ones stay)
     if (!data || data.length === 0) {
@@ -1177,10 +1190,17 @@ async function saveWeek() {
   // Mixed weeks get one history entry per dept. 'unsynced' stays until the server has it.
   removeWeekEntries(all, d.weekStart);
   Object.assign(all, buildWeekEntries(Object.assign({}, d, blind ? { unsynced: true, blind: true } : { unsynced: true })));
-  saveStore(all);
+  var localOk = true;
+  try { saveStore(all); } catch (e) {
+    localOk = false;
+    // localStorage full (signatures are large): nothing was written. Hours still go to the server; say so instead of failing silently
+    console.error('Stundenzettel speichern:', e);
+    if (blind) { showToast('Speicher voll – Woche konnte nicht gespeichert werden. Bitte alte Wochen löschen.'); return; }
+    showToast('Speicher auf dem Gerät voll – Woche wird nur auf den Server übertragen (Unterschriften gehen verloren).');
+  }
   markEditorClean();
   if (blind) { showToast('💾 Woche lokal gespeichert – wird beim nächsten Online-Abgleich mit dem Server zusammengeführt'); return; }
-  showToast('💾 Woche gespeichert!');
+  if (localOk) showToast('💾 Woche gespeichert!');
 
   // ── PUSH TO SUPABASE (Async) ──
   syncWeekToSupabase(d);
@@ -1211,7 +1231,12 @@ var _weekSyncChains = {};
 
 // quiet = background retry: no toasts (the user did not ask for it)
 function syncWeekToSupabase(data, quiet) {
-  return runSerial(_weekSyncChains, data.weekStart, function () { return syncWeekNow(data, quiet); });
+  var uid = currentUser && currentUser.id;
+  return runSerial(_weekSyncChains, data.weekStart, function () {
+    // Queued behind another sync and the user switched meanwhile: the week stays 'unsynced' in the old user's store
+    if (!currentUser || currentUser.id !== uid) return;
+    return syncWeekNow(data, quiet);
+  });
 }
 
 async function syncWeekNow(data, quiet) {

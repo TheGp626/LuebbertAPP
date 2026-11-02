@@ -75,10 +75,13 @@ function wpTimeCol(s) {
   return { big: word && word.length <= 11 ? word : '—', small: w.label || '', fuzzy: true };
 }
 
-// Remaining "Wann" lines after the one shown in the time column
+// Remaining "Wann" lines after the one shown in the time column (the first line with a time, else the first line);
+// a note line before the timed line must not vanish from the details
 function wpWannRest(s) {
   var lines = s.wann ? String(s.wann).split('\n') : [];
-  return lines.slice(1);
+  var i = lines.findIndex(function(l) { return planWhen([l]).time; });
+  if (i < 0) i = 0;
+  return lines.filter(function(_, j) { return j !== i; });
 }
 
 function wpPeopleSummary(s) {
@@ -173,7 +176,8 @@ function wpHero(s) {
   var tc = wpTimeCol(s), mine = wpMyAssignment(s), p = wpParts(s.date), head = planShiftHeading(s);
   var today = localDateStr(), tomorrow = wpAddDays(today, 1);
   // A bare weekday is only clear within the next 6 days; further out the date is shown
-  var when = s.date === today ? 'heute' : s.date === tomorrow ? 'morgen' :
+  // Yesterday's date: the night shift (Abbau 0.30 Uhr) that is running right now
+  var when = s.date === today ? 'heute' : s.date === wpAddDays(today, -1) ? 'heute Nacht' : s.date === tomorrow ? 'morgen' :
     s.date < wpAddDays(today, 7) ? 'am ' + WP_WEEKDAYS_LONG[p.dow] : 'am ' + ('0' + p.d).slice(-2) + '.' + ('0' + p.m).slice(-2) + '.';
   // Room/building line plus the street ("Staatsoper, Unter den Linden 7"); postcode lines are left out
   var loc = s.location ? String(s.location).split('\n') : [];

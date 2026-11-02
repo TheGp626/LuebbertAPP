@@ -283,7 +283,9 @@ async function saveEditWorker() {
   }
 }
 
+var _addingUser = false; // a second tap while the insert runs would create the employee twice
 async function addDashboardUser() {
+  if (_addingUser) return;
   const firstName = (document.getElementById('new-user-firstname') || {}).value?.trim() || '';
   const lastName  = (document.getElementById('new-user-lastname')  || {}).value?.trim() || '';
   const fullName  = (firstName + ' ' + lastName).trim();
@@ -295,6 +297,7 @@ async function addDashboardUser() {
     return;
   }
 
+  _addingUser = true;
   try {
     const rateConni    = parseFloat(document.getElementById('new-user-rate-conni')?.value)    || null;
     const rateInternal = parseFloat(document.getElementById('new-user-rate-internal')?.value) || null;
@@ -324,6 +327,8 @@ async function addDashboardUser() {
   } catch (err) {
     console.error('Add user error:', err);
     if (typeof showToast === 'function') showToast('Fehler: ' + (err.message || 'Speichern fehlgeschlagen'), 'danger');
+  } finally {
+    _addingUser = false;
   }
 }
 
@@ -472,25 +477,27 @@ function dashMergePlanPeople(shifts, main) {
   return out;
 }
 
+// Search hit on project, AL, location or date – the date also as shown in the table (dd.mm.yyyy), not only ISO
+function dashProtMatches(p, term) {
+  const iso = (p.date || '').toLowerCase();
+  const shown = iso.length === 10 ? iso.slice(8) + '.' + iso.slice(5, 7) + '.' + iso.slice(0, 4) : '';
+  return [(p.projects?.name || ''), (p.al?.full_name || p.al_name_fallback || ''), (p.location || p.projects?.location || '')]
+    .some(s => s.toLowerCase().includes(term)) || iso.includes(term) || shown.includes(term);
+}
+
 function renderDashboardTable() {
   const body = document.getElementById('protocol-body');
   if (!body) return;
   body.innerHTML = '';
 
-  const searchTerm = (document.getElementById('dash-search')?.value || '').toLowerCase();
+  const searchTerm = (document.getElementById('dash-search')?.value || '').trim().toLowerCase();
 
   // "Meine" by default; the search works within the current scope
   const scoped = dashScopedProtocols();
   const scopeBox = document.getElementById('dash-scope');
   if (scopeBox) scopeBox.innerHTML = protScopeSegHtml(protScopeGet(DASH_SCOPE_KEY), 'setDashProtScope');
 
-  const filtered = scoped.filter(p => {
-    const projName = (p.projects?.name || '').toLowerCase();
-    const alName = (p.al?.full_name || p.al_name_fallback || '').toLowerCase();
-    const location = (p.location || p.projects?.location || '').toLowerCase();
-    const date = (p.date || '').toLowerCase();
-    return projName.includes(searchTerm) || alName.includes(searchTerm) || location.includes(searchTerm) || date.includes(searchTerm);
-  });
+  const filtered = scoped.filter(p => dashProtMatches(p, searchTerm));
 
   filtered.forEach(p => {
     const tr = document.createElement('tr');
@@ -1364,23 +1371,23 @@ function openDashDetail(id) {
         lastSection = row.section;
       }
       if (row.section === 'transport') {
-        html += '<tr><td style="font-weight:600;">' + row.label + '</td><td style="color:var(--text2); font-size:12px;">' + row.detail + '</td><td style="text-align:right; font-weight:600; color:var(--accent);">' + row.cost.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+        html += '<tr><td style="font-weight:600;">' + row.label + '</td><td style="color:var(--text2); font-size:12px;">' + row.detail + '</td><td style="text-align:right; font-weight:600; color:var(--accent);">' + row.cost.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</td></tr>';
       } else {
         html += '<tr><td style="font-weight:600;">' + row.label + '<div style="font-size:10px; opacity:0.6;">' + row.detail + '</div></td>'
           + '<td style="font-size:12px; color:var(--text2);">' + row.hrs.toFixed(2) + 'h × ' + row.rate.toFixed(2) + ' €</td>'
-          + '<td style="text-align:right; font-weight:600; color:var(--accent);">' + row.cost.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+          + '<td style="text-align:right; font-weight:600; color:var(--accent);">' + row.cost.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</td></tr>';
       }
     });
 
     // Subtotals + grand total
     html += '<tr><td colspan="3" style="padding:0;"></td></tr>';
     if (logTotal > 0) {
-      html += '<tr style="background:var(--bg2);"><td colspan="2" style="font-size:12px; color:var(--text2);">Logistik gesamt</td><td style="text-align:right; font-size:12px; color:var(--text2);">' + logTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+      html += '<tr style="background:var(--bg2);"><td colspan="2" style="font-size:12px; color:var(--text2);">Logistik gesamt</td><td style="text-align:right; font-size:12px; color:var(--text2);">' + logTotal.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</td></tr>';
     }
     if (persTotal > 0) {
-      html += '<tr style="background:var(--bg2);"><td colspan="2" style="font-size:12px; color:var(--text2);">Personal gesamt</td><td style="text-align:right; font-size:12px; color:var(--text2);">' + persTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+      html += '<tr style="background:var(--bg2);"><td colspan="2" style="font-size:12px; color:var(--text2);">Personal gesamt</td><td style="text-align:right; font-size:12px; color:var(--text2);">' + persTotal.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</td></tr>';
     }
-    html += '<tr style="border-top:2px solid var(--accent);"><td colspan="2" style="font-weight:700;">Gesamtkosten (geschätzt)</td><td style="text-align:right; font-weight:700; font-size:15px; color:var(--accent);">' + grandTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+    html += '<tr style="border-top:2px solid var(--accent);"><td colspan="2" style="font-weight:700;">Gesamtkosten (geschätzt)</td><td style="text-align:right; font-weight:700; font-size:15px; color:var(--accent);">' + grandTotal.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</td></tr>';
     html += '</tbody></table>';
 
     document.getElementById('det-nebenkalkulation').innerHTML = html;
@@ -1645,6 +1652,14 @@ async function dashReplaceRows(table, prot, prop, newRows) {
   prot[prop] = inserted;
 }
 
+// Editor transport → protocol_transports row. The delay field only exists for "verspätet": a value left there
+// after switching back to "pünktlich" must not be stored.
+function dashTransportToDb(protocolId, t) {
+  return { protocol_id: protocolId, vehicle_type: t.type, driver_name: t.driver || null,
+           punctuality: t.punctuality, delay_mins: t.punctuality === 'verspätet' && t.delay ? (parseInt(t.delay, 10) || 0) : 0,
+           driver_hours: parseFloat(t.hours) >= 0 ? parseFloat(t.hours) : null, driver_user_id: t.driverUserId || null };
+}
+
 // Did the transports (type, driver, driver hours – the cost-relevant parts) change against the stored rows?
 function dashTransportsChanged(storedRows, edited) {
   const key = function(t) {
@@ -1747,11 +1762,7 @@ async function saveDashProtEdit() {
     }
 
     // Transports: write the new rows first, then remove the old ones by id (a failure never leaves the protocol without them)
-    const tInserts = _editProtTransports.map(function(t) {
-      return { protocol_id: _editProtId, vehicle_type: t.type, driver_name: t.driver || null,
-               punctuality: t.punctuality, delay_mins: t.delay ? parseInt(t.delay) : 0,
-               driver_hours: parseFloat(t.hours) >= 0 ? parseFloat(t.hours) : null, driver_user_id: t.driverUserId || null };
-    });
+    const tInserts = _editProtTransports.map(function(t) { return dashTransportToDb(_editProtId, t); });
     await dashReplaceRows('protocol_transports', p, 'protocol_transports', tInserts);
 
     // Equipment: same order

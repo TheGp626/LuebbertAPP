@@ -102,3 +102,27 @@ test('ordnerViewerKind: HEIC/HEIF is download-only, other images/PDFs are viewab
   assert.equal(ctx.ordnerViewerKind('application/pdf', 'https://x/a'), 'pdf');
   assert.equal(ctx.ordnerViewerKind('application/zip', 'https://x/a.zip'), 'file');
 });
+
+test('ordnerRemoveFiles: storage { error } counts as failure (remove() does not throw)', async () => {
+  const mk = r => ({ storage: { from: () => ({ remove: async () => r }) } });
+  ctx.supabaseClient = mk({ data: null, error: { message: 'denied' } });
+  assert.equal(await ctx.ordnerRemoveFiles(['a/b.png']), false);
+  ctx.supabaseClient = { storage: { from: () => ({ remove: async () => { throw new Error('net'); } }) } };
+  assert.equal(await ctx.ordnerRemoveFiles(['a/b.png']), false);
+  ctx.supabaseClient = mk({ data: [], error: null });
+  assert.equal(await ctx.ordnerRemoveFiles(['a/b.png']), true);
+  assert.equal(await ctx.ordnerRemoveFiles([]), true);
+});
+
+test('saveOrdner: a second call while the first save runs is ignored (no duplicate folder)', async () => {
+  let inserts = 0;
+  const els = { 'inp-ordner-name': { value: 'Neu' }, 'inp-ordner-desc': { value: '' }, 'inp-ordner-pl': { value: '' }, 'inp-ordner-ends': { value: '' } };
+  ctx.document.getElementById = id => els[id] || null;
+  ctx.document.querySelectorAll = () => [];
+  ctx.showToast = () => {};
+  ctx.closeOrdnerForm = () => {};
+  ctx.fetchOrdner = async () => {};
+  ctx.supabaseClient = { from: () => ({ insert: () => ({ select: () => ({ single: async () => { inserts++; await new Promise(r => setImmediate(r)); return { data: { id: 'f1' }, error: null }; } }) }) }) };
+  await Promise.all([ctx.saveOrdner(), ctx.saveOrdner()]);
+  assert.equal(inserts, 1);
+});

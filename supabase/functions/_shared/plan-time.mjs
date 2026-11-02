@@ -10,14 +10,15 @@ export function planWhen(wann) {
     const l = line.toLowerCase();
     return PLAN_WHEN_LABELS.find(x => l.indexOf(x.toLowerCase()) === 0) || null;
   };
-  const re = /(?:\b(ab|bis)\s+)?(\d{1,2})(?:[.:](\d{2}))?(?:\s*-\s*(\d{1,2})(?:[.:](\d{2}))?)?\s*Uhr/i;
+  const re = /(?:\b(ab|bis)\s+)?(\d{1,2})(?:[.:](\d{2}))?(?:\s*[-–—]\s*(\d{1,2})(?:[.:](\d{2}))?)?\s*Uhr/i;
   let firstLabel = null;
   for (const line of wann || []) {
     const label = labelOf(line);
     if (!firstLabel) firstLabel = label;
     const m = re.exec(line);
     if (m && +m[2] <= 24 && (!m[4] || +m[4] <= 24)) {
-      return { time: hm(m[2], m[3]), end: m[4] ? hm(m[4], m[5]) : null, prefix: m[1] ? m[1].toLowerCase() : null, label };
+      // "24 Uhr" is midnight: 00:00
+      return { time: hm(+m[2] === 24 ? 0 : m[2], m[3]), end: m[4] ? hm(+m[4] === 24 ? 0 : m[4], m[5]) : null, prefix: m[1] ? m[1].toLowerCase() : null, label };
     }
   }
   return { time: null, end: null, prefix: null, label: firstLabel };
