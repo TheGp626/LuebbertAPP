@@ -285,7 +285,7 @@ create table public.plan_reminder_log (
   day date not null,
   kind text not null,
   primary key (al_id, date, day, kind),
-  constraint plan_reminder_log_kind_check CHECK (kind = ANY (ARRAY['push','pl_mail','evening']))
+  constraint plan_reminder_log_kind_check CHECK (kind = ANY (ARRAY['push','pl_mail','evening']) OR kind LIKE 'pl_mail:%')
 );
 
 -- ══════════════ FOREIGN KEYS ══════════════
