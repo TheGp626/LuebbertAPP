@@ -248,7 +248,7 @@ async function fetchOrdnerFiles(folderId) {
 
   var { data, error } = await supabaseClient
     .from('folder_files')
-    .select('id, name, file_url, file_type, file_size_bytes, created_at')
+    .select('id, name, file_url, file_type, file_size_bytes, created_at, note')
     .eq('folder_id', folderId)
     .order('name', { ascending: true });
 
@@ -274,7 +274,8 @@ function renderOrdnerFiles(list) {
     return '<div class="ui-row ordner-row" onclick="openOrdnerFileById(\'' + f.id + '\')">' +
       '<span class="ui-tile-ico ordner-ico">' + uiIcon(ordnerFileKind(f.file_type, f.name)) + '</span>' +
       '<div class="ui-row-main"><div class="ui-row-title">' + escOrdner(f.name) + '</div>' +
-        '<div class="ui-sub">' + [size, date].filter(Boolean).join(' · ') + '</div></div>' +
+        '<div class="ui-sub">' + [size, date].filter(Boolean).join(' · ') + '</div>' +
+        (f.note ? '<div class="ui-sub" style="color:var(--text);">' + escOrdner(f.note) + '</div>' : '') + '</div>' +
       (canManageOrdner ? '<div class="ui-row-end"><button type="button" class="ui-icon-btn" aria-label="Datei-Aktionen" onclick="event.stopPropagation();ordnerFileMenu(\'' + f.id + '\')">' + uiIcon('dots') + '</button></div>' : '') +
     '</div>';
   }).join('');
@@ -366,6 +367,20 @@ async function deleteOrdnerFile(id, url) {
     showToast('Datei gelöscht.');
     if (aktuellerOrdner) await fetchOrdnerFiles(aktuellerOrdner.id);
   } catch(e) { showToast('Fehler beim Löschen.', 'danger'); }
+}
+
+// Note shown under the file name (e.g. what to watch for in an Aufbauplan); empty text removes it
+async function editOrdnerFileNote(id) {
+  var f = (ordnerFiles || []).find(function(x) { return x.id === id; });
+  if (!f) return;
+  var text = prompt('Anmerkung zu „' + f.name + '“ (leer lassen zum Entfernen):', f.note || '');
+  if (text === null) return;
+  text = text.trim().slice(0, 500) || null;
+  if (text === (f.note || null)) return;
+  var { data, error } = await supabaseClient.from('folder_files').update({ note: text }).eq('id', id).select('id');
+  if (error || !data || !data.length) { console.error('Anmerkung speichern:', error); showToast('Fehler beim Speichern.', 'danger'); return; }
+  showToast(text ? 'Anmerkung gespeichert.' : 'Anmerkung entfernt.');
+  if (aktuellerOrdner) await fetchOrdnerFiles(aktuellerOrdner.id);
 }
 
 // ── ORDNER ERSTELLEN / BEARBEITEN ──
@@ -974,6 +989,7 @@ function ordnerFileMenu(id) {
   if (!f) return;
   openUiMenu([
     { label: 'Öffnen', action: 'openOrdnerFileById', args: [id] },
+    { label: f.note ? 'Anmerkung bearbeiten' : 'Anmerkung hinzufügen', action: 'editOrdnerFileNote', args: [id] },
     { label: 'Datei löschen', action: 'deleteOrdnerFile', args: [id, f.file_url], danger: true }
   ]);
 }

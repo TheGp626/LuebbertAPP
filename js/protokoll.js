@@ -424,8 +424,10 @@ function renderProtTransport() {
   if (!list) return;
   list.innerHTML = protState.transports.map(function(t, i) {
     var key = 't' + i;
-    var vehicles = Object.keys(PROT_VEHICLE_RATES).map(function(v) {
-      return '<option value="' + v + '" ' + (t.type === v ? 'selected' : '') + '>' + v + '</option>';
+    var types = protVehicleTypes();
+    if (t.type && types.indexOf(t.type) === -1) types.push(t.type); // type removed in Einstellungen stays selectable
+    var vehicles = types.map(function(v) {
+      return '<option value="' + escapeHtml(v) + '" ' + (t.type === v ? 'selected' : '') + '>' + escapeHtml(v) + '</option>';
     }).join('');
     return '<div class="ui-row ui-row-wrap' + (protOpenRows[key] ? ' ui-row-open' : '') + '">' +
       '<div class="ui-row-main" onclick="toggleProtRow(\'' + key + '\')">' +

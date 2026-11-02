@@ -60,6 +60,31 @@ test('changedSettings: only keys that differ from what the form was rendered wit
   assert.deepEqual(S.changedSettings(rendered, { reminders_enabled: true, mail_test_mode: false, billing_cutoff: 20 }), {});
 });
 
+test('changedSettings: vehicle_rates compared by value, not by object identity', () => {
+  const r = () => ({ vehicle_rates: { PKW: { wk: 20, sa: 20, so: 20 } } });
+  assert.deepEqual(S.changedSettings(r(), r()), {});
+  const f = r(); f.vehicle_rates.PKW.so = 25;
+  assert.deepEqual(S.changedSettings(r(), f), f);
+});
+
+test('readVehicleRates / validVehicleRates: blank rows skipped, duplicates and bad amounts rejected', () => {
+  const row = (name, wk, sa, so) => ({ name, wk, sa, so });
+  assert.deepEqual(S.readVehicleRates([row(' Leih LKW ', '120', '130', '140.5'), row('', '', '', '')]),
+    { 'Leih LKW': { wk: 120, sa: 130, so: 140.5 } });
+  assert.equal(S.readVehicleRates([row('PKW', '1', '1', '1'), row('PKW', '2', '2', '2')]), null);
+  assert.equal(S.validateSettings({ vehicle_rates: S.readVehicleRates([row('PKW', '', '1', '1')]) }), 'vehicle_rates');
+  assert.equal(S.validateSettings({ vehicle_rates: S.readVehicleRates([row('PKW', '-1', '1', '1')]) }), 'vehicle_rates');
+  assert.equal(S.validateSettings({ vehicle_rates: {} }), 'vehicle_rates');
+  assert.equal(S.validateSettings({ vehicle_rates: null }), 'vehicle_rates');
+  assert.equal(S.validateSettings({ vehicle_rates: { PKW: { wk: 20, sa: 20, so: 20 } } }), null);
+});
+
+test('a broken vehicle_rates value from the server keeps the default rates', () => {
+  store.luebbert_app_settings = JSON.stringify({ vehicle_rates: { PKW: { wk: 'x' } } });
+  S.appSettingsFromCache();
+  assert.deepEqual(S.appSetting('vehicle_rates'), S.APP_SETTINGS_DEFAULTS.vehicle_rates);
+});
+
 test('testPushMessage: device count, no device, failure', () => {
   assert.equal(S.testPushMessage({ status: 'sent', devices: 1 }), 'Test-Push an 1 Gerät gesendet.');
   assert.equal(S.testPushMessage({ status: 'sent', devices: 3, failed: 1 }), 'Test-Push an 3 Geräte gesendet.');
@@ -74,7 +99,8 @@ test('saveSettingsTab: a network exception from the rpc shows an error instead o
   const sandbox = vm.createContext({
     console: { log() {}, warn() {}, error() {} },
     localStorage: global.localStorage,
-    document: { getElementById: id => id === 'set-error' ? err : id === 'set-save-btn' ? btn : id === 'set-evening_push_hour' ? { value: '18' } : id === 'set-billing_cutoff' ? { value: '21' } : { checked: false } },
+    document: { getElementById: id => id === 'set-error' ? err : id === 'set-save-btn' ? btn : id === 'set-evening_push_hour' ? { value: '18' } : id === 'set-billing_cutoff' ? { value: '21' } : { checked: false },
+      querySelectorAll: () => [{ querySelector: sel => ({ value: /name/.test(sel) ? 'PKW' : '20' }) }] },
     showToast() {},
     supabaseClient: { rpc: () => Promise.reject(new TypeError('Failed to fetch')) },
   });

@@ -38,3 +38,17 @@ test('customRate overrides template rates for internal positions only', () => {
   assert.equal(calc('MA frei', '2026-10-28', false, 480, 960, 0)[0].rate, 21.5);
   assert.equal(calc('Zenjob', '2026-10-28', false, 480, 960, 0, 99)[0].rate, 23.5);
 });
+
+test('calcTransportCost: default rates by weekday (Mo–Fr / Sa / So), admin rates from app settings win', () => {
+  const c = (t, d) => vm.runInContext('calcTransportCost(' + JSON.stringify(t) + ', ' + JSON.stringify(d) + ')', ctx);
+  assert.equal(c('Bischoff', '2026-11-02'), 750);
+  assert.equal(c('Bischoff', '2026-10-31'), 750);
+  assert.equal(c('Bischoff', '2026-11-01'), 837.5);
+  assert.equal(c('Rainer', '2026-10-31'), 750);
+  assert.equal(c('Rainer', null), 700);
+  assert.equal(c('Unbekannt', '2026-11-02'), 0);
+  vm.runInContext("appSetting = function(k) { return k === 'vehicle_rates' ? { 'Leih LKW': { wk: 120, sa: 130, so: 140 } } : undefined; }", ctx);
+  assert.equal(c('Leih LKW', '2026-11-01'), 140);
+  assert.equal(c('Bischoff', '2026-11-02'), 0, 'a type removed in Einstellungen costs nothing');
+  vm.runInContext('delete appSetting', ctx);
+});

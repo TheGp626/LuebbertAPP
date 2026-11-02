@@ -2,32 +2,36 @@
 
 // ── PROTOKOLL RATES ──
 
+// Fallback only (offline before the first settings load): admins edit the rates in Einstellungen
+// (app_settings.vehicle_rates). € per job: wk = Mo–Fr, sa = Saturday, so = Sunday.
 var PROT_VEHICLE_RATES = {
-  'Hängerzug':      80,
-  'Solo':           70,
-  'Leih LKW':        0,   // Satz folgt von Jenni
-  'Sprinter':       40,
-  'PKW':            20,
-  'Spedition':       0,
-  'Bischoff':      750,
-  'Rainer':        700,
-  'Hansetrans Solo': 250
+  'Hängerzug':       { wk: 80,  sa: 80,  so: 80 },
+  'Solo':            { wk: 70,  sa: 70,  so: 70 },
+  'Leih LKW':        { wk: 0,   sa: 0,   so: 0 },
+  'Sprinter':        { wk: 40,  sa: 40,  so: 40 },
+  'PKW':             { wk: 20,  sa: 20,  so: 20 },
+  'Spedition':       { wk: 0,   sa: 0,   so: 0 },
+  'Bischoff':        { wk: 750, sa: 750, so: 837.5 },
+  'Rainer':          { wk: 700, sa: 750, so: 750 },
+  'Hansetrans Solo': { wk: 250, sa: 250, so: 250 }
 };
 
-// Day-of-week overrides for named providers (0=Sun, 6=Sat)
-var PROT_VEHICLE_DATE_RATES = {
-  'Bischoff': { sunday: 837.50 },   // Mo–Sa: 750, So: 837,50
-  'Rainer':   { weekend: 750 }      // Mo–Fr: 700, Sa+So: 750
-};
+function protVehicleRates() {
+  var r = (typeof appSetting === 'function') ? appSetting('vehicle_rates') : null;
+  return (r && typeof r === 'object' && Object.keys(r).length) ? r : PROT_VEHICLE_RATES;
+}
+
+// jsonb does not keep key order → list vehicles alphabetically
+function protVehicleTypes() {
+  return Object.keys(protVehicleRates()).sort(function(a, b) { return a.localeCompare(b, 'de'); });
+}
 
 function calcTransportCost(type, dateStr) {
-  var base = PROT_VEHICLE_RATES[type] || 0;
-  var rules = PROT_VEHICLE_DATE_RATES[type];
-  if (!dateStr || !rules) return base;
+  var r = protVehicleRates()[type];
+  if (!r) return 0;
+  if (!dateStr) return r.wk;
   var day = new Date(dateStr).getDay();
-  if (rules.sunday  && day === 0)              return rules.sunday;
-  if (rules.weekend && (day === 0 || day === 6)) return rules.weekend;
-  return base;
+  return day === 0 ? r.so : day === 6 ? r.sa : r.wk;
 }
 
 var PROT_PERSONNEL_RATES = {

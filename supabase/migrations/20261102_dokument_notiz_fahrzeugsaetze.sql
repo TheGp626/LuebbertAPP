@@ -1,0 +1,63 @@
+-- Jenni 2026-11-02: Anmerkung je Datei im Projektordner + Fahrzeugsätze in den Admin-Einstellungen
+
+alter table public.folder_files add column if not exists note text
+  check (note is null or char_length(note) <= 500);
+
+-- € pro Einsatz: wk = Mo–Fr, sa = Samstag, so = Sonntag (vorher fest in js/formulas.js)
+insert into public.app_settings (key, value) values ('vehicle_rates', '{
+  "Hängerzug":       {"wk": 80,  "sa": 80,  "so": 80},
+  "Solo":            {"wk": 70,  "sa": 70,  "so": 70},
+  "Leih LKW":        {"wk": 0,   "sa": 0,   "so": 0},
+  "Sprinter":        {"wk": 40,  "sa": 40,  "so": 40},
+  "PKW":             {"wk": 20,  "sa": 20,  "so": 20},
+  "Spedition":       {"wk": 0,   "sa": 0,   "so": 0},
+  "Bischoff":        {"wk": 750, "sa": 750, "so": 837.5},
+  "Rainer":          {"wk": 700, "sa": 750, "so": 750},
+  "Hansetrans Solo": {"wk": 250, "sa": 250, "so": 250}
+}'::jsonb) on conflict (key) do nothing;
+
+create or replace function public.apply_app_settings(changes jsonb, actor uuid)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+declare k text; v jsonb; n numeric;
+begin
+  if changes is null or jsonb_typeof(changes) <> 'object' then
+    raise exception 'invalid_setting: changes';
+  end if;
+  for k, v in select * from jsonb_each(changes) loop
+    if k in ('reminders_enabled', 'plan_reminders_enabled', 'evening_push_enabled',
+             'plan_change_push_enabled', 'protocol_mail_enabled', 'mail_test_mode', 'folder_push_enabled',
+             'folder_autodelete_enabled') then
+      if jsonb_typeof(v) <> 'boolean' then raise exception 'invalid_setting: %', k; end if;
+    elsif k in ('evening_push_hour', 'billing_cutoff') then
+      if jsonb_typeof(v) <> 'number' then raise exception 'invalid_setting: %', k; end if;
+      n := v::text::numeric;
+      if n <> trunc(n)
+         or (k = 'evening_push_hour' and (n < 15 or n > 22))
+         or (k = 'billing_cutoff' and (n < 1 or n > 31)) then
+        raise exception 'invalid_setting: %', k;
+      end if;
+    elsif k = 'vehicle_rates' then
+      -- mirrors validVehicleRates in js/settings.js
+      if jsonb_typeof(v) <> 'object'
+         or (select count(*) from jsonb_object_keys(v)) not between 1 and 50
+         or exists (select 1 from jsonb_each(v) e(name, r)
+                    where name <> btrim(name) or char_length(name) not between 1 and 40
+                       or jsonb_typeof(r) <> 'object'
+                       or (select count(*) from jsonb_object_keys(r)) <> 3
+                       or exists (select 1 from unnest(array['wk', 'sa', 'so']) f
+                                  where jsonb_typeof(r -> f) is distinct from 'number'
+                                     or (r ->> f)::numeric not between 0 and 100000)) then
+        raise exception 'invalid_setting: %', k;
+      end if;
+    else
+      raise exception 'invalid_setting: %', k;
+    end if;
+  end loop;
+  update public.app_settings s set value = c.value, updated_at = now(), updated_by = actor
+    from jsonb_each(changes) c where s.key = c.key and s.value is distinct from c.value;
+  return (select jsonb_object_agg(key, value) from public.app_settings);
+end $function$;

@@ -1480,7 +1480,7 @@ function renderDashProtTransports() {
     return;
   }
   c.innerHTML = _editProtTransports.map(function(t, i) {
-    var vehicles = Object.keys(PROT_VEHICLE_RATES);
+    var vehicles = protVehicleTypes();
     if (t.type && vehicles.indexOf(t.type) === -1) vehicles.push(t.type);
     var selOpts = vehicles.map(function(v) {
       return '<option value="' + escapeHtml(v) + '"' + (t.type === v ? ' selected' : '') + '>' + escapeHtml(v) + '</option>';
