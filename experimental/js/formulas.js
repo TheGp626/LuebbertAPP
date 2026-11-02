@@ -82,7 +82,7 @@ function calcSplitShiftCosts(basePos, dateStr, isHoliday, startMins, endMins, pa
 
   // Pause deduction is applied proportionally to simplicity.
   var pauseRatio = (pauseMins || 0) / totalWorkMins;
-  var netFactor = 1 - pauseRatio;
+  var netFactor = Math.max(0, 1 - pauseRatio); // a break longer than the shift must not produce negative hours/money
 
   // If not Zenjob/Rockit, just return the base position
   if (basePos !== 'Zenjob' && basePos !== 'Rockit') {

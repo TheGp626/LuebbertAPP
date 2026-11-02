@@ -508,7 +508,7 @@ function renderDeptChips() {
 }
 
 function addDepartment() {
-  var i = document.getElementById('inp-new-dept'), v = i.value.trim(); if (!v) return;
+  var i = document.getElementById('inp-new-dept'), v = i.value.trim(); if (!v || departments.indexOf(v) !== -1) return;
   departments.push(v); localStorage.setItem('stundenzettel_depts', JSON.stringify(departments)); 
   i.value = ''; renderSettingsDepts(); 
   if (typeof renderDeptChips === 'function') renderDeptChips();
@@ -516,8 +516,10 @@ function addDepartment() {
 
 function deleteDepartment(i) {
   if (departments.length <= 1) { showToast('Mindestens eine Abteilung muss bleiben'); return; }
-  departments.splice(i, 1); localStorage.setItem('stundenzettel_depts', JSON.stringify(departments)); 
-  renderSettingsDepts(); 
+  var removed = departments.splice(i, 1)[0]; localStorage.setItem('stundenzettel_depts', JSON.stringify(departments));
+  // The active department must stay one from the list (new shifts would get a dept that has no chip)
+  if (removed === selectedAbt) selectDepartment(departments[0]);
+  renderSettingsDepts();
   if (typeof renderDeptChips === 'function') renderDeptChips();
 }
 

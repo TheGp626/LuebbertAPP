@@ -345,10 +345,20 @@ async function uploadOrdnerFile(folderId, file) {
   if (dbErr) {
     console.error('DB insert error for "' + file.name + '":', dbErr.message || dbErr);
     // No row points to the uploaded object: remove it again (best effort)
-    try { await supabaseClient.storage.from('project-files').remove([filePath]); } catch (e) { /* ignore */ }
+    await ordnerRemoveFiles([filePath]);
     return false;
   }
   return true;
+}
+
+// storage.remove() reports failures as { error } instead of throwing: true only when the objects are really gone
+async function ordnerRemoveFiles(paths) {
+  if (!paths || !paths.length) return true;
+  try {
+    var { error } = await supabaseClient.storage.from('project-files').remove(paths);
+    if (error) { console.warn('Storage remove:', error.message || error); return false; }
+    return true;
+  } catch (e) { console.warn('Storage remove:', e); return false; }
 }
 
 async function deleteOrdnerFile(id, url) {
@@ -357,14 +367,12 @@ async function deleteOrdnerFile(id, url) {
     // DB first (row-checked: RLS answers with 0 rows), storage only after it succeeded
     var { data: delRows, error } = await supabaseClient.from('folder_files').delete().eq('id', id).select('id');
     if (error || !delRows || !delRows.length) throw error || new Error('Löschen abgelehnt');
+    var storageOk = true;
     if (url) {
       var parts = url.split('/project-files/');
-      if (parts.length > 1) {
-        try { await supabaseClient.storage.from('project-files').remove([parts[1]]); }
-        catch (e2) { console.warn('Datei nicht aus Storage entfernt:', e2); }
-      }
+      if (parts.length > 1) storageOk = await ordnerRemoveFiles([parts[1]]);
     }
-    showToast('Datei gelöscht.');
+    showToast(storageOk ? 'Datei gelöscht.' : 'Datei gelöscht, aber der Speicher konnte nicht bereinigt werden.', storageOk ? undefined : 'danger');
     if (aktuellerOrdner) await fetchOrdnerFiles(aktuellerOrdner.id);
   } catch(e) { showToast('Fehler beim Löschen.', 'danger'); }
 }
@@ -485,7 +493,7 @@ async function openOrdnerForm(id) {
   if (o) {
     var { data, error } = await supabaseClient.from('einsaetze').select('id, date, action, al_id, cancelled')
       .eq('folder_id', o.id).order('date');
-    if (error) { console.error('Einsätze laden:', error); showToast('Einsätze konnten nicht geladen werden.', 'danger'); }
+    if (error) { console.error('Einsätze laden:', error); showToast('Einsätze konnten nicht geladen werden.', 'danger'); return; } // saving without them would duplicate jobs
     _editEinsaetzeExisting = data || [];
     _editEinsaetzeExisting.forEach(addEinsatzRow);
   }
@@ -546,7 +554,15 @@ async function saveEinsaetze(folderId, edited) {
   }
 }
 
+// A second tap while the first save is still running would insert the folder twice
+var _ordnerSaving = false;
 async function saveOrdner() {
+  if (_ordnerSaving) return;
+  _ordnerSaving = true;
+  try { await saveOrdnerRun(); } finally { _ordnerSaving = false; }
+}
+
+async function saveOrdnerRun() {
   var name = ((document.getElementById('inp-ordner-name') || {}).value || '').trim();
   var desc = ((document.getElementById('inp-ordner-desc') || {}).value || '').trim();
   var plId = ((document.getElementById('inp-ordner-pl') || {}).value || '') || null;
@@ -663,6 +679,9 @@ async function deleteCurrentOrdner() {
 }
 
 async function deleteOrdner(folder) {
+  // The cached list may miss subfolders another user created meanwhile: their files would be orphaned in storage
+  var { data: fresh } = await supabaseClient.from('project_folders').select('id, name, description, created_at, parent_id, pl_id, ends_on');
+  if (fresh) alleOrdner = fresh;
   var treeIds = collectOrdnerTreeIds(folder.id);
   var subCount = treeIds.length - 1;
   var msg = 'Ordner "' + folder.name + '"' +
@@ -671,8 +690,10 @@ async function deleteOrdner(folder) {
   if (!confirm(msg)) return;
 
   // Collect the storage paths of the whole subtree first (DB rows cascade via FK)
-  var { data: allFiles } = await supabaseClient
+  var { data: allFiles, error: filesErr } = await supabaseClient
     .from('folder_files').select('file_url').in('folder_id', treeIds);
+  // Without the file list the storage objects could not be removed after the cascade: stop instead
+  if (filesErr) { showToast('Fehler: ' + filesErr.message, 'danger'); return; }
   var paths = (allFiles || []).map(function(f) {
     var parts = (f.file_url || '').split('/project-files/');
     return parts.length > 1 ? parts[1] : null;
@@ -681,11 +702,8 @@ async function deleteOrdner(folder) {
   // DB first (row-checked: RLS answers with 0 rows); storage is only cleaned up after the folder is really gone
   var { data: delRows, error } = await supabaseClient.from('project_folders').delete().eq('id', folder.id).select('id');
   if (error || !delRows || !delRows.length) { showToast('Fehler: ' + (error ? error.message : 'Löschen abgelehnt'), 'danger'); return; }
-  if (paths.length) {
-    try { await supabaseClient.storage.from('project-files').remove(paths); }
-    catch (e) { console.warn('Ordner-Dateien nicht aus Storage entfernt:', e); }
-  }
-  showToast('Ordner gelöscht.');
+  var storageOk = await ordnerRemoveFiles(paths);
+  showToast(storageOk ? 'Ordner gelöscht.' : 'Ordner gelöscht, aber Dateien konnten nicht aus dem Speicher entfernt werden.', storageOk ? undefined : 'danger');
   var parentId = folder.parent_id;
   closeOrdnerDetail();
   await fetchOrdner();

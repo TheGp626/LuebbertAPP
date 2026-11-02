@@ -192,9 +192,12 @@ function openProduktForm(id, keepFiles) {
     var prod = alleProdukte.find(function(p) { return p.id === id; });
     if (!prod) return;
     if (title) title.textContent = 'Produkt bearbeiten';
-    if (nameInp) nameInp.value = prod.name || '';
-    if (descInp) descInp.value = prod.description || '';
-    if (contentInp) contentInp.value = prod.content_text || '';
+    // keepFiles = re-render of the open sheet: typed-in text must survive a media delete / cover change
+    if (!keepFiles) {
+      if (nameInp) nameInp.value = prod.name || '';
+      if (descInp) descInp.value = prod.description || '';
+      if (contentInp) contentInp.value = prod.content_text || '';
+    }
     if (pdfCurrent) {
       pdfCurrent.style.display = prod.pdf_url ? 'block' : 'none';
       pdfCurrent.innerHTML = prod.pdf_url
@@ -339,7 +342,9 @@ async function saveProdukt() {
   var saveBtn = document.querySelector('#produkt-form .ui-btn-primary');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Speichert...'; }
 
-  var wasEditing = !!editingProduktId;
+  // Snapshot: the user can close the sheet / open another product while the uploads below are running
+  var editId = editingProduktId;
+  var wasEditing = !!editId;
   var dbWritten = false;
   var newPdfKey = null;
   try {
@@ -347,8 +352,8 @@ async function saveProdukt() {
     var oldPdfUrl = null;
 
     // If editing, keep existing URL unless a new file is chosen
-    if (editingProduktId) {
-      var existing = alleProdukte.find(function(p) { return p.id === editingProduktId; });
+    if (editId) {
+      var existing = alleProdukte.find(function(p) { return p.id === editId; });
       if (existing) pdfUrl = oldPdfUrl = existing.pdf_url;
     }
 
@@ -372,12 +377,12 @@ async function saveProdukt() {
     }
 
     var payload = produktPayload({ name: name, desc: desc, pdfUrl: pdfUrl, contentText: contentText },
-      typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null, !editingProduktId);
+      typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null, !editId);
 
-    var productId = editingProduktId;
+    var productId = editId;
 
-    if (editingProduktId) {
-      var { data: upd, error: upErr } = await supabaseClient.from('products').update(payload).eq('id', editingProduktId).select('id');
+    if (editId) {
+      var { data: upd, error: upErr } = await supabaseClient.from('products').update(payload).eq('id', editId).select('id');
       if (upErr || !upd || !upd.length) throw upErr || new Error('Keine Berechtigung zum Speichern');
     } else {
       var { data: inserted, error: insErr } = await supabaseClient.from('products').insert(payload).select('id').single();
@@ -399,8 +404,8 @@ async function saveProdukt() {
     var mediaFailures = [];
     if (imageFiles.length > 0 && productId) {
       var nextSort = 0;
-      if (editingProduktId) {
-        var ep = alleProdukte.find(function(p) { return p.id === editingProduktId; });
+      if (editId) {
+        var ep = alleProdukte.find(function(p) { return p.id === editId; });
         nextSort = produktNextSortOrder(ep && ep.product_images);
       }
       for (var i = 0; i < imageFiles.length; i++) {
@@ -442,16 +447,20 @@ async function saveProdukt() {
       }
     }
 
-    resetProduktFileInputs();
+    // Only touch the sheet if it still shows the product that was saved (not another one opened meanwhile)
+    var sameForm = editingProduktId === editId;
+    if (sameForm) resetProduktFileInputs();
     if (mediaFailures.length > 0) {
       showToast('⚠️ Produkt gespeichert, aber ' + mediaFailures.length + ' Datei(en) nicht hochgeladen.', 'danger');
       await fetchProdukte();
       // Keep the form open on this product so the reason stays visible
-      openProduktForm(productId);
-      setProduktFormError('Produkt gespeichert, aber nicht hochgeladen:\n' + mediaFailures.join('\n'));
+      if (sameForm) {
+        openProduktForm(productId);
+        setProduktFormError('Produkt gespeichert, aber nicht hochgeladen:\n' + mediaFailures.join('\n'));
+      }
     } else {
       showToast(wasEditing ? '✅ Produkt aktualisiert!' : '✅ Produkt gespeichert!');
-      closeProduktForm();
+      if (sameForm) closeProduktForm();
       await fetchProdukte();
     }
   } catch(e) {
@@ -955,7 +964,7 @@ async function setProduktCover(productId, imageId) {
     _produktCoverBusy = false;
   }
   showToast(failed ? 'Titelbild konnte nicht gespeichert werden.' : 'Titelbild gespeichert');
-  renderProdukte(alleProdukte);
+  filterProdukte(); // keep an active search applied
   openProduktForm(productId, true);
 }
 
