@@ -15,7 +15,8 @@ var APP_SETTINGS_DEFAULTS = {
   folder_autodelete_enabled: true,
   protocol_mail_enabled: true,
   mail_test_mode: true,
-  billing_cutoff: 20
+  billing_cutoff: 20,
+  vehicle_rates: (typeof PROT_VEHICLE_RATES !== 'undefined') ? PROT_VEHICLE_RATES : {} // js/formulas.js
 };
 var APP_SETTINGS_CACHE_KEY = 'luebbert_app_settings';
 var _appSettings = Object.assign({}, APP_SETTINGS_DEFAULTS);
@@ -27,7 +28,8 @@ var _settingsRendered = null;  // values the settings form was rendered with
 function _settingsMerge(obj) {
   var out = Object.assign({}, APP_SETTINGS_DEFAULTS);
   Object.keys(obj || {}).forEach(function(k) {
-    if (k in APP_SETTINGS_DEFAULTS && typeof obj[k] === typeof APP_SETTINGS_DEFAULTS[k]) out[k] = obj[k];
+    if (k in APP_SETTINGS_DEFAULTS && typeof obj[k] === typeof APP_SETTINGS_DEFAULTS[k]
+        && (k !== 'vehicle_rates' || validVehicleRates(obj[k]))) out[k] = obj[k];
   });
   return out;
 }
@@ -47,8 +49,19 @@ function appSettingsFromCache() {
 // Only what the admin actually changed in the form, so stale or fallback values are never written back
 function changedSettings(rendered, form) {
   var out = {};
-  Object.keys(form).forEach(function(k) { if (form[k] !== rendered[k]) out[k] = form[k]; });
+  Object.keys(form).forEach(function(k) { if (JSON.stringify(form[k]) !== JSON.stringify(rendered[k])) out[k] = form[k]; });
   return out;
+}
+
+// { name: { wk, sa, so } }, 1–50 vehicles, trimmed names up to 40 chars, € 0–100000; mirrors the RPC
+function validVehicleRates(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  var names = Object.keys(v);
+  return names.length >= 1 && names.length <= 50 && names.every(function(n) {
+    var r = v[n];
+    return n === n.trim() && n.length >= 1 && n.length <= 40 && !!r && typeof r === 'object' && Object.keys(r).length === 3 &&
+      ['wk', 'sa', 'so'].every(function(f) { return typeof r[f] === 'number' && r[f] >= 0 && r[f] <= 100000; });
+  });
 }
 
 // First invalid key (unknown key, wrong type or out of range) or null; mirrors the RPC's checks
@@ -60,6 +73,7 @@ function validateSettings(changes) {
     if (typeof v !== typeof APP_SETTINGS_DEFAULTS[k]) return k;
     if (k === 'evening_push_hour' && (v !== Math.floor(v) || v < 15 || v > 22)) return k;
     if (k === 'billing_cutoff' && (v !== Math.floor(v) || v < 1 || v > 31)) return k;
+    if (k === 'vehicle_rates' && !validVehicleRates(v)) return k;
   }
   return null;
 }
@@ -126,6 +140,12 @@ async function renderSettingsTab() {
   html += '<div class="set-group"><div class="set-group-title">Abrechnung</div>' +
     '<label class="set-row"><span class="set-text"><b>Abrechnungsstichtag</b><small>Tag im Monat, ab dem Stunden zum nächsten Abrechnungsmonat zählen (gilt auf allen Geräten)</small></span>' +
     '<input type="number" min="1" max="31" step="1" id="set-billing_cutoff" class="meta-input set-num" value="' + appSetting('billing_cutoff') + '"></label></div>';
+  var rates = appSetting('vehicle_rates');
+  html += '<div class="set-group"><div class="set-group-title">Fahrzeugsätze (€ pro Einsatz)</div>' +
+    '<div class="set-veh-row set-veh-head"><span>Fahrzeug</span><span>Mo–Fr</span><span>Sa</span><span>So</span><span></span></div>' +
+    '<div id="set-vehicles">' + Object.keys(rates).sort(function(a, b) { return a.localeCompare(b, 'de'); }).map(function(n) { return vehicleRateRowHtml(n, rates[n]); }).join('') + '</div>' +
+    '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Spedition: Kosten kommen per Rechnung. Neue Sätze gelten für neue Berechnungen, gespeicherte Protokoll-Summen bleiben.</small></span>' +
+    '<button type="button" class="btn" style="flex:none; width:auto; padding:8px 18px;" onclick="addVehicleRateRow()">+ Fahrzeug</button></div></div>';
   html += '<div class="set-group"><div class="set-group-title">Push testen</div>' +
     '<div class="set-row"><span class="set-text"><b>Test-Push an mich</b><small>Schickt eine Testnachricht an alle Geräte, auf denen du Benachrichtigungen erlaubt hast</small></span>' +
     '<button type="button" class="btn" id="set-testpush-btn" style="flex:none; width:auto; padding:8px 18px;" onclick="sendTestPush()">Senden</button></div></div>';
@@ -151,10 +171,45 @@ function _readSettingsForm() {
   changes.evening_push_hour = parseInt(document.getElementById('set-evening_push_hour').value, 10);
   var cut = document.getElementById('set-billing_cutoff').value;
   changes.billing_cutoff = cut === '' ? NaN : Number(cut);
+  changes.vehicle_rates = readVehicleRates(Array.from(document.querySelectorAll('#set-vehicles .set-veh-row')).map(function(row) {
+    var val = function(f) { return row.querySelector('[data-f="' + f + '"]').value; };
+    return { name: val('name'), wk: val('wk'), sa: val('sa'), so: val('so') };
+  }));
   return changes;
 }
 
-var SETTINGS_LABELS = { evening_push_hour: 'Uhrzeit Abend-Push', billing_cutoff: 'Abrechnungsstichtag (1–31)' };
+// Form rows → { name: { wk, sa, so } }; a blank new row is ignored, a duplicate name makes it invalid (null)
+function readVehicleRates(rows) {
+  var out = {};
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i], name = r.name.trim();
+    if (!name && r.wk === '' && r.sa === '' && r.so === '') continue;
+    if (Object.prototype.hasOwnProperty.call(out, name)) return null;
+    var num = function(v) { return v === '' ? NaN : Number(v); };
+    out[name] = { wk: num(r.wk), sa: num(r.sa), so: num(r.so) };
+  }
+  return out;
+}
+
+function vehicleRateRowHtml(name, r) {
+  r = r || { wk: '', sa: '', so: '' };
+  var num = function(f, label) {
+    return '<input type="number" min="0" step="0.01" inputmode="decimal" class="meta-input" data-f="' + f + '" aria-label="' + label + '" value="' + _settingsEsc(r[f]) + '">';
+  };
+  return '<div class="set-veh-row"><input type="text" maxlength="40" class="meta-input" data-f="name" aria-label="Fahrzeug" value="' + _settingsEsc(name) + '">' +
+    num('wk', 'Satz Mo–Fr') + num('sa', 'Satz Samstag') + num('so', 'Satz Sonntag') +
+    '<button type="button" class="ui-icon-btn" aria-label="Fahrzeug entfernen" onclick="this.parentNode.remove()">×</button></div>';
+}
+
+function addVehicleRateRow() {
+  var box = document.getElementById('set-vehicles');
+  if (!box) return;
+  box.insertAdjacentHTML('beforeend', vehicleRateRowHtml('', null));
+  box.lastElementChild.querySelector('input').focus();
+}
+
+var SETTINGS_LABELS = { evening_push_hour: 'Uhrzeit Abend-Push', billing_cutoff: 'Abrechnungsstichtag (1–31)',
+  vehicle_rates: 'Fahrzeugsätze (jeder Name einmal, alle Beträge 0–100000 €)' };
 
 async function saveSettingsTab() {
   var err = document.getElementById('set-error'), btn = document.getElementById('set-save-btn');
@@ -233,5 +288,6 @@ async function sendTestPush() {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { APP_SETTINGS_DEFAULTS: APP_SETTINGS_DEFAULTS, appSetting: appSetting, appSettingsFromCache: appSettingsFromCache,
-    validateSettings: validateSettings, changedSettings: changedSettings, testPushMessage: testPushMessage };
+    validateSettings: validateSettings, changedSettings: changedSettings, testPushMessage: testPushMessage,
+    validVehicleRates: validVehicleRates, readVehicleRates: readVehicleRates };
 }

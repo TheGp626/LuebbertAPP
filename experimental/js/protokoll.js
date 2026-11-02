@@ -262,7 +262,7 @@ function initProtokoll() {
     protState.alId = currentUser.id;
     saveProtDraft();
   }
-  // Default Sprinter only for a brand-new form; a draft whose transports were removed stays without
+  // Default transport (Hängerzug) only for a brand-new form; a draft whose transports were removed stays without
   if (!hadDraft && protState.transports.length === 0) addProtTransport();
   if (protState.personnel.length === 0) addProtPersonnel();
 
@@ -405,7 +405,7 @@ function protRowChevron(key) {
 }
 
 function addProtTransport() {
-  protState.transports.push({ type: 'Sprinter', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
+  protState.transports.push({ type: 'Hängerzug', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
   protOpenRows['t' + (protState.transports.length - 1)] = true;
   renderProtTransport();
   saveProtDraft();
@@ -424,8 +424,10 @@ function renderProtTransport() {
   if (!list) return;
   list.innerHTML = protState.transports.map(function(t, i) {
     var key = 't' + i;
-    var vehicles = Object.keys(PROT_VEHICLE_RATES).map(function(v) {
-      return '<option value="' + v + '" ' + (t.type === v ? 'selected' : '') + '>' + v + '</option>';
+    var types = protVehicleTypes();
+    if (t.type && types.indexOf(t.type) === -1) types.push(t.type); // type removed in Einstellungen stays selectable
+    var vehicles = types.map(function(v) {
+      return '<option value="' + escapeHtml(v) + '" ' + (t.type === v ? 'selected' : '') + '>' + escapeHtml(v) + '</option>';
     }).join('');
     return '<div class="ui-row ui-row-wrap' + (protOpenRows[key] ? ' ui-row-open' : '') + '">' +
       '<div class="ui-row-main" onclick="toggleProtRow(\'' + key + '\')">' +
