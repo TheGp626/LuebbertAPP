@@ -4,10 +4,10 @@
 // Cron runs several times in the 9:00 hour; reminder_log / plan_reminder_log make later runs no-ops and retry failures.
 // Body: { mode? ("evening" → evening push), force?, only_user_id?, dry_run? (list only, send/log nothing), plan_override? (daily dry runs: treat plan reminders as on) } or { mode: "test", user_id, pin } (test push)
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
-import webpush from 'npm:web-push@3.6.7';
 import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, pendingPlIds, testPush, testPushResult, LOOKBACK_DAYS } from './reminders.mjs';
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { loadSettings } from '../_shared/settings.ts';
+import { pushTo, vapidReady } from '../_shared/push.ts';
 import { chooseRecipient } from '../_shared/recipient.mjs';
 import { planGuessAction } from '../_shared/plan-time.mjs';
 
@@ -29,42 +29,6 @@ function shiftDate(iso: string, days: number) {
 type Input = { force?: boolean; only_user_id?: string; dry_run?: boolean; plan_override?: boolean; mode?: string; user_id?: string; pin?: string };
 // deno-lint-ignore no-explicit-any
 type Db = any;
-type Push = { al_id: string; title: string; body: string; url: string };
-
-// Sends one push to all devices of a user. ok = devices reached, failed = retryable failures
-async function pushTo(db: Db, userId: string, p: Push) {
-  const { data: subs, error: subErr } = await db.from('push_subscriptions').select('endpoint, p256dh, auth').eq('user_id', userId);
-  if (subErr) { console.error('send-reminders: load subscriptions failed', subErr); return { ok: 0, failed: 1, removed: 0 }; }
-  let ok = 0, failed = 0, removed = 0;
-  for (const s of subs || []) {
-    try {
-      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-        JSON.stringify({ title: p.title, body: p.body, url: p.url }), { TTL: 86400 });
-      ok++;
-    } catch (e) {
-      const code = (e as { statusCode?: number })?.statusCode;
-      if (code === 404 || code === 410) {
-        await db.from('push_subscriptions').delete().eq('endpoint', s.endpoint);
-        removed++;
-      } else {
-        console.error('send-reminders: push failed', code, e);
-        failed++;
-      }
-    }
-  }
-  return { ok, failed, removed };
-}
-
-function vapidReady() {
-  try {
-    webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT') || 'mailto:noreply@example.com',
-      Deno.env.get('VAPID_PUBLIC_KEY') || '', Deno.env.get('VAPID_PRIVATE_KEY') || '');
-    return true;
-  } catch (e) {
-    console.error('send-reminders: VAPID not configured', (e as Error).message);
-    return false;
-  }
-}
 
 async function runDaily(db: Db, input: Input, settings: Record<string, unknown>, now: Date) {
   if (!input.force && !isBerlinNineAm(now)) return json({ skipped: 'not_9am' });

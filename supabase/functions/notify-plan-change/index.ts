@@ -3,7 +3,7 @@
 // and people taken off a shift (plan_weeks.removed entries with kind 'unassigned').
 // Sends at most once per plan version (plan_weeks.notified_version is claimed atomically).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
-import webpush from 'npm:web-push@3.6.7';
+import { pushTo, vapidReady } from '../_shared/push.ts';
 import { buildPlanPushes } from './notify.mjs';
 import { loadSettings } from '../_shared/settings.ts';
 
@@ -49,13 +49,7 @@ Deno.serve(async (req) => {
   const pushes = buildPlanPushes(week, shifts || [], berlinToday());
   if (input.dry_run) return json({ dry_run: true, enabled: settings.plan_change_push_enabled, pushes });
 
-  try {
-    webpush.setVapidDetails(Deno.env.get('VAPID_SUBJECT') || 'mailto:noreply@example.com',
-      Deno.env.get('VAPID_PUBLIC_KEY') || '', Deno.env.get('VAPID_PRIVATE_KEY') || '');
-  } catch (e) {
-    console.error('notify-plan-change: VAPID not configured', (e as Error).message);
-    return json({ skipped: 'vapid_not_configured' });
-  }
+  if (!vapidReady()) return json({ skipped: 'vapid_not_configured' });
 
   // Claim this version so a repeated call (double tap, retry) can't push twice
   const { data: claimed, error: cErr } = await db.from('plan_weeks').update({ notified_version: week.version })
@@ -65,21 +59,8 @@ Deno.serve(async (req) => {
 
   let pushed = 0, removed = 0;
   for (const p of pushes) {
-    const { data: subs, error: subErr } = await db.from('push_subscriptions').select('endpoint, p256dh, auth').eq('user_id', p.user_id);
-    if (subErr) { console.error('notify-plan-change: load subscriptions failed', subErr); continue; }
-    for (const s of subs || []) {
-      try {
-        await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-          JSON.stringify({ title: p.title, body: p.body, url: './index.html?open=wochenplan' }), { TTL: 86400 });
-        pushed++;
-      } catch (e) {
-        const code = (e as { statusCode?: number })?.statusCode;
-        if (code === 404 || code === 410) {
-          await db.from('push_subscriptions').delete().eq('endpoint', s.endpoint);
-          removed++;
-        } else console.error('notify-plan-change: push failed', code, e);
-      }
-    }
+    const r = await pushTo(db, p.user_id, { title: p.title, body: p.body, url: './index.html?open=wochenplan' });
+    pushed += r.ok; removed += r.removed;
   }
   return json({ users: pushes.length, pushed, removed_subscriptions: removed });
 });
