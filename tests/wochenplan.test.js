@@ -55,3 +55,10 @@ test('wpCalendarMenuItems: subscribe options only with a token', () => {
   const without = plain(ctx.wpCalendarMenuItems(false));
   assert.deepEqual(without.map(i => i.action), ['wpDownloadCalendar']);
 });
+
+test('wpWannRest: a note line before the timed line stays in the details, the timed line is not repeated', () => {
+  assert.deepEqual(plain(ctx.wpWannRest({ wann: 'Material vor Ort!!\nAufbau: 8 Uhr' })), ['Material vor Ort!!']);
+  assert.deepEqual(plain(ctx.wpWannRest({ wann: 'Aufbau: 8 Uhr\nAbbau: 0.30 Uhr' })), ['Abbau: 0.30 Uhr']);
+  assert.deepEqual(plain(ctx.wpWannRest({ wann: 'tagsüber\nTeam folgt' })), ['Team folgt']);
+  assert.deepEqual(plain(ctx.wpWannRest({ wann: null })), []);
+});

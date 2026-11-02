@@ -11,6 +11,7 @@ const whenCases = [
   ['Aufbau: 8 - 9 Uhr', 'Abbau: 12 Uhr'], ['Aufbau Team 1: 8 Uhr', '@Team: Material bereits vor Ort!!'], ['19.30 - 21 Uhr'],
   ['Abbau: 0.30 Uhr'], ['Aufbau Deko: bis 11 Uhr'], ['Abbau: ab 17 Uhr'], ['Umbau: 16 - 19 Uhr', 'Leergut hinter Vorhang'],
   ['Aufbau Barhocker & Deko : 10 Uhr'], ['KW 45-46'], ['Aufbau: nach Aufbau gedatec'], [],
+  ['Abbau: 21 – 24 Uhr'], ['Abbau: 22 — 2 Uhr'], ['Abbau: 24 Uhr'],
 ];
 const actionCases = [['Aufbau: 9 - 14 Uhr', 'Abbau: 0.30 Uhr'], ['Abbau: 8 - 11 Uhr'], ['Umbau: 16 - 19 Uhr'], []];
 

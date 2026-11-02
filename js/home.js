@@ -51,6 +51,7 @@ function readNextShiftCache(raw, userId) {
 function homeWhen(date) {
   var today = localDateStr();
   if (date === today) return 'heute';
+  if (date === wpAddDays(today, -1)) return 'heute Nacht'; // yesterday's night shift (Abbau 0.30 Uhr) running now
   if (date === wpAddDays(today, 1)) return 'morgen';
   var p = wpParts(date);
   if (date < wpAddDays(today, 7)) return 'am ' + WP_WEEKDAYS_LONG[p.dow];

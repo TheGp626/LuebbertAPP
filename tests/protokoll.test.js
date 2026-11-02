@@ -792,3 +792,26 @@ test('protShiftChanges: a booked shift whose times change goes back to offen; an
   const ch = plain(run('protShiftChanges')(old, personnel, [], '2026-10-28'));
   assert.deepEqual(ch.updates.map(u => [u.id, u.patch.end_time, u.patch.status]), [['s1', '17:00', 'offen']]);
 });
+
+// ── Bug round 2026-11-02 ──
+test('sync edit: a signature-less form (server signature not kept locally) does not overwrite signature_text', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  ctx.__data = protData({ signature: null });
+  await run('syncProtokollToSupabase(__data, "prot-9")');
+  const upd = sb.calls.find(c => c.table === 'protocols' && c.op === 'update');
+  assert.ok(!('signature_text' in upd.payload));
+  sb.calls.length = 0;
+  ctx.__data = protData({ signature: 'data:image/png;base64,AAA' });
+  await run('syncProtokollToSupabase(__data, "prot-9")');
+  assert.equal(sb.calls.find(c => c.table === 'protocols' && c.op === 'update').payload.signature_text, 'data:image/png;base64,AAA');
+});
+
+test('deleteProtHistory: a delete RLS answers with 0 rows keeps the local entry', async () => {
+  store.luebbert_protokoll_history = JSON.stringify([{ id: 'e1', supabaseId: 'prot-1', synced: true }]);
+  ctx.confirm = () => true;
+  sb.rows['protocols.delete'] = [];
+  const origThen = sb.from;
+  sb.from = t => { const b = origThen(t); const th = b.then; b.then = (res, rej) => th.call(b, r => res(t === 'protocols' && sb.calls[sb.calls.length - 1].op === 'delete' ? { data: [], error: null } : r), rej); return b; };
+  await run('deleteProtHistory("e1")');
+  assert.equal(JSON.parse(store.luebbert_protokoll_history).length, 1);
+});

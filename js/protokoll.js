@@ -1229,6 +1229,11 @@ async function syncProtokollToSupabase(data, targetId, out) {
       notes_feedback: data.feedback === '—' ? null : data.feedback
     };
 
+    // Server signatures are not kept in localStorage (see mergeProtHistory): an edit loaded without one
+    // must not overwrite the stored signature with null
+    // shortcut: clearing a signature while editing a synced protocol keeps the server copy; add a "cleared" flag if that is ever needed
+    if (editId && !protPayload.signature_text) delete protPayload.signature_text;
+
     var protId = null;
     if (editId) {
       var { data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', editId).select('id');
@@ -1642,10 +1647,15 @@ async function deleteProtHistory(id) {
 
   if (supabaseId && typeof supabaseClient !== 'undefined') {
     showToast('Lösche...', 'info');
-    var { error } = await supabaseClient.from('protocols').delete().eq('id', supabaseId);
+    var { data: delRows, error } = await supabaseClient.from('protocols').delete().eq('id', supabaseId).select('id');
     if (error) {
       console.error('Protocol delete error:', error);
       showToast('Fehler beim Löschen: ' + (error.message || error), 'danger');
+      return;
+    }
+    // RLS answers a blocked delete with 0 rows and no error; the next history sync drops it if it was already gone
+    if (!delRows || delRows.length === 0) {
+      showToast('Nicht gelöscht – fehlende Berechtigung auf dem Server.', 'danger');
       return;
     }
   }

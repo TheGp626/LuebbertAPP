@@ -522,3 +522,20 @@ test('dashboard menu: PDF only in the Buchhaltung view with a person, recalc onl
   assert.deepEqual(plain(actions('work', { full_name: 'A' })), ['exportDashboardMonthlyPDF']);
   assert.deepEqual(plain(actions('work', null)), []);
 });
+
+test('dashProtMatches: search finds the date as shown (dd.mm.yyyy) as well as ISO', () => {
+  const p = { date: '2026-11-02', projects: { name: 'Gala', location: 'Estrel' }, al: { full_name: 'Anna' } };
+  const m = ctx.dashProtMatches;
+  assert.equal(m(p, '02.11'), true);
+  assert.equal(m(p, '2026-11'), true);
+  assert.equal(m(p, 'estrel'), true);
+  assert.equal(m(p, '03.11'), false);
+  assert.equal(m(p, ''), true);
+});
+
+test('dashTransportToDb: a delay left in the field is dropped when the transport is punctual', () => {
+  const f = ctx.dashTransportToDb;
+  assert.equal(plain(f('P', { type: 'Sprinter', punctuality: 'pünktlich', delay: '15', hours: '2' })).delay_mins, 0);
+  assert.equal(plain(f('P', { type: 'Sprinter', punctuality: 'verspätet', delay: '15', hours: '2' })).delay_mins, 15);
+  assert.equal(plain(f('P', { type: 'Sprinter', punctuality: 'verspätet', delay: '', hours: '' })).driver_hours, null);
+});
