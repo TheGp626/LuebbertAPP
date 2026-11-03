@@ -75,3 +75,12 @@ test('uiComboNextIndex: arrows move and wrap, Enter picks, Escape closes', () =>
   assert.equal(U.uiComboKeyAction('ArrowDown', -1, 0), null);
   assert.equal(U.uiComboKeyAction('a', 0, 3), null);
 });
+
+test('topbarMenuItems: PIN entries by role', () => {
+  const labels = role => { global.userRole = role; return U.topbarMenuItems(null).map(i => i.label); };
+  assert.deepEqual(labels('Gast'), ['Optionen']);
+  assert.deepEqual(labels('MA'), ['PIN ändern', 'Optionen']);
+  assert.deepEqual(labels('AL'), ['PIN ändern', 'PIN zurücksetzen', 'Optionen']);
+  assert.deepEqual(labels('Buchhaltung'), ['PIN ändern', 'Optionen']);
+  delete global.userRole;
+});

@@ -32,6 +32,90 @@ function loginOutcome(res) {
   return { message: 'PIN konnte nicht geprüft werden (keine Verbindung). Bitte später erneut versuchen.' }; // network error, server_error, invalid_input, unknown
 }
 
+// UI filter only (mirrors _shared/pin.mjs); the server decides
+function mayResetPinClient(callerRole, targetRole) {
+  const matrix = { Admin: ['Admin', 'PL', 'AL', 'MA', 'Buchhaltung'], PL: ['AL', 'MA'], AL: ['MA'] };
+  return Object.prototype.hasOwnProperty.call(matrix, callerRole) && matrix[callerRole].includes(targetRole);
+}
+
+function resetTargets(callerRole, callerId, users) {
+  return (users || []).filter(u => u.id !== callerId && mayResetPinClient(callerRole, u.role));
+}
+
+// ── PIN ändern / zurücksetzen (top bar menu) ──
+var pinResetUsers = []; // var: ui.js reads it via window[data-source]
+
+function pinSheetOpen(html) {
+  let m = document.getElementById('pin-sheet-modal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'pin-sheet-modal';
+    m.className = 'sig-modal ui-sheet';
+    m.style.setProperty('--sheet-w', '420px');
+    m.innerHTML = '<div class="sig-modal-inner"></div>';
+    m.addEventListener('click', e => { if (e.target === m) closePinSheet(); });
+    document.body.appendChild(m);
+  }
+  m.firstChild.innerHTML = '<div class="ui-sheet-head"><h3 class="ui-title" style="font-size:18px;">' + html.title + '</h3>' +
+    '<button type="button" class="ui-icon-btn" onclick="closePinSheet()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' + html.body;
+  m.classList.add('open');
+}
+
+function closePinSheet() {
+  const m = document.getElementById('pin-sheet-modal');
+  if (m) m.classList.remove('open');
+}
+
+function openPinChange() {
+  const f = (id, label) => '<label class="ui-field"><span>' + label + '</span><input type="password" id="' + id + '" inputmode="numeric" maxlength="4" autocomplete="off"></label>';
+  pinSheetOpen({ title: 'PIN ändern', body: f('pin-old', 'Alte PIN') + f('pin-new', 'Neue PIN') + f('pin-new2', 'Neue PIN wiederholen') +
+    '<div id="pin-sheet-err" class="ui-error" role="alert" style="color:#c0392b;min-height:1.2em;"></div>' +
+    '<div class="ui-sheet-actions"><button type="button" class="ui-btn" onclick="closePinSheet()">Abbrechen</button>' +
+    '<button type="button" class="ui-btn ui-btn-primary" id="pin-change-btn" onclick="submitPinChange()">Speichern</button></div>' });
+}
+
+async function submitPinChange() {
+  const v = id => document.getElementById(id).value;
+  const err = document.getElementById('pin-sheet-err');
+  const oldPin = v('pin-old'), newPin = v('pin-new');
+  err.textContent = pinFormError('enter', oldPin) || pinFormError('set', newPin, v('pin-new2'));
+  if (err.textContent) return;
+  const btn = document.getElementById('pin-change-btn');
+  btn.disabled = true;
+  let res;
+  try { res = await supabaseClient.functions.invoke('pin-change', { body: { old_pin: oldPin, new_pin: newPin } }); } catch (e) { res = { error: e }; }
+  btn.disabled = false;
+  if (res && res.data && res.data.ok) { closePinSheet(); showToast('PIN geändert'); return; }
+  err.textContent = loginOutcome(res).message;
+}
+
+function openPinReset() {
+  pinResetUsers = resetTargets(userRole, currentUser && currentUser.id, allUsers);
+  pinSheetOpen({ title: 'PIN zurücksetzen', body: '<label class="ui-field"><span>Mitarbeiter</span>' +
+    uiComboHtml('pin-reset-name', '', 'Name tippen…', 'pinResetPick', '').replace('<input ', '<input data-source="pinResetUsers" ') + '</label>' +
+    '<div class="ui-sheet-actions"><button type="button" class="ui-btn" onclick="closePinSheet()">Abbrechen</button></div>' });
+}
+
+function pinResetPick(arg, name) {
+  const u = pinResetUsers.find(x => x.full_name === name);
+  if (u) confirmPinReset(u.id);
+}
+
+async function confirmPinReset(userId) {
+  const u = pinResetUsers.find(x => x.id === userId);
+  if (!u || !confirm('PIN von ' + u.full_name + ' wirklich zurücksetzen?')) return;
+  let res;
+  try { res = await supabaseClient.functions.invoke('pin-reset', { body: { target_user_id: userId } }); } catch (e) { res = { error: e }; }
+  if (res && res.data && res.data.ok) {
+    closePinSheet();
+    showToast('PIN zurückgesetzt – ' + u.full_name + ' wählt beim nächsten Login eine neue.');
+  } else {
+    // FunctionsHttpError = server answered (401/403/404/400/500); anything else = no connection
+    const http = res && res.error && res.error.name === 'FunctionsHttpError';
+    showToast(http ? 'PIN konnte nicht zurückgesetzt werden.' : PIN_ERR_CONNECTION);
+  }
+}
+
 // A refresh/network error while a recent login exists keeps the cached login; only a clean "no session" or an old login means login
 function authStartState(session, loginTs, now, sessionError) {
   if (now - loginTs >= PIN_SESSION_MS) return 'login';

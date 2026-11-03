@@ -97,3 +97,17 @@ test('sessionUserChanged: the Stundenzettel editor is reset when another user (o
   assert.equal(changed('a', null), true);       // logout
   assert.equal(changed(null, null), false);
 });
+
+test('mayResetPinClient matches the server matrix', async () => {
+  const client = load('mayResetPinClient');
+  const { mayResetPin } = await import('../supabase/functions/_shared/pin.mjs');
+  const roles = ['Admin', 'PL', 'AL', 'MA', 'Buchhaltung', 'Gast'];
+  for (const c of roles) for (const t of roles) assert.equal(client(c, t), mayResetPin(c, t), c + '→' + t);
+});
+
+test('resetTargets: AL sees only MA, never Gast or self', () => {
+  const r = new Function(grab('mayResetPinClient') + grab('resetTargets') + '; return resetTargets;')();
+  const users = [{ id: '1', role: 'MA' }, { id: '2', role: 'Gast' }, { id: '3', role: 'AL' }, { id: '4', role: 'Admin' }];
+  assert.deepEqual(r('AL', '3', users).map(u => u.id), ['1']);
+  assert.deepEqual(r('Admin', '4', users).map(u => u.id), ['1', '3']);
+});
