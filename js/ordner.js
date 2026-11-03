@@ -401,7 +401,11 @@ var _ordnerFormReturnId = null;     // reopen this folder's detail view after sa
 async function loadOrdnerUsers() {
   if (_ordnerUsers) return _ordnerUsers;
   // Inactive users too: an already assigned AL/PL who left must still show up in the form
-  var { data, error } = await supabaseClient.rpc('user_directory');
+  // Office roles read app_users (role_rates carry additional AL/PL roles for userHasRole); MA/Gast only get the rate-less directory
+  var office = ['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole);
+  var { data, error } = office
+    ? await supabaseClient.from('app_users').select('id, full_name, role, role_rates, is_active').order('full_name')
+    : await supabaseClient.rpc('user_directory');
   if (error) { console.error('Ordner users:', error); return []; }
   _ordnerUsers = (data || []).slice().sort(function(x, y) { return (x.full_name || '').localeCompare(y.full_name || ''); });
   return _ordnerUsers;

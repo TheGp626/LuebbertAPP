@@ -171,3 +171,54 @@ test('pdfFallbackHtml: when pdf.js fails only a download link is offered — nev
   assert.ok(!/docs\.google|viewer\?url=/.test(html));
   assert.ok(!/docs\.google\.com/.test(fs.readFileSync(path.join(__dirname, '../js/ordner.js'), 'utf8')));
 });
+
+// ── Role RLS task 3 ──
+function stubSb(rows) {
+  const calls = [];
+  const mk = (table) => {
+    const b = { select(c) { calls.push({ table, select: c }); return b; }, order() { return b; }, eq() { return b; }, in() { return b; },
+      then(res, rej) { return Promise.resolve({ data: rows[table] || [], error: null }).then(res, rej); } };
+    return b;
+  };
+  ctx.supabaseClient = { calls, from: mk, rpc: (fn) => { calls.push({ rpc: fn }); return Promise.resolve({ data: rows.dir || [], error: null }); } };
+  return calls;
+}
+
+test('loadOrdnerUsers: office role reads app_users incl. role_rates; MA/Gast use user_directory', async () => {
+  let calls = stubSb({ app_users: [{ id: 'a', full_name: 'A' }] });
+  ctx.userRole = 'AL';
+  await ctx.loadOrdnerUsers();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].table, 'app_users');
+  assert.match(calls[0].select, /role_rates/);
+  for (const role of ['MA', 'Gast']) {
+    vm.runInContext('_ordnerUsers = null', ctx);
+    calls = stubSb({ dir: [{ id: 'a', full_name: 'A' }] });
+    ctx.userRole = role;
+    await ctx.loadOrdnerUsers();
+    assert.deepEqual(plain(calls), [{ rpc: 'user_directory' }], role);
+  }
+});
+
+test('renderOrdnerEinsaetze: AL name from directory; protocols queried for office roles only', async () => {
+  const einsaetze = [{ id: 'e1', date: '2026-01-05', action: 'Aufbau', al_id: 'al1', cancelled: false }];
+  for (const [role, expectProt] of [['MA', false], ['AL', true]]) {
+    vm.runInContext('_ordnerUsers = null', ctx);
+    const calls = stubSb({ einsaetze, app_users: [], dir: [{ id: 'al1', full_name: 'Anna AL', role: 'AL', is_active: true }] });
+    // office path reads app_users for the directory: provide the same person there
+    ctx.supabaseClient.from = (t) => stubFrom(t);
+    function stubFrom(t) {
+      const bb = { select(c) { calls.push({ table: t, select: c }); return bb; }, order() { return bb; }, eq() { return bb; }, in() { return bb; },
+        then(res, rej) { const d = t === 'einsaetze' ? einsaetze : t === 'app_users' ? [{ id: 'al1', full_name: 'Anna AL', role: 'AL' }] : []; return Promise.resolve({ data: d, error: null }).then(res, rej); } };
+      return bb;
+    }
+    ctx.userRole = role;
+    const box = { style: {}, innerHTML: '' };
+    ctx.document.getElementById = id => (id === 'ordner-einsaetze' ? box : null);
+    vm.runInContext('aktuellerOrdner = { id: "f1", pl_id: null }', ctx);
+    await ctx.renderOrdnerEinsaetze({ id: 'f1', pl_id: null });
+    assert.equal(calls.some(c => c.table === 'protocols'), expectProt, role);
+    assert.equal(calls.find(c => c.table === 'einsaetze').select.includes('app_users'), false);
+    assert.match(box.innerHTML, /AL Anna AL/, role);
+  }
+});
