@@ -32,8 +32,10 @@ function loginOutcome(res) {
   return { message: 'PIN konnte nicht geprüft werden (keine Verbindung). Bitte später erneut versuchen.' }; // network error, server_error, invalid_input, unknown
 }
 
-function authStartState(session, loginTs, now) {
-  return session && now - loginTs < PIN_SESSION_MS ? 'restore' : 'login';
+// A refresh/network error while a recent login exists keeps the cached login; only a clean "no session" or an old login means login
+function authStartState(session, loginTs, now, sessionError) {
+  if (now - loginTs >= PIN_SESSION_MS) return 'login';
+  return session || sessionError ? 'restore' : 'login';
 }
 
 // Last good employee list, so an offline start can still restore the session and show the login list
@@ -68,8 +70,9 @@ function cachedOwnProfile() {
   try { return JSON.parse(localStorage.getItem(OWN_PROFILE_KEY) || 'null'); } catch (e) { return null; }
 }
 
-// Own app_users row (the session is already set); offline → cached copy of the same id.
-// null = the server says the person is missing or deactivated.
+// Own app_users row (the session is already set) → { profile, error }.
+// error: the request failed (profile = cached copy of the same id, or null);
+// no error + profile null: the server says the person is missing or deactivated.
 async function fetchOwnProfile(id) {
   let data = null, error = null;
   try {
@@ -79,11 +82,18 @@ async function fetchOwnProfile(id) {
   } catch (e) { error = e; }
   if (error) {
     const cached = cachedOwnProfile();
-    return cached && cached.id === id ? cached : null;
+    return { profile: cached && cached.id === id ? cached : null, error: true };
   }
-  if (!data || data.is_active === false) { try { localStorage.removeItem(OWN_PROFILE_KEY); } catch (e) { /* ignore */ } return null; }
+  if (!data || data.is_active === false) { try { localStorage.removeItem(OWN_PROFILE_KEY); } catch (e) { /* ignore */ } return { profile: null, error: false }; }
   try { localStorage.setItem(OWN_PROFILE_KEY, JSON.stringify(data)); } catch (e) { /* storage full */ }
-  return data;
+  return { profile: data, error: false };
+}
+
+// signOut({scope:'local'}) reports network trouble as {error} and keeps the stored session → remove it ourselves
+async function signOutLocal() {
+  let err = null;
+  try { ({ error: err } = await supabaseClient.auth.signOut({ scope: 'local' })); } catch (e) { err = e; }
+  if (err) { try { localStorage.removeItem(supabaseClient.auth.storageKey); } catch (e) { /* ignore */ } }
 }
 
 // ── SEARCHABLE NAME PICKER (combobox) ──
@@ -166,28 +176,40 @@ async function initAuth() {
   // One-time cleanup of the old name-only login
   ['local_app_user_id', 'local_app_session_ts', 'local_app_remember_me'].forEach(function (k) { localStorage.removeItem(k); });
 
-  let session = null;
-  try { ({ data: { session } } = await supabaseClient.auth.getSession()); } catch (e) { /* treated as logged out */ }
-  const state = authStartState(session, +localStorage.getItem(LOGIN_TS_KEY) || 0, Date.now());
+  // Weak network: show the cached profile at once (before any await; getSession may refresh over the network)
+  const loginTs = +localStorage.getItem(LOGIN_TS_KEY) || 0;
+  const cached = cachedOwnProfile();
+  let shown = cached && Date.now() - loginTs < PIN_SESSION_MS ? cached : null;
+  if (shown) handleSession(shown);
+
+  let session = null, sessionError = null;
+  try { ({ data: { session }, error: sessionError } = await supabaseClient.auth.getSession()); } catch (e) { sessionError = e; }
+  const state = authStartState(session, loginTs, Date.now(), sessionError);
 
   if (state === 'login') {
-    try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (e) { /* ignore */ }
+    await signOutLocal();
+    localStorage.removeItem(LOGIN_TS_KEY);
+    allUsers = parseCachedUsers(localStorage.getItem(USERS_CACHE_KEY)); // picker not empty on a slow network
     handleSession(null);
     fetchEmployees();
     return;
   }
 
-  // Weak network: show the cached profile at once, check it against the server afterwards
-  const cached = cachedOwnProfile();
-  const shown = cached && cached.id === session.user.id ? cached : null;
-  if (shown) handleSession(shown);
+  if (session && shown && shown.id !== session.user.id) { shown = null; handleSession(null); } // cached profile of someone else
+  const id = session ? session.user.id : shown && shown.id;
+  if (!id) { // refresh failed and nothing cached: login needs the network anyway, keep the stored session
+    handleSession(null);
+    fetchEmployees();
+    return;
+  }
 
-  const fresh = await fetchOwnProfile(session.user.id);
-  if (!fresh) {
-    try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (e) { /* ignore */ }
+  const { profile: fresh, error: profErr } = await fetchOwnProfile(id);
+  if (!fresh && !profErr) {
+    await signOutLocal();
     localStorage.removeItem(LOGIN_TS_KEY);
     handleSession(null);
-  } else if (authSessionChanged(shown, fresh)) handleSession(fresh);
+  } else if (!fresh) handleSession(null); // request failed, no cache: keep the session for the next start
+  else if (authSessionChanged(shown, fresh)) handleSession(fresh);
   fetchEmployees(); // name list for the picker / settings.js
 }
 
@@ -297,6 +319,8 @@ function enforceUI() {
 }
 
 async function handleAuthSubmit() {
+  const btn0 = document.getElementById('auth-submit-btn');
+  if (btn0 && btn0.disabled) return; // login already running (double Enter)
   const nameInp = document.getElementById('auth-name-input');
   const errorEl = document.getElementById('auth-error');
   const btn = document.getElementById('auth-submit-btn');
@@ -350,14 +374,15 @@ async function handleAuthSubmit() {
   const out = loginOutcome(res);
   if (!out.session) { if (res.error) console.error('pin-login:', res.error); return fail(out.message); }
 
-  const { error: sessErr } = await supabaseClient.auth.setSession(out.session);
+  let sessErr = null;
+  try { ({ error: sessErr } = await supabaseClient.auth.setSession(out.session)); } catch (e) { sessErr = e; }
   if (sessErr) return fail(PIN_ERR_CONNECTION);
   localStorage.setItem(LOGIN_TS_KEY, String(Date.now()));
-  const profile = await fetchOwnProfile(user.id);
+  const { profile, error: profErr } = await fetchOwnProfile(user.id);
   if (!profile) {
-    try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (e) { /* ignore */ }
+    await signOutLocal();
     localStorage.removeItem(LOGIN_TS_KEY);
-    return fail('Benutzer nicht gefunden oder deaktiviert.');
+    return fail(profErr ? PIN_ERR_CONNECTION : 'Benutzer nicht gefunden oder deaktiviert.');
   }
   document.getElementById('auth-pin').value = '';
   document.getElementById('auth-pin-repeat').value = '';
@@ -370,7 +395,7 @@ async function handleAuthSubmit() {
 async function handleLogout() {
   if (!confirm('Möchtest du dich wirklich abmelden?')) return;
   
-  try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (e) { /* ignore */ }
+  await signOutLocal();
   localStorage.removeItem(LOGIN_TS_KEY);
   localStorage.removeItem(OWN_PROFILE_KEY);
   // Close the open module so the next user doesn't land in e.g. the dashboard of the previous one

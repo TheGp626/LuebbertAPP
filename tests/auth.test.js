@@ -60,6 +60,14 @@ test('authStartState: restore only with a session younger than 30 days', () => {
   assert.equal(s({ user: { id: 'x' } }, now - 30 * 864e5, now), 'login');
   assert.equal(s({ user: { id: 'x' } }, 0, now), 'login');
 });
+test('authStartState: refresh/network error keeps a recent login, clean null session or old login does not', () => {
+  const s = new Function('var PIN_SESSION_MS = 2592000000;' + grab('authStartState') + '; return authStartState;')();
+  const now = Date.parse('2026-12-01T00:00:00Z');
+  assert.equal(s(null, now - 864e5, now, new Error('Failed to fetch')), 'restore');
+  assert.equal(s(null, now - 864e5, now, null), 'login');
+  assert.equal(s(null, now - 31 * 864e5, now, new Error('x')), 'login');
+  assert.equal(s({ user: { id: 'x' } }, now - 31 * 864e5, now, null), 'login');
+});
 
 test('authSessionChanged: re-login only when the fresh user differs from the cached one', () => {
   const changed = load('authSessionChanged');
@@ -77,7 +85,8 @@ test('initAuth restores the login from the cached profile before waiting for the
   const body = grab('initAuth');
   const early = body.indexOf('handleSession(shown)'), fetch = body.indexOf('await fetchOwnProfile');
   assert.ok(early !== -1 && fetch !== -1 && early < fetch);
-  assert.ok(body.indexOf('authStartState(') !== -1 && body.indexOf("signOut({ scope: 'local' })") !== -1);
+  assert.ok(early < body.indexOf('auth.getSession()'), 'cached profile shown before getSession');
+  assert.ok(body.indexOf('authStartState(') !== -1 && body.indexOf('signOutLocal()') !== -1);
 });
 
 test('sessionUserChanged: the Stundenzettel editor is reset when another user (or nobody) takes over', () => {
