@@ -1,7 +1,7 @@
 // Run: node --test supabase/functions/_shared/pin.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isValidPin, mayResetPin, lockoutRemainingMin, pinEmail, pinPassword, isUuid } from './pin.mjs';
+import { isValidPin, mayResetPin, mayResetAny, lockoutRemainingMin, pinEmail, pinPassword, isUuid } from './pin.mjs';
 
 test('isValidPin: exactly 4 digits', () => {
   for (const ok of ['0000', '1234', '9999']) assert.equal(isValidPin(ok), true);
@@ -25,4 +25,15 @@ test('pinEmail / pinPassword / isUuid', () => {
   assert.equal(isUuid('4e71084c-4942-4565-ade5-974a0c3480f4'), true);
   assert.equal(isUuid('x'), false);
   assert.equal(isUuid(null), false);
+});
+
+test('mayResetAny: only Admin, PL, AL', () => {
+  const want = { Admin: true, PL: true, AL: true, MA: false, Buchhaltung: false, Gast: false };
+  for (const [r, v] of Object.entries(want)) assert.equal(mayResetAny(r), v, r);
+});
+test('mayResetPin/mayResetAny: prototype keys are no roles', () => {
+  for (const r of ['constructor', '__proto__', 'toString']) {
+    assert.equal(mayResetPin(r, 'MA'), false);
+    assert.equal(mayResetAny(r), false);
+  }
 });

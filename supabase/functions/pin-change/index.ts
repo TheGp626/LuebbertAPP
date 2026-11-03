@@ -51,6 +51,9 @@ Deno.serve(async (req) => {
     return mins > 0 ? json({ error: 'locked', minutes: mins }) : json({ error: 'wrong_pin', remaining: PIN_MAX_FAILS - f.failed_count });
   }
 
+  // the old-PIN check opened a session nobody needs
+  const { error: oErr } = await admin.auth.admin.signOut(sign.session.access_token, 'local');
+  if (oErr) console.error('pin-change: revoke check session failed', oErr);
   const { error: uErr } = await admin.auth.admin.updateUserById(id, { password: pinPassword(input.new_pin as string) });
   if (uErr) { console.error('pin-change: update password failed', uErr); return serverError(); }
   const { error: dErr } = await admin.from('pin_lockouts').delete().eq('user_id', id);

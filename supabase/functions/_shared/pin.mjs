@@ -5,7 +5,9 @@ export const PIN_LOCK_MIN = 15;
 const RESET = { Admin: ['Admin', 'PL', 'AL', 'MA', 'Buchhaltung'], PL: ['AL', 'MA'], AL: ['MA'] };
 
 export const isValidPin = (pin) => typeof pin === 'string' && /^\d{4}$/.test(pin);
-export const mayResetPin = (callerRole, targetRole) => (RESET[callerRole] || []).includes(targetRole);
+const rolesOf = (callerRole) => (Object.hasOwn(RESET, callerRole) ? RESET[callerRole] : []);
+export const mayResetPin = (callerRole, targetRole) => rolesOf(callerRole).includes(targetRole);
+export const mayResetAny = (callerRole) => rolesOf(callerRole).length > 0;
 
 export function lockoutRemainingMin(row, now) {
   const ms = row && row.locked_until ? new Date(row.locked_until) - now : 0;

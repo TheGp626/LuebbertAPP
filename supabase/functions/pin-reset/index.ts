@@ -1,7 +1,7 @@
 // pin-reset: a superior role deletes the target's Auth account (= PIN), so the target picks a new PIN at next login.
 // Caller identity comes from the JWT (verify_jwt: true); roles are checked with mayResetPin.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
-import { isUuid, mayResetPin } from '../_shared/pin.mjs';
+import { isUuid, mayResetAny, mayResetPin } from '../_shared/pin.mjs';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -31,14 +31,19 @@ Deno.serve(async (req) => {
   if (!input || !isUuid(input.target_user_id)) return json({ error: 'invalid_input' }, 400);
   const targetId = input.target_user_id as string;
 
-  const { data: rows, error: rErr } = await admin.from('app_users').select('id, role, is_active').in('id', [callerId, targetId]);
-  if (rErr) { console.error('pin-reset: load users failed', rErr); return serverError(); }
-  const caller = rows?.find((r) => r.id === callerId);
-  const target = rows?.find((r) => r.id === targetId);
+  const { data: caller, error: cErr } = await admin.from('app_users').select('id, role, is_active').eq('id', callerId).maybeSingle();
+  if (cErr) { console.error('pin-reset: load caller failed', cErr); return serverError(); }
   if (!caller || caller.is_active === false) return json({ error: 'unauthorized' }, 401);
+  // roles without reset rights learn nothing about which target ids exist
+  if (!mayResetAny(caller.role)) return json({ error: 'forbidden' }, 403);
+  const { data: target, error: tErr } = await admin.from('app_users').select('id, role').eq('id', targetId).maybeSingle();
+  if (tErr) { console.error('pin-reset: load target failed', tErr); return serverError(); }
   if (!target) return json({ error: 'not_found' }, 404);
   if (!mayResetPin(caller.role, target.role)) return json({ error: 'forbidden' }, 403);
 
+  // audit first: a failed log insert must not leave an unlogged reset
+  const { error: gErr } = await admin.from('pin_reset_log').insert({ reset_by: callerId, target: targetId });
+  if (gErr) { console.error('pin-reset: log insert failed', gErr); return serverError(); }
   const { error: dErr } = await admin.auth.admin.deleteUser(targetId);
   // no Auth account yet = already no PIN
   if (dErr && !(dErr.status === 404 || /not.?found/i.test(dErr.message || ''))) {
@@ -47,7 +52,5 @@ Deno.serve(async (req) => {
   }
   const { error: lErr } = await admin.from('pin_lockouts').delete().eq('user_id', targetId);
   if (lErr) console.error('pin-reset: clear lockout failed', lErr);
-  const { error: gErr } = await admin.from('pin_reset_log').insert({ reset_by: callerId, target: targetId });
-  if (gErr) console.error('pin-reset: log insert failed', gErr);
   return json({ ok: true });
 });
