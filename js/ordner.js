@@ -713,10 +713,35 @@ async function deleteOrdner(folder) {
 // ── SHARED FILE VIEWER ──
 // Looks the file up by id — passing name/url through inline onclick strings
 // breaks as soon as a filename contains a quote character.
-function openOrdnerFileById(id) {
+// project-files is private: the stored public-style link only identifies the file (same parsing as cleanup-folders)
+function projectFilePath(fileUrl) {
+  var parts = String(fileUrl || '').split('/project-files/');
+  if (parts.length < 2) return null;
+  var p = parts.slice(1).join('/project-files/').split('?')[0];
+  try { p = decodeURIComponent(p); } catch (e) { /* keep the raw path */ }
+  return p || null;
+}
+
+// Temporary link (1 h) for viewing/downloading; null when the file can't be signed (offline, gone, no session)
+async function signedProjectFileUrl(fileUrl) {
+  var path = projectFilePath(fileUrl);
+  if (!path) return null;
+  try {
+    var res = await supabaseClient.storage.from('project-files').createSignedUrl(path, 3600);
+    return (res && !res.error && res.data && res.data.signedUrl) || null;
+  } catch (e) { return null; }
+}
+
+var _ordnerOpening = false; // double tap while the link is being signed must not open two viewers
+async function openOrdnerFileById(id) {
   var f = ordnerFiles.find(function(x) { return x.id === id; });
-  if (!f) return;
-  openFileViewer(f.file_url, f.name, f.file_type || '');
+  if (!f || _ordnerOpening) return;
+  _ordnerOpening = true;
+  try {
+    var url = await signedProjectFileUrl(f.file_url);
+    if (!url) { showToast('Datei konnte nicht geöffnet werden'); return; }
+    openFileViewer(url, f.name, f.file_type || '');
+  } finally { _ordnerOpening = false; }
 }
 
 // 'image' | 'pdf' | 'file' (download only). HEIC/HEIF is not displayable in most browsers (Chrome/Android), so it is a file.
