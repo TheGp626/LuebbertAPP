@@ -87,9 +87,9 @@ function uiComboMatches(users, query) {
 }
 
 // pickFn(arg, name) is a global function; called on a pick from the list and on a typed free name (on blur)
-function uiComboHtml(id, value, placeholder, pickFn, arg) {
+function uiComboHtml(id, value, placeholder, pickFn, arg, source) {
   return '<div class="ui-combo"><input type="text" id="' + uiEsc(id) + '" placeholder="' + uiEsc(placeholder || '') + '" autocomplete="off" autocapitalize="words" value="' + uiEsc(value) + '"' +
-    ' role="combobox" aria-autocomplete="list" aria-expanded="false" data-pick="' + uiEsc(pickFn) + '" data-arg="' + uiEsc(arg) + '" />' +
+    ' role="combobox" aria-autocomplete="list" aria-expanded="false" data-pick="' + uiEsc(pickFn) + '" data-arg="' + uiEsc(arg) + '"' + (source ? ' data-source="' + uiEsc(source) + '"' : '') + ' />' +
     '<div class="combo-list ui-combo-list" role="listbox" style="display:none;"></div></div>';
 }
 

@@ -84,3 +84,8 @@ test('topbarMenuItems: PIN entries by role', () => {
   assert.deepEqual(labels('Buchhaltung'), ['PIN ändern', 'Optionen']);
   delete global.userRole;
 });
+
+test('uiComboHtml: data-source only when given', () => {
+  assert.match(U.uiComboHtml('i', '', 'p', 'f', '', 'pinResetUsers'), /data-source="pinResetUsers"/);
+  assert.doesNotMatch(U.uiComboHtml('i', '', 'p', 'f', ''), /data-source/);
+});

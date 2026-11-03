@@ -43,6 +43,7 @@ function resetTargets(callerRole, callerId, users) {
 }
 
 // ── PIN ändern / zurücksetzen (top bar menu) ──
+var pinResetBusy = false;
 var pinResetUsers = []; // var: ui.js reads it via window[data-source]
 
 function pinSheetOpen(html) {
@@ -63,7 +64,7 @@ function pinSheetOpen(html) {
 
 function closePinSheet() {
   const m = document.getElementById('pin-sheet-modal');
-  if (m) m.classList.remove('open');
+  if (m) { m.classList.remove('open'); m.firstChild.innerHTML = ''; }
 }
 
 function openPinChange() {
@@ -86,13 +87,14 @@ async function submitPinChange() {
   try { res = await supabaseClient.functions.invoke('pin-change', { body: { old_pin: oldPin, new_pin: newPin } }); } catch (e) { res = { error: e }; }
   btn.disabled = false;
   if (res && res.data && res.data.ok) { closePinSheet(); showToast('PIN geändert'); return; }
-  err.textContent = loginOutcome(res).message;
+  const http = res && res.error && res.error.name === 'FunctionsHttpError' && !(res.data && res.data.error);
+  err.textContent = http ? 'PIN konnte nicht geändert werden.' : loginOutcome(res).message;
 }
 
 function openPinReset() {
   pinResetUsers = resetTargets(userRole, currentUser && currentUser.id, allUsers);
   pinSheetOpen({ title: 'PIN zurücksetzen', body: '<label class="ui-field"><span>Mitarbeiter</span>' +
-    uiComboHtml('pin-reset-name', '', 'Name tippen…', 'pinResetPick', '').replace('<input ', '<input data-source="pinResetUsers" ') + '</label>' +
+    uiComboHtml('pin-reset-name', '', 'Name tippen…', 'pinResetPick', '', 'pinResetUsers') + '</label>' +
     '<div class="ui-sheet-actions"><button type="button" class="ui-btn" onclick="closePinSheet()">Abbrechen</button></div>' });
 }
 
@@ -103,9 +105,11 @@ function pinResetPick(arg, name) {
 
 async function confirmPinReset(userId) {
   const u = pinResetUsers.find(x => x.id === userId);
-  if (!u || !confirm('PIN von ' + u.full_name + ' wirklich zurücksetzen?')) return;
+  if (!u || pinResetBusy || !confirm('PIN von ' + u.full_name + ' wirklich zurücksetzen?')) return;
   let res;
+  pinResetBusy = true;
   try { res = await supabaseClient.functions.invoke('pin-reset', { body: { target_user_id: userId } }); } catch (e) { res = { error: e }; }
+  pinResetBusy = false;
   if (res && res.data && res.data.ok) {
     closePinSheet();
     showToast('PIN zurückgesetzt – ' + u.full_name + ' wählt beim nächsten Login eine neue.');
@@ -309,6 +313,7 @@ function handleSession(user) {
   if (!overlay) return;
   const userChanged = sessionUserChanged(lastSessionUserId, user ? user.id : null);
   lastSessionUserId = user ? user.id : null;
+  if (userChanged) closePinSheet(); // no open PIN sheet or typed PINs across logout/user switch
 
   if (user) {
     currentUser = { id: user.id, email: '', full_name: user.full_name || '' }; // Mock basic GoTrue object for backwards compatibility (+ name for the start page greeting)
