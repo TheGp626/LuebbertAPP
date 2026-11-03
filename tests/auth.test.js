@@ -113,3 +113,16 @@ test('resetTargets: AL sees only MA, never Gast or self', () => {
   assert.deepEqual(r('AL', '3', users).map(u => u.id), ['1']);
   assert.deepEqual(r('Admin', '4', users).map(u => u.id), ['1', '3']);
 });
+
+test('firstPinNeedsAdminPinClient matches the server rule', async () => {
+  const client = load('firstPinNeedsAdminPinClient');
+  const { firstPinNeedsAdminPin } = await import('../supabase/functions/_shared/pin.mjs');
+  for (const r of ['Admin', 'PL', 'AL', 'Buchhaltung', 'MA', 'Gast']) assert.equal(client(r), firstPinNeedsAdminPin(r), r);
+});
+
+test('loginOutcome: admin password texts for a leader\'s first PIN', () => {
+  const o = load('loginOutcome');
+  assert.equal(o({ data: { error: 'admin_pin_required' }, error: null }).message, 'Bitte zusätzlich das Admin-Passwort eingeben (nur beim ersten Mal).');
+  assert.equal(o({ data: { error: 'admin_pin_wrong', remaining: 4 }, error: null }).message, 'Admin-Passwort falsch. Noch 4 Versuche.');
+  assert.equal(o({ data: { error: 'admin_pin_wrong', remaining: 1 }, error: null }).message, 'Admin-Passwort falsch. Noch 1 Versuch.');
+});

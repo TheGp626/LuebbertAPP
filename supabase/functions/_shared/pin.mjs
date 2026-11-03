@@ -8,6 +8,8 @@ export const isValidPin = (pin) => typeof pin === 'string' && /^\d{4}$/.test(pin
 const rolesOf = (callerRole) => (Object.hasOwn(RESET, callerRole) ? RESET[callerRole] : []);
 export const mayResetPin = (callerRole, targetRole) => rolesOf(callerRole).includes(targetRole);
 export const mayResetAny = (callerRole) => rolesOf(callerRole).length > 0;
+// Rollout guard: a leader account's first PIN needs the shared admin password once (else anyone could claim it)
+export const firstPinNeedsAdminPin = (role) => ['Admin', 'PL', 'AL', 'Buchhaltung'].includes(role);
 
 export function lockoutRemainingMin(row, now) {
   const ms = row && row.locked_until ? new Date(row.locked_until) - now : 0;

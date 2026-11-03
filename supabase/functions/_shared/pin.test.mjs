@@ -1,7 +1,7 @@
 // Run: node --test supabase/functions/_shared/pin.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isValidPin, mayResetPin, mayResetAny, lockoutRemainingMin, pinEmail, pinPassword, isUuid, isWrongCredentials } from './pin.mjs';
+import { isValidPin, mayResetPin, mayResetAny, lockoutRemainingMin, pinEmail, pinPassword, isUuid, isWrongCredentials, firstPinNeedsAdminPin } from './pin.mjs';
 
 test('isValidPin: exactly 4 digits', () => {
   for (const ok of ['0000', '1234', '9999']) assert.equal(isValidPin(ok), true);
@@ -41,4 +41,9 @@ test('mayResetPin/mayResetAny: prototype keys are no roles', () => {
 test('isWrongCredentials: only status 400', () => {
   assert.equal(isWrongCredentials({ status: 400, code: 'invalid_credentials' }), true);
   for (const e of [null, undefined, { status: 429 }, { status: 500 }, { status: 0 }, new Error('fetch failed')]) assert.equal(isWrongCredentials(e), false);
+});
+
+test('firstPinNeedsAdminPin: leader roles only', () => {
+  for (const r of ['Admin', 'PL', 'AL', 'Buchhaltung']) assert.equal(firstPinNeedsAdminPin(r), true, r);
+  for (const r of ['MA', 'Gast', '', undefined, 'constructor']) assert.equal(firstPinNeedsAdminPin(r), false, String(r));
 });

@@ -14,6 +14,11 @@ function authPinMode(user) {
   return user.has_pin ? 'enter' : 'set';
 }
 
+// Mirrors firstPinNeedsAdminPin in _shared/pin.mjs: a leader's first PIN needs the admin password once
+function firstPinNeedsAdminPinClient(role) {
+  return ['Admin', 'PL', 'AL', 'Buchhaltung'].indexOf(role) !== -1;
+}
+
 function pinFormError(mode, pin, repeat) {
   if (mode === 'none') return '';
   if (!/^\d{4}$/.test(pin || '')) return 'Bitte eine 4-stellige PIN eingeben.';
@@ -28,6 +33,8 @@ function loginOutcome(res) {
   if (d && d.error === 'wrong_pin') return { message: 'Falsche PIN. Noch ' + d.remaining + (d.remaining === 1 ? ' Versuch.' : ' Versuche.') };
   if (d && d.error === 'locked') return { message: 'Zu viele Fehlversuche – in ' + d.minutes + ' Min. erneut versuchen oder AL/PL um Zurücksetzen bitten.' };
   if (d && (d.error === 'pin_not_set' || d.error === 'pin_already_set')) return { message: 'Bitte noch einmal versuchen – die Anzeige wurde aktualisiert.', refresh: true };
+  if (d && d.error === 'admin_pin_required') return { message: 'Bitte zusätzlich das Admin-Passwort eingeben (nur beim ersten Mal).' };
+  if (d && d.error === 'admin_pin_wrong') return { message: 'Admin-Passwort falsch. Noch ' + d.remaining + (d.remaining === 1 ? ' Versuch.' : ' Versuche.') };
   if (d && d.error === 'not_found') return { message: 'Benutzer nicht gefunden oder deaktiviert.' };
   if (d && (d.error === 'invalid_pin' || d.error === 'pin_required')) return { message: 'Bitte eine 4-stellige PIN eingeben.' };
   return { message: 'PIN konnte nicht geprüft werden (keine Verbindung). Bitte später erneut versuchen.' }; // network error, server_error, invalid_input, unknown
@@ -231,6 +238,8 @@ function selectAuthUser(id) {
   if (wrap) wrap.style.display = mode === 'none' ? 'none' : 'block';
   if (pin) pin.value = '';
   if (rep) { rep.value = ''; rep.style.display = mode === 'set' ? 'block' : 'none'; }
+  const adm = document.getElementById('auth-admin-pin');
+  if (adm) { adm.value = ''; adm.style.display = mode === 'set' && firstPinNeedsAdminPinClient(user.role) ? 'block' : 'none'; }
   const lbl = document.getElementById('auth-pin-label');
   if (lbl) lbl.textContent = mode === 'set' ? 'Wähle deine 4-stellige PIN' : 'PIN eingeben';
 }
@@ -248,7 +257,7 @@ function initAuthNamePicker() {
     const exact = allUsers.find(u => (u.full_name || '').toLowerCase() === inp.value.toLowerCase().trim());
     if (exact) selectAuthUser(exact.id);
   });
-  ['auth-name-input', 'auth-pin', 'auth-pin-repeat'].forEach(function (id) {
+  ['auth-name-input', 'auth-pin', 'auth-pin-repeat', 'auth-admin-pin'].forEach(function (id) {
     document.getElementById(id).addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); handleAuthSubmit(); }
     });
@@ -385,7 +394,7 @@ function handleSession(user) {
     if (nameInp) nameInp.value = '';
     const pinWrap = document.getElementById('auth-pin-wrapper');
     if (pinWrap) pinWrap.style.display = 'none';
-    ['auth-pin', 'auth-pin-repeat'].forEach(function (id) { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['auth-pin', 'auth-pin-repeat', 'auth-admin-pin'].forEach(function (id) { const el = document.getElementById(id); if (el) el.value = ''; });
     const banner = document.getElementById('erinnerung-banner');
     if (banner) { banner.style.display = 'none'; banner.innerHTML = ''; }
     overlay.style.display = 'flex';
@@ -470,7 +479,9 @@ async function handleAuthSubmit() {
 
   let res;
   try {
-    res = await supabaseClient.functions.invoke('pin-login', { body: mode === 'none' ? { user_id: user.id } : { user_id: user.id, pin, set: mode === 'set' } });
+    const body = mode === 'none' ? { user_id: user.id } : { user_id: user.id, pin, set: mode === 'set' };
+    if (mode === 'set' && firstPinNeedsAdminPinClient(user.role)) body.admin_pin = document.getElementById('auth-admin-pin').value;
+    res = await supabaseClient.functions.invoke('pin-login', { body });
   } catch (e) { res = { data: null, error: e }; }
   const out = loginOutcome(res);
   if (!out.session) {
@@ -491,6 +502,7 @@ async function handleAuthSubmit() {
   }
   document.getElementById('auth-pin').value = '';
   document.getElementById('auth-pin-repeat').value = '';
+  document.getElementById('auth-admin-pin').value = '';
   user.has_pin = true; // the cached name list must not offer "Wähle deine PIN" to this person after a logout
   handleSession(profile);
 
