@@ -491,6 +491,7 @@ async function handleAuthSubmit() {
   }
   document.getElementById('auth-pin').value = '';
   document.getElementById('auth-pin-repeat').value = '';
+  user.has_pin = true; // the cached name list must not offer "Wähle deine PIN" to this person after a logout
   handleSession(profile);
 
   btn.textContent = 'Anmelden';
@@ -506,6 +507,7 @@ async function handleLogout() {
   // Close the open module so the next user doesn't land in e.g. the dashboard of the previous one
   if (typeof exitToMenu === 'function') exitToMenu();
   handleSession(null);
+  fetchEmployees(); // fresh has_pin for the next person on this device
 
   if (typeof closeSettingsModal === 'function') {
     closeSettingsModal();
