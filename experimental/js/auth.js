@@ -140,8 +140,14 @@ async function confirmPinReset(userId) {
 }
 
 // A refresh/network error while a recent login exists keeps the cached login; only a clean "no session" or an old login means login
+// Auth answered 4xx (refresh token revoked/expired): the session is dead, not just unreachable
+function isDeadSessionError(err) {
+  return !!err && typeof err.status === 'number' && err.status >= 400 && err.status < 500;
+}
+
 function authStartState(session, loginTs, now, sessionError) {
   if (now - loginTs >= PIN_SESSION_MS) return 'login';
+  if (isDeadSessionError(sessionError)) return 'login';
   return session || sessionError ? 'restore' : 'login';
 }
 
@@ -180,6 +186,11 @@ function cachedOwnProfile() {
 // Own app_users row (the session is already set) → { profile, error }.
 // error: the request failed (profile = cached copy of the same id, or null);
 // no error + profile null: the server says the person is missing or deactivated.
+// Without a valid session the database refuses (no anon access): that is "logged out", not "offline"
+function isProfileDenied(error) {
+  return !!error && ['42501', 'PGRST301', 'PGRST303'].indexOf(error.code) !== -1;
+}
+
 async function fetchOwnProfile(id) {
   let data = null, error = null;
   try {
@@ -187,6 +198,7 @@ async function fetchOwnProfile(id) {
       .select('id, full_name, role, default_dept, hourly_rate_conni, hourly_rate_internal, is_active')
       .eq('id', id).maybeSingle());
   } catch (e) { error = e; }
+  if (isProfileDenied(error)) return { profile: null, error: false };
   if (error) {
     const cached = cachedOwnProfile();
     return { profile: cached && cached.id === id ? cached : null, error: true };
