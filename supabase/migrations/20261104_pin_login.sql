@@ -78,6 +78,27 @@ begin
   loop
     execute format('grant execute on routine %s to authenticated', f.sig);
   end loop;
+
+  -- Table / sequence privileges: several tables grant anon rights that authenticated lacks (policies alone don't help)
+  for f in
+    select c.oid::regclass as rel, pv
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    cross join unnest(array['select', 'insert', 'update', 'delete']) pv
+    where n.nspname = 'public' and c.relkind in ('r', 'v', 'p')
+      and c.relname not in ('pin_lockouts', 'pin_reset_log')
+      and has_table_privilege('anon', c.oid, pv) and not has_table_privilege('authenticated', c.oid, pv)
+  loop
+    execute format('grant %s on %s to authenticated', f.pv, f.rel);
+  end loop;
+  for f in
+    select c.oid::regclass as rel, pv
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    cross join unnest(array['usage', 'select', 'update']) pv
+    where n.nspname = 'public' and c.relkind = 'S'
+      and has_sequence_privilege('anon', c.oid, pv) and not has_sequence_privilege('authenticated', c.oid, pv)
+  loop
+    execute format('grant %s on sequence %s to authenticated', f.pv, f.rel);
+  end loop;
 end $$;
 
 -- Verification (must return 0 rows after applying):
