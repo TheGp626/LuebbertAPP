@@ -51,6 +51,9 @@ begin
   if n = 0 then raise exception 'check failed: authenticated sees no storage objects'; end if;
   insert into public.push_subscriptions (endpoint, user_id, p256dh, auth)
     values ('zz-db-lock-check', 'cb3768a5-6b38-4855-b940-45d52228cac5', 'x', 'x');
+  insert into storage.objects (bucket_id, name) values ('project-files', 'zz-db-lock-check.txt');
+  update storage.objects set name = 'zz-db-lock-check-2.txt' where bucket_id = 'project-files' and name = 'zz-db-lock-check.txt';
+  delete from storage.objects where bucket_id = 'project-files' and name = 'zz-db-lock-check-2.txt';
   reset role;
 end $$;
 select 'all checks passed' as result;

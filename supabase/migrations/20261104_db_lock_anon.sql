@@ -9,7 +9,8 @@ begin
   for p in select * from pg_policies where schemaname in ('public', 'storage') and roles = '{anon}' loop
     if not exists (select 1 from pg_policies b
                    where b.schemaname = p.schemaname and b.tablename = p.tablename
-                     and (b.cmd = p.cmd or b.cmd = 'ALL') and 'authenticated' = any(b.roles)) then
+                     and b.policyname = left(p.policyname || '_auth', 63) and b.cmd = p.cmd
+                     and b.roles = '{authenticated}' and b.permissive = p.permissive) then
       raise exception 'no authenticated twin for %.%: %', p.schemaname, p.tablename, p.policyname;
     end if;
   end loop;

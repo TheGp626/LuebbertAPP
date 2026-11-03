@@ -55,7 +55,7 @@ test('loginOutcome: server answers become the spec texts', () => {
   assert.equal(o({ data: { error: 'invalid_pin' }, error: null }).message, 'Bitte eine 4-stellige PIN eingeben.');
 });
 test('authStartState: restore only with a session younger than 30 days', () => {
-  const s = new Function('var PIN_SESSION_MS = 2592000000;' + grab('authStartState') + '; return authStartState;')();
+  const s = new Function('var PIN_SESSION_MS = 2592000000;' + grab('isDeadSessionError') + grab('authStartState') + '; return authStartState;')();
   const now = Date.parse('2026-12-01T00:00:00Z');
   assert.equal(s(null, now - 1000, now), 'login');
   assert.equal(s({ user: { id: 'x' } }, now - 29 * 864e5, now), 'restore');
@@ -63,7 +63,7 @@ test('authStartState: restore only with a session younger than 30 days', () => {
   assert.equal(s({ user: { id: 'x' } }, 0, now), 'login');
 });
 test('authStartState: refresh/network error keeps a recent login, clean null session or old login does not', () => {
-  const s = new Function('var PIN_SESSION_MS = 2592000000;' + grab('authStartState') + '; return authStartState;')();
+  const s = new Function('var PIN_SESSION_MS = 2592000000;' + grab('isDeadSessionError') + grab('authStartState') + '; return authStartState;')();
   const now = Date.parse('2026-12-01T00:00:00Z');
   assert.equal(s(null, now - 864e5, now, new Error('Failed to fetch')), 'restore');
   assert.equal(s(null, now - 864e5, now, null), 'login');
@@ -125,4 +125,19 @@ test('loginOutcome: admin password texts for a leader\'s first PIN', () => {
   assert.equal(o({ data: { error: 'admin_pin_required' }, error: null }).message, 'Bitte zusätzlich das Admin-Passwort eingeben (nur beim ersten Mal).');
   assert.equal(o({ data: { error: 'admin_pin_wrong', remaining: 4 }, error: null }).message, 'Admin-Passwort falsch. Noch 4 Versuche.');
   assert.equal(o({ data: { error: 'admin_pin_wrong', remaining: 1 }, error: null }).message, 'Admin-Passwort falsch. Noch 1 Versuch.');
+});
+
+test('authStartState: a dead session (Auth 4xx on refresh) goes to the login even with a recent login', () => {
+  const s = new Function('var PIN_SESSION_MS = 2592000000;' + grab('isDeadSessionError') + grab('authStartState') + '; return authStartState;')();
+  const now = Date.parse('2026-12-01T00:00:00Z');
+  assert.equal(s(null, now - 864e5, now, { status: 400, name: 'AuthApiError' }), 'login');
+  assert.equal(s(null, now - 864e5, now, { status: 401 }), 'login');
+  assert.equal(s(null, now - 864e5, now, { status: 0, name: 'AuthRetryableFetchError' }), 'restore');
+  assert.equal(s(null, now - 864e5, now, { status: 503 }), 'restore');
+});
+
+test('isProfileDenied: permission/JWT errors from PostgREST mean no valid session, network errors do not', () => {
+  const d = load('isProfileDenied');
+  for (const e of [{ code: '42501' }, { code: 'PGRST301' }, { code: 'PGRST303' }]) assert.equal(d(e), true, e.code);
+  for (const e of [null, new TypeError('Failed to fetch'), { code: '08006' }, { message: 'x' }]) assert.equal(d(e), false);
 });
