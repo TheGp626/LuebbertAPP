@@ -31,14 +31,11 @@
         <input type="text" id="auth-name-input" placeholder="Name tippen oder auswählen…" autocomplete="off" autocapitalize="words" />
         <div id="auth-name-list" class="combo-list" style="display: none;"></div>
       </div>
-      <div id="auth-password-wrapper" class="ui-field" style="display: none;">
-        <input type="password" id="auth-password" placeholder="Admin-Passwort" />
-        <p class="ui-sub" style="margin-top: 6px; text-align: left;">Nur für AL / PL / Admin erforderlich</p>
+      <div id="auth-pin-wrapper" class="ui-field" style="display: none;">
+        <span id="auth-pin-label" class="ui-sub" style="display: block; text-align: left; margin-bottom: 6px;"></span>
+        <input type="password" id="auth-pin" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="current-password" placeholder="PIN" />
+        <input type="password" id="auth-pin-repeat" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="new-password" style="display: none; margin-top: 8px;" placeholder="PIN wiederholen" />
       </div>
-      <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; cursor: pointer; font-size: 14px; color: var(--text2); justify-content: center; min-height: 32px;">
-        <input type="checkbox" id="auth-remember" style="width: 18px; height: 18px; cursor: pointer;" />
-        Eingeloggt bleiben
-      </label>
       <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="ui-btn ui-btn-primary ui-btn-block" style="margin-bottom: 12px;">Anmelden</button>
       <div class="ui-sub" style="font-size: 12px;">Powered by Supabase</div>
     </div>
@@ -820,7 +817,7 @@
 
   <!-- Scripts -->
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=22"></script>
+  <script src="js/auth.js?v=23"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=14"></script>
   <script src="js/utils.js?v=19"></script>

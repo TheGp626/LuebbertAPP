@@ -27,13 +27,38 @@ test('parseCachedUsers: offline user list from localStorage, junk → []', () =>
   assert.deepEqual(parse('[{"id":"a","full_name":"A","role":"MA"},null,{"full_name":"no id"}]'), [{ id: 'a', full_name: 'A', role: 'MA' }]);
 });
 
-test('pinCheckOutcome: only a definite "false" from the server is a failed attempt', () => {
-  const outcome = load('pinCheckOutcome');
-  assert.equal(outcome(true, null), 'ok');
-  assert.equal(outcome(false, null), 'wrong');
-  assert.equal(outcome(null, null), 'wrong');
-  assert.equal(outcome(null, { message: 'TypeError: Failed to fetch' }), 'error');
-  assert.equal(outcome(true, { message: 'x' }), 'error');
+test('authPinMode: Gast none, no PIN set, else enter', () => {
+  const m = load('authPinMode');
+  assert.equal(m({ role: 'Gast', has_pin: false }), 'none');
+  assert.equal(m({ role: 'Gast', has_pin: true }), 'none');
+  assert.equal(m({ role: 'MA', has_pin: false }), 'set');
+  assert.equal(m({ role: 'Admin', has_pin: true }), 'enter');
+});
+test('pinFormError: format and repeat', () => {
+  const f = load('pinFormError');
+  assert.equal(f('enter', '1234', ''), '');
+  assert.equal(f('enter', '123', ''), 'Bitte eine 4-stellige PIN eingeben.');
+  assert.equal(f('set', '1234', '1235'), 'Die PINs stimmen nicht überein.');
+  assert.equal(f('set', '1234', '1234'), '');
+  assert.equal(f('none', '', ''), '');
+});
+test('loginOutcome: server answers become the spec texts', () => {
+  const o = load('loginOutcome');
+  assert.deepEqual(o({ data: { session: { access_token: 'a', refresh_token: 'r' } }, error: null }), { session: { access_token: 'a', refresh_token: 'r' } });
+  assert.equal(o({ data: { error: 'wrong_pin', remaining: 3 }, error: null }).message, 'Falsche PIN. Noch 3 Versuch(e).');
+  assert.equal(o({ data: { error: 'locked', minutes: 12 }, error: null }).message, 'Zu viele Fehlversuche – in 12 Min. erneut versuchen oder AL/PL um Zurücksetzen bitten.');
+  assert.equal(o({ data: null, error: new Error('Failed to fetch') }).message, 'PIN konnte nicht geprüft werden (keine Verbindung). Bitte später erneut versuchen.');
+  assert.equal(o({ data: { error: 'not_found' }, error: null }).message, 'Benutzer nicht gefunden oder deaktiviert.');
+  assert.equal(o({ data: { error: 'server_error' }, error: null }).message, 'PIN konnte nicht geprüft werden (keine Verbindung). Bitte später erneut versuchen.');
+  assert.equal(o({ data: { error: 'invalid_pin' }, error: null }).message, 'Bitte eine 4-stellige PIN eingeben.');
+});
+test('authStartState: restore only with a session younger than 30 days', () => {
+  const s = new Function('var PIN_SESSION_MS = 2592000000;' + grab('authStartState') + '; return authStartState;')();
+  const now = Date.parse('2026-12-01T00:00:00Z');
+  assert.equal(s(null, now - 1000, now), 'login');
+  assert.equal(s({ user: { id: 'x' } }, now - 29 * 864e5, now), 'restore');
+  assert.equal(s({ user: { id: 'x' } }, now - 30 * 864e5, now), 'login');
+  assert.equal(s({ user: { id: 'x' } }, 0, now), 'login');
 });
 
 test('authSessionChanged: re-login only when the fresh user differs from the cached one', () => {
@@ -48,10 +73,11 @@ test('authSessionChanged: re-login only when the fresh user differs from the cac
   assert.equal(changed(null, null), true, 'no session → show the login');
 });
 
-test('initAuth restores the login from the cached list before waiting for the network', () => {
+test('initAuth restores the login from the cached profile before waiting for the network', () => {
   const body = grab('initAuth');
-  const early = body.indexOf('handleSession(shown)'), fetch = body.indexOf('await fetchEmployees()');
+  const early = body.indexOf('handleSession(shown)'), fetch = body.indexOf('await fetchOwnProfile');
   assert.ok(early !== -1 && fetch !== -1 && early < fetch);
+  assert.ok(body.indexOf('authStartState(') !== -1 && body.indexOf("signOut({ scope: 'local' })") !== -1);
 });
 
 test('sessionUserChanged: the Stundenzettel editor is reset when another user (or nobody) takes over', () => {
