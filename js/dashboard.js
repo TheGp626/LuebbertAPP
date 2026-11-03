@@ -1943,9 +1943,14 @@ async function exportDashboardMonthlyPDFRun() {
         ort: ortParts.length ? ortParts.join(', ') : (s.ort || ''),
         al: prot.al_name_fallback || prot.pl_name_fallback || '',
         dept: s.position_role || 'MA',
-        sig: prot.signature_text || null
+        sig: prot.signature_text || null,
+        isProtocol: !!s.protocols
       });
     }
+  });
+  // Same rule as the worker's Stundenzettel: a protocol shift replaces an overlapping self-entered one
+  Object.keys(userWeeks).forEach(function(wStr) {
+    userWeeks[wStr].days.forEach(function(dd) { dd.shifts = dropOverriddenShifts(dd.shifts); });
   });
 
   // Calculate weekly and monthly totals
