@@ -1,7 +1,7 @@
 // Run: node --test supabase/functions/_shared/pin.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isValidPin, mayResetPin, mayResetAny, lockoutRemainingMin, pinEmail, pinPassword, isUuid } from './pin.mjs';
+import { isValidPin, mayResetPin, mayResetAny, lockoutRemainingMin, pinEmail, pinPassword, isUuid, isWrongCredentials } from './pin.mjs';
 
 test('isValidPin: exactly 4 digits', () => {
   for (const ok of ['0000', '1234', '9999']) assert.equal(isValidPin(ok), true);
@@ -36,4 +36,9 @@ test('mayResetPin/mayResetAny: prototype keys are no roles', () => {
     assert.equal(mayResetPin(r, 'MA'), false);
     assert.equal(mayResetAny(r), false);
   }
+});
+
+test('isWrongCredentials: only status 400', () => {
+  assert.equal(isWrongCredentials({ status: 400, code: 'invalid_credentials' }), true);
+  for (const e of [null, undefined, { status: 429 }, { status: 500 }, { status: 0 }, new Error('fetch failed')]) assert.equal(isWrongCredentials(e), false);
 });

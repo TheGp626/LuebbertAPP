@@ -2,7 +2,7 @@
 // Gast has no PIN (password = GAST_LOGIN_SECRET, no lockout). Others: 5 wrong PINs lock the user for 15 min.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import {
-  PIN_LOCK_MIN, PIN_MAX_FAILS, isValidPin, isUuid, lockoutRemainingMin, pinEmail, pinPassword,
+  PIN_LOCK_MIN, PIN_MAX_FAILS, isValidPin, isUuid, isWrongCredentials, lockoutRemainingMin, pinEmail, pinPassword,
 } from '../_shared/pin.mjs';
 
 const CORS = {
@@ -19,7 +19,7 @@ const serverError = () => json({ error: 'server_error' }, 500);
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
-  let input: { user_id?: unknown; pin?: unknown } = {};
+  let input: { user_id?: unknown; pin?: unknown; set?: unknown } = {};
   try { input = await req.json(); } catch { return json({ error: 'invalid_input' }, 400); }
   if (!input || !isUuid(input.user_id)) return json({ error: 'invalid_input' }, 400);
   const id = input.user_id as string;
@@ -57,6 +57,9 @@ Deno.serve(async (req) => {
   const email = pinEmail(id);
   let created = false;
   const { data: existing } = await admin.auth.admin.getUserById(id);
+  // client view of has_pin may be stale: never create an account unless the client is explicitly setting a PIN
+  if (!isGast && !existing?.user && input.set !== true) return json({ error: 'pin_not_set' });
+  if (!isGast && existing?.user && input.set === true) return json({ error: 'pin_already_set' });
   if (!existing?.user) {
     // getUserById reports "not found" as an error too, so only the missing user matters here
     const { error: cErr } = await admin.auth.admin.createUser({ id, email, password, email_confirm: true });
@@ -74,6 +77,7 @@ Deno.serve(async (req) => {
     const { error: uErr2 } = await admin.auth.admin.updateUserById(id, { password });
     if (!uErr2) ({ data: sign, error: sErr } = await signIn());
   }
+  if (sErr && !isGast && !isWrongCredentials(sErr)) { console.error('pin-login: sign-in failed', sErr); return serverError(); }
   if (sErr || !sign?.session) {
     if (isGast) { console.error('pin-login: Gast sign-in failed', sErr); return serverError(); }
     const { data: f, error: wErr } = await admin.rpc('pin_register_failure', { p_user_id: id, p_max: PIN_MAX_FAILS, p_lock_min: PIN_LOCK_MIN });

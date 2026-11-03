@@ -45,7 +45,9 @@ test('pinFormError: format and repeat', () => {
 test('loginOutcome: server answers become the spec texts', () => {
   const o = load('loginOutcome');
   assert.deepEqual(o({ data: { session: { access_token: 'a', refresh_token: 'r' } }, error: null }), { session: { access_token: 'a', refresh_token: 'r' } });
-  assert.equal(o({ data: { error: 'wrong_pin', remaining: 3 }, error: null }).message, 'Falsche PIN. Noch 3 Versuch(e).');
+  assert.equal(o({ data: { error: 'wrong_pin', remaining: 3 }, error: null }).message, 'Falsche PIN. Noch 3 Versuche.');
+  assert.equal(o({ data: { error: 'wrong_pin', remaining: 1 }, error: null }).message, 'Falsche PIN. Noch 1 Versuch.');
+  for (const c of ['pin_not_set', 'pin_already_set']) assert.deepEqual(o({ data: { error: c }, error: null }), { message: 'Bitte noch einmal versuchen – die Anzeige wurde aktualisiert.', refresh: true });
   assert.equal(o({ data: { error: 'locked', minutes: 12 }, error: null }).message, 'Zu viele Fehlversuche – in 12 Min. erneut versuchen oder AL/PL um Zurücksetzen bitten.');
   assert.equal(o({ data: null, error: new Error('Failed to fetch') }).message, 'PIN konnte nicht geprüft werden (keine Verbindung). Bitte später erneut versuchen.');
   assert.equal(o({ data: { error: 'not_found' }, error: null }).message, 'Benutzer nicht gefunden oder deaktiviert.');

@@ -25,8 +25,9 @@ function pinFormError(mode, pin, repeat) {
 function loginOutcome(res) {
   const d = res && res.data;
   if (d && d.session) return { session: d.session };
-  if (d && d.error === 'wrong_pin') return { message: 'Falsche PIN. Noch ' + d.remaining + ' Versuch(e).' };
+  if (d && d.error === 'wrong_pin') return { message: 'Falsche PIN. Noch ' + d.remaining + (d.remaining === 1 ? ' Versuch.' : ' Versuche.') };
   if (d && d.error === 'locked') return { message: 'Zu viele Fehlversuche – in ' + d.minutes + ' Min. erneut versuchen oder AL/PL um Zurücksetzen bitten.' };
+  if (d && (d.error === 'pin_not_set' || d.error === 'pin_already_set')) return { message: 'Bitte noch einmal versuchen – die Anzeige wurde aktualisiert.', refresh: true };
   if (d && d.error === 'not_found') return { message: 'Benutzer nicht gefunden oder deaktiviert.' };
   if (d && (d.error === 'invalid_pin' || d.error === 'pin_required')) return { message: 'Bitte eine 4-stellige PIN eingeben.' };
   return { message: 'PIN konnte nicht geprüft werden (keine Verbindung). Bitte später erneut versuchen.' }; // network error, server_error, invalid_input, unknown
@@ -458,10 +459,14 @@ async function handleAuthSubmit() {
 
   let res;
   try {
-    res = await supabaseClient.functions.invoke('pin-login', { body: mode === 'none' ? { user_id: user.id } : { user_id: user.id, pin } });
+    res = await supabaseClient.functions.invoke('pin-login', { body: mode === 'none' ? { user_id: user.id } : { user_id: user.id, pin, set: mode === 'set' } });
   } catch (e) { res = { data: null, error: e }; }
   const out = loginOutcome(res);
-  if (!out.session) { if (res.error) console.error('pin-login:', res.error); return fail(out.message); }
+  if (!out.session) {
+    if (res.error) console.error('pin-login:', res.error);
+    if (out.refresh) { await fetchEmployees(); selectAuthUser(user.id); } // stale has_pin: re-render the right fields
+    return fail(out.message);
+  }
 
   let sessErr = null;
   try { ({ error: sessErr } = await supabaseClient.auth.setSession(out.session)); } catch (e) { sessErr = e; }

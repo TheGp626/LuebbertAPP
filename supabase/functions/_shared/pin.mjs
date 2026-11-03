@@ -17,3 +17,6 @@ export function lockoutRemainingMin(row, now) {
 export const pinEmail = (userId) => `${userId}@nutzer.luebbert.invalid`;
 export const pinPassword = (pin) => `lbt-pin:${pin}`;
 export const isUuid = (s) => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
+// Only an Auth 400 (invalid_credentials) means a wrong PIN; 429/5xx/network errors must not count toward the lockout.
+export const isWrongCredentials = (err) => err?.status === 400;
