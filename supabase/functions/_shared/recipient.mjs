@@ -14,3 +14,9 @@ export function chooseRecipient({ mailEnabled, testMode, testRecipient, plEmail,
 export function disabledReason(clientVersion) {
   return (Number(clientVersion) || 0) >= 2 ? 'disabled' : 'not_found';
 }
+
+// Email of an app_users row embedded with app_user_private(email): PostgREST returns an object, an array or null
+export function emailOf(row) {
+  const p = row && row.app_user_private;
+  return (Array.isArray(p) ? p[0]?.email : p?.email) || '';
+}

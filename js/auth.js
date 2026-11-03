@@ -195,7 +195,7 @@ async function fetchOwnProfile(id) {
   let data = null, error = null;
   try {
     ({ data, error } = await supabaseClient.from('app_users')
-      .select('id, full_name, role, default_dept, hourly_rate_conni, hourly_rate_internal, is_active')
+      .select('id, full_name, role, default_dept, hourly_rate_internal, is_active, app_user_private(hourly_rate_conni)')
       .eq('id', id).maybeSingle());
   } catch (e) { error = e; }
   if (isProfileDenied(error)) return { profile: null, error: false };
@@ -204,8 +204,9 @@ async function fetchOwnProfile(id) {
     return { profile: cached && cached.id === id ? cached : null, error: true };
   }
   if (!data || data.is_active === false) { try { localStorage.removeItem(OWN_PROFILE_KEY); } catch (e) { /* ignore */ } return { profile: null, error: false }; }
-  try { localStorage.setItem(OWN_PROFILE_KEY, JSON.stringify(data)); } catch (e) { /* storage full */ }
-  return { profile: data, error: false };
+  const profile = flattenPrivate(data);
+  try { localStorage.setItem(OWN_PROFILE_KEY, JSON.stringify(profile)); } catch (e) { /* storage full */ }
+  return { profile, error: false };
 }
 
 // signOut({scope:'local'}) reports network trouble as {error} and keeps the stored session → remove it ourselves

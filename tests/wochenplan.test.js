@@ -62,3 +62,23 @@ test('wpWannRest: a note line before the timed line stays in the details, the ti
   assert.deepEqual(plain(ctx.wpWannRest({ wann: 'tagsüber\nTeam folgt' })), ['Team folgt']);
   assert.deepEqual(plain(ctx.wpWannRest({ wann: null })), []);
 });
+
+test('wpRenewCalendarToken: calls rpc renew_calendar_token and uses the returned uuid', async () => {
+  const calls = [];
+  ctx.supabaseClient = { rpc: async fn => { calls.push(fn); return { data: TOKEN, error: null }; } };
+  ctx.currentUser = { id: 'u1' };
+  ctx.confirm = () => true;
+  ctx.showToast = () => {};
+  await ctx.wpRenewCalendarToken();
+  assert.deepEqual(calls, ['renew_calendar_token']);
+  assert.equal(plain(vm.runInContext('_wpCalToken', ctx)).token, TOKEN);
+});
+
+test('wpRenewCalendarToken: rpc error keeps the old token', async () => {
+  ctx.supabaseClient = { rpc: async () => ({ data: null, error: { message: 'x' } }) };
+  ctx.currentUser = { id: 'u1' };
+  ctx.confirm = () => true;
+  ctx.showToast = () => {};
+  await ctx.wpRenewCalendarToken();
+  assert.equal(vm.runInContext('_wpCalToken', ctx), null);
+});

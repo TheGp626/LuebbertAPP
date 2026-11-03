@@ -33,3 +33,12 @@ test('disabledReason: older app versions get a reason they already treat as done
   assert.equal(disabledReason(undefined), 'not_found');
   assert.equal(disabledReason(1), 'not_found');
 });
+
+test('emailOf: object, array, null, missing', async () => {
+  const { emailOf } = await import('./recipient.mjs');
+  assert.equal(emailOf({ app_user_private: { email: 'a@x.de' } }), 'a@x.de');
+  assert.equal(emailOf({ app_user_private: [{ email: 'b@x.de' }] }), 'b@x.de');
+  assert.equal(emailOf({ app_user_private: [] }), '');
+  assert.equal(emailOf({ app_user_private: null }), '');
+  assert.equal(emailOf(null), '');
+});
