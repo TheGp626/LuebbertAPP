@@ -37,6 +37,7 @@
         <span id="auth-pin-label" class="ui-sub" style="display: block; text-align: left; margin-bottom: 6px;"></span>
         <input type="password" id="auth-pin" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="current-password" placeholder="PIN" />
         <input type="password" id="auth-pin-repeat" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="new-password" style="display: none; margin-top: 8px;" placeholder="PIN wiederholen" />
+        <input type="password" id="auth-admin-pin" autocomplete="off" style="display: none; margin-top: 8px;" placeholder="Admin-Passwort (nur beim ersten Mal)" />
       </div>
       <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="ui-btn ui-btn-primary ui-btn-block" style="margin-bottom: 12px;">Anmelden</button>
       <div class="ui-sub" style="font-size: 12px;">Powered by Supabase</div>
@@ -819,7 +820,7 @@
 
   <!-- Scripts -->
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=27"></script>
+  <script src="js/auth.js?v=28"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=14"></script>
   <script src="js/utils.js?v=19"></script>
