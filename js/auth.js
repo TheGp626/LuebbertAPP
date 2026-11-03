@@ -377,6 +377,8 @@ function handleSession(user) {
     // The reminder banner depends on the admin switches → load them first (cached values if offline)
     var settingsReady = (typeof loadAppSettings === 'function') ? loadAppSettings() : Promise.resolve();
     settingsReady.then(function() { if (typeof loadErinnerungen === 'function') loadErinnerungen(); });
+    // Employee list for the Protokoll pickers and rates — only readable with a session (no anon access)
+    if (userChanged && typeof fetchAppUsers === 'function') fetchAppUsers();
     // A ?open=wochenplan link goes through selectMode(), which already initialises the plan
     const wpDeepLink = new URLSearchParams(location.search).get('open') === 'wochenplan';
     if (typeof handleEinsatzDeepLink === 'function') handleEinsatzDeepLink();

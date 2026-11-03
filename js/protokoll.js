@@ -277,8 +277,7 @@ function initProtokoll() {
   syncProtActionSeg();
   renderProtSectionNav();
   ['prot-damages', 'prot-incidents', 'prot-feedback'].forEach(function(id) { var t = document.getElementById(id); if (t && t.style) growProtText(t); });
-
-  fetchAppUsers();
+  // appUsers is loaded after the login (handleSession): the database answers only logged-in users
 }
 
 // ── PROTOKOLL SIGNATURE ──
