@@ -401,9 +401,13 @@ var _ordnerFormReturnId = null;     // reopen this folder's detail view after sa
 async function loadOrdnerUsers() {
   if (_ordnerUsers) return _ordnerUsers;
   // Inactive users too: an already assigned AL/PL who left must still show up in the form
-  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, is_active').order('full_name');
+  // Office roles read app_users (role_rates carry additional AL/PL roles for userHasRole); MA/Gast only get the rate-less directory
+  var office = ['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole);
+  var { data, error } = office
+    ? await supabaseClient.from('app_users').select('id, full_name, role, role_rates, is_active').order('full_name')
+    : await supabaseClient.rpc('user_directory');
   if (error) { console.error('Ordner users:', error); return []; }
-  _ordnerUsers = data || [];
+  _ordnerUsers = (data || []).slice().sort(function(x, y) { return (x.full_name || '').localeCompare(y.full_name || ''); });
   return _ordnerUsers;
 }
 
@@ -634,7 +638,7 @@ async function renderOrdnerEinsaetze(folder) {
   if (!box) return;
   box.style.display = 'none';
   var { data: rows, error } = await supabaseClient.from('einsaetze')
-    .select('id, date, action, al_id, cancelled, al:app_users!einsaetze_al_id_fkey(full_name)')
+    .select('id, date, action, al_id, cancelled')
     .eq('folder_id', folder.id).order('date');
   var stale = function() { return !aktuellerOrdner || aktuellerOrdner.id !== folder.id; };
   if (stale()) return;
@@ -642,8 +646,10 @@ async function renderOrdnerEinsaetze(folder) {
   if (!rows || !rows.length) return;
   var alIds = rows.map(function(r) { return r.al_id; });
   var dates = rows.map(function(r) { return r.date; });
-  var { data: prots } = await supabaseClient.from('protocols').select('al_id, date').in('al_id', alIds).in('date', dates);
   var done = {};
+  // MA/Gast cannot read protocols: marker only for office roles
+  var { data: prots } = ['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole)
+    ? await supabaseClient.from('protocols').select('al_id, date').in('al_id', alIds).in('date', dates) : { data: [] };
   (prots || []).forEach(function(p) { done[p.al_id + '|' + p.date] = true; });
   await loadOrdnerUsers();
   if (stale()) return;
@@ -654,8 +660,9 @@ async function renderOrdnerEinsaetze(folder) {
   box.innerHTML = '<div class="ui-label" style="margin:0 0 4px;">Einsätze</div>' +
     '<div class="ui-sub" style="margin-bottom:6px;">Projektleitung: ' + escOrdner(pl ? pl.full_name : '—') + '</div>' +
     rows.map(function(r) {
+      var alUser = (_ordnerUsers || []).find(function(u) { return u.id === r.al_id; });
       var st = einsatzStatus(r, !!done[r.al_id + '|' + r.date], today), p = PILL[st] || PILL.future;
-      return '<div class="ordner-einsatz"><span>' + shortDateDE(r.date) + ' · ' + escOrdner(r.action) + ' · AL ' + escOrdner(r.al ? r.al.full_name : '—') + '</span>' +
+      return '<div class="ordner-einsatz"><span>' + shortDateDE(r.date) + ' · ' + escOrdner(r.action) + ' · AL ' + escOrdner((alUser && alUser.full_name) || '—') + '</span>' +
         '<span class="ui-pill ' + p[0] + '">' + p[1] + '</span></div>';
     }).join('');
   box.style.display = 'block';

@@ -28,7 +28,9 @@ var protState = {
 var appUsers = [];
 async function fetchAppUsers() {
   if (typeof supabaseClient === 'undefined') return;
-  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, email, role, role_rates, hourly_rate_internal, is_fest').or('is_active.is.null,is_active.eq.true');
+  // MA/Gast may only read their own row (RLS): the pickers and rates are office-only
+  if (typeof userRole === 'undefined' || !['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole)) return;
+  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, hourly_rate_internal, is_fest').or('is_active.is.null,is_active.eq.true');
   if (error) console.error("Error fetching app_users:", error);
   if (data) {
     // The guest login never works shifts → keep it out of AL/PL/staff pickers
@@ -1194,6 +1196,11 @@ function protShiftChanges(oldShifts, personnel, users, shiftDate) {
 // targetId: Supabase id to update (null = insert). Omitted → the protocol currently open in the form.
 // out (optional): out.protId is set as soon as the protocols row exists, also when a later step fails,
 // so the caller can retry as an update instead of inserting the protocol twice.
+// RLS lets AL/PL delete only 'offen' shifts and answers booked ones with 0 rows instead of an error
+function protShiftDeleteError(requested, deleted) {
+  return deleted < requested ? 'Gebuchte Schichten können nur von der Buchhaltung entfernt werden.' : null;
+}
+
 async function syncProtokollToSupabase(data, targetId, out) {
   var editId = (targetId === undefined) ? protState.editingId : targetId;
   if (typeof supabaseClient === 'undefined') return false;
@@ -1328,8 +1335,10 @@ async function syncProtokollToSupabase(data, targetId, out) {
       (shNew || []).forEach(function(r, k) { if (ch.inserts[k]) ch.inserts[k].person.shiftId = r.id; });
     }
     if (ch.deletes.length > 0) {
-      var { error: shDelErr } = await supabaseClient.from('shifts').delete().in('id', ch.deletes);
+      var { data: shDel, error: shDelErr } = await supabaseClient.from('shifts').delete().in('id', ch.deletes).select('id');
       if (shDelErr) { console.error('Shifts delete failed:', shDelErr); throw shDelErr; }
+      var delMsg = protShiftDeleteError(ch.deletes.length, (shDel || []).length);
+      if (delMsg) { var delErr = new Error(delMsg); delErr.userMessage = delMsg; throw delErr; }
     }
 
     // 6. Save Ratings for Zenjob/Rockit workers
@@ -1362,7 +1371,7 @@ async function syncProtokollToSupabase(data, targetId, out) {
     return protId;
   } catch(e) {
     console.error("Sync Exception:", e);
-    showToast("Server Sync fehlgeschlagen. Offline gespeichert.", "danger");
+    showToast((e && e.userMessage) || "Server Sync fehlgeschlagen. Offline gespeichert.", "danger");
     return null;
   }
 }
