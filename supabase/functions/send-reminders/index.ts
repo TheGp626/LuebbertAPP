@@ -8,7 +8,7 @@ import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJob
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { loadSettings } from '../_shared/settings.ts';
 import { pushTo, vapidReady } from '../_shared/push.ts';
-import { chooseRecipient } from '../_shared/recipient.mjs';
+import { chooseRecipient, emailOf } from '../_shared/recipient.mjs';
 import { planGuessAction } from '../_shared/plan-time.mjs';
 
 const CORS = {
@@ -40,7 +40,7 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
   // ── Folder jobs ──
   let q = db.from('einsaetze')
     .select(`id, date, action, al_id, cancelled,
-      folder:project_folders(name, pl_id, pl:app_users!project_folders_pl_id_fkey(full_name, email)),
+      folder:project_folders(name, pl_id, pl:app_users!project_folders_pl_id_fkey(full_name, app_user_private(email))),
       al:app_users!einsaetze_al_id_fkey(full_name)`)
     .eq('cancelled', false).gte('date', from).lte('date', to);
   if (input.only_user_id) q = q.eq('al_id', input.only_user_id);
@@ -118,9 +118,9 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
   const userIds = [...new Set([...planMail.map(j => j.al_id), ...planMail.flatMap(j => j.pl_ids)])];
   const users = new Map<string, { full_name: string; email: string | null }>();
   if (userIds.length) {
-    const { data: us, error: uErr } = await db.from('app_users').select('id, full_name, email').in('id', userIds);
+    const { data: us, error: uErr } = await db.from('app_users').select('id, full_name, app_user_private(email)').in('id', userIds);
     if (uErr) { console.error('send-reminders: load users failed', uErr); return json({ error: 'db_error' }, 500); }
-    (us || []).forEach((u: Db) => users.set(u.id, u));
+    (us || []).forEach((u: Db) => users.set(u.id, { full_name: u.full_name, email: emailOf(u) || null }));
   }
 
   const folderPushes = groupPushes(pushItems), planPushes = groupPlanPushes(planPush);
@@ -133,7 +133,7 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
     return groups.get(key)!;
   };
   for (const it of mailItems) {
-    const g = group(it.einsatz.folder?.pl_id || null, it.einsatz.folder?.pl?.full_name || 'keine PL', it.einsatz.folder?.pl?.email || '');
+    const g = group(it.einsatz.folder?.pl_id || null, it.einsatz.folder?.pl?.full_name || 'keine PL', emailOf(it.einsatz.folder?.pl));
     g.items.push(it); g.logFolder.push(it.einsatz.id);
   }
   // A plan job whose PLs were all mailed in an earlier run (only the aggregate log is missing) counts as resolved

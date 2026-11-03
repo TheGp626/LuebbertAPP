@@ -4,7 +4,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { buildSubject, buildBody, attachmentName, safePdfBase64 } from './mail.mjs';
 import { loadSettings } from '../_shared/settings.ts';
-import { chooseRecipient, disabledReason } from '../_shared/recipient.mjs';
+import { chooseRecipient, disabledReason, emailOf } from '../_shared/recipient.mjs';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
     .select(`id, date, action, notes_damages, notes_incidents, notes_feedback, al_name_fallback, pl_name_fallback, pl_id, mailed_at,
       projects(name, location),
       al:app_users!protocols_al_id_fkey(full_name),
-      pl:app_users!protocols_pl_id_fkey(full_name, email),
+      pl:app_users!protocols_pl_id_fkey(full_name, app_user_private(email)),
       shifts(position_role, temp_worker_name, app_users(full_name)),
       protocol_equipments(category_id, status, note),
       worker_ratings(temp_worker_name, rating, is_star)`)
@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
 
   const plName = (p.pl && p.pl.full_name) || p.pl_name_fallback || 'PL';
   const rcpt = chooseRecipient({ mailEnabled: true, testMode: settings.mail_test_mode, testRecipient,
-    plEmail: (p.pl && p.pl.email) || '', plId: p.pl_id });
+    plEmail: emailOf(p.pl), plId: p.pl_id });
   if (rcpt.reason === 'not_configured') console.error('send-protocol-mail: test mode on but TEST_RECIPIENT not set, mail held back');
   if (rcpt.reason) return json({ sent: false, reason: rcpt.reason, ...(rcpt.reason === 'no_email' ? { to_name: plName } : {}) });
   const to = rcpt.to!;
