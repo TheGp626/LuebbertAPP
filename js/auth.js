@@ -87,7 +87,18 @@ async function submitPinChange() {
   let res;
   try { res = await supabaseClient.functions.invoke('pin-change', { body: { old_pin: oldPin, new_pin: newPin } }); } catch (e) { res = { error: e }; }
   btn.disabled = false;
-  if (res && res.data && res.data.ok) { closePinSheet(); showToast('PIN geändert'); return; }
+  if (res && res.data && res.data.ok) {
+    closePinSheet();
+    // The password change ends the current session on the server: sign straight back in with the new PIN
+    let relog = null;
+    try { relog = await supabaseClient.functions.invoke('pin-login', { body: { user_id: currentUser.id, pin: newPin } }); } catch (e) { relog = null; }
+    const out = relog ? loginOutcome(relog) : {};
+    if (out.session) {
+      try { await supabaseClient.auth.setSession(out.session); localStorage.setItem(LOGIN_TS_KEY, String(Date.now())); } catch (e) { /* next start asks for the PIN */ }
+    }
+    showToast('PIN geändert');
+    return;
+  }
   const http = res && res.error && res.error.name === 'FunctionsHttpError' && !(res.data && res.data.error);
   err.textContent = http ? 'PIN konnte nicht geändert werden.' : loginOutcome(res).message;
 }
