@@ -1,7 +1,7 @@
 // Run: node --test supabase/functions/_shared/pin.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isValidPin, mayResetPin, lockoutRemainingMin, lockoutAfterFailure, pinEmail, pinPassword, isUuid } from './pin.mjs';
+import { isValidPin, mayResetPin, lockoutRemainingMin, pinEmail, pinPassword, isUuid } from './pin.mjs';
 
 test('isValidPin: exactly 4 digits', () => {
   for (const ok of ['0000', '1234', '9999']) assert.equal(isValidPin(ok), true);
@@ -11,12 +11,6 @@ test('mayResetPin: role matrix, never upwards, never Gast', () => {
   const roles = ['Admin', 'PL', 'AL', 'MA', 'Buchhaltung', 'Gast'];
   const allowed = { Admin: ['Admin', 'PL', 'AL', 'MA', 'Buchhaltung'], PL: ['AL', 'MA'], AL: ['MA'], MA: [], Buchhaltung: [], Gast: [] };
   for (const c of roles) for (const t of roles) assert.equal(mayResetPin(c, t), allowed[c].includes(t), c + '→' + t);
-});
-test('lockoutAfterFailure: 4th failure counts, 5th locks for 15 min and resets the counter', () => {
-  const now = new Date('2026-11-04T08:00:00Z');
-  assert.deepEqual(lockoutAfterFailure(null, now), { failed_count: 1, locked_until: null, remaining: 4 });
-  assert.deepEqual(lockoutAfterFailure({ failed_count: 3, locked_until: null }, now), { failed_count: 4, locked_until: null, remaining: 1 });
-  assert.deepEqual(lockoutAfterFailure({ failed_count: 4, locked_until: null }, now), { failed_count: 0, locked_until: '2026-11-04T08:15:00.000Z', remaining: 0 });
 });
 test('lockoutRemainingMin: rounds up, 0 when expired or none', () => {
   const now = new Date('2026-11-04T08:03:30Z');

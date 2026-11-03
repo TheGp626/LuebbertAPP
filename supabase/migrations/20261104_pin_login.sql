@@ -18,6 +18,26 @@ alter table public.pin_reset_log enable row level security;
 revoke all on public.pin_lockouts from anon, authenticated;
 revoke all on public.pin_reset_log from anon, authenticated;
 
+-- Atomic failure counter (parallel wrong PINs cannot overwrite each other); the row lock serialises per user.
+-- An active lock is never extended or counted further. Reaching p_max locks and resets the counter.
+create or replace function public.pin_register_failure(p_user_id uuid, p_max int, p_lock_min int)
+returns public.pin_lockouts
+language plpgsql security definer set search_path = public as $$
+declare r public.pin_lockouts;
+begin
+  insert into public.pin_lockouts as t (user_id, failed_count) values (p_user_id, 1)
+  on conflict (user_id) do update set failed_count =
+    case when t.locked_until > now() then t.failed_count else t.failed_count + 1 end
+  returning * into r;
+  if r.failed_count >= p_max then
+    update public.pin_lockouts set failed_count = 0, locked_until = now() + make_interval(mins => p_lock_min)
+    where user_id = p_user_id returning * into r;
+  end if;
+  return r;
+end $$;
+revoke all on function public.pin_register_failure(uuid, int, int) from public, anon, authenticated;
+grant execute on function public.pin_register_failure(uuid, int, int) to service_role;
+
 -- Only id, name, role and "has a PIN"; never rates or emails
 create or replace function public.login_names()
 returns table(id uuid, full_name text, role text, has_pin boolean)
@@ -41,11 +61,11 @@ begin
     where schemaname in ('public', 'storage') and roles = array['anon']::name[]
   loop
     if exists (select 1 from pg_policies x
-               where x.schemaname = p.schemaname and x.tablename = p.tablename and x.policyname = p.policyname || '_auth') then
+               where x.schemaname = p.schemaname and x.tablename = p.tablename and x.policyname = left(p.policyname || '_auth', 63)) then
       continue;
     end if;
     stmt := format('create policy %I on %I.%I as %s for %s to authenticated',
-                   p.policyname || '_auth', p.schemaname, p.tablename, lower(p.permissive), p.cmd);
+                   left(p.policyname || '_auth', 63), p.schemaname, p.tablename, lower(p.permissive), p.cmd);
     if p.qual is not null then stmt := stmt || format(' using (%s)', p.qual); end if;
     if p.with_check is not null then stmt := stmt || format(' with check (%s)', p.with_check); end if;
     execute stmt;
@@ -56,7 +76,7 @@ begin
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.prokind in ('f', 'p') and has_function_privilege('anon', p.oid, 'execute')
   loop
-    execute format('grant execute on function %s to authenticated', f.sig);
+    execute format('grant execute on routine %s to authenticated', f.sig);
   end loop;
 end $$;
 

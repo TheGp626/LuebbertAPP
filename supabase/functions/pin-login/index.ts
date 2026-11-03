@@ -2,7 +2,7 @@
 // Gast has no PIN (password = GAST_LOGIN_SECRET, no lockout). Others: 5 wrong PINs lock the user for 15 min.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import {
-  PIN_LOCK_MIN, isValidPin, isUuid, lockoutRemainingMin, lockoutAfterFailure, pinEmail, pinPassword,
+  PIN_LOCK_MIN, PIN_MAX_FAILS, isValidPin, isUuid, lockoutRemainingMin, pinEmail, pinPassword,
 } from '../_shared/pin.mjs';
 
 const CORS = {
@@ -67,15 +67,24 @@ Deno.serve(async (req) => {
     }
   }
 
-  const { data: sign, error: sErr } = await pub.auth.signInWithPassword({ email, password });
+  const signIn = () => pub.auth.signInWithPassword({ email, password });
+  let { data: sign, error: sErr } = await signIn();
+  if (isGast && (sErr || !sign?.session)) {
+    // Gast secret was rotated: re-sync the account password and retry once
+    const { error: uErr2 } = await admin.auth.admin.updateUserById(id, { password });
+    if (!uErr2) ({ data: sign, error: sErr } = await signIn());
+  }
   if (sErr || !sign?.session) {
     if (isGast) { console.error('pin-login: Gast sign-in failed', sErr); return serverError(); }
-    const { remaining, ...upd } = lockoutAfterFailure(row, new Date());
-    const { error: wErr } = await admin.from('pin_lockouts').upsert({ user_id: id, ...upd });
-    if (wErr) { console.error('pin-login: write lockout failed', wErr); return serverError(); }
-    return remaining > 0 ? json({ error: 'wrong_pin', remaining }) : json({ error: 'locked', minutes: PIN_LOCK_MIN });
+    const { data: f, error: wErr } = await admin.rpc('pin_register_failure', { p_user_id: id, p_max: PIN_MAX_FAILS, p_lock_min: PIN_LOCK_MIN });
+    if (wErr || !f) { console.error('pin-login: register failure failed', wErr); return serverError(); }
+    const mins = lockoutRemainingMin(f, new Date());
+    return mins > 0 ? json({ error: 'locked', minutes: mins }) : json({ error: 'wrong_pin', remaining: PIN_MAX_FAILS - f.failed_count });
   }
 
-  if (!isGast) await admin.from('pin_lockouts').delete().eq('user_id', id);
+  if (!isGast) {
+    const { error: dErr } = await admin.from('pin_lockouts').delete().eq('user_id', id);
+    if (dErr) console.error('pin-login: clear lockout failed', dErr);
+  }
   return json({ session: { access_token: sign.session.access_token, refresh_token: sign.session.refresh_token }, created });
 });
