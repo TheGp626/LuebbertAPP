@@ -713,10 +713,35 @@ async function deleteOrdner(folder) {
 // ── SHARED FILE VIEWER ──
 // Looks the file up by id — passing name/url through inline onclick strings
 // breaks as soon as a filename contains a quote character.
-function openOrdnerFileById(id) {
+// project-files is private: the stored public-style link only identifies the file (same parsing as cleanup-folders)
+function projectFilePath(fileUrl) {
+  var parts = String(fileUrl || '').split('/project-files/');
+  if (parts.length < 2) return null;
+  var p = parts.slice(1).join('/project-files/').split('?')[0];
+  try { p = decodeURIComponent(p); } catch (e) { /* keep the raw path */ }
+  return p || null;
+}
+
+// Temporary link (1 h) for viewing/downloading; null when the file can't be signed (offline, gone, no session)
+async function signedProjectFileUrl(fileUrl) {
+  var path = projectFilePath(fileUrl);
+  if (!path) return null;
+  try {
+    var res = await supabaseClient.storage.from('project-files').createSignedUrl(path, 3600);
+    return (res && !res.error && res.data && res.data.signedUrl) || null;
+  } catch (e) { return null; }
+}
+
+var _ordnerOpening = false; // double tap while the link is being signed must not open two viewers
+async function openOrdnerFileById(id) {
   var f = ordnerFiles.find(function(x) { return x.id === id; });
-  if (!f) return;
-  openFileViewer(f.file_url, f.name, f.file_type || '');
+  if (!f || _ordnerOpening) return;
+  _ordnerOpening = true;
+  try {
+    var url = await signedProjectFileUrl(f.file_url);
+    if (!url) { showToast('Datei konnte nicht geöffnet werden'); return; }
+    openFileViewer(url, f.name, f.file_type || '');
+  } finally { _ordnerOpening = false; }
 }
 
 // 'image' | 'pdf' | 'file' (download only). HEIC/HEIF is not displayable in most browsers (Chrome/Android), so it is a file.
@@ -942,11 +967,16 @@ function mountZoomViewer(body, opts) {
   }).catch(function(err) {
     console.error('PDF viewer:', err);
     if (!alive()) return;
-    // Fallback: Google viewer iframe
     body.style.display = 'flex';
-    body.innerHTML = '<iframe src="https://docs.google.com/viewer?url=' + encodeURIComponent(opts.url) + '&embedded=true" ' +
-      'style="width:100%;height:100%;border:none;min-height:70vh;" allowfullscreen></iframe>';
+    body.innerHTML = pdfFallbackHtml(opts.url);
   });
+}
+
+// pdf.js failed: offer the (signed) file as a download — never hand the private link to a third-party viewer
+function pdfFallbackHtml(url) {
+  return '<div style="padding:40px;text-align:center;color:#888;">' +
+    '<div style="margin-bottom:16px;">Vorschau nicht möglich.</div>' +
+    '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener" class="btn primary" style="display:inline-block;width:auto;padding:12px 24px;text-decoration:none;">⬇ Herunterladen</a></div>';
 }
 
 // ── UTILS ──

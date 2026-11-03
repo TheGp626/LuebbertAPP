@@ -126,3 +126,48 @@ test('saveOrdner: a second call while the first save runs is ignored (no duplica
   await Promise.all([ctx.saveOrdner(), ctx.saveOrdner()]);
   assert.equal(inserts, 1);
 });
+
+const BASE = 'https://x.supabase.co/storage/v1/object/public/project-files/';
+test('projectFilePath: path after /project-files/, decoded, no query; foreign/empty → null', () => {
+  assert.equal(ctx.projectFilePath(BASE + 'f1/plan.pdf'), 'f1/plan.pdf');
+  assert.equal(ctx.projectFilePath(BASE + 'f1/Gr%C3%BCn%20Plan.pdf?t=1'), 'f1/Grün Plan.pdf');
+  assert.equal(ctx.projectFilePath(BASE + 'f1/100%.pdf'), 'f1/100%.pdf'); // malformed escape: raw path
+  assert.equal(ctx.projectFilePath('https://x.supabase.co/storage/v1/object/public/product-images/a.png'), null);
+  assert.equal(ctx.projectFilePath(''), null);
+  assert.equal(ctx.projectFilePath(null), null);
+});
+test('openOrdnerFileById: viewer gets the signed link (also used for download)', async () => {
+  let asked, shown;
+  ctx.supabaseClient = { storage: { from: b => ({ createSignedUrl: async (p, s) => { asked = [b, p, s]; return { data: { signedUrl: 'https://signed/1' }, error: null }; } }) } };
+  ctx.ordnerFiles = [{ id: 'a', name: 'Plan.pdf', file_type: 'application/pdf', file_url: BASE + 'f1/plan.pdf' }];
+  ctx.openFileViewer = (u, n, t) => { shown = [u, n, t]; };
+  await ctx.openOrdnerFileById('a');
+  assert.deepEqual(asked, ['project-files', 'f1/plan.pdf', 3600]);
+  assert.deepEqual(shown, ['https://signed/1', 'Plan.pdf', 'application/pdf']);
+});
+test('openOrdnerFileById: signing fails → toast, no viewer', async () => {
+  let toast = null, shown = false;
+  ctx.supabaseClient = { storage: { from: () => ({ createSignedUrl: async () => ({ data: null, error: new Error('offline') }) }) } };
+  ctx.ordnerFiles = [{ id: 'a', name: 'x', file_url: BASE + 'f1/x.jpg' }];
+  ctx.openFileViewer = () => { shown = true; };
+  ctx.showToast = t => { toast = t; };
+  await ctx.openOrdnerFileById('a');
+  assert.equal(shown, false);
+  assert.equal(toast, 'Datei konnte nicht geöffnet werden');
+});
+test('openOrdnerFileById: a second tap while signing is ignored', async () => {
+  let calls = 0, release;
+  ctx.supabaseClient = { storage: { from: () => ({ createSignedUrl: () => { calls++; return new Promise(r => { release = () => r({ data: { signedUrl: 's' }, error: null }); }); } }) } };
+  ctx.ordnerFiles = [{ id: 'a', name: 'x', file_url: BASE + 'f1/x.jpg' }];
+  let views = 0; ctx.openFileViewer = () => { views++; };
+  const p1 = ctx.openOrdnerFileById('a'); const p2 = ctx.openOrdnerFileById('a');
+  release(); await p1; await p2;
+  assert.equal(calls, 1); assert.equal(views, 1);
+});
+test('pdfFallbackHtml: when pdf.js fails only a download link is offered — never a third-party viewer', () => {
+  const html = ctx.pdfFallbackHtml('https://x/sign/project-files/a.pdf?token=t&x="1"');
+  assert.ok(html.includes('Herunterladen'));
+  assert.ok(html.includes('token=t&amp;x=&quot;1&quot;'), 'url is escaped');
+  assert.ok(!/docs\.google|viewer\?url=/.test(html));
+  assert.ok(!/docs\.google\.com/.test(fs.readFileSync(path.join(__dirname, '../js/ordner.js'), 'utf8')));
+});
