@@ -164,3 +164,10 @@ test('openOrdnerFileById: a second tap while signing is ignored', async () => {
   release(); await p1; await p2;
   assert.equal(calls, 1); assert.equal(views, 1);
 });
+test('pdfFallbackHtml: when pdf.js fails only a download link is offered — never a third-party viewer', () => {
+  const html = ctx.pdfFallbackHtml('https://x/sign/project-files/a.pdf?token=t&x="1"');
+  assert.ok(html.includes('Herunterladen'));
+  assert.ok(html.includes('token=t&amp;x=&quot;1&quot;'), 'url is escaped');
+  assert.ok(!/docs\.google|viewer\?url=/.test(html));
+  assert.ok(!/docs\.google\.com/.test(fs.readFileSync(path.join(__dirname, '../js/ordner.js'), 'utf8')));
+});

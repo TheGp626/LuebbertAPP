@@ -967,11 +967,16 @@ function mountZoomViewer(body, opts) {
   }).catch(function(err) {
     console.error('PDF viewer:', err);
     if (!alive()) return;
-    // Fallback: Google viewer iframe
     body.style.display = 'flex';
-    body.innerHTML = '<iframe src="https://docs.google.com/viewer?url=' + encodeURIComponent(opts.url) + '&embedded=true" ' +
-      'style="width:100%;height:100%;border:none;min-height:70vh;" allowfullscreen></iframe>';
+    body.innerHTML = pdfFallbackHtml(opts.url);
   });
+}
+
+// pdf.js failed: offer the (signed) file as a download — never hand the private link to a third-party viewer
+function pdfFallbackHtml(url) {
+  return '<div style="padding:40px;text-align:center;color:#888;">' +
+    '<div style="margin-bottom:16px;">Vorschau nicht möglich.</div>' +
+    '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener" class="btn primary" style="display:inline-block;width:auto;padding:12px 24px;text-decoration:none;">⬇ Herunterladen</a></div>';
 }
 
 // ── UTILS ──
