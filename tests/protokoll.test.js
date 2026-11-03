@@ -644,6 +644,7 @@ test('fetchAppUsers recalculates the costs with the personal rates once the user
   dom['prot-total-cost'] = { textContent: '' };
   run('protState.transports = []; protState.personnel = [{ pos: "MA", userId: "u-ma", name: "Max", start: "08:00", end: "16:00", pause: "0" }]; calcProtCosts();');
   const before = dom['prot-total-cost'].textContent;
+  run('var userRole = "AL"');
   sb.rows.app_users = [{ id: 'u-ma', full_name: 'Max', role: 'MA', hourly_rate_internal: 77, is_fest: false }];
   await run('fetchAppUsers()');
   assert.notEqual(dom['prot-total-cost'].textContent, before);
@@ -814,4 +815,46 @@ test('deleteProtHistory: a delete RLS answers with 0 rows keeps the local entry'
   sb.from = t => { const b = origThen(t); const th = b.then; b.then = (res, rej) => th.call(b, r => res(t === 'protocols' && sb.calls[sb.calls.length - 1].op === 'delete' ? { data: [], error: null } : r), rej); return b; };
   await run('deleteProtHistory("e1")');
   assert.equal(JSON.parse(store.luebbert_protokoll_history).length, 1);
+});
+
+// ── Role RLS task 3 ──
+test('fetchAppUsers: no app_users query for MA/Gast; office roles select without email', async () => {
+  for (const role of ['MA', 'Gast']) {
+    run('var userRole = ' + JSON.stringify(role));
+    sb.calls.length = 0;
+    await run('fetchAppUsers()');
+    assert.equal(sb.calls.filter(c => c.table === 'app_users').length, 0, role);
+  }
+  let sel = null;
+  const orig = sb.from;
+  sb.from = t => { const b = orig(t); const s = b.select; b.select = (c) => { sel = c; return s(); }; return b; };
+  run('var userRole = "AL"');
+  await run('fetchAppUsers()');
+  assert.ok(sel && !/email/.test(sel), sel);
+  assert.equal(sel, 'id, full_name, role, role_rates, hourly_rate_internal, is_fest');
+});
+
+// Ledger (Review Focus #3), pins current behaviour: a booked shift gets status:'offen' only on paid changes
+// (user, start, end, pause); non-paid patches (position_role, shift_date) carry NO status.
+const bookedShift = { id: 's1', user_id: 'u1', temp_worker_name: null, position_role: 'MA frei', start_time: '08:00:00', end_time: '16:00:00', pause_mins: 30, shift_date: '2026-10-28', status: 'eingetragen' };
+const bookedRow = { pos: 'MA', userId: 'u1', name: 'A', start: '08:00', end: '16:00', pause: '30', shiftId: 's1' };
+
+test('protShiftChanges: booked shift with nothing changed emits no update', () => {
+  const ch = plain(run('protShiftChanges')([bookedShift], [bookedRow], [], '2026-10-28'));
+  assert.deepEqual(ch.updates, []);
+});
+
+test('protShiftChanges: booked shift with only non-paid change (position / date) is patched WITHOUT status', () => {
+  let ch = plain(run('protShiftChanges')([bookedShift], [Object.assign({}, bookedRow, { pos: 'Fahrer' })], [], '2026-10-28'));
+  assert.deepEqual(ch.updates, [{ id: 's1', patch: { position_role: 'Fahrer frei' } }]);
+  ch = plain(run('protShiftChanges')([bookedShift], [bookedRow], [], '2026-10-29'));
+  assert.deepEqual(ch.updates, [{ id: 's1', patch: { shift_date: '2026-10-29' } }]);
+});
+
+test('protShiftChanges: every paid change on a booked shift sets status offen', () => {
+  for (const [row, key] of [[{ pause: '45' }, 'pause_mins'], [{ start: '07:00' }, 'start_time'], [{ end: '17:00' }, 'end_time'], [{ userId: 'u9' }, 'user_id']]) {
+    const ch = plain(run('protShiftChanges')([bookedShift], [Object.assign({}, bookedRow, row)], [], '2026-10-28'));
+    assert.equal(ch.updates[0].patch.status, 'offen', key);
+    assert.ok(key in ch.updates[0].patch, key);
+  }
 });

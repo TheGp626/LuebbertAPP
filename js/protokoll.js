@@ -28,7 +28,9 @@ var protState = {
 var appUsers = [];
 async function fetchAppUsers() {
   if (typeof supabaseClient === 'undefined') return;
-  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, email, role, role_rates, hourly_rate_internal, is_fest').or('is_active.is.null,is_active.eq.true');
+  // MA/Gast may only read their own row (RLS): the pickers and rates are office-only
+  if (typeof userRole === 'undefined' || !['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole)) return;
+  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, hourly_rate_internal, is_fest').or('is_active.is.null,is_active.eq.true');
   if (error) console.error("Error fetching app_users:", error);
   if (data) {
     // The guest login never works shifts → keep it out of AL/PL/staff pickers

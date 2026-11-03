@@ -205,7 +205,7 @@ async function initWochenplan() {
   var content = document.getElementById('wp-content');
   content.innerHTML = '<div class="wp-empty">Lädt…</div>';
   var [u, a, w] = await Promise.all([
-    supabaseClient.from('app_users').select('id, full_name, role, is_active').order('full_name'),
+    supabaseClient.rpc('user_directory'),
     supabaseClient.from('plan_name_aliases').select('alias, user_id'),
     supabaseClient.from('plan_weeks').select('*').order('week_start', { ascending: false })
   ]);
@@ -214,7 +214,7 @@ async function initWochenplan() {
     content.innerHTML = '<div class="wp-empty">Der Wochenplan konnte nicht geladen werden. Prüf deine Verbindung und öffne ihn erneut.</div>';
     return;
   }
-  wpUsers = u.data || [];
+  wpUsers = (u.data || []).slice().sort(function(x, y) { return (x.full_name || '').localeCompare(y.full_name || ''); });
   wpAliases = {};
   // Same normalisation as planMatchPerson (older entries were saved with a trailing dot)
   (a.data || []).forEach(function(r) { wpAliases[planAliasKey(r.alias)] = r.user_id; });
@@ -369,9 +369,8 @@ async function wpRenewCalendarToken() {
   if (!confirm('Der alte Link funktioniert dann nicht mehr; abonnierte Kalender müssen neu abonniert werden. Neuen Link erzeugen?')) return;
   var me = wpMe();
   if (!me) return;
-  var token = crypto.randomUUID();
-  var { data, error } = await supabaseClient.from('app_users').update({ calendar_token: token }).eq('id', me).select('id');
-  if (error || !data || !data.length) { console.error('Kalender-Link erneuern:', error); showToast('Neuer Link konnte nicht erzeugt werden', 'danger'); return; }
+  var { data: token, error } = await supabaseClient.rpc('renew_calendar_token');
+  if (error || !token) { console.error('Kalender-Link erneuern:', error); showToast('Neuer Link konnte nicht erzeugt werden', 'danger'); return; }
   _wpCalToken = { userId: me, token: token };
   showToast('Neuer Link erzeugt', 'success');
 }
