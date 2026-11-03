@@ -203,3 +203,7 @@ on conflict (user_id) do nothing;
 -- Columns stay (rollback writes them back from app_user_private)
 update public.app_users set hourly_rate_conni = null, income_limit = null, email = null
 where hourly_rate_conni is not null or income_limit is not null or email is not null;
+-- An old cached app version writing these columns gets an error instead of silently losing the values
+alter table public.app_users drop constraint if exists app_users_moved_cols_null;
+alter table public.app_users add constraint app_users_moved_cols_null
+  check (hourly_rate_conni is null and income_limit is null and email is null);

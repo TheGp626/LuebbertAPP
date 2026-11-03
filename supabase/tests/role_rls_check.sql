@@ -225,6 +225,13 @@ begin
   update public.app_user_private set hourly_rate_conni = 14 where user_id = v_ma;
   get diagnostics n = row_count;
   if n <> 1 then raise exception 'check failed: Buchhaltung could not change pay'; end if;
+  -- an old app version still writing the moved columns must fail loudly, not land in dead columns
+  ok := false;
+  begin
+    update public.app_users set email = 'old@client.test' where id = v_ma;
+  exception when check_violation then ok := true;
+  end;
+  if not ok then raise exception 'check failed: app_users still accepts pay, limit or email'; end if;
   ok := false;
   begin
     insert into public.plan_weeks (year, kw, week_start, week_end) values (1901, 3, '1901-01-14', '1901-01-20');

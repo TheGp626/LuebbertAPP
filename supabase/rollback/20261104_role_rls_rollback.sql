@@ -37,6 +37,7 @@ end $$;
 drop trigger if exists shifts_booking_guard on public.shifts;
 drop function if exists public.shifts_booking_guard();
 
+alter table public.app_users drop constraint if exists app_users_moved_cols_null;
 update public.app_users u
 set hourly_rate_conni = p.hourly_rate_conni, income_limit = p.income_limit, email = p.email
 from public.app_user_private p
