@@ -40,6 +40,7 @@ begin
     (gen_random_uuid(), v_pl, null, 'PL', 'offen', current_date),
     (gen_random_uuid(), v_bh, null, 'MA', 'offen', current_date),
     (gen_random_uuid(), v_admin, null, 'MA', 'offen', current_date);
+  insert into public.push_subscriptions (endpoint, user_id, p256dh, auth) values ('zz-rls-endpoint', v_ma, 'x', 'x');
   insert into public.products (name) values ('ZZ RLS product');
   insert into public.project_folders (name) values ('ZZ RLS folder');
   select count(*) into n_users from public.app_users;
@@ -84,8 +85,10 @@ begin
   end if;
   if not has_function_privilege('authenticated', 'public.app_role()', 'execute')
      or not has_function_privilege('authenticated', 'public.user_directory()', 'execute')
-     or not has_function_privilege('authenticated', 'public.renew_calendar_token()', 'execute') then
-    raise exception 'check failed: app_role/user_directory/renew_calendar_token right lost';
+     or not has_function_privilege('authenticated', 'public.renew_calendar_token()', 'execute')
+     or not has_function_privilege('authenticated', 'public.register_push_subscription(text, text, text)', 'execute')
+     or has_function_privilege('anon', 'public.register_push_subscription(text, text, text)', 'execute') then
+    raise exception 'check failed: app_role/user_directory/renew_calendar_token/register_push_subscription rights wrong';
   end if;
 
   -- ── Gast ──
@@ -148,6 +151,8 @@ begin
   delete from public.shifts where id = s_new;
   get diagnostics n = row_count;
   if n <> 1 then raise exception 'check failed: MA could not delete own open manual shift'; end if;
+  select count(*) into n from public.push_subscriptions where endpoint = 'zz-rls-endpoint';
+  if n <> 1 then raise exception 'check failed: MA does not see own push subscription'; end if;
   tok := public.renew_calendar_token();
   if tok is null then raise exception 'check failed: renew_calendar_token returned null'; end if;
   reset role;
@@ -187,6 +192,15 @@ begin
   exception when insufficient_privilege then ok := true;
   end;
   if not ok then raise exception 'check failed: AL uploaded to project-files'; end if;
+  -- shared phone: the next user takes over the endpoint of the previous one
+  perform public.register_push_subscription('zz-rls-endpoint', 'p2', 'a2');
+  reset role;
+  select user_id into tok from public.push_subscriptions where endpoint = 'zz-rls-endpoint';
+  if tok is distinct from v_al then raise exception 'check failed: push endpoint did not move to AL'; end if;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_ma, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into n from public.push_subscriptions where endpoint = 'zz-rls-endpoint';
+  if n <> 0 then raise exception 'check failed: MA still sees the handed-over push subscription'; end if;
   reset role;
 
   -- ── PL ──

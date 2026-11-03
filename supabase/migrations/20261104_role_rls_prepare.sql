@@ -1,5 +1,6 @@
 -- Role-based rights, migration 1 (prepare, additive): nothing existing changes behaviour.
--- Adds app_user_private (sensitive per-user columns), app_role(), user_directory(), renew_calendar_token().
+-- Adds app_user_private (sensitive per-user columns), app_role(), user_directory(), renew_calendar_token(),
+-- register_push_subscription().
 -- Temporary policy rls_app_user_private_tmp is removed by migration 2.
 
 create table if not exists public.app_user_private (
@@ -71,3 +72,25 @@ $$;
 
 revoke execute on function public.app_role(), public.user_directory(), public.renew_calendar_token() from public, anon;
 grant execute on function public.app_role(), public.user_directory(), public.renew_calendar_token() to authenticated, service_role;
+
+-- Push subscription of this device for the caller. security definer: a direct upsert of an endpoint owned by
+-- another user is refused by RLS (ON CONFLICT checks the old row), so a shared phone could never change owner.
+create or replace function public.register_push_subscription(p_endpoint text, p_p256dh text, p_auth text)
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'not logged in';
+  end if;
+  insert into public.push_subscriptions (endpoint, user_id, p256dh, auth)
+  values (p_endpoint, auth.uid(), p_p256dh, p_auth)
+  on conflict (endpoint) do update set user_id = auth.uid(), p256dh = excluded.p256dh, auth = excluded.auth;
+end;
+$$;
+
+revoke execute on function public.register_push_subscription(text, text, text) from public, anon;
+grant execute on function public.register_push_subscription(text, text, text) to authenticated, service_role;

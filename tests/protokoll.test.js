@@ -28,6 +28,10 @@ function fakeSupabase() {
             data = q.single ? arr[0] : arr;
           } else if (q.op === 'update') {
             data = fb.rows[table + '.update'] !== undefined ? fb.rows[table + '.update'] : [{ id: q.filters[0] && q.filters[0][1] }];
+          } else if (q.op === 'delete') {
+            // RLS-style: answers the deleted rows (override with rows[table + '.delete'])
+            const ids = (q.filters.find(f => f[0] === 'id in') || [])[1];
+            data = fb.rows[table + '.delete'] !== undefined ? fb.rows[table + '.delete'] : (ids || []).map(id => ({ id }));
           } else if (q.op === 'select') {
             data = fb.rows[table] !== undefined ? fb.rows[table] : (q.single ? null : []);
           }
@@ -614,6 +618,26 @@ test('sync edit: a rejected shift update (0 rows) fails the sync', async () => {
   sb.rows['protocols.update'] = [{ id: 'prot-9' }];
   ctx.__data = protData({ personnel: [{ shiftId: 'sh1', pos: 'MA', userId: 'u-ma', name: 'Max', start: '08:00', end: '17:00', pause: '30' }] });
   assert.equal(await run('syncProtokollToSupabase(__data, "prot-9")'), null);
+});
+
+test('protShiftDeleteError: fewer deleted than requested → German message, else null', () => {
+  assert.equal(run('protShiftDeleteError(2, 1)'), 'Gebuchte Schichten können nur von der Buchhaltung entfernt werden.');
+  assert.equal(run('protShiftDeleteError(2, 0)'), 'Gebuchte Schichten können nur von der Buchhaltung entfernt werden.');
+  assert.equal(run('protShiftDeleteError(2, 2)'), null);
+});
+
+test('sync edit: a removed shift the server keeps (booked meanwhile → RLS deletes 0 rows) fails the sync with the booking message', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  sb.rows.shifts = [shRow('sh1', 'offen')];
+  sb.rows['shifts.delete'] = [];
+  sb.rows['protocols.update'] = [{ id: 'prot-9' }];
+  const toasts = [];
+  ctx.showToast = (m, t) => toasts.push([m, t]);
+  ctx.__data = protData({ personnel: [{ pos: 'MA', userId: 'u-new', name: 'Neu', start: '09:00', end: '15:00', pause: '0' }] });
+  assert.equal(await run('syncProtokollToSupabase(__data, "prot-9")'), null);
+  const del = sb.calls.find(c => c.table === 'shifts' && c.op === 'delete');
+  assert.deepEqual(plain(del.filters), [['id in', ['sh1']]]);
+  assert.deepEqual(toasts[toasts.length - 1], ['Gebuchte Schichten können nur von der Buchhaltung entfernt werden.', 'danger']);
 });
 
 test('AL/PL select keeps a stored person who is no longer in the list', () => {
