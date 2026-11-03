@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const src = require('fs').readFileSync(require('path').join(__dirname, '../js/utils.js'), 'utf8');
 const grab = name => { const m = src.match(new RegExp('function ' + name + '\\([\\s\\S]*?\\r?\\n}\\r?\\n')); if (!m) throw new Error(name + ' missing'); return m[0]; };
 const diffEinsaetze = new Function(grab('diffEinsaetze') + '; return diffEinsaetze;')();
+const flattenPrivate = new Function(grab('flattenPrivate') + '; return flattenPrivate;')();
 const einsatzStatus = new Function(grab('einsatzStatus') + '; return einsatzStatus;')();
 
 const ex = [
@@ -193,4 +194,17 @@ test('showToast: honours type, clears the previous timer', () => {
   assert.deepEqual(cleared, [1]); // first timer cleared by the second toast
   showToast('Info');
   assert.ok(!cls.has('toast-danger'));
+});
+
+test('flattenPrivate: object, array, missing; no mutation', () => {
+  const priv = { hourly_rate_conni: 15, income_limit: 556, email: 'x@y' };
+  const want = { id: 'a', full_name: 'X', hourly_rate_conni: 15, income_limit: 556, email: 'x@y' };
+  const row = { id: 'a', full_name: 'X', app_user_private: priv };
+  assert.deepEqual(flattenPrivate(row), want);
+  assert.deepEqual(row, { id: 'a', full_name: 'X', app_user_private: priv });
+  assert.deepEqual(flattenPrivate({ id: 'a', full_name: 'X', app_user_private: [priv] }), want);
+  const none = { id: 'a', full_name: 'X', hourly_rate_conni: null, income_limit: null, email: null };
+  assert.deepEqual(flattenPrivate({ id: 'a', full_name: 'X', app_user_private: null }), none);
+  assert.deepEqual(flattenPrivate({ id: 'a', full_name: 'X', app_user_private: [] }), none);
+  assert.deepEqual(flattenPrivate({ id: 'a', full_name: 'X' }), none);
 });

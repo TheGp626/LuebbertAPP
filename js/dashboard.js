@@ -256,10 +256,7 @@ async function saveEditWorker() {
     full_name:          fullName,
     role:               document.getElementById('edit-worker-role').value,
     default_dept:       document.getElementById('edit-worker-dept').value.trim() || null,
-    hourly_rate_conni:    parseFloat(document.getElementById('edit-worker-rate-conni').value)    || null,
     hourly_rate_internal: parseFloat(document.getElementById('edit-worker-rate-internal').value) || null,
-    income_limit:         parseFloat(document.getElementById('edit-worker-income-limit').value)  || null,
-    email:                email || null,
     role_rates:           _editWorkerRoleRates.filter(function(r) { return r.role; }),
     is_fest:              document.getElementById('edit-worker-fest').checked,
   };
@@ -269,6 +266,11 @@ async function saveEditWorker() {
     if (error) throw error;
     // RLS answers with 0 rows instead of an error
     if (!rows || rows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung');
+    await saveWorkerPrivate(worker.id, {
+      hourly_rate_conni: parseFloat(document.getElementById('edit-worker-rate-conni').value) || null,
+      income_limit:      parseFloat(document.getElementById('edit-worker-income-limit').value) || null,
+      email:             email || null,
+    });
     showToast('Mitarbeiter gespeichert!');
     closeEditWorker();
     await loadDashboardWorkers();
@@ -281,6 +283,14 @@ async function saveEditWorker() {
     console.error('saveEditWorker error:', err);
     showToast('Fehler beim Speichern: ' + (err.message || err.code || JSON.stringify(err)), 'danger');
   }
+}
+
+// Pay, limit and email live in app_user_private (admin-only RLS)
+async function saveWorkerPrivate(userId, priv) {
+  const { data, error } = await supabaseClient.from('app_user_private')
+    .upsert(Object.assign({ user_id: userId }, priv), { onConflict: 'user_id' }).select('user_id');
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error('Speichern abgelehnt – keine Berechtigung');
 }
 
 var _addingUser = false; // a second tap while the insert runs would create the employee twice
@@ -303,11 +313,14 @@ async function addDashboardUser() {
     const rateInternal = parseFloat(document.getElementById('new-user-rate-internal')?.value) || null;
     const incomeLimit  = parseFloat(document.getElementById('new-user-income-limit')?.value)  || null;
 
-    const { error } = await supabaseClient
+    const { data: created, error } = await supabaseClient
       .from('app_users')
-      .insert({ full_name: fullName, role: role, default_dept: dept, hourly_rate_conni: rateConni, hourly_rate_internal: rateInternal, income_limit: incomeLimit });
+      .insert({ full_name: fullName, role: role, default_dept: dept, hourly_rate_internal: rateInternal })
+      .select('id');
 
     if (error) throw error;
+    if (!created || created.length === 0) throw new Error('Anlegen abgelehnt – keine Berechtigung');
+    if (rateConni || incomeLimit) await saveWorkerPrivate(created[0].id, { hourly_rate_conni: rateConni, income_limit: incomeLimit, email: null });
 
     if (typeof showToast === 'function') showToast('Mitarbeiter erfolgreich hinzugefügt!');
 
@@ -585,7 +598,7 @@ async function loadDashboardWorkers() {
   try {
     const { data: users, error: uErr } = await supabaseClient
       .from('app_users')
-      .select('id, full_name, email, role, default_dept, hourly_rate_conni, hourly_rate_internal, income_limit, role_rates, is_active, is_fest')
+      .select('id, full_name, role, default_dept, hourly_rate_internal, role_rates, is_active, is_fest, app_user_private(hourly_rate_conni, income_limit, email)')
       .eq('is_active', true)
       .order('full_name');
     if (uErr) throw uErr;
@@ -600,7 +613,7 @@ async function loadDashboardWorkers() {
     (pendingShifts || []).forEach(s => {
       if (s.user_id) pendingMap[s.user_id] = (pendingMap[s.user_id] || 0) + 1;
     });
-    dashboardWorkers = users || [];
+    dashboardWorkers = (users || []).map(flattenPrivate);
     dashPendingMap = pendingMap;
 
     const sel = document.getElementById('dash-worker-select');

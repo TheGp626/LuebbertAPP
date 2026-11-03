@@ -113,6 +113,7 @@ test('incomeLimitShare: share of the income limit, null without pay or limit', (
   assert.equal(ctx.incomeLimitShare(null, 520), null);
   assert.equal(ctx.incomeLimitShare(100, null), null);
   assert.equal(ctx.incomeLimitShare(100, 0), null);
+  assert.equal(ctx.incomeLimitShare(null, null), null); // AL/PL: no private row
 });
 
 test('loadDashboardWorkers keeps the selected employee (the list rebuild must not drop the selection)', async () => {

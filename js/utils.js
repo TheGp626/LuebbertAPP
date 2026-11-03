@@ -234,6 +234,17 @@ function getBillingPeriodLabel(mKey, cutoff) {
 // ── EINSÄTZE (AL-Erinnerung) ──
 // Compares the folder's saved jobs with the edited form rows.
 // Rows without id are new; saved ids missing from the form are removed; changed fields → update.
+// Merges the app_user_private embed (object or one-element array) into the row; missing → null
+function flattenPrivate(row) {
+  const p = Array.isArray(row.app_user_private) ? row.app_user_private[0] : row.app_user_private;
+  const out = Object.assign({}, row);
+  delete out.app_user_private;
+  out.hourly_rate_conni = (p && p.hourly_rate_conni) ?? null;
+  out.income_limit = (p && p.income_limit) ?? null;
+  out.email = (p && p.email) ?? null;
+  return out;
+}
+
 function diffEinsaetze(existing, edited) {
   var FIELDS = ['date', 'action', 'al_id', 'cancelled'];
   var pick = function(r) { var o = {}; FIELDS.forEach(function(f) { o[f] = r[f]; }); return o; };
