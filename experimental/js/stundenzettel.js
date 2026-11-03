@@ -1190,7 +1190,9 @@ function collectData() {
   // Collect all unique depts used in this week's shifts
   var depsUsed = {};
   days.forEach(function(dd) { dd.shifts.forEach(function(sh) { if (sh.von && sh.bis) depsUsed[sh.dept || selectedAbt] = true; }); });
-  return { name: document.getElementById('inp-name').value || '', abt: selectedAbt, weekStart: v, weekLabel: weekLabelFromVal(v), days: days, total: document.getElementById('total-hours').textContent, saved: new Date().toISOString(), depts: Object.keys(depsUsed) };
+  var used = Object.keys(depsUsed);
+  // abt labels a one-dept week (history pill, PDF header) — take the shifts' dept, not the default
+  return { name: document.getElementById('inp-name').value || '', abt: used.length === 1 ? used[0] : selectedAbt, weekStart: v, weekLabel: weekLabelFromVal(v), days: days, total: document.getElementById('total-hours').textContent, saved: new Date().toISOString(), depts: used };
 }
 
 async function saveWeek() {
@@ -1373,7 +1375,6 @@ function loadWeek(key) {
   var w = mergeWeekParts(all, clicked.weekStart) || clicked;
   document.getElementById('inp-name').value = w.name;
   document.getElementById('inp-week').value = w.weekStart;
-  selectedAbt = clicked.abt;
   resetEditorState(w, clicked.abt || selectedAbt);
   renderEditorFromState();
   navigate('home');
