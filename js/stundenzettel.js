@@ -379,6 +379,9 @@ async function fetchShiftsNow() {
          });
       }
     });
+    Object.keys(userWeeks).forEach(function (wk) {
+      userWeeks[wk].days.forEach(function (dd) { dd.shifts = dropOverriddenShifts(dd.shifts); });
+    });
 
     resolveBlindWeeks(userWeeks);
 
@@ -433,6 +436,22 @@ async function fetchShiftsNow() {
     }
   } catch(e) { console.error("Error fetching shifts:", e); }
   finally { _shiftsSyncRunning = false; }
+}
+
+// A protocol shift replaces the worker's own shifts of that day that overlap it (any dept) — no double hours.
+// Dropped from the local week, the next save deletes them on the server (planWeekSync).
+function dropOverriddenShifts(shifts) {
+  var span = function (s) {
+    var v = timeToMins(s.von), b = timeToMins(s.bis);
+    return (v === null || b === null) ? null : [v, b < v ? b + 1440 : b];
+  };
+  var prot = shifts.filter(function (s) { return s.isProtocol; }).map(span).filter(Boolean);
+  if (!prot.length) return shifts;
+  return shifts.filter(function (s) {
+    if (s.isProtocol) return true;
+    var m = span(s);
+    return !m || !prot.some(function (p) { return m[0] < p[1] && p[0] < m[1]; });
+  });
 }
 
 // Copies local-only shift data (AL signature, AL name, Ort fallback) from the
@@ -672,7 +691,11 @@ function renderShift(dayIdx, shiftIdx) {
   block.className = 'ui-card stunden-shift';
   block.id = 'shift-' + key;
   var removeBtn = shiftIdx > 0 ? '<button type="button" class="ui-icon-btn shift-remove" onclick="removeShift(' + dayIdx + ',' + shiftIdx + ')" aria-label="Schicht entfernen">' + uiIcon('trash') + '</button>' : '';
-  var deptOpts = (typeof departments !== 'undefined' ? departments : []).map(function(d) {
+  // The shift's own dept must be an option (e.g. "MA fest" from a protocol), or the select silently switches it to the first one
+  var curDept = ((shiftValues[dayIdx] || [])[shiftIdx] || {}).dept;
+  var deptList = (typeof departments !== 'undefined' ? departments : []);
+  if (curDept && deptList.indexOf(curDept) === -1) deptList = deptList.concat([curDept]);
+  var deptOpts = deptList.map(function(d) {
     return '<option value="' + escapeHtml(d) + '">' + escapeHtml(typeof deptLabel === 'function' ? deptLabel(d) : d) + '</option>';
   }).join('');
   block.innerHTML =
@@ -950,9 +973,19 @@ function renderHistory(skipSync) {
   var keys = Object.keys(all).sort().reverse();
   var legacyNotice = legacyNoticeHtml();
   if (!keys.length) { list.innerHTML = legacyNotice + uiEmptyHtml('Noch keine Wochen', 'Gespeicherte Wochen erscheinen hier.'); return; }
+  // One card per week: the dept parts of a mixed week are shown together (stored and exported per dept)
+  var byWeek = {};
+  keys.forEach(function (k) { var ws = k.split(':')[0]; (byWeek[ws] = byWeek[ws] || []).push(all[k]); });
   var months = {};
-  keys.forEach(function (k) {
-    var w = all[k];
+  Object.keys(byWeek).sort().reverse().forEach(function (ws) {
+    var parts = byWeek[ws];
+    var w = parts.length === 1 ? parts[0] : mergeWeekParts(all, ws);
+    if (parts.length > 1) {
+      var pages = splitWeekByDepts(w); // per-dept totals, same as the export
+      var hrs = pages.reduce(function (s, p) { return s + parseFloat(p.total); }, 0);
+      w = Object.assign(w, { histKey: ws, abt: pages.length > 1 ? 'gemischt' : pages[0].abt, total: hrs % 1 === 0 ? hrs.toFixed(0) : hrs.toFixed(2),
+        unsynced: weekHasUnsynced(all, ws), earnParts: pages });
+    }
     var periods = weekBillingSplit(w);
     Object.keys(periods).forEach(function (pk) {
       if (!months[pk]) months[pk] = { label: periods[pk].label, weeks: [], totalHours: 0 };
@@ -970,7 +1003,7 @@ function renderHistory(skipSync) {
       '<button type="button" class="ui-icon-btn" aria-label="Monat-Aktionen" onclick="historyMonthMenu(\'' + jsAttrArg(mKey) + '\')">' + uiIcon('dots') + '</button></div>';
     html += m.weeks.map(function (w) {
       var hKey = w.histKey || w.weekStart;
-      var earnW = formatEarnings(parseFloat((w.total || '0').replace(',', '.')), w.abt);
+      var earnW = (w.earnParts || [w]).map(function (p) { return formatEarnings(parseFloat(String(p.total || '0').replace(',', '.')), p.abt); }).filter(Boolean).join(' · ');
       var kw = w.weekStart ? parseInt(String(w.weekStart).split('-W')[1]) : '';
       var range = '';
       if (w.weekStart) {
@@ -1066,18 +1099,22 @@ function mergeWeekParts(all, weekStart) {
   if (keys.length === 1) return all[keys[0]];
   var base = all[keys[0]];
   var days = (base.days || []).map(function (dd) { return { day: dd.day, date: dd.date, isoDate: dd.isoDate, shifts: [] }; });
+  var plainLeft = {}; // day index → shifts of an old plain key not yet matched by a dept part
   keys.forEach(function (k) {
     var part = all[k];
     (part.days || []).forEach(function (dd, i) {
       if (!days[i]) days[i] = { day: dd.day, date: dd.date, isoDate: dd.isoDate, shifts: [] };
       (dd.shifts || []).forEach(function (s) {
         var shift = Object.assign({}, s, { dept: s.dept || part.abt });
+        if (k === weekStart) { days[i].shifts.push(shift); (plainLeft[i] = plainLeft[i] || []).push(shift); return; }
         // An old plain week key can sit next to its department keys with the same shifts (pre-fix double count):
-        // keep one copy (the signed one), or the next save would write the duplicates to the server
+        // keep one copy (the signed one). Only plain-vs-part copies count: two equal shifts inside the parts are
+        // real (a typed shift next to the same protocol shift) — dropping one deleted it on the next save
         var dupKey = [shift.von, shift.bis, shift.pause, shift.dept].join('|');
-        var j = days[i].shifts.findIndex(function (x) { return [x.von, x.bis, x.pause, x.dept].join('|') === dupKey; });
-        if (j === -1) days[i].shifts.push(shift);
-        else if (!days[i].shifts[j].sig && shift.sig) days[i].shifts[j] = shift;
+        var j = (plainLeft[i] || []).findIndex(function (x) { return [x.von, x.bis, x.pause, x.dept].join('|') === dupKey; });
+        if (j === -1) { days[i].shifts.push(shift); return; }
+        var dup = plainLeft[i].splice(j, 1)[0];
+        if (!dup.sig && shift.sig) days[i].shifts[days[i].shifts.indexOf(dup)] = shift;
       });
     });
   });
@@ -1153,7 +1190,9 @@ function collectData() {
   // Collect all unique depts used in this week's shifts
   var depsUsed = {};
   days.forEach(function(dd) { dd.shifts.forEach(function(sh) { if (sh.von && sh.bis) depsUsed[sh.dept || selectedAbt] = true; }); });
-  return { name: document.getElementById('inp-name').value || '', abt: selectedAbt, weekStart: v, weekLabel: weekLabelFromVal(v), days: days, total: document.getElementById('total-hours').textContent, saved: new Date().toISOString(), depts: Object.keys(depsUsed) };
+  var used = Object.keys(depsUsed);
+  // abt labels a one-dept week (history pill, PDF header) — take the shifts' dept, not the default
+  return { name: document.getElementById('inp-name').value || '', abt: used.length === 1 ? used[0] : selectedAbt, weekStart: v, weekLabel: weekLabelFromVal(v), days: days, total: document.getElementById('total-hours').textContent, saved: new Date().toISOString(), depts: used };
 }
 
 async function saveWeek() {
@@ -1329,14 +1368,13 @@ function dropSyncedWeeks(all) {
 }
 
 function loadWeek(key) {
-  var all = loadStore(), clicked = all[key]; if (!clicked) return;
+  var all = loadStore(), clicked = all[key] || mergeWeekParts(all, key); if (!clicked) return;
   if (editorIsDirty() && !confirm('Du hast ungespeicherte Eingaben. Beim Laden dieser Woche gehen sie verloren. Trotzdem laden?')) return;
   // Edit the whole week (all dept parts): saving replaces every part locally and on the server,
   // so loading only the clicked part would drop the other departments' shifts
   var w = mergeWeekParts(all, clicked.weekStart) || clicked;
   document.getElementById('inp-name').value = w.name;
   document.getElementById('inp-week').value = w.weekStart;
-  selectedAbt = clicked.abt;
   resetEditorState(w, clicked.abt || selectedAbt);
   renderEditorFromState();
   navigate('home');
@@ -1348,13 +1386,12 @@ function loadWeek(key) {
 async function deleteWeek(e, k) {
   e.stopPropagation();
   if (!confirm('Woche löschen?')) return;
-  var all = loadStore(), entry = all[k];
+  var all = loadStore(), entry = all[k] || mergeWeekParts(all, k);
   if (!entry) return;
+  var ws = entry.weekStart || k.split(':')[0];
   if (typeof supabaseClient !== 'undefined' && currentUser) {
-    var ws = entry.weekStart || k.split(':')[0];
-    // A plain key next to dept parts only stands for its own department
-    var hasParts = Object.keys(all).some(function (x) { return x !== k && x.indexOf(ws + ':') === 0; });
-    var role = (k === ws && !hasParts) ? null : (entry.abt || null);
+    // The history shows one card per week (plain key = all depts); a ':dept' key stands only for its department
+    var role = k === ws ? null : (entry.abt || null);
     var failed = await runSerial(_weekSyncChains, ws, async function () {
       try {
         var ex = await supabaseClient.from('shifts').select('id, status, position_role')
@@ -1373,7 +1410,9 @@ async function deleteWeek(e, k) {
     });
     if (failed) { showToast('Löschen auf dem Server fehlgeschlagen – Woche bleibt erhalten.'); return; }
   }
-  all = loadStore(); delete all[k]; saveStore(all);
+  all = loadStore();
+  if (k === ws) removeWeekEntries(all, ws); else delete all[k];
+  saveStore(all);
   renderHistory(); showToast('Gelöscht');
 }
 

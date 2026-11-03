@@ -27,13 +27,48 @@ test('parseCachedUsers: offline user list from localStorage, junk → []', () =>
   assert.deepEqual(parse('[{"id":"a","full_name":"A","role":"MA"},null,{"full_name":"no id"}]'), [{ id: 'a', full_name: 'A', role: 'MA' }]);
 });
 
-test('pinCheckOutcome: only a definite "false" from the server is a failed attempt', () => {
-  const outcome = load('pinCheckOutcome');
-  assert.equal(outcome(true, null), 'ok');
-  assert.equal(outcome(false, null), 'wrong');
-  assert.equal(outcome(null, null), 'wrong');
-  assert.equal(outcome(null, { message: 'TypeError: Failed to fetch' }), 'error');
-  assert.equal(outcome(true, { message: 'x' }), 'error');
+test('authPinMode: Gast none, no PIN set, else enter', () => {
+  const m = load('authPinMode');
+  assert.equal(m({ role: 'Gast', has_pin: false }), 'none');
+  assert.equal(m({ role: 'Gast', has_pin: true }), 'none');
+  assert.equal(m({ role: 'MA', has_pin: false }), 'set');
+  assert.equal(m({ role: 'Admin', has_pin: true }), 'enter');
+});
+test('pinFormError: format and repeat', () => {
+  const f = load('pinFormError');
+  assert.equal(f('enter', '1234', ''), '');
+  assert.equal(f('enter', '123', ''), 'Bitte eine 4-stellige PIN eingeben.');
+  assert.equal(f('set', '1234', '1235'), 'Die PINs stimmen nicht überein.');
+  assert.equal(f('set', '1234', '1234'), '');
+  assert.equal(f('none', '', ''), '');
+});
+test('loginOutcome: server answers become the spec texts', () => {
+  const o = load('loginOutcome');
+  assert.deepEqual(o({ data: { session: { access_token: 'a', refresh_token: 'r' } }, error: null }), { session: { access_token: 'a', refresh_token: 'r' } });
+  assert.equal(o({ data: { error: 'wrong_pin', remaining: 3 }, error: null }).message, 'Falsche PIN. Noch 3 Versuche.');
+  assert.equal(o({ data: { error: 'wrong_pin', remaining: 1 }, error: null }).message, 'Falsche PIN. Noch 1 Versuch.');
+  for (const c of ['pin_not_set', 'pin_already_set']) assert.deepEqual(o({ data: { error: c }, error: null }), { message: 'Bitte noch einmal versuchen – die Anzeige wurde aktualisiert.', refresh: true });
+  assert.equal(o({ data: { error: 'locked', minutes: 12 }, error: null }).message, 'Zu viele Fehlversuche – in 12 Min. erneut versuchen oder AL/PL um Zurücksetzen bitten.');
+  assert.equal(o({ data: null, error: new Error('Failed to fetch') }).message, 'PIN konnte nicht geprüft werden (keine Verbindung). Bitte später erneut versuchen.');
+  assert.equal(o({ data: { error: 'not_found' }, error: null }).message, 'Benutzer nicht gefunden oder deaktiviert.');
+  assert.equal(o({ data: { error: 'server_error' }, error: null }).message, 'PIN konnte nicht geprüft werden (keine Verbindung). Bitte später erneut versuchen.');
+  assert.equal(o({ data: { error: 'invalid_pin' }, error: null }).message, 'Bitte eine 4-stellige PIN eingeben.');
+});
+test('authStartState: restore only with a session younger than 30 days', () => {
+  const s = new Function('var PIN_SESSION_MS = 2592000000;' + grab('authStartState') + '; return authStartState;')();
+  const now = Date.parse('2026-12-01T00:00:00Z');
+  assert.equal(s(null, now - 1000, now), 'login');
+  assert.equal(s({ user: { id: 'x' } }, now - 29 * 864e5, now), 'restore');
+  assert.equal(s({ user: { id: 'x' } }, now - 30 * 864e5, now), 'login');
+  assert.equal(s({ user: { id: 'x' } }, 0, now), 'login');
+});
+test('authStartState: refresh/network error keeps a recent login, clean null session or old login does not', () => {
+  const s = new Function('var PIN_SESSION_MS = 2592000000;' + grab('authStartState') + '; return authStartState;')();
+  const now = Date.parse('2026-12-01T00:00:00Z');
+  assert.equal(s(null, now - 864e5, now, new Error('Failed to fetch')), 'restore');
+  assert.equal(s(null, now - 864e5, now, null), 'login');
+  assert.equal(s(null, now - 31 * 864e5, now, new Error('x')), 'login');
+  assert.equal(s({ user: { id: 'x' } }, now - 31 * 864e5, now, null), 'login');
 });
 
 test('authSessionChanged: re-login only when the fresh user differs from the cached one', () => {
@@ -48,10 +83,12 @@ test('authSessionChanged: re-login only when the fresh user differs from the cac
   assert.equal(changed(null, null), true, 'no session → show the login');
 });
 
-test('initAuth restores the login from the cached list before waiting for the network', () => {
+test('initAuth restores the login from the cached profile before waiting for the network', () => {
   const body = grab('initAuth');
-  const early = body.indexOf('handleSession(shown)'), fetch = body.indexOf('await fetchEmployees()');
+  const early = body.indexOf('handleSession(shown)'), fetch = body.indexOf('await fetchOwnProfile');
   assert.ok(early !== -1 && fetch !== -1 && early < fetch);
+  assert.ok(early < body.indexOf('auth.getSession()'), 'cached profile shown before getSession');
+  assert.ok(body.indexOf('authStartState(') !== -1 && body.indexOf('signOutLocal()') !== -1);
 });
 
 test('sessionUserChanged: the Stundenzettel editor is reset when another user (or nobody) takes over', () => {
@@ -61,4 +98,31 @@ test('sessionUserChanged: the Stundenzettel editor is reset when another user (o
   assert.equal(changed('a', 'b'), true);        // shared device: B after A
   assert.equal(changed('a', null), true);       // logout
   assert.equal(changed(null, null), false);
+});
+
+test('mayResetPinClient matches the server matrix', async () => {
+  const client = load('mayResetPinClient');
+  const { mayResetPin } = await import('../supabase/functions/_shared/pin.mjs');
+  const roles = ['Admin', 'PL', 'AL', 'MA', 'Buchhaltung', 'Gast'];
+  for (const c of roles) for (const t of roles) assert.equal(client(c, t), mayResetPin(c, t), c + '→' + t);
+});
+
+test('resetTargets: AL sees only MA, never Gast or self', () => {
+  const r = new Function(grab('mayResetPinClient') + grab('resetTargets') + '; return resetTargets;')();
+  const users = [{ id: '1', role: 'MA' }, { id: '2', role: 'Gast' }, { id: '3', role: 'AL' }, { id: '4', role: 'Admin' }];
+  assert.deepEqual(r('AL', '3', users).map(u => u.id), ['1']);
+  assert.deepEqual(r('Admin', '4', users).map(u => u.id), ['1', '3']);
+});
+
+test('firstPinNeedsAdminPinClient matches the server rule', async () => {
+  const client = load('firstPinNeedsAdminPinClient');
+  const { firstPinNeedsAdminPin } = await import('../supabase/functions/_shared/pin.mjs');
+  for (const r of ['Admin', 'PL', 'AL', 'Buchhaltung', 'MA', 'Gast']) assert.equal(client(r), firstPinNeedsAdminPin(r), r);
+});
+
+test('loginOutcome: admin password texts for a leader\'s first PIN', () => {
+  const o = load('loginOutcome');
+  assert.equal(o({ data: { error: 'admin_pin_required' }, error: null }).message, 'Bitte zusätzlich das Admin-Passwort eingeben (nur beim ersten Mal).');
+  assert.equal(o({ data: { error: 'admin_pin_wrong', remaining: 4 }, error: null }).message, 'Admin-Passwort falsch. Noch 4 Versuche.');
+  assert.equal(o({ data: { error: 'admin_pin_wrong', remaining: 1 }, error: null }).message, 'Admin-Passwort falsch. Noch 1 Versuch.');
 });

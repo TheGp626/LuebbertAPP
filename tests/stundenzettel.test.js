@@ -74,6 +74,34 @@ test('mergeWeekParts: a legacy plain key next to its part keys does not duplicat
   assert.equal(w.days[0].shifts[0].sig, 'SIG', 'the copy with the signature is kept');
 });
 
+test('dropOverriddenShifts: a protocol shift replaces overlapping own shifts (any dept), others stay', () => {
+  const { dropOverriddenShifts } = load(['dropOverriddenShifts'], ['timeToMins']);
+  const P = { isProtocol: true };
+  const out = dropOverriddenShifts([
+    sh('08:15', '12:00', 'MA frei', P),
+    sh('08:00', '12:00', 'MA frei'),   // overlaps → gone
+    sh('11:00', '14:00', 'Lager'),     // overlaps, other dept → gone
+    sh('12:00', '16:00', 'Lager'),     // touches only → stays
+    sh('22:00', '02:00', 'AL frei'),   // no protocol overlap → stays
+  ]);
+  assert.deepEqual(out.map(s => s.von), ['08:15', '12:00', '22:00']);
+  const night = dropOverriddenShifts([sh('20:00', '03:00', 'AL frei', P), sh('23:00', '01:00', 'MA frei'), sh('01:00', '02:00', 'MA frei')]);
+  assert.deepEqual(night.map(s => s.von), ['20:00', '01:00'], 'over-midnight spans compare as one evening; 01:00 of the same date is the early morning');
+  const own = [sh('08:00', '12:00', 'MA frei')];
+  assert.equal(dropOverriddenShifts(own), own);
+});
+
+test('mergeWeekParts: equal shifts inside the dept parts both stay (mixed week must not drop a typed shift)', () => {
+  const { mergeWeekParts } = load(['mergeWeekParts']);
+  const all = {
+    '2026-W44:MA frei': week('MA frei', [[sh('08:00', '12:00', 'MA frei', { isProtocol: true, protocolId: 'p1' }), sh('08:00', '12:00', 'MA frei')], [], [], [], [], [], []]),
+    '2026-W44:Lager': week('Lager', [[], [sh('08:00', '12:00', 'Lager')], [], [], [], [], []]),
+  };
+  const w = mergeWeekParts(all, '2026-W44');
+  assert.deepEqual(w.days[0].shifts.map(s => !!s.isProtocol), [true, false]);
+  assert.equal(w.days[1].shifts.length, 1);
+});
+
 test('unsyncedWeekKeys: each waiting week once, parts collapsed to their week', () => {
   const { unsyncedWeekKeys } = load(['unsyncedWeekKeys']);
   const all = { '2026-W44:AL frei': { unsynced: true }, '2026-W44:MA frei': { unsynced: true }, '2026-W45': { unsynced: true }, '2026-W46': {} };

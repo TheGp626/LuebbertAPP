@@ -2,42 +2,147 @@ let currentUser = null;
 let userRole = 'MA'; // Default
 let allUsers = [];
 
-// ── SESSION & PIN SECURITY ──
-const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
-const REMEMBER_ME_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-const PIN_MAX_ATTEMPTS = 5;
-const PIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
+// ── SESSION & PIN LOGIN ──
+const PIN_SESSION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days, then the PIN is asked again
+const LOGIN_TS_KEY = 'luebbert_login_ts';
+const OWN_PROFILE_KEY = 'luebbert_own_profile';
+const PIN_ERR_CONNECTION = 'PIN konnte nicht geprüft werden (keine Verbindung). Bitte später erneut versuchen.';
 
-function getPinAttempts() {
-  try { return JSON.parse(localStorage.getItem('_pin_attempts') || '{"count":0,"since":0}'); }
-  catch { return { count: 0, since: 0 }; }
-}
-function recordPinFailure() {
-  const a = getPinAttempts();
-  const now = Date.now();
-  if (now - a.since > PIN_LOCKOUT_MS) { a.count = 0; a.since = now; }
-  a.count++;
-  localStorage.setItem('_pin_attempts', JSON.stringify(a));
-  return a.count;
-}
-function resetPinAttempts() {
-  localStorage.removeItem('_pin_attempts');
-}
-function isPinLockedOut() {
-  const a = getPinAttempts();
-  return a.count >= PIN_MAX_ATTEMPTS && (Date.now() - a.since) < PIN_LOCKOUT_MS;
-}
-function pinLockoutRemaining() {
-  const a = getPinAttempts();
-  const remaining = PIN_LOCKOUT_MS - (Date.now() - a.since);
-  return Math.ceil(remaining / 60000); // minutes
+// Gast logs in by name only; everyone else has a PIN (set on first login)
+function authPinMode(user) {
+  if (user.role === 'Gast') return 'none';
+  return user.has_pin ? 'enter' : 'set';
 }
 
-// Only a definite "false" from verify_admin_pin counts toward the lockout;
-// a request error (offline, server down) is not a wrong password
-function pinCheckOutcome(valid, rpcError) {
-  if (rpcError) return 'error';
-  return valid ? 'ok' : 'wrong';
+// Mirrors firstPinNeedsAdminPin in _shared/pin.mjs: a leader's first PIN needs the admin password once
+function firstPinNeedsAdminPinClient(role) {
+  return ['Admin', 'PL', 'AL', 'Buchhaltung'].indexOf(role) !== -1;
+}
+
+function pinFormError(mode, pin, repeat) {
+  if (mode === 'none') return '';
+  if (!/^\d{4}$/.test(pin || '')) return 'Bitte eine 4-stellige PIN eingeben.';
+  if (mode === 'set' && pin !== repeat) return 'Die PINs stimmen nicht überein.';
+  return '';
+}
+
+// Maps the pin-login answer to {session} or a UI {message}
+function loginOutcome(res) {
+  const d = res && res.data;
+  if (d && d.session) return { session: d.session };
+  if (d && d.error === 'wrong_pin') return { message: 'Falsche PIN. Noch ' + d.remaining + (d.remaining === 1 ? ' Versuch.' : ' Versuche.') };
+  if (d && d.error === 'locked') return { message: 'Zu viele Fehlversuche – in ' + d.minutes + ' Min. erneut versuchen oder AL/PL um Zurücksetzen bitten.' };
+  if (d && (d.error === 'pin_not_set' || d.error === 'pin_already_set')) return { message: 'Bitte noch einmal versuchen – die Anzeige wurde aktualisiert.', refresh: true };
+  if (d && d.error === 'admin_pin_required') return { message: 'Bitte zusätzlich das Admin-Passwort eingeben (nur beim ersten Mal).' };
+  if (d && d.error === 'admin_pin_wrong') return { message: 'Admin-Passwort falsch. Noch ' + d.remaining + (d.remaining === 1 ? ' Versuch.' : ' Versuche.') };
+  if (d && d.error === 'not_found') return { message: 'Benutzer nicht gefunden oder deaktiviert.' };
+  if (d && (d.error === 'invalid_pin' || d.error === 'pin_required')) return { message: 'Bitte eine 4-stellige PIN eingeben.' };
+  return { message: 'PIN konnte nicht geprüft werden (keine Verbindung). Bitte später erneut versuchen.' }; // network error, server_error, invalid_input, unknown
+}
+
+// UI filter only (mirrors _shared/pin.mjs); the server decides
+function mayResetPinClient(callerRole, targetRole) {
+  const matrix = { Admin: ['Admin', 'PL', 'AL', 'MA', 'Buchhaltung'], PL: ['AL', 'MA'], AL: ['MA'] };
+  return Object.prototype.hasOwnProperty.call(matrix, callerRole) && matrix[callerRole].includes(targetRole);
+}
+
+function resetTargets(callerRole, callerId, users) {
+  return (users || []).filter(u => u.id !== callerId && mayResetPinClient(callerRole, u.role));
+}
+
+// ── PIN ändern / zurücksetzen (top bar menu) ──
+var pinResetBusy = false;
+var pinResetUsers = []; // var: ui.js reads it via window[data-source]
+
+function pinSheetOpen(html) {
+  let m = document.getElementById('pin-sheet-modal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'pin-sheet-modal';
+    m.className = 'sig-modal ui-sheet';
+    m.style.setProperty('--sheet-w', '420px');
+    m.innerHTML = '<div class="sig-modal-inner"></div>';
+    m.addEventListener('click', e => { if (e.target === m) closePinSheet(); });
+    document.body.appendChild(m);
+  }
+  m.firstChild.innerHTML = '<div class="ui-sheet-head"><h3 class="ui-title" style="font-size:18px;">' + html.title + '</h3>' +
+    '<button type="button" class="ui-icon-btn" onclick="closePinSheet()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' + html.body;
+  m.classList.add('open');
+}
+
+function closePinSheet() {
+  const m = document.getElementById('pin-sheet-modal');
+  if (m) { m.classList.remove('open'); m.firstChild.innerHTML = ''; }
+}
+
+function openPinChange() {
+  const f = (id, label) => '<label class="ui-field"><span>' + label + '</span><input type="password" id="' + id + '" inputmode="numeric" maxlength="4" autocomplete="off"></label>';
+  pinSheetOpen({ title: 'PIN ändern', body: f('pin-old', 'Alte PIN') + f('pin-new', 'Neue PIN') + f('pin-new2', 'Neue PIN wiederholen') +
+    '<div id="pin-sheet-err" class="ui-error" role="alert" style="color:#c0392b;min-height:1.2em;"></div>' +
+    '<div class="ui-sheet-actions"><button type="button" class="ui-btn" onclick="closePinSheet()">Abbrechen</button>' +
+    '<button type="button" class="ui-btn ui-btn-primary" id="pin-change-btn" onclick="submitPinChange()">Speichern</button></div>' });
+}
+
+async function submitPinChange() {
+  const v = id => document.getElementById(id).value;
+  const err = document.getElementById('pin-sheet-err');
+  const oldPin = v('pin-old'), newPin = v('pin-new');
+  err.textContent = pinFormError('enter', oldPin) || pinFormError('set', newPin, v('pin-new2'));
+  if (err.textContent) return;
+  const btn = document.getElementById('pin-change-btn');
+  btn.disabled = true;
+  let res;
+  try { res = await supabaseClient.functions.invoke('pin-change', { body: { old_pin: oldPin, new_pin: newPin } }); } catch (e) { res = { error: e }; }
+  btn.disabled = false;
+  if (res && res.data && res.data.ok) {
+    closePinSheet();
+    // The password change ends the current session on the server: sign straight back in with the new PIN
+    let relog = null;
+    try { relog = await supabaseClient.functions.invoke('pin-login', { body: { user_id: currentUser.id, pin: newPin } }); } catch (e) { relog = null; }
+    const out = relog ? loginOutcome(relog) : {};
+    if (out.session) {
+      try { await supabaseClient.auth.setSession(out.session); localStorage.setItem(LOGIN_TS_KEY, String(Date.now())); } catch (e) { /* next start asks for the PIN */ }
+    }
+    showToast('PIN geändert');
+    return;
+  }
+  const http = res && res.error && res.error.name === 'FunctionsHttpError' && !(res.data && res.data.error);
+  err.textContent = http ? 'PIN konnte nicht geändert werden.' : loginOutcome(res).message;
+}
+
+function openPinReset() {
+  pinResetUsers = resetTargets(userRole, currentUser && currentUser.id, allUsers);
+  pinSheetOpen({ title: 'PIN zurücksetzen', body: '<label class="ui-field"><span>Mitarbeiter</span>' +
+    uiComboHtml('pin-reset-name', '', 'Name tippen…', 'pinResetPick', '', 'pinResetUsers') + '</label>' +
+    '<div class="ui-sheet-actions"><button type="button" class="ui-btn" onclick="closePinSheet()">Abbrechen</button></div>' });
+}
+
+function pinResetPick(arg, name) {
+  const u = pinResetUsers.find(x => x.full_name === name);
+  if (u) confirmPinReset(u.id);
+}
+
+async function confirmPinReset(userId) {
+  const u = pinResetUsers.find(x => x.id === userId);
+  if (!u || pinResetBusy || !confirm('PIN von ' + u.full_name + ' wirklich zurücksetzen?')) return;
+  let res;
+  pinResetBusy = true;
+  try { res = await supabaseClient.functions.invoke('pin-reset', { body: { target_user_id: userId } }); } catch (e) { res = { error: e }; }
+  pinResetBusy = false;
+  if (res && res.data && res.data.ok) {
+    closePinSheet();
+    showToast('PIN zurückgesetzt – ' + u.full_name + ' wählt beim nächsten Login eine neue.');
+  } else {
+    // FunctionsHttpError = server answered (401/403/404/400/500); anything else = no connection
+    const http = res && res.error && res.error.name === 'FunctionsHttpError';
+    showToast(http ? 'PIN konnte nicht zurückgesetzt werden.' : PIN_ERR_CONNECTION);
+  }
+}
+
+// A refresh/network error while a recent login exists keeps the cached login; only a clean "no session" or an old login means login
+function authStartState(session, loginTs, now, sessionError) {
+  if (now - loginTs >= PIN_SESSION_MS) return 'login';
+  return session || sessionError ? 'restore' : 'login';
 }
 
 // Last good employee list, so an offline start can still restore the session and show the login list
@@ -49,15 +154,11 @@ function parseCachedUsers(raw) {
   } catch (e) { return []; }
 }
 
-// Fetches the latest employee list from the public app_users table
+// Name list for the picker (anon RPC: id, full_name, role, has_pin of active users)
 async function fetchEmployees() {
   let data = null, error = null;
   try {
-    ({ data, error } = await supabaseClient
-      .from('app_users')
-      .select('id, full_name, role, default_dept, hourly_rate_conni, hourly_rate_internal')
-      .or('is_active.is.null,is_active.eq.true')
-      .order('full_name', { ascending: true }));
+    ({ data, error } = await supabaseClient.rpc('login_names'));
   } catch (e) { error = e; }
 
   if (error) {
@@ -70,6 +171,36 @@ async function fetchEmployees() {
   allUsers = data || [];
   try { localStorage.setItem(USERS_CACHE_KEY, JSON.stringify(allUsers)); } catch (e) { /* storage full */ }
   populateDropdown();
+}
+
+function cachedOwnProfile() {
+  try { return JSON.parse(localStorage.getItem(OWN_PROFILE_KEY) || 'null'); } catch (e) { return null; }
+}
+
+// Own app_users row (the session is already set) → { profile, error }.
+// error: the request failed (profile = cached copy of the same id, or null);
+// no error + profile null: the server says the person is missing or deactivated.
+async function fetchOwnProfile(id) {
+  let data = null, error = null;
+  try {
+    ({ data, error } = await supabaseClient.from('app_users')
+      .select('id, full_name, role, default_dept, hourly_rate_conni, hourly_rate_internal, is_active')
+      .eq('id', id).maybeSingle());
+  } catch (e) { error = e; }
+  if (error) {
+    const cached = cachedOwnProfile();
+    return { profile: cached && cached.id === id ? cached : null, error: true };
+  }
+  if (!data || data.is_active === false) { try { localStorage.removeItem(OWN_PROFILE_KEY); } catch (e) { /* ignore */ } return { profile: null, error: false }; }
+  try { localStorage.setItem(OWN_PROFILE_KEY, JSON.stringify(data)); } catch (e) { /* storage full */ }
+  return { profile: data, error: false };
+}
+
+// signOut({scope:'local'}) reports network trouble as {error} and keeps the stored session → remove it ourselves
+async function signOutLocal() {
+  let err = null;
+  try { ({ error: err } = await supabaseClient.auth.signOut({ scope: 'local' })); } catch (e) { err = e; }
+  if (err) { try { localStorage.removeItem(supabaseClient.auth.storageKey); } catch (e) { /* ignore */ } }
 }
 
 // ── SEARCHABLE NAME PICKER (combobox) ──
@@ -101,15 +232,16 @@ function selectAuthUser(id) {
   if (inp) inp.value = user.full_name || '';
   const list = document.getElementById('auth-name-list');
   if (list) list.style.display = 'none';
-  const pwWrapper = document.getElementById('auth-password-wrapper');
-  if (pwWrapper) {
-    if (isPasswordlessRole(user.role)) {
-      pwWrapper.style.display = 'none';
-      document.getElementById('auth-password').value = '';
-    } else {
-      pwWrapper.style.display = 'block';
-    }
-  }
+  const mode = authPinMode(user);
+  const wrap = document.getElementById('auth-pin-wrapper');
+  const pin = document.getElementById('auth-pin'), rep = document.getElementById('auth-pin-repeat');
+  if (wrap) wrap.style.display = mode === 'none' ? 'none' : 'block';
+  if (pin) pin.value = '';
+  if (rep) { rep.value = ''; rep.style.display = mode === 'set' ? 'block' : 'none'; }
+  const adm = document.getElementById('auth-admin-pin');
+  if (adm) { adm.value = ''; adm.style.display = mode === 'set' && firstPinNeedsAdminPinClient(user.role) ? 'block' : 'none'; }
+  const lbl = document.getElementById('auth-pin-label');
+  if (lbl) lbl.textContent = mode === 'set' ? 'Wähle deine 4-stellige PIN' : 'PIN eingeben';
 }
 
 function initAuthNamePicker() {
@@ -121,12 +253,14 @@ function initAuthNamePicker() {
   inp.addEventListener('input', function () {
     authSelectedUserId = null;
     renderAuthNameList();
-    // Exact name typed out fully → select it right away (shows/hides pw field)
+    // Exact name typed out fully → select it right away (shows/hides the PIN fields)
     const exact = allUsers.find(u => (u.full_name || '').toLowerCase() === inp.value.toLowerCase().trim());
     if (exact) selectAuthUser(exact.id);
   });
-  inp.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') { e.preventDefault(); handleAuthSubmit(); }
+  ['auth-name-input', 'auth-pin', 'auth-pin-repeat', 'auth-admin-pin'].forEach(function (id) {
+    document.getElementById(id).addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); handleAuthSubmit(); }
+    });
   });
   // mousedown fires before the input's blur, so taps on entries always land
   list.addEventListener('mousedown', function (e) {
@@ -148,27 +282,44 @@ function authSessionChanged(shown, fresh) {
 
 async function initAuth() {
   initAuthNamePicker();
+  // One-time cleanup of the old name-only login
+  ['local_app_user_id', 'local_app_session_ts', 'local_app_remember_me'].forEach(function (k) { localStorage.removeItem(k); });
 
-  // Check if we have an active local session (with expiry)
-  let activeUserId = localStorage.getItem('local_app_user_id');
-  const sessionTs = parseInt(localStorage.getItem('local_app_session_ts') || '0');
-  const rememberMe = localStorage.getItem('local_app_remember_me') === '1';
-  const activeTTL = rememberMe ? REMEMBER_ME_TTL_MS : SESSION_TTL_MS;
-  if (activeUserId && (Date.now() - sessionTs) >= activeTTL) {
-    // Expired session — clear it
-    localStorage.removeItem('local_app_user_id');
-    localStorage.removeItem('local_app_session_ts');
-    localStorage.removeItem('local_app_remember_me');
-    activeUserId = null;
-  }
-
-  // Weak network: start from the cached employee list instead of an empty page until the server answers
-  const shown = activeUserId ? parseCachedUsers(localStorage.getItem(USERS_CACHE_KEY)).find(u => u.id === activeUserId) || null : null;
+  // Weak network: show the cached profile at once (before any await; getSession may refresh over the network)
+  const loginTs = +localStorage.getItem(LOGIN_TS_KEY) || 0;
+  const cached = cachedOwnProfile();
+  let shown = cached && Date.now() - loginTs < PIN_SESSION_MS ? cached : null;
   if (shown) handleSession(shown);
 
-  await fetchEmployees();
-  const fresh = activeUserId ? allUsers.find(u => u.id === activeUserId) || null : null;
-  if (authSessionChanged(shown, fresh)) handleSession(fresh);
+  let session = null, sessionError = null;
+  try { ({ data: { session }, error: sessionError } = await supabaseClient.auth.getSession()); } catch (e) { sessionError = e; }
+  const state = authStartState(session, loginTs, Date.now(), sessionError);
+
+  if (state === 'login') {
+    await signOutLocal();
+    localStorage.removeItem(LOGIN_TS_KEY);
+    allUsers = parseCachedUsers(localStorage.getItem(USERS_CACHE_KEY)); // picker not empty on a slow network
+    handleSession(null);
+    fetchEmployees();
+    return;
+  }
+
+  if (session && shown && shown.id !== session.user.id) { shown = null; handleSession(null); } // cached profile of someone else
+  const id = session ? session.user.id : shown && shown.id;
+  if (!id) { // refresh failed and nothing cached: login needs the network anyway, keep the stored session
+    handleSession(null);
+    fetchEmployees();
+    return;
+  }
+
+  const { profile: fresh, error: profErr } = await fetchOwnProfile(id);
+  if (!fresh && !profErr) {
+    await signOutLocal();
+    localStorage.removeItem(LOGIN_TS_KEY);
+    handleSession(null);
+  } else if (!fresh) handleSession(null); // request failed, no cache: keep the session for the next start
+  else if (authSessionChanged(shown, fresh)) handleSession(fresh);
+  fetchEmployees(); // name list for the picker / settings.js
 }
 
 // True when the session now belongs to someone else than before (login, user switch, logout)
@@ -183,6 +334,7 @@ function handleSession(user) {
   if (!overlay) return;
   const userChanged = sessionUserChanged(lastSessionUserId, user ? user.id : null);
   lastSessionUserId = user ? user.id : null;
+  if (userChanged) closePinSheet(); // no open PIN sheet or typed PINs across logout/user switch
 
   if (user) {
     currentUser = { id: user.id, email: '', full_name: user.full_name || '' }; // Mock basic GoTrue object for backwards compatibility (+ name for the start page greeting)
@@ -240,17 +392,13 @@ function handleSession(user) {
     if (userChanged && typeof buildDays === 'function') buildDays(true); // no editor content of the logged-out user stays in memory
     const nameInp = document.getElementById('auth-name-input');
     if (nameInp) nameInp.value = '';
-    const pwWrapper = document.getElementById('auth-password-wrapper');
-    if (pwWrapper) pwWrapper.style.display = 'none';
+    const pinWrap = document.getElementById('auth-pin-wrapper');
+    if (pinWrap) pinWrap.style.display = 'none';
+    ['auth-pin', 'auth-pin-repeat', 'auth-admin-pin'].forEach(function (id) { const el = document.getElementById(id); if (el) el.value = ''; });
     const banner = document.getElementById('erinnerung-banner');
     if (banner) { banner.style.display = 'none'; banner.innerHTML = ''; }
     overlay.style.display = 'flex';
   }
-}
-
-// MA and Gast log in by name only; every other role needs the Admin PIN
-function isPasswordlessRole(role) {
-  return role === 'MA' || role === 'Gast';
 }
 
 // Gast (Zenjob/Rockit guest login) may only open the Produktdatenbank and Projektordner
@@ -281,8 +429,9 @@ function enforceUI() {
 }
 
 async function handleAuthSubmit() {
+  const btn0 = document.getElementById('auth-submit-btn');
+  if (btn0 && btn0.disabled) return; // login already running (double Enter)
   const nameInp = document.getElementById('auth-name-input');
-  const passInput = document.getElementById('auth-password');
   const errorEl = document.getElementById('auth-error');
   const btn = document.getElementById('auth-submit-btn');
 
@@ -310,69 +459,52 @@ async function handleAuthSubmit() {
     return;
   }
 
+  const mode = authPinMode(user);
+  const pin = document.getElementById('auth-pin').value;
+  const formErr = pinFormError(mode, pin, document.getElementById('auth-pin-repeat').value);
+  if (formErr) {
+    errorEl.textContent = formErr;
+    errorEl.style.display = 'block';
+    return;
+  }
+
   btn.textContent = 'Lädt...';
   btn.disabled = true;
+  const fail = function (msg) {
+    errorEl.textContent = msg;
+    errorEl.style.display = 'block';
+    btn.textContent = 'Anmelden';
+    btn.disabled = false;
+  };
 
-  // Non-MA users require Admin PIN (validated server-side via Supabase RPC)
-  if (!isPasswordlessRole(user.role)) {
-    const passVal = passInput.value;
-    if (!passVal) {
-      errorEl.textContent = 'Bitte das Admin-Passwort eingeben.';
-      errorEl.style.display = 'block';
-      btn.textContent = 'Anmelden';
-      btn.disabled = false;
-      return;
-    }
-
-    // Check brute-force lockout
-    if (isPinLockedOut()) {
-      errorEl.textContent = `Zu viele Fehlversuche. Bitte ${pinLockoutRemaining()} Min. warten.`;
-      errorEl.style.display = 'block';
-      btn.textContent = 'Anmelden';
-      btn.disabled = false;
-      return;
-    }
-
-    let valid = null, rpcError = null;
-    try {
-      ({ data: valid, error: rpcError } = await supabaseClient.rpc('verify_admin_pin', { input_pin: passVal }));
-    } catch (e) { rpcError = e; }
-    const pinOutcome = pinCheckOutcome(valid, rpcError);
-    if (pinOutcome === 'error') {
-      // Offline / server unreachable: the password could not be checked, so it is not a failed attempt
-      console.error('verify_admin_pin:', rpcError);
-      errorEl.textContent = 'Passwort konnte nicht geprüft werden (keine Verbindung). Bitte später erneut versuchen.';
-      errorEl.style.display = 'block';
-      btn.textContent = 'Anmelden';
-      btn.disabled = false;
-      return;
-    }
-    if (pinOutcome === 'wrong') {
-      const attempts = recordPinFailure();
-      const remaining = PIN_MAX_ATTEMPTS - attempts;
-      errorEl.textContent = remaining > 0
-        ? `Falsches Passwort. Noch ${remaining} Versuch(e).`
-        : `Zu viele Fehlversuche. Bitte ${PIN_LOCKOUT_MS / 60000} Min. warten.`;
-      errorEl.style.display = 'block';
-      btn.textContent = 'Anmelden';
-      btn.disabled = false;
-      return;
-    }
-
-    resetPinAttempts();
+  let res;
+  try {
+    const body = mode === 'none' ? { user_id: user.id } : { user_id: user.id, pin, set: mode === 'set' };
+    if (mode === 'set' && firstPinNeedsAdminPinClient(user.role)) body.admin_pin = document.getElementById('auth-admin-pin').value;
+    res = await supabaseClient.functions.invoke('pin-login', { body });
+  } catch (e) { res = { data: null, error: e }; }
+  const out = loginOutcome(res);
+  if (!out.session) {
+    if (res.error) console.error('pin-login:', res.error);
+    if (out.refresh) { await fetchEmployees(); selectAuthUser(user.id); } // stale has_pin: re-render the right fields
+    return fail(out.message);
   }
 
-  // Clear password input and set local session with timestamp
-  passInput.value = '';
-  const rememberChecked = document.getElementById('auth-remember')?.checked || false;
-  if (rememberChecked) {
-    localStorage.setItem('local_app_remember_me', '1');
-  } else {
-    localStorage.removeItem('local_app_remember_me');
+  let sessErr = null;
+  try { ({ error: sessErr } = await supabaseClient.auth.setSession(out.session)); } catch (e) { sessErr = e; }
+  if (sessErr) return fail(PIN_ERR_CONNECTION);
+  localStorage.setItem(LOGIN_TS_KEY, String(Date.now()));
+  const { profile, error: profErr } = await fetchOwnProfile(user.id);
+  if (!profile) {
+    await signOutLocal();
+    localStorage.removeItem(LOGIN_TS_KEY);
+    return fail(profErr ? PIN_ERR_CONNECTION : 'Benutzer nicht gefunden oder deaktiviert.');
   }
-  localStorage.setItem('local_app_user_id', user.id);
-  localStorage.setItem('local_app_session_ts', String(Date.now()));
-  handleSession(user);
+  document.getElementById('auth-pin').value = '';
+  document.getElementById('auth-pin-repeat').value = '';
+  document.getElementById('auth-admin-pin').value = '';
+  user.has_pin = true; // the cached name list must not offer "Wähle deine PIN" to this person after a logout
+  handleSession(profile);
 
   btn.textContent = 'Anmelden';
   btn.disabled = false;
@@ -381,12 +513,13 @@ async function handleAuthSubmit() {
 async function handleLogout() {
   if (!confirm('Möchtest du dich wirklich abmelden?')) return;
   
-  localStorage.removeItem('local_app_user_id');
-  localStorage.removeItem('local_app_session_ts');
-  localStorage.removeItem('local_app_remember_me');
+  await signOutLocal();
+  localStorage.removeItem(LOGIN_TS_KEY);
+  localStorage.removeItem(OWN_PROFILE_KEY);
   // Close the open module so the next user doesn't land in e.g. the dashboard of the previous one
   if (typeof exitToMenu === 'function') exitToMenu();
   handleSession(null);
+  fetchEmployees(); // fresh has_pin for the next person on this device
 
   if (typeof closeSettingsModal === 'function') {
     closeSettingsModal();

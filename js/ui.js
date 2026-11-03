@@ -87,9 +87,9 @@ function uiComboMatches(users, query) {
 }
 
 // pickFn(arg, name) is a global function; called on a pick from the list and on a typed free name (on blur)
-function uiComboHtml(id, value, placeholder, pickFn, arg) {
+function uiComboHtml(id, value, placeholder, pickFn, arg, source) {
   return '<div class="ui-combo"><input type="text" id="' + uiEsc(id) + '" placeholder="' + uiEsc(placeholder || '') + '" autocomplete="off" autocapitalize="words" value="' + uiEsc(value) + '"' +
-    ' role="combobox" aria-autocomplete="list" aria-expanded="false" data-pick="' + uiEsc(pickFn) + '" data-arg="' + uiEsc(arg) + '" />' +
+    ' role="combobox" aria-autocomplete="list" aria-expanded="false" data-pick="' + uiEsc(pickFn) + '" data-arg="' + uiEsc(arg) + '"' + (source ? ' data-source="' + uiEsc(source) + '"' : '') + ' />' +
     '<div class="combo-list ui-combo-list" role="listbox" style="display:none;"></div></div>';
 }
 
@@ -112,7 +112,8 @@ function uiComboClose(inp) {
 function uiComboRender(inp) {
   var list = inp.parentNode.querySelector('.ui-combo-list');
   if (!list) return;
-  var users = uiComboMatches(typeof appUsers !== 'undefined' ? appUsers : [], inp.value);
+  var src = inp.dataset.source ? window[inp.dataset.source] : (typeof appUsers !== 'undefined' ? appUsers : []);
+  var users = uiComboMatches(src, inp.value);
   list.innerHTML = users.length
     ? users.map(function(u) { return '<div class="combo-item" role="option" data-name="' + uiEsc(u.full_name || u.email || '') + '">' + uiEsc(u.full_name || u.email || '') + '</div>'; }).join('')
     : '<div class="combo-empty">Kein Treffer</div>';
@@ -190,6 +191,9 @@ var UI_TOPBAR_ITEMS = {};
 
 function topbarMenuItems(mode) {
   var own = (mode && typeof UI_TOPBAR_ITEMS[mode] === 'function') ? (UI_TOPBAR_ITEMS[mode]() || []) : [];
+  var role = typeof userRole !== 'undefined' ? userRole : null;
+  if (role && role !== 'Gast') own = own.concat([{ label: 'PIN ändern', action: 'openPinChange' }]);
+  if (['Admin', 'PL', 'AL'].includes(role)) own = own.concat([{ label: 'PIN zurücksetzen', action: 'openPinReset' }]);
   return own.concat([{ label: 'Optionen', action: 'openSettingsModal' }]);
 }
 

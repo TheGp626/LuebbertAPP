@@ -31,14 +31,12 @@
         <input type="text" id="auth-name-input" placeholder="Name tippen oder auswählen…" autocomplete="off" autocapitalize="words" />
         <div id="auth-name-list" class="combo-list" style="display: none;"></div>
       </div>
-      <div id="auth-password-wrapper" class="ui-field" style="display: none;">
-        <input type="password" id="auth-password" placeholder="Admin-Passwort" />
-        <p class="ui-sub" style="margin-top: 6px; text-align: left;">Nur für AL / PL / Admin erforderlich</p>
+      <div id="auth-pin-wrapper" class="ui-field" style="display: none;">
+        <span id="auth-pin-label" class="ui-sub" style="display: block; text-align: left; margin-bottom: 6px;"></span>
+        <input type="password" id="auth-pin" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="current-password" placeholder="PIN" />
+        <input type="password" id="auth-pin-repeat" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="new-password" style="display: none; margin-top: 8px;" placeholder="PIN wiederholen" />
+        <input type="password" id="auth-admin-pin" autocomplete="off" style="display: none; margin-top: 8px;" placeholder="Admin-Passwort (nur beim ersten Mal)" />
       </div>
-      <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; cursor: pointer; font-size: 14px; color: var(--text2); justify-content: center; min-height: 32px;">
-        <input type="checkbox" id="auth-remember" style="width: 18px; height: 18px; cursor: pointer;" />
-        Eingeloggt bleiben
-      </label>
       <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="ui-btn ui-btn-primary ui-btn-block" style="margin-bottom: 12px;">Anmelden</button>
       <div class="ui-sub" style="font-size: 12px;">Powered by Supabase</div>
     </div>
@@ -117,8 +115,6 @@
           <span>Name</span>
           <input type="text" id="inp-name" placeholder="Vorname Nachname" oninput="syncStundenName()" />
         </label>
-        <div class="ui-label" style="margin-top:12px;">Abteilung</div>
-        <div class="ui-chipbar" id="chips-abt"></div>
         <div class="ui-daystrip" id="week-strip" style="margin-top:14px;"></div>
         <div class="stunden-total">
           <div class="ui-num"><b id="total-hours">0</b> <span>h</span></div>
@@ -822,23 +818,24 @@
 
   <!-- Scripts -->
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=22"></script>
+  <script src="js/auth.js?v=28"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=14"></script>
   <script src="js/utils.js?v=19"></script>
-  <script src="js/ui.js?v=3"></script>
+  <script src="js/ui.js?v=4"></script>
+  <script src="js/changelog.js?v=1"></script>
   <script src="js/settings.js?v=8"></script>
-  <script src="js/stundenzettel.js?v=18"></script>
-  <script src="js/protokoll.js?v=37"></script>
+  <script src="js/stundenzettel.js?v=21"></script>
+  <script src="js/protokoll.js?v=38"></script>
   <script src="js/erinnerung.js?v=9"></script>
   <script src="js/plan-pdf.js?v=1"></script>
   <script src="js/plan-parser.js?v=17"></script>
   <script src="js/wochenplan.js?v=14"></script>
   <script src="js/home.js?v=7"></script>
-  <script src="js/dashboard.js?v=30"></script>
+  <script src="js/dashboard.js?v=31"></script>
   <script src="js/produkte.js?v=18"></script>
   <script src="js/ordner.js?v=21"></script>
-  <script src="js/app.js?v=21"></script>
+  <script src="js/app.js?v=22"></script>
 </body>
 
 </html>
