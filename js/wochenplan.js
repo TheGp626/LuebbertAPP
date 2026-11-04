@@ -175,8 +175,8 @@ function wpApplicantChips(s) {
   }).join('');
 }
 
-// PL/Admin always, others when the admin switched "Sieht Bewerbungen" on for them
-function wpSeesInterest() { return wpCanUpload() || !!window.currentUserSeesInterest; }
+// Admin always, everyone else (PL included) only when "Sieht Bewerbungen" is switched on for them
+function wpSeesInterest() { return (typeof userRole !== 'undefined' && userRole === 'Admin') || !!window.currentUserSeesInterest; }
 
 function wpInterestList(s) {
   if (!wpSeesInterest() || !wpInterested(s).length) return '';
