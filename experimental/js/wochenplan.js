@@ -168,11 +168,38 @@ function wpInterestButton(s) {
 }
 
 // Plan builders (PL/Admin) see who would have time, without opening the row
+function wpApplicantChips(s) {
+  return wpInterested(s).map(function(id) {
+    var n = wpUserName(id) || '?';
+    return '<span class="wp-chip wp-chip-me"><span class="ui-avatar">' + wpEsc(wpInitials(n)) + '</span>' + wpEsc(n) + '</span>';
+  }).join('');
+}
+
 function wpInterestList(s) {
-  var ids = wpCanUpload() ? wpInterested(s) : [];
-  if (!ids.length) return '';
-  return '<div class="wp-team"><span class="ui-pill ui-pill-info">' + ids.length + ' hätten Zeit</span><span class="wp-team-text">' +
-    wpEsc(ids.map(function(id) { return wpUserName(id) || '?'; }).join(', ')) + '</span></div>';
+  if (!wpCanUpload() || !wpInterested(s).length) return '';
+  return '<div class="wp-int"><div class="wp-d-label">Hätten Zeit</div>' + wpApplicantChips(s) + '</div>';
+}
+
+// Top-of-week card for PL/Admin: every shift with applicants, tap to jump to the row
+function wpInterestOverview(shifts) {
+  if (!wpCanUpload()) return '';
+  var list = shifts.filter(function(s) { return wpInterested(s).length; });
+  if (!list.length) return '';
+  var total = list.reduce(function(n, s) { return n + wpInterested(s).length; }, 0);
+  return '<div class="wp-apps"><div class="wp-apps-title">Hätten Zeit <span class="ui-pill ui-pill-info">' + total + '</span></div>' +
+    list.map(function(s) {
+      return '<button type="button" class="wp-app" onclick="wpJumpToShift(\'' + s.id + '\')">' +
+        '<div class="wp-app-top"><b>' + wpDayLabel(s.date) + ' · ' + wpEsc(s.venue || '—') + '</b>' + wpOpenPills(s) + '</div>' +
+        '<div>' + wpApplicantChips(s) + '</div></button>';
+    }).join('') + '</div>';
+}
+
+function wpJumpToShift(shiftId) {
+  var row = document.querySelector('[data-sid="' + shiftId + '"]');
+  if (!row) return;
+  row.classList.add('wp-open');
+  row.setAttribute('aria-expanded', 'true');
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 async function wpToggleInterest(btn, shiftId) {
@@ -198,7 +225,7 @@ function wpRow(s, opts) {
   opts = opts || {};
   var tc = wpTimeCol(s), mine = wpMyAssignment(s), head = planShiftHeading(s);
   var sub = [head && head !== s.venue ? head : null, s.ap ? 'PL ' + s.ap : null].filter(Boolean).join(' · ');
-  return '<div class="ui-row' + (mine ? ' ui-row-me' : '') + '" onclick="wpToggle(this)" role="button" tabindex="0" aria-expanded="false">' +
+  return '<div class="ui-row' + (mine ? ' ui-row-me' : '') + '" data-sid="' + s.id + '" onclick="wpToggle(this)" role="button" tabindex="0" aria-expanded="false">' +
     '<div class="wp-time' + (tc.fuzzy ? ' wp-time-fuzzy' : '') + '"><b>' + wpEsc(tc.big) + '</b><span>' + wpEsc(tc.small) + '</span></div>' +
     '<div class="wp-main">' +
       '<div class="wp-head"><div class="wp-venue">' + (s.color ? '<span class="wp-dot" style="background:' + wpEsc(s.color) + '"></span>' : '') + wpEsc(s.venue || '—') + '</div>' +
@@ -494,6 +521,7 @@ async function wpRenderWeek() {
     html += '<div class="wp-removed"><div class="wp-removed-title">Entfallen seit dem letzten Stand</div>' +
       gone.map(function(r) { return '<div>' + wpDayLabel(r.date) + ' · ' + wpEsc(r.venue) + (planShiftHeading(r) ? ' – ' + wpEsc(planShiftHeading(r)) : '') + '</div>'; }).join('') + '</div>';
   }
+  html += wpInterestOverview(data || []);
   Object.keys(byDay).sort().forEach(function(d) {
     var p = wpParts(d);
     html += '<div class="wp-dayhead" id="wp-day-' + d + '">' + WP_WEEKDAYS_LONG[p.dow] + ' <span>' + ('0' + p.d).slice(-2) + '.' + ('0' + p.m).slice(-2) + '. · ' +

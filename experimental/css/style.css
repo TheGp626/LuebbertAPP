@@ -1225,6 +1225,12 @@ canvas#historyChart {
 
 .wp-removed { background: var(--wp-danger-bg); border-radius: 14px; padding: 12px 14px; margin: 8px 0; font-size: 13px; line-height: 1.5; }
 .wp-removed-title { font-weight: 700; margin-bottom: 2px; }
+.wp-int { margin-top: 10px; }
+.wp-chip .ui-avatar { width: 18px; height: 18px; font-size: 9px; margin-right: 5px; vertical-align: -4px; }
+.wp-apps { background: var(--accent-bg); border-radius: 14px; padding: 12px 14px; margin: 8px 0; }
+.wp-apps-title { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 8px; margin-bottom: 6px; color: var(--accent-text); }
+.wp-app { display: block; width: 100%; text-align: left; font: inherit; color: var(--text); background: var(--bg, #fff); border: 0.5px solid var(--border2); border-radius: 10px; padding: 9px 11px; margin-top: 6px; cursor: pointer; }
+.wp-app-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; margin-bottom: 4px; }
 .wp-empty { text-align: center; color: var(--text2); font-size: 14px; line-height: 1.5; padding: 40px 16px; }
 .wp-empty-title { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
 .wp-empty-btn { display: inline-block !important; width: auto; margin-top: 14px; padding: 10px 16px; font-size: 14px; }
