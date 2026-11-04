@@ -98,3 +98,9 @@ test('wpInterested: drops assigned users; [] when not loaded', () => {
   assert.deepEqual(plain(ctx.wpInterested({ plan_assignments: [{ user_id: 'a' }], _interest: ['a', 'b'] })), ['b']);
   assert.deepEqual(plain(ctx.wpInterested({ plan_assignments: [] })), []);
 });
+
+test('wochenplan.js: no top-level function is defined twice (the later one silently wins)', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'wochenplan.js'), 'utf8');
+  const names = [...src.matchAll(/^(?:async )?function (\w+)/gm)].map(m => m[1]);
+  assert.deepEqual(names.filter((n, i) => names.indexOf(n) !== i), []);
+});
