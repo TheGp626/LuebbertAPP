@@ -1,5 +1,4 @@
-const CACHE = 'stundenzettel-exp-8c6093f';
-const ASSETS = ['./index.html', './manifest.json'];
+const CACHE = 'stundenzettel-exp-5066e97';
 
 // Offline start needs every script/stylesheet of index.html (own files + CDN libs): the install step reads
 // index.html and caches whatever it references, so this list never has to be kept in sync by hand.
@@ -16,8 +15,12 @@ function assetUrlsOf(html) {
 
 async function precache() {
   const cache = await caches.open(CACHE);
-  await cache.addAll(ASSETS);
+  await cache.add('./manifest.json');
   const res = await fetch(new Request('./index.html', { cache: 'no-cache' }));
+  if (!res.ok) throw new Error('precache failed: index.html');
+  // Store the same fresh copy whose assets get cached below; addAll() could keep an older HTTP-cached index.html
+  // that references ?v= files which are not in this cache → broken offline start
+  await cache.put('./index.html', res.clone());
   const urls = assetUrlsOf(await res.text());
   const own = urls.filter(u => u.startsWith(self.location.origin));
   const cdn = urls.filter(u => !u.startsWith(self.location.origin));
@@ -35,6 +38,7 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys => {
+      // The /experimental/ test build (own SW, same origin) keeps its 'stundenzettel-exp-*' cache: never delete it here
       const oldCaches = keys.filter(k => k !== CACHE && k.startsWith('stundenzettel-exp-'));
       return Promise.all(oldCaches.map(k => caches.delete(k)))
         .then(() => self.clients.claim())

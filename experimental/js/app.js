@@ -45,12 +45,8 @@ if (departments.some(function(d) { return DEPT_OLD_STYLE.indexOf(d) !== -1; })) 
   departments = DEPT_DEFAULTS;
   localStorage.setItem('stundenzettel_depts', JSON.stringify(DEPT_DEFAULTS));
 }
-var selectedAbt = localStorage.getItem('stundenzettel_active_dept') || departments[0];
-// Migrate old selectedAbt if it no longer exists in the list
-if (departments.indexOf(selectedAbt) === -1) {
-  selectedAbt = departments[0];
-  localStorage.setItem('stundenzettel_active_dept', selectedAbt);
-}
+// Default dept of a new shift (no picker any more; each shift has its own dept select)
+var selectedAbt = departments.indexOf('MA frei') !== -1 ? 'MA frei' : departments[0];
 var monsterMode = localStorage.getItem('stundenzettel_monster') === 'true';
 var deptWages;
 try {
@@ -288,7 +284,6 @@ window.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  if (typeof renderDeptChips === 'function') renderDeptChips();
   if (typeof buildDays === 'function') buildDays();
   if (typeof initProtokoll === 'function') initProtokoll();
 
@@ -473,13 +468,11 @@ function saveSettingsModal() {
 function renderSettingsDepts() {
   var l = document.getElementById('settings-dept-list'); if (!l) return;
   l.innerHTML = departments.map(function(d, i) {
-    var act = d === selectedAbt;
     var safeId = 'inp-dept-wage-' + d.replace(/[^a-zA-Z0-9]/g, '_');
     var wage = deptWages[d] || '';
-    return '<div class="dept-item" style="cursor:pointer;' + (act ? 'background:var(--accent-bg);border-radius:var(--radius);padding:8px 10px;margin:0 -10px;' : '') + '">' +
-           '<div style="display:flex;align-items:center;gap:8px;flex:1;" onclick="selectDepartment(\'' + jsAttrArg(d) + '\')">' +
-           '<span>' + (act ? '✓' : '') + '</span>' +
-           '<span style="' + (act ? 'font-weight:600;color:var(--accent-text);' : '') + '">' + escapeHtml(deptLabel(d)) + '</span>' +
+    return '<div class="dept-item">' +
+           '<div style="display:flex;align-items:center;gap:8px;flex:1;">' +
+           '<span>' + escapeHtml(deptLabel(d)) + '</span>' +
            '</div>' +
            '<div style="display:flex;align-items:center;gap:6px;">' +
            '<input type="number" id="' + safeId + '" step="0.50" min="0" value="' + wage + '" placeholder="€/h" ' +
@@ -490,35 +483,18 @@ function renderSettingsDepts() {
   }).join('');
 }
 
-function selectDepartment(d) {
-  selectedAbt = d;
-  localStorage.setItem('stundenzettel_active_dept', d);
-  renderSettingsDepts();
-  updateTopBarSub();
-  if (typeof renderDeptChips === 'function') renderDeptChips();
-}
-
-// Renders the department chips on the Erfassen page (container #chips-abt)
-function renderDeptChips() {
-  var c = document.getElementById('chips-abt');
-  if (!c) return;
-  c.innerHTML = departments.map(function (d) {
-    return '<button type="button" class="ui-chip' + (d === selectedAbt ? ' ui-chip-on' : '') + '" onclick="selectDepartment(\'' + jsAttrArg(d) + '\')">' + escapeHtml(deptLabel(d)) + '</button>';
-  }).join('');
-}
-
 function addDepartment() {
-  var i = document.getElementById('inp-new-dept'), v = i.value.trim(); if (!v) return;
+  var i = document.getElementById('inp-new-dept'), v = i.value.trim(); if (!v || departments.indexOf(v) !== -1) return;
   departments.push(v); localStorage.setItem('stundenzettel_depts', JSON.stringify(departments)); 
   i.value = ''; renderSettingsDepts(); 
-  if (typeof renderDeptChips === 'function') renderDeptChips();
 }
 
 function deleteDepartment(i) {
   if (departments.length <= 1) { showToast('Mindestens eine Abteilung muss bleiben'); return; }
-  departments.splice(i, 1); localStorage.setItem('stundenzettel_depts', JSON.stringify(departments)); 
-  renderSettingsDepts(); 
-  if (typeof renderDeptChips === 'function') renderDeptChips();
+  var removed = departments.splice(i, 1)[0]; localStorage.setItem('stundenzettel_depts', JSON.stringify(departments));
+  // The default for new shifts must stay one from the list
+  if (removed === selectedAbt) selectedAbt = departments.indexOf('MA frei') !== -1 ? 'MA frei' : departments[0];
+  renderSettingsDepts();
 }
 
 // ── BACKUP ──

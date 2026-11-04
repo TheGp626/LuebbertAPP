@@ -256,10 +256,7 @@ async function saveEditWorker() {
     full_name:          fullName,
     role:               document.getElementById('edit-worker-role').value,
     default_dept:       document.getElementById('edit-worker-dept').value.trim() || null,
-    hourly_rate_conni:    parseFloat(document.getElementById('edit-worker-rate-conni').value)    || null,
     hourly_rate_internal: parseFloat(document.getElementById('edit-worker-rate-internal').value) || null,
-    income_limit:         parseFloat(document.getElementById('edit-worker-income-limit').value)  || null,
-    email:                email || null,
     role_rates:           _editWorkerRoleRates.filter(function(r) { return r.role; }),
     is_fest:              document.getElementById('edit-worker-fest').checked,
   };
@@ -269,6 +266,11 @@ async function saveEditWorker() {
     if (error) throw error;
     // RLS answers with 0 rows instead of an error
     if (!rows || rows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung');
+    await saveWorkerPrivate(worker.id, {
+      hourly_rate_conni: parseFloat(document.getElementById('edit-worker-rate-conni').value) || null,
+      income_limit:      parseFloat(document.getElementById('edit-worker-income-limit').value) || null,
+      email:             email || null,
+    });
     showToast('Mitarbeiter gespeichert!');
     closeEditWorker();
     await loadDashboardWorkers();
@@ -283,7 +285,17 @@ async function saveEditWorker() {
   }
 }
 
+// Pay, limit and email live in app_user_private (admin-only RLS)
+async function saveWorkerPrivate(userId, priv) {
+  const { data, error } = await supabaseClient.from('app_user_private')
+    .upsert(Object.assign({ user_id: userId }, priv), { onConflict: 'user_id' }).select('user_id');
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error('Speichern abgelehnt – keine Berechtigung');
+}
+
+var _addingUser = false; // a second tap while the insert runs would create the employee twice
 async function addDashboardUser() {
+  if (_addingUser) return;
   const firstName = (document.getElementById('new-user-firstname') || {}).value?.trim() || '';
   const lastName  = (document.getElementById('new-user-lastname')  || {}).value?.trim() || '';
   const fullName  = (firstName + ' ' + lastName).trim();
@@ -295,16 +307,20 @@ async function addDashboardUser() {
     return;
   }
 
+  _addingUser = true;
   try {
     const rateConni    = parseFloat(document.getElementById('new-user-rate-conni')?.value)    || null;
     const rateInternal = parseFloat(document.getElementById('new-user-rate-internal')?.value) || null;
     const incomeLimit  = parseFloat(document.getElementById('new-user-income-limit')?.value)  || null;
 
-    const { error } = await supabaseClient
+    const { data: created, error } = await supabaseClient
       .from('app_users')
-      .insert({ full_name: fullName, role: role, default_dept: dept, hourly_rate_conni: rateConni, hourly_rate_internal: rateInternal, income_limit: incomeLimit });
+      .insert({ full_name: fullName, role: role, default_dept: dept, hourly_rate_internal: rateInternal })
+      .select('id');
 
     if (error) throw error;
+    if (!created || created.length === 0) throw new Error('Anlegen abgelehnt – keine Berechtigung');
+    if (rateConni || incomeLimit) await saveWorkerPrivate(created[0].id, { hourly_rate_conni: rateConni, income_limit: incomeLimit, email: null });
 
     if (typeof showToast === 'function') showToast('Mitarbeiter erfolgreich hinzugefügt!');
 
@@ -324,6 +340,8 @@ async function addDashboardUser() {
   } catch (err) {
     console.error('Add user error:', err);
     if (typeof showToast === 'function') showToast('Fehler: ' + (err.message || 'Speichern fehlgeschlagen'), 'danger');
+  } finally {
+    _addingUser = false;
   }
 }
 
@@ -472,25 +490,27 @@ function dashMergePlanPeople(shifts, main) {
   return out;
 }
 
+// Search hit on project, AL, location or date – the date also as shown in the table (dd.mm.yyyy), not only ISO
+function dashProtMatches(p, term) {
+  const iso = (p.date || '').toLowerCase();
+  const shown = iso.length === 10 ? iso.slice(8) + '.' + iso.slice(5, 7) + '.' + iso.slice(0, 4) : '';
+  return [(p.projects?.name || ''), (p.al?.full_name || p.al_name_fallback || ''), (p.location || p.projects?.location || '')]
+    .some(s => s.toLowerCase().includes(term)) || iso.includes(term) || shown.includes(term);
+}
+
 function renderDashboardTable() {
   const body = document.getElementById('protocol-body');
   if (!body) return;
   body.innerHTML = '';
 
-  const searchTerm = (document.getElementById('dash-search')?.value || '').toLowerCase();
+  const searchTerm = (document.getElementById('dash-search')?.value || '').trim().toLowerCase();
 
   // "Meine" by default; the search works within the current scope
   const scoped = dashScopedProtocols();
   const scopeBox = document.getElementById('dash-scope');
   if (scopeBox) scopeBox.innerHTML = protScopeSegHtml(protScopeGet(DASH_SCOPE_KEY), 'setDashProtScope');
 
-  const filtered = scoped.filter(p => {
-    const projName = (p.projects?.name || '').toLowerCase();
-    const alName = (p.al?.full_name || p.al_name_fallback || '').toLowerCase();
-    const location = (p.location || p.projects?.location || '').toLowerCase();
-    const date = (p.date || '').toLowerCase();
-    return projName.includes(searchTerm) || alName.includes(searchTerm) || location.includes(searchTerm) || date.includes(searchTerm);
-  });
+  const filtered = scoped.filter(p => dashProtMatches(p, searchTerm));
 
   filtered.forEach(p => {
     const tr = document.createElement('tr');
@@ -578,7 +598,7 @@ async function loadDashboardWorkers() {
   try {
     const { data: users, error: uErr } = await supabaseClient
       .from('app_users')
-      .select('id, full_name, email, role, default_dept, hourly_rate_conni, hourly_rate_internal, income_limit, role_rates, is_active, is_fest')
+      .select('id, full_name, role, default_dept, hourly_rate_internal, role_rates, is_active, is_fest, app_user_private(hourly_rate_conni, income_limit, email)')
       .eq('is_active', true)
       .order('full_name');
     if (uErr) throw uErr;
@@ -593,7 +613,7 @@ async function loadDashboardWorkers() {
     (pendingShifts || []).forEach(s => {
       if (s.user_id) pendingMap[s.user_id] = (pendingMap[s.user_id] || 0) + 1;
     });
-    dashboardWorkers = users || [];
+    dashboardWorkers = (users || []).map(flattenPrivate);
     dashPendingMap = pendingMap;
 
     const sel = document.getElementById('dash-worker-select');
@@ -1364,23 +1384,23 @@ function openDashDetail(id) {
         lastSection = row.section;
       }
       if (row.section === 'transport') {
-        html += '<tr><td style="font-weight:600;">' + row.label + '</td><td style="color:var(--text2); font-size:12px;">' + row.detail + '</td><td style="text-align:right; font-weight:600; color:var(--accent);">' + row.cost.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+        html += '<tr><td style="font-weight:600;">' + row.label + '</td><td style="color:var(--text2); font-size:12px;">' + row.detail + '</td><td style="text-align:right; font-weight:600; color:var(--accent);">' + row.cost.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</td></tr>';
       } else {
         html += '<tr><td style="font-weight:600;">' + row.label + '<div style="font-size:10px; opacity:0.6;">' + row.detail + '</div></td>'
           + '<td style="font-size:12px; color:var(--text2);">' + row.hrs.toFixed(2) + 'h × ' + row.rate.toFixed(2) + ' €</td>'
-          + '<td style="text-align:right; font-weight:600; color:var(--accent);">' + row.cost.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+          + '<td style="text-align:right; font-weight:600; color:var(--accent);">' + row.cost.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</td></tr>';
       }
     });
 
     // Subtotals + grand total
     html += '<tr><td colspan="3" style="padding:0;"></td></tr>';
     if (logTotal > 0) {
-      html += '<tr style="background:var(--bg2);"><td colspan="2" style="font-size:12px; color:var(--text2);">Logistik gesamt</td><td style="text-align:right; font-size:12px; color:var(--text2);">' + logTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+      html += '<tr style="background:var(--bg2);"><td colspan="2" style="font-size:12px; color:var(--text2);">Logistik gesamt</td><td style="text-align:right; font-size:12px; color:var(--text2);">' + logTotal.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</td></tr>';
     }
     if (persTotal > 0) {
-      html += '<tr style="background:var(--bg2);"><td colspan="2" style="font-size:12px; color:var(--text2);">Personal gesamt</td><td style="text-align:right; font-size:12px; color:var(--text2);">' + persTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+      html += '<tr style="background:var(--bg2);"><td colspan="2" style="font-size:12px; color:var(--text2);">Personal gesamt</td><td style="text-align:right; font-size:12px; color:var(--text2);">' + persTotal.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</td></tr>';
     }
-    html += '<tr style="border-top:2px solid var(--accent);"><td colspan="2" style="font-weight:700;">Gesamtkosten (geschätzt)</td><td style="text-align:right; font-weight:700; font-size:15px; color:var(--accent);">' + grandTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €</td></tr>';
+    html += '<tr style="border-top:2px solid var(--accent);"><td colspan="2" style="font-weight:700;">Gesamtkosten (geschätzt)</td><td style="text-align:right; font-weight:700; font-size:15px; color:var(--accent);">' + grandTotal.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</td></tr>';
     html += '</tbody></table>';
 
     document.getElementById('det-nebenkalkulation').innerHTML = html;
@@ -1480,7 +1500,7 @@ function renderDashProtTransports() {
     return;
   }
   c.innerHTML = _editProtTransports.map(function(t, i) {
-    var vehicles = Object.keys(PROT_VEHICLE_RATES);
+    var vehicles = protVehicleTypes();
     if (t.type && vehicles.indexOf(t.type) === -1) vehicles.push(t.type);
     var selOpts = vehicles.map(function(v) {
       return '<option value="' + escapeHtml(v) + '"' + (t.type === v ? ' selected' : '') + '>' + escapeHtml(v) + '</option>';
@@ -1518,7 +1538,7 @@ function onDashDriverName(idx, val) {
 }
 
 function addDashProtTransport() {
-  _editProtTransports.push({ type: 'Sprinter', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
+  _editProtTransports.push({ type: 'Hängerzug', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
   renderDashProtTransports();
 }
 
@@ -1645,6 +1665,14 @@ async function dashReplaceRows(table, prot, prop, newRows) {
   prot[prop] = inserted;
 }
 
+// Editor transport → protocol_transports row. The delay field only exists for "verspätet": a value left there
+// after switching back to "pünktlich" must not be stored.
+function dashTransportToDb(protocolId, t) {
+  return { protocol_id: protocolId, vehicle_type: t.type, driver_name: t.driver || null,
+           punctuality: t.punctuality, delay_mins: t.punctuality === 'verspätet' && t.delay ? (parseInt(t.delay, 10) || 0) : 0,
+           driver_hours: parseFloat(t.hours) >= 0 ? parseFloat(t.hours) : null, driver_user_id: t.driverUserId || null };
+}
+
 // Did the transports (type, driver, driver hours – the cost-relevant parts) change against the stored rows?
 function dashTransportsChanged(storedRows, edited) {
   const key = function(t) {
@@ -1747,11 +1775,7 @@ async function saveDashProtEdit() {
     }
 
     // Transports: write the new rows first, then remove the old ones by id (a failure never leaves the protocol without them)
-    const tInserts = _editProtTransports.map(function(t) {
-      return { protocol_id: _editProtId, vehicle_type: t.type, driver_name: t.driver || null,
-               punctuality: t.punctuality, delay_mins: t.delay ? parseInt(t.delay) : 0,
-               driver_hours: parseFloat(t.hours) >= 0 ? parseFloat(t.hours) : null, driver_user_id: t.driverUserId || null };
-    });
+    const tInserts = _editProtTransports.map(function(t) { return dashTransportToDb(_editProtId, t); });
     await dashReplaceRows('protocol_transports', p, 'protocol_transports', tInserts);
 
     // Equipment: same order
@@ -1767,7 +1791,23 @@ async function saveDashProtEdit() {
         hussen_returned:  cat.id === 'stoffe' ? (parseInt((document.getElementById('pe-hr-stoffe') || {}).value) || null) : null,
       };
     });
-    await dashReplaceRows('protocol_equipments', p, 'protocol_equipments', eInserts);
+    // Unique (protocol_id, category_id) forbids insert-before-delete: upsert per category, then drop removed ones
+    let eRows = [];
+    if (eInserts.length) {
+      const { data, error } = await supabaseClient.from('protocol_equipments').upsert(eInserts, { onConflict: 'protocol_id,category_id' }).select('*');
+      if (error) throw error;
+      if (!data || data.length !== eInserts.length) throw new Error('Speichern abgelehnt – keine Berechtigung (protocol_equipments)');
+      eRows = data;
+    }
+    const keepCats = eInserts.map(function(r) { return r.category_id; });
+    const dropIds = (p.protocol_equipments || []).filter(function(r) { return keepCats.indexOf(r.category_id) === -1; })
+      .map(function(r) { return r.id; }).filter(Boolean);
+    if (dropIds.length) {
+      const { data, error } = await supabaseClient.from('protocol_equipments').delete().in('id', dropIds).select('id');
+      if (error) throw error;
+      if (!data || data.length !== dropIds.length) throw new Error('Löschen abgelehnt – keine Berechtigung (protocol_equipments)');
+    }
+    p.protocol_equipments = eRows;
 
     showToast('✅ Protokoll gespeichert!');
     closeDashProtEdit();
@@ -1916,9 +1956,14 @@ async function exportDashboardMonthlyPDFRun() {
         ort: ortParts.length ? ortParts.join(', ') : (s.ort || ''),
         al: prot.al_name_fallback || prot.pl_name_fallback || '',
         dept: s.position_role || 'MA',
-        sig: prot.signature_text || null
+        sig: prot.signature_text || null,
+        isProtocol: !!s.protocols
       });
     }
+  });
+  // Same rule as the worker's Stundenzettel: a protocol shift replaces an overlapping self-entered one
+  Object.keys(userWeeks).forEach(function(wStr) {
+    userWeeks[wStr].days.forEach(function(dd) { dd.shifts = dropOverriddenShifts(dd.shifts); });
   });
 
   // Calculate weekly and monthly totals

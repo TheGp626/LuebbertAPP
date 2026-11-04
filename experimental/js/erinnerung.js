@@ -105,6 +105,12 @@ async function loadErinnerungen() {
   });
 }
 
+// RPC (security definer): a direct upsert of an endpoint owned by someone else is refused by RLS,
+// so a shared phone could never change owner
+function savePushSubscription(j) {
+  return supabaseClient.rpc('register_push_subscription', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
+}
+
 // This device's subscription always belongs to whoever is logged in: heals a failed first save and
 // hands a shared phone over to the next AL (otherwise the old AL keeps getting the new one's pushes)
 async function syncPushSubscription() {
@@ -114,9 +120,7 @@ async function syncPushSubscription() {
     var sub = reg && await reg.pushManager.getSubscription();
     if (!sub) return;
     var j = sub.toJSON();
-    var { error } = await supabaseClient.from('push_subscriptions')
-      .upsert({ endpoint: j.endpoint, user_id: currentUser.id, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: 'endpoint' })
-      .select('endpoint');
+    var { error } = await savePushSubscription(j);
     if (error) console.error('Push-Abo abgleichen:', error);
   } catch (e) {
     console.error('Push-Abo abgleichen:', e);
@@ -149,10 +153,8 @@ async function enablePushReminders() {
     var sub = await reg.pushManager.getSubscription() ||
       await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
     var j = sub.toJSON();
-    var { data, error } = await supabaseClient.from('push_subscriptions')
-      .upsert({ endpoint: j.endpoint, user_id: currentUser.id, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: 'endpoint' })
-      .select('endpoint');
-    if (error || !data || !data.length) throw error || new Error('Abo nicht gespeichert');
+    var { error } = await savePushSubscription(j);
+    if (error) throw error;
     return 'granted';
   } catch (e) {
     console.error('Push-Abo fehlgeschlagen:', e);

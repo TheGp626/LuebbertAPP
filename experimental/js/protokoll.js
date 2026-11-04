@@ -28,7 +28,9 @@ var protState = {
 var appUsers = [];
 async function fetchAppUsers() {
   if (typeof supabaseClient === 'undefined') return;
-  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, email, role, role_rates, hourly_rate_internal, is_fest').or('is_active.is.null,is_active.eq.true');
+  // MA/Gast may only read their own row (RLS): the pickers and rates are office-only
+  if (typeof userRole === 'undefined' || !['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole)) return;
+  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, hourly_rate_internal, is_fest').or('is_active.is.null,is_active.eq.true');
   if (error) console.error("Error fetching app_users:", error);
   if (data) {
     // The guest login never works shifts → keep it out of AL/PL/staff pickers
@@ -262,7 +264,7 @@ function initProtokoll() {
     protState.alId = currentUser.id;
     saveProtDraft();
   }
-  // Default Sprinter only for a brand-new form; a draft whose transports were removed stays without
+  // Default transport (Hängerzug) only for a brand-new form; a draft whose transports were removed stays without
   if (!hadDraft && protState.transports.length === 0) addProtTransport();
   if (protState.personnel.length === 0) addProtPersonnel();
 
@@ -277,8 +279,7 @@ function initProtokoll() {
   syncProtActionSeg();
   renderProtSectionNav();
   ['prot-damages', 'prot-incidents', 'prot-feedback'].forEach(function(id) { var t = document.getElementById(id); if (t && t.style) growProtText(t); });
-
-  fetchAppUsers();
+  // appUsers is loaded after the login (handleSession): the database answers only logged-in users
 }
 
 // ── PROTOKOLL SIGNATURE ──
@@ -405,7 +406,7 @@ function protRowChevron(key) {
 }
 
 function addProtTransport() {
-  protState.transports.push({ type: 'Sprinter', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
+  protState.transports.push({ type: 'Hängerzug', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
   protOpenRows['t' + (protState.transports.length - 1)] = true;
   renderProtTransport();
   saveProtDraft();
@@ -424,8 +425,10 @@ function renderProtTransport() {
   if (!list) return;
   list.innerHTML = protState.transports.map(function(t, i) {
     var key = 't' + i;
-    var vehicles = Object.keys(PROT_VEHICLE_RATES).map(function(v) {
-      return '<option value="' + v + '" ' + (t.type === v ? 'selected' : '') + '>' + v + '</option>';
+    var types = protVehicleTypes();
+    if (t.type && types.indexOf(t.type) === -1) types.push(t.type); // type removed in Einstellungen stays selectable
+    var vehicles = types.map(function(v) {
+      return '<option value="' + escapeHtml(v) + '" ' + (t.type === v ? 'selected' : '') + '>' + escapeHtml(v) + '</option>';
     }).join('');
     return '<div class="ui-row ui-row-wrap' + (protOpenRows[key] ? ' ui-row-open' : '') + '">' +
       '<div class="ui-row-main" onclick="toggleProtRow(\'' + key + '\')">' +
@@ -575,6 +578,9 @@ function removeProtPersonnel(idx) {
   calcProtCosts();
 }
 
+// Zenjob has no API: ALs rate the Zenjobber in Zenjob's own company portal (login is Lübbert's Zenjob account)
+var PROT_ZENJOB_RATE_URL = 'https://company.zenjob.com/163/homepage';
+
 function protRatingButtons(p, i) {
   return '<span class="prot-rating">' +
     '<button type="button" class="prot-rate' + (p.rating === 'up' ? ' on' : '') + '" onclick="event.stopPropagation();updateProtRating(' + i + ',\'rating\',' + (p.rating === 'up' ? 'null' : '\'up\'') + ')" title="Daumen hoch">👍</button>' +
@@ -615,6 +621,8 @@ function renderProtPersonnel() {
           '<label class="ui-field"><span>Ende</span><input type="time" value="' + (p.end || '') + '" oninput="updateProtPersonnel(' + i + ', \'end\', this.value)"/></label>' +
           '<label class="ui-field"><span>Pause</span><input type="number" placeholder="Min" value="' + (p.pause || '0') + '" oninput="updateProtPersonnel(' + i + ', \'pause\', this.value)"/></label>' +
         '</div>' +
+        // A plain link opens reliably in iOS/Android PWAs, a window.open after the save would be popup-blocked
+        (p.pos === 'Zenjob' ? '<a class="ui-btn" href="' + PROT_ZENJOB_RATE_URL + '" target="_blank" rel="noopener" style="margin-bottom:8px;">Bei Zenjob bewerten ↗</a>' : '') +
         '<button type="button" class="ui-btn ui-btn-danger prot-remove" onclick="removeProtPersonnel(' + i + ')">Person entfernen</button>' +
       '</div>' +
     '</div>';
@@ -1188,6 +1196,11 @@ function protShiftChanges(oldShifts, personnel, users, shiftDate) {
 // targetId: Supabase id to update (null = insert). Omitted → the protocol currently open in the form.
 // out (optional): out.protId is set as soon as the protocols row exists, also when a later step fails,
 // so the caller can retry as an update instead of inserting the protocol twice.
+// RLS lets AL/PL delete only 'offen' shifts and answers booked ones with 0 rows instead of an error
+function protShiftDeleteError(requested, deleted) {
+  return deleted < requested ? 'Gebuchte Schichten können nur von der Buchhaltung entfernt werden.' : null;
+}
+
 async function syncProtokollToSupabase(data, targetId, out) {
   var editId = (targetId === undefined) ? protState.editingId : targetId;
   if (typeof supabaseClient === 'undefined') return false;
@@ -1226,6 +1239,11 @@ async function syncProtokollToSupabase(data, targetId, out) {
       notes_incidents: data.incidents === 'nein' ? null : data.incidents,
       notes_feedback: data.feedback === '—' ? null : data.feedback
     };
+
+    // Server signatures are not kept in localStorage (see mergeProtHistory): an edit loaded without one
+    // must not overwrite the stored signature with null
+    // shortcut: clearing a signature while editing a synced protocol keeps the server copy; add a "cleared" flag if that is ever needed
+    if (editId && !protPayload.signature_text) delete protPayload.signature_text;
 
     var protId = null;
     if (editId) {
@@ -1317,8 +1335,10 @@ async function syncProtokollToSupabase(data, targetId, out) {
       (shNew || []).forEach(function(r, k) { if (ch.inserts[k]) ch.inserts[k].person.shiftId = r.id; });
     }
     if (ch.deletes.length > 0) {
-      var { error: shDelErr } = await supabaseClient.from('shifts').delete().in('id', ch.deletes);
+      var { data: shDel, error: shDelErr } = await supabaseClient.from('shifts').delete().in('id', ch.deletes).select('id');
       if (shDelErr) { console.error('Shifts delete failed:', shDelErr); throw shDelErr; }
+      var delMsg = protShiftDeleteError(ch.deletes.length, (shDel || []).length);
+      if (delMsg) { var delErr = new Error(delMsg); delErr.userMessage = delMsg; throw delErr; }
     }
 
     // 6. Save Ratings for Zenjob/Rockit workers
@@ -1351,7 +1371,7 @@ async function syncProtokollToSupabase(data, targetId, out) {
     return protId;
   } catch(e) {
     console.error("Sync Exception:", e);
-    showToast("Server Sync fehlgeschlagen. Offline gespeichert.", "danger");
+    showToast((e && e.userMessage) || "Server Sync fehlgeschlagen. Offline gespeichert.", "danger");
     return null;
   }
 }
@@ -1640,10 +1660,15 @@ async function deleteProtHistory(id) {
 
   if (supabaseId && typeof supabaseClient !== 'undefined') {
     showToast('Lösche...', 'info');
-    var { error } = await supabaseClient.from('protocols').delete().eq('id', supabaseId);
+    var { data: delRows, error } = await supabaseClient.from('protocols').delete().eq('id', supabaseId).select('id');
     if (error) {
       console.error('Protocol delete error:', error);
       showToast('Fehler beim Löschen: ' + (error.message || error), 'danger');
+      return;
+    }
+    // RLS answers a blocked delete with 0 rows and no error; the next history sync drops it if it was already gone
+    if (!delRows || delRows.length === 0) {
+      showToast('Nicht gelöscht – fehlende Berechtigung auf dem Server.', 'danger');
       return;
     }
   }

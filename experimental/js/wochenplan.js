@@ -75,10 +75,13 @@ function wpTimeCol(s) {
   return { big: word && word.length <= 11 ? word : '—', small: w.label || '', fuzzy: true };
 }
 
-// Remaining "Wann" lines after the one shown in the time column
+// Remaining "Wann" lines after the one shown in the time column (the first line with a time, else the first line);
+// a note line before the timed line must not vanish from the details
 function wpWannRest(s) {
   var lines = s.wann ? String(s.wann).split('\n') : [];
-  return lines.slice(1);
+  var i = lines.findIndex(function(l) { return planWhen([l]).time; });
+  if (i < 0) i = 0;
+  return lines.filter(function(_, j) { return j !== i; });
 }
 
 function wpPeopleSummary(s) {
@@ -173,7 +176,8 @@ function wpHero(s) {
   var tc = wpTimeCol(s), mine = wpMyAssignment(s), p = wpParts(s.date), head = planShiftHeading(s);
   var today = localDateStr(), tomorrow = wpAddDays(today, 1);
   // A bare weekday is only clear within the next 6 days; further out the date is shown
-  var when = s.date === today ? 'heute' : s.date === tomorrow ? 'morgen' :
+  // Yesterday's date: the night shift (Abbau 0.30 Uhr) that is running right now
+  var when = s.date === today ? 'heute' : s.date === wpAddDays(today, -1) ? 'heute Nacht' : s.date === tomorrow ? 'morgen' :
     s.date < wpAddDays(today, 7) ? 'am ' + WP_WEEKDAYS_LONG[p.dow] : 'am ' + ('0' + p.d).slice(-2) + '.' + ('0' + p.m).slice(-2) + '.';
   // Room/building line plus the street ("Staatsoper, Unter den Linden 7"); postcode lines are left out
   var loc = s.location ? String(s.location).split('\n') : [];
@@ -201,7 +205,7 @@ async function initWochenplan() {
   var content = document.getElementById('wp-content');
   content.innerHTML = '<div class="wp-empty">Lädt…</div>';
   var [u, a, w] = await Promise.all([
-    supabaseClient.from('app_users').select('id, full_name, role, is_active').order('full_name'),
+    supabaseClient.rpc('user_directory'),
     supabaseClient.from('plan_name_aliases').select('alias, user_id'),
     supabaseClient.from('plan_weeks').select('*').order('week_start', { ascending: false })
   ]);
@@ -210,7 +214,7 @@ async function initWochenplan() {
     content.innerHTML = '<div class="wp-empty">Der Wochenplan konnte nicht geladen werden. Prüf deine Verbindung und öffne ihn erneut.</div>';
     return;
   }
-  wpUsers = u.data || [];
+  wpUsers = (u.data || []).slice().sort(function(x, y) { return (x.full_name || '').localeCompare(y.full_name || ''); });
   wpAliases = {};
   // Same normalisation as planMatchPerson (older entries were saved with a trailing dot)
   (a.data || []).forEach(function(r) { wpAliases[planAliasKey(r.alias)] = r.user_id; });
@@ -365,9 +369,8 @@ async function wpRenewCalendarToken() {
   if (!confirm('Der alte Link funktioniert dann nicht mehr; abonnierte Kalender müssen neu abonniert werden. Neuen Link erzeugen?')) return;
   var me = wpMe();
   if (!me) return;
-  var token = crypto.randomUUID();
-  var { data, error } = await supabaseClient.from('app_users').update({ calendar_token: token }).eq('id', me).select('id');
-  if (error || !data || !data.length) { console.error('Kalender-Link erneuern:', error); showToast('Neuer Link konnte nicht erzeugt werden', 'danger'); return; }
+  var { data: token, error } = await supabaseClient.rpc('renew_calendar_token');
+  if (error || !token) { console.error('Kalender-Link erneuern:', error); showToast('Neuer Link konnte nicht erzeugt werden', 'danger'); return; }
   _wpCalToken = { userId: me, token: token };
   showToast('Neuer Link erzeugt', 'success');
 }

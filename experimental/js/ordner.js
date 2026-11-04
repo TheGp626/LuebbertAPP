@@ -248,7 +248,7 @@ async function fetchOrdnerFiles(folderId) {
 
   var { data, error } = await supabaseClient
     .from('folder_files')
-    .select('id, name, file_url, file_type, file_size_bytes, created_at')
+    .select('id, name, file_url, file_type, file_size_bytes, created_at, note')
     .eq('folder_id', folderId)
     .order('name', { ascending: true });
 
@@ -274,7 +274,8 @@ function renderOrdnerFiles(list) {
     return '<div class="ui-row ordner-row" onclick="openOrdnerFileById(\'' + f.id + '\')">' +
       '<span class="ui-tile-ico ordner-ico">' + uiIcon(ordnerFileKind(f.file_type, f.name)) + '</span>' +
       '<div class="ui-row-main"><div class="ui-row-title">' + escOrdner(f.name) + '</div>' +
-        '<div class="ui-sub">' + [size, date].filter(Boolean).join(' · ') + '</div></div>' +
+        '<div class="ui-sub">' + [size, date].filter(Boolean).join(' · ') + '</div>' +
+        (f.note ? '<div class="ui-sub" style="color:var(--text);">' + escOrdner(f.note) + '</div>' : '') + '</div>' +
       (canManageOrdner ? '<div class="ui-row-end"><button type="button" class="ui-icon-btn" aria-label="Datei-Aktionen" onclick="event.stopPropagation();ordnerFileMenu(\'' + f.id + '\')">' + uiIcon('dots') + '</button></div>' : '') +
     '</div>';
   }).join('');
@@ -344,10 +345,20 @@ async function uploadOrdnerFile(folderId, file) {
   if (dbErr) {
     console.error('DB insert error for "' + file.name + '":', dbErr.message || dbErr);
     // No row points to the uploaded object: remove it again (best effort)
-    try { await supabaseClient.storage.from('project-files').remove([filePath]); } catch (e) { /* ignore */ }
+    await ordnerRemoveFiles([filePath]);
     return false;
   }
   return true;
+}
+
+// storage.remove() reports failures as { error } instead of throwing: true only when the objects are really gone
+async function ordnerRemoveFiles(paths) {
+  if (!paths || !paths.length) return true;
+  try {
+    var { error } = await supabaseClient.storage.from('project-files').remove(paths);
+    if (error) { console.warn('Storage remove:', error.message || error); return false; }
+    return true;
+  } catch (e) { console.warn('Storage remove:', e); return false; }
 }
 
 async function deleteOrdnerFile(id, url) {
@@ -356,16 +367,28 @@ async function deleteOrdnerFile(id, url) {
     // DB first (row-checked: RLS answers with 0 rows), storage only after it succeeded
     var { data: delRows, error } = await supabaseClient.from('folder_files').delete().eq('id', id).select('id');
     if (error || !delRows || !delRows.length) throw error || new Error('Löschen abgelehnt');
+    var storageOk = true;
     if (url) {
       var parts = url.split('/project-files/');
-      if (parts.length > 1) {
-        try { await supabaseClient.storage.from('project-files').remove([parts[1]]); }
-        catch (e2) { console.warn('Datei nicht aus Storage entfernt:', e2); }
-      }
+      if (parts.length > 1) storageOk = await ordnerRemoveFiles([parts[1]]);
     }
-    showToast('Datei gelöscht.');
+    showToast(storageOk ? 'Datei gelöscht.' : 'Datei gelöscht, aber der Speicher konnte nicht bereinigt werden.', storageOk ? undefined : 'danger');
     if (aktuellerOrdner) await fetchOrdnerFiles(aktuellerOrdner.id);
   } catch(e) { showToast('Fehler beim Löschen.', 'danger'); }
+}
+
+// Note shown under the file name (e.g. what to watch for in an Aufbauplan); empty text removes it
+async function editOrdnerFileNote(id) {
+  var f = (ordnerFiles || []).find(function(x) { return x.id === id; });
+  if (!f) return;
+  var text = prompt('Anmerkung zu „' + f.name + '“ (leer lassen zum Entfernen):', f.note || '');
+  if (text === null) return;
+  text = text.trim().slice(0, 500) || null;
+  if (text === (f.note || null)) return;
+  var { data, error } = await supabaseClient.from('folder_files').update({ note: text }).eq('id', id).select('id');
+  if (error || !data || !data.length) { console.error('Anmerkung speichern:', error); showToast('Fehler beim Speichern.', 'danger'); return; }
+  showToast(text ? 'Anmerkung gespeichert.' : 'Anmerkung entfernt.');
+  if (aktuellerOrdner) await fetchOrdnerFiles(aktuellerOrdner.id);
 }
 
 // ── ORDNER ERSTELLEN / BEARBEITEN ──
@@ -378,9 +401,13 @@ var _ordnerFormReturnId = null;     // reopen this folder's detail view after sa
 async function loadOrdnerUsers() {
   if (_ordnerUsers) return _ordnerUsers;
   // Inactive users too: an already assigned AL/PL who left must still show up in the form
-  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, is_active').order('full_name');
+  // Office roles read app_users (role_rates carry additional AL/PL roles for userHasRole); MA/Gast only get the rate-less directory
+  var office = ['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole);
+  var { data, error } = office
+    ? await supabaseClient.from('app_users').select('id, full_name, role, role_rates, is_active').order('full_name')
+    : await supabaseClient.rpc('user_directory');
   if (error) { console.error('Ordner users:', error); return []; }
-  _ordnerUsers = data || [];
+  _ordnerUsers = (data || []).slice().sort(function(x, y) { return (x.full_name || '').localeCompare(y.full_name || ''); });
   return _ordnerUsers;
 }
 
@@ -470,7 +497,7 @@ async function openOrdnerForm(id) {
   if (o) {
     var { data, error } = await supabaseClient.from('einsaetze').select('id, date, action, al_id, cancelled')
       .eq('folder_id', o.id).order('date');
-    if (error) { console.error('Einsätze laden:', error); showToast('Einsätze konnten nicht geladen werden.', 'danger'); }
+    if (error) { console.error('Einsätze laden:', error); showToast('Einsätze konnten nicht geladen werden.', 'danger'); return; } // saving without them would duplicate jobs
     _editEinsaetzeExisting = data || [];
     _editEinsaetzeExisting.forEach(addEinsatzRow);
   }
@@ -531,7 +558,15 @@ async function saveEinsaetze(folderId, edited) {
   }
 }
 
+// A second tap while the first save is still running would insert the folder twice
+var _ordnerSaving = false;
 async function saveOrdner() {
+  if (_ordnerSaving) return;
+  _ordnerSaving = true;
+  try { await saveOrdnerRun(); } finally { _ordnerSaving = false; }
+}
+
+async function saveOrdnerRun() {
   var name = ((document.getElementById('inp-ordner-name') || {}).value || '').trim();
   var desc = ((document.getElementById('inp-ordner-desc') || {}).value || '').trim();
   var plId = ((document.getElementById('inp-ordner-pl') || {}).value || '') || null;
@@ -603,7 +638,7 @@ async function renderOrdnerEinsaetze(folder) {
   if (!box) return;
   box.style.display = 'none';
   var { data: rows, error } = await supabaseClient.from('einsaetze')
-    .select('id, date, action, al_id, cancelled, al:app_users!einsaetze_al_id_fkey(full_name)')
+    .select('id, date, action, al_id, cancelled')
     .eq('folder_id', folder.id).order('date');
   var stale = function() { return !aktuellerOrdner || aktuellerOrdner.id !== folder.id; };
   if (stale()) return;
@@ -611,8 +646,10 @@ async function renderOrdnerEinsaetze(folder) {
   if (!rows || !rows.length) return;
   var alIds = rows.map(function(r) { return r.al_id; });
   var dates = rows.map(function(r) { return r.date; });
-  var { data: prots } = await supabaseClient.from('protocols').select('al_id, date').in('al_id', alIds).in('date', dates);
   var done = {};
+  // MA/Gast cannot read protocols: marker only for office roles
+  var { data: prots } = ['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole)
+    ? await supabaseClient.from('protocols').select('al_id, date').in('al_id', alIds).in('date', dates) : { data: [] };
   (prots || []).forEach(function(p) { done[p.al_id + '|' + p.date] = true; });
   await loadOrdnerUsers();
   if (stale()) return;
@@ -623,8 +660,9 @@ async function renderOrdnerEinsaetze(folder) {
   box.innerHTML = '<div class="ui-label" style="margin:0 0 4px;">Einsätze</div>' +
     '<div class="ui-sub" style="margin-bottom:6px;">Projektleitung: ' + escOrdner(pl ? pl.full_name : '—') + '</div>' +
     rows.map(function(r) {
+      var alUser = (_ordnerUsers || []).find(function(u) { return u.id === r.al_id; });
       var st = einsatzStatus(r, !!done[r.al_id + '|' + r.date], today), p = PILL[st] || PILL.future;
-      return '<div class="ordner-einsatz"><span>' + shortDateDE(r.date) + ' · ' + escOrdner(r.action) + ' · AL ' + escOrdner(r.al ? r.al.full_name : '—') + '</span>' +
+      return '<div class="ordner-einsatz"><span>' + shortDateDE(r.date) + ' · ' + escOrdner(r.action) + ' · AL ' + escOrdner((alUser && alUser.full_name) || '—') + '</span>' +
         '<span class="ui-pill ' + p[0] + '">' + p[1] + '</span></div>';
     }).join('');
   box.style.display = 'block';
@@ -648,6 +686,9 @@ async function deleteCurrentOrdner() {
 }
 
 async function deleteOrdner(folder) {
+  // The cached list may miss subfolders another user created meanwhile: their files would be orphaned in storage
+  var { data: fresh } = await supabaseClient.from('project_folders').select('id, name, description, created_at, parent_id, pl_id, ends_on');
+  if (fresh) alleOrdner = fresh;
   var treeIds = collectOrdnerTreeIds(folder.id);
   var subCount = treeIds.length - 1;
   var msg = 'Ordner "' + folder.name + '"' +
@@ -656,8 +697,10 @@ async function deleteOrdner(folder) {
   if (!confirm(msg)) return;
 
   // Collect the storage paths of the whole subtree first (DB rows cascade via FK)
-  var { data: allFiles } = await supabaseClient
+  var { data: allFiles, error: filesErr } = await supabaseClient
     .from('folder_files').select('file_url').in('folder_id', treeIds);
+  // Without the file list the storage objects could not be removed after the cascade: stop instead
+  if (filesErr) { showToast('Fehler: ' + filesErr.message, 'danger'); return; }
   var paths = (allFiles || []).map(function(f) {
     var parts = (f.file_url || '').split('/project-files/');
     return parts.length > 1 ? parts[1] : null;
@@ -666,11 +709,8 @@ async function deleteOrdner(folder) {
   // DB first (row-checked: RLS answers with 0 rows); storage is only cleaned up after the folder is really gone
   var { data: delRows, error } = await supabaseClient.from('project_folders').delete().eq('id', folder.id).select('id');
   if (error || !delRows || !delRows.length) { showToast('Fehler: ' + (error ? error.message : 'Löschen abgelehnt'), 'danger'); return; }
-  if (paths.length) {
-    try { await supabaseClient.storage.from('project-files').remove(paths); }
-    catch (e) { console.warn('Ordner-Dateien nicht aus Storage entfernt:', e); }
-  }
-  showToast('Ordner gelöscht.');
+  var storageOk = await ordnerRemoveFiles(paths);
+  showToast(storageOk ? 'Ordner gelöscht.' : 'Ordner gelöscht, aber Dateien konnten nicht aus dem Speicher entfernt werden.', storageOk ? undefined : 'danger');
   var parentId = folder.parent_id;
   closeOrdnerDetail();
   await fetchOrdner();
@@ -680,10 +720,35 @@ async function deleteOrdner(folder) {
 // ── SHARED FILE VIEWER ──
 // Looks the file up by id — passing name/url through inline onclick strings
 // breaks as soon as a filename contains a quote character.
-function openOrdnerFileById(id) {
+// project-files is private: the stored public-style link only identifies the file (same parsing as cleanup-folders)
+function projectFilePath(fileUrl) {
+  var parts = String(fileUrl || '').split('/project-files/');
+  if (parts.length < 2) return null;
+  var p = parts.slice(1).join('/project-files/').split('?')[0];
+  try { p = decodeURIComponent(p); } catch (e) { /* keep the raw path */ }
+  return p || null;
+}
+
+// Temporary link (1 h) for viewing/downloading; null when the file can't be signed (offline, gone, no session)
+async function signedProjectFileUrl(fileUrl) {
+  var path = projectFilePath(fileUrl);
+  if (!path) return null;
+  try {
+    var res = await supabaseClient.storage.from('project-files').createSignedUrl(path, 3600);
+    return (res && !res.error && res.data && res.data.signedUrl) || null;
+  } catch (e) { return null; }
+}
+
+var _ordnerOpening = false; // double tap while the link is being signed must not open two viewers
+async function openOrdnerFileById(id) {
   var f = ordnerFiles.find(function(x) { return x.id === id; });
-  if (!f) return;
-  openFileViewer(f.file_url, f.name, f.file_type || '');
+  if (!f || _ordnerOpening) return;
+  _ordnerOpening = true;
+  try {
+    var url = await signedProjectFileUrl(f.file_url);
+    if (!url) { showToast('Datei konnte nicht geöffnet werden'); return; }
+    openFileViewer(url, f.name, f.file_type || '');
+  } finally { _ordnerOpening = false; }
 }
 
 // 'image' | 'pdf' | 'file' (download only). HEIC/HEIF is not displayable in most browsers (Chrome/Android), so it is a file.
@@ -909,11 +974,16 @@ function mountZoomViewer(body, opts) {
   }).catch(function(err) {
     console.error('PDF viewer:', err);
     if (!alive()) return;
-    // Fallback: Google viewer iframe
     body.style.display = 'flex';
-    body.innerHTML = '<iframe src="https://docs.google.com/viewer?url=' + encodeURIComponent(opts.url) + '&embedded=true" ' +
-      'style="width:100%;height:100%;border:none;min-height:70vh;" allowfullscreen></iframe>';
+    body.innerHTML = pdfFallbackHtml(opts.url);
   });
+}
+
+// pdf.js failed: offer the (signed) file as a download — never hand the private link to a third-party viewer
+function pdfFallbackHtml(url) {
+  return '<div style="padding:40px;text-align:center;color:#888;">' +
+    '<div style="margin-bottom:16px;">Vorschau nicht möglich.</div>' +
+    '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener" class="btn primary" style="display:inline-block;width:auto;padding:12px 24px;text-decoration:none;">⬇ Herunterladen</a></div>';
 }
 
 // ── UTILS ──
@@ -974,6 +1044,7 @@ function ordnerFileMenu(id) {
   if (!f) return;
   openUiMenu([
     { label: 'Öffnen', action: 'openOrdnerFileById', args: [id] },
+    { label: f.note ? 'Anmerkung bearbeiten' : 'Anmerkung hinzufügen', action: 'editOrdnerFileNote', args: [id] },
     { label: 'Datei löschen', action: 'deleteOrdnerFile', args: [id, f.file_url], danger: true }
   ]);
 }
