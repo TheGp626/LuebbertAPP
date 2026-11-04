@@ -195,7 +195,7 @@ async function fetchOwnProfile(id) {
   let data = null, error = null;
   try {
     ({ data, error } = await supabaseClient.from('app_users')
-      .select('id, full_name, role, default_dept, hourly_rate_internal, is_active, app_user_private(hourly_rate_conni)')
+      .select('id, full_name, role, default_dept, hourly_rate_internal, is_active, plan_interest_viewer, app_user_private(hourly_rate_conni)')
       .eq('id', id).maybeSingle());
   } catch (e) { error = e; }
   if (isProfileDenied(error)) return { profile: null, error: false };
@@ -360,6 +360,7 @@ function handleSession(user) {
       if (typeof syncStundenName === 'function') syncStundenName(); // label above the week (shared device: no stale name)
     }
     localStorage.setItem('stundenzettel_name', user.full_name);
+    window.currentUserSeesInterest = !!user.plan_interest_viewer; // Wochenplan: sees who said "Ich hätte Zeit"
     window.currentUserRateConni    = parseFloat(user.hourly_rate_conni)    || 0;
     window.currentUserRateInternal = parseFloat(user.hourly_rate_internal) || 0;
 
@@ -403,6 +404,7 @@ function handleSession(user) {
   } else {
     currentUser = null;
     userRole = 'MA';
+    window.currentUserSeesInterest = false;
     authSelectedUserId = null;
     if (userChanged && typeof buildDays === 'function') buildDays(true); // no editor content of the logged-out user stays in memory
     const nameInp = document.getElementById('auth-name-input');
