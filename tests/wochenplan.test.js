@@ -104,3 +104,11 @@ test('wochenplan.js: no top-level function is defined twice (the later one silen
   const names = [...src.matchAll(/^(?:async )?function (\w+)/gm)].map(m => m[1]);
   assert.deepEqual(names.filter((n, i) => names.indexOf(n) !== i), []);
 });
+
+test('wpSeesInterest: only with the per-user switch (PL/Admin role check needs auth.js, not loaded here)', () => {
+  ctx.currentUserSeesInterest = false;
+  assert.equal(ctx.wpSeesInterest(), false);
+  ctx.currentUserSeesInterest = true;
+  assert.equal(ctx.wpSeesInterest(), true);
+  ctx.currentUserSeesInterest = false;
+});

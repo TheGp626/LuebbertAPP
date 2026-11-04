@@ -175,6 +175,7 @@ function openEditWorker() {
   _editWorkerRoleRates = Array.isArray(worker.role_rates) ? JSON.parse(JSON.stringify(worker.role_rates)) : [];
   renderRoleRatesList();
   document.getElementById('edit-worker-type').value = worker.employment_type || (worker.is_fest ? 'Fest' : 'Minijob');
+  document.getElementById('edit-worker-sees-interest').checked = !!worker.plan_interest_viewer;
   document.getElementById('edit-worker-modal').classList.add('open');
 }
 
@@ -275,6 +276,7 @@ async function saveEditWorker() {
     role_rates:           _editWorkerRoleRates.filter(function(r) { return r.role; }),
     employment_type:      document.getElementById('edit-worker-type').value,
     is_fest:              document.getElementById('edit-worker-type').value === 'Fest', // old cached clients still read it
+    plan_interest_viewer: document.getElementById('edit-worker-sees-interest').checked,
   };
 
   try {
@@ -614,7 +616,7 @@ async function loadDashboardWorkers() {
   try {
     const { data: users, error: uErr } = await supabaseClient
       .from('app_users')
-      .select('id, full_name, role, default_dept, hourly_rate_internal, role_rates, is_active, is_fest, employment_type, app_user_private(hourly_rate_conni, income_limit, email)')
+      .select('id, full_name, role, default_dept, hourly_rate_internal, role_rates, is_active, is_fest, employment_type, plan_interest_viewer, app_user_private(hourly_rate_conni, income_limit, email)')
       .eq('is_active', true)
       .order('full_name');
     if (uErr) throw uErr;

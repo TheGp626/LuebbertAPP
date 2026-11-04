@@ -175,14 +175,17 @@ function wpApplicantChips(s) {
   }).join('');
 }
 
+// PL/Admin always, others when the admin switched "Sieht Bewerbungen" on for them
+function wpSeesInterest() { return wpCanUpload() || !!window.currentUserSeesInterest; }
+
 function wpInterestList(s) {
-  if (!wpCanUpload() || !wpInterested(s).length) return '';
+  if (!wpSeesInterest() || !wpInterested(s).length) return '';
   return '<div class="wp-int"><div class="wp-d-label">Hätten Zeit</div>' + wpApplicantChips(s) + '</div>';
 }
 
 // Top-of-week card for PL/Admin: every shift with applicants, tap to jump to the row
 function wpInterestOverview(shifts) {
-  if (!wpCanUpload()) return '';
+  if (!wpSeesInterest()) return '';
   var list = shifts.filter(function(s) { return wpInterested(s).length; });
   if (!list.length) return '';
   var total = list.reduce(function(n, s) { return n + wpInterested(s).length; }, 0);
