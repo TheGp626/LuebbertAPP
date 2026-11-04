@@ -148,6 +148,51 @@ function wpProtButton(s, cls) {
   return '<button type="button" class="btn ' + (cls || '') + ' wp-prot-btn" onclick="event.stopPropagation(); wpStartProtokoll(\'' + s.id + '\')">' + WP_ICON.clip + ' Protokoll starten</button>';
 }
 
+// Who said "Ich hätte Zeit" and is not on the shift yet; s._interest = user ids (null = not loaded)
+function wpInterested(s) {
+  var assigned = (s.plan_assignments || []).map(function(a) { return a.user_id; });
+  return (s._interest || []).filter(function(id) { return assigned.indexOf(id) === -1; });
+}
+
+function wpCanApply(s, me, today) {
+  return !!(me && s._interest && (s.open_slots || []).length && s.date >= today &&
+    !(s.plan_assignments || []).some(function(a) { return a.user_id === me; }));
+}
+
+function wpInterestButton(s) {
+  var me = wpMe();
+  if (!wpCanApply(s, me, localDateStr())) return '';
+  var on = s._interest.indexOf(me) !== -1;
+  return '<button type="button" class="btn' + (on ? '' : ' primary') + ' wp-prot-btn" onclick="event.stopPropagation(); wpToggleInterest(this, \'' + s.id + '\')">' +
+    (on ? 'Doch keine Zeit' : 'Ich hätte Zeit') + '</button>';
+}
+
+// Plan builders (PL/Admin) see who would have time, without opening the row
+function wpInterestList(s) {
+  var ids = wpCanUpload() ? wpInterested(s) : [];
+  if (!ids.length) return '';
+  return '<div class="wp-team"><span class="ui-pill ui-pill-info">' + ids.length + ' hätten Zeit</span><span class="wp-team-text">' +
+    wpEsc(ids.map(function(id) { return wpUserName(id) || '?'; }).join(', ')) + '</span></div>';
+}
+
+async function wpToggleInterest(btn, shiftId) {
+  var s = _wpShiftCache[shiftId], me = wpMe();
+  if (!s || !s._interest || !me) return;
+  btn.disabled = true;
+  var on = s._interest.indexOf(me) !== -1, q = supabaseClient.from('plan_shift_interest');
+  // .select(): RLS answers a blocked write with 0 rows and no error
+  var r = on ? await q.delete().eq('week_id', s.week_id).eq('shift_key', s.key).eq('user_id', me).select('user_id')
+             : await q.insert({ week_id: s.week_id, shift_key: s.key, user_id: me }).select('user_id');
+  if (r.error || !r.data || !r.data.length) {
+    console.error('Ich hätte Zeit:', r.error);
+    showToast('Das hat nicht geklappt. Versuch es nochmal.', 'danger');
+    btn.disabled = false;
+    return;
+  }
+  showToast(on ? 'Zurückgezogen' : 'Gemeldet – die Planung sieht, dass du Zeit hättest');
+  wpRenderWeek();
+}
+
 // Compact, expandable shift row (week view and "Danach" list)
 function wpRow(s, opts) {
   opts = opts || {};
@@ -159,9 +204,9 @@ function wpRow(s, opts) {
       '<div class="wp-head"><div class="wp-venue">' + (s.color ? '<span class="wp-dot" style="background:' + wpEsc(s.color) + '"></span>' : '') + wpEsc(s.venue || '—') + '</div>' +
         '<div class="wp-badges">' + wpStatusPill(s) + (mine ? '<span class="ui-pill ui-pill-info">Du' + (mine.role && mine.role !== 'MA' ? ' · ' + wpEsc(mine.role) : '') + '</span>' : '') + WP_ICON.chevron + '</div></div>' +
       (opts.showDate ? '<div class="wp-sub">' + wpDayLabel(s.date) + (sub ? ' · ' + wpEsc(sub) : '') + '</div>' : (sub ? '<div class="wp-sub">' + wpEsc(sub) + '</div>' : '')) +
-      wpTeamLine(s) +
+      wpTeamLine(s) + wpInterestList(s) +
       wpDetails(s) +
-      wpProtButton(s) +
+      wpProtButton(s) + wpInterestButton(s) +
     '</div>' +
   '</div>';
 }
@@ -427,10 +472,17 @@ async function wpRenderWeek() {
   label.innerHTML = 'KW ' + week.kw + ' <span>' + s0.d + '.' + (s0.m !== s1.m ? s0.m + '.' : '') + '–' + s1.d + '.' + s1.m + '.' +
     (week.version > 1 ? ' · Stand ' + week.version : '') + '</span>';
   content.innerHTML = '<div class="wp-empty">Lädt…</div>';
-  var { data, error } = await supabaseClient.from('plan_shifts').select('*, plan_assignments(*)')
-    .eq('week_id', week.id).order('date').order('sort');
+  var [res, iq] = await Promise.all([
+    supabaseClient.from('plan_shifts').select('*, plan_assignments(*)').eq('week_id', week.id).order('date').order('sort'),
+    supabaseClient.from('plan_shift_interest').select('shift_key, user_id').eq('week_id', week.id)
+  ]);
+  var data = res.data, error = res.error;
   if (seq !== _wpRenderSeq || wpView !== 'all' || wpWeekId !== week.id) return;
   if (error) { console.error('Woche laden:', error); content.innerHTML = '<div class="wp-empty">Die Woche konnte nicht geladen werden.</div>'; return; }
+  if (iq.error) console.error('Interesse laden:', iq.error); // plan still shows, just no buttons/list
+  (data || []).forEach(function(s) {
+    s._interest = iq.error ? null : (iq.data || []).filter(function(r) { return r.shift_key === s.key; }).map(function(r) { return r.user_id; });
+  });
   (data || []).forEach(function(s) { _wpShiftCache[s.id] = s; });
   var byDay = {};
   (data || []).forEach(function(s) { (byDay[s.date] = byDay[s.date] || []).push(s); });

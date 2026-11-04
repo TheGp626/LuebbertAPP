@@ -82,3 +82,19 @@ test('wpRenewCalendarToken: rpc error keeps the old token', async () => {
   await ctx.wpRenewCalendarToken();
   assert.equal(vm.runInContext('_wpCalToken', ctx), null);
 });
+
+test('wpCanApply: open slots, future, not assigned, interest loaded', () => {
+  const s = { date: '2030-01-02', open_slots: [1], plan_assignments: [{ user_id: 'b' }], _interest: [] };
+  assert.equal(ctx.wpCanApply(s, 'a', '2030-01-01'), true);
+  assert.equal(ctx.wpCanApply(s, 'a', '2030-01-02'), true);
+  assert.equal(ctx.wpCanApply({ ...s, plan_assignments: [{ user_id: 'a' }] }, 'a', '2030-01-01'), false);
+  assert.equal(ctx.wpCanApply({ ...s, open_slots: [] }, 'a', '2030-01-01'), false);
+  assert.equal(ctx.wpCanApply(s, 'a', '2030-01-03'), false);
+  assert.equal(ctx.wpCanApply({ ...s, _interest: null }, 'a', '2030-01-01'), false);
+  assert.equal(ctx.wpCanApply(s, null, '2030-01-01'), false);
+});
+
+test('wpInterested: drops assigned users; [] when not loaded', () => {
+  assert.deepEqual(plain(ctx.wpInterested({ plan_assignments: [{ user_id: 'a' }], _interest: ['a', 'b'] })), ['b']);
+  assert.deepEqual(plain(ctx.wpInterested({ plan_assignments: [] })), []);
+});
