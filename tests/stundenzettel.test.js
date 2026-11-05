@@ -29,7 +29,7 @@ test('removeWeekEntries: plain key and every dept part, nothing else', () => {
 });
 
 test('buildWeekEntries: one dept → plain key; mixed → one part per full dept name', () => {
-  const { buildWeekEntries } = load(['buildWeekEntries', 'splitWeekByDepts', 'weekPartKey'], ['timeToMins']);
+  const { buildWeekEntries } = load(['buildWeekEntries', 'splitWeekByDepts', 'weekPartKey', 'editorDept'], ['timeToMins']);
   const single = week('MA frei', [[sh('08:00', '12:00', 'MA frei')], [], [], [], [], [], []]);
   assert.deepEqual(Object.keys(buildWeekEntries(single)), ['2026-W44']);
 
@@ -268,7 +268,7 @@ test('runSerial: syncs of one week run one after the other, other weeks are inde
 });
 
 test('planWeekDelete: only open manual rows of the card, never booked ones', () => {
-  const { planWeekDelete } = load(['planWeekDelete']);
+  const { planWeekDelete } = load(['planWeekDelete', 'editorDept']);
   const ex = [
     { id: 1, status: 'offen', position_role: 'MA frei' }, { id: 2, status: 'eingetragen', position_role: 'MA frei' },
     { id: 3, status: 'offen', position_role: 'AL frei' }, { id: 4, status: 'offen', position_role: null },
@@ -347,4 +347,26 @@ test('mergeUnseenShifts: a local "MA" shift and the same server shift as "MA Min
   assert.equal(mergeUnseenShifts(local, week('MA frei', [[sh('08:00', '16:00', 'MA frei')], [], [], [], [], [], []])).added, 0);
   assert.equal(mergeUnseenShifts(local, week('AL Minijob', [[sh('08:00', '16:00', 'AL Minijob')], [], [], [], [], [], []])).added, 1);
   delete global.splitPosition;
+});
+
+test('splitWeekByDepts / planWeekDelete group by function: "MA", "MA frei", "MA Minijob" are one department', () => {
+  const vm = require('vm'), c = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/formulas.js'), 'utf8'), c);
+  global.splitPosition = c.splitPosition;
+  const { splitWeekByDepts, planWeekDelete } = load(['splitWeekByDepts', 'planWeekDelete', 'editorDept'], ['timeToMins']);
+  const w = week('MA', [[sh('08:00', '12:00', 'MA'), sh('13:00', '17:00', 'MA Minijob')], [sh('08:00', '12:00', 'MA frei')], [sh('08:00', '12:00', 'AL Minijob')], [], [], [], []]);
+  const pages = splitWeekByDepts(w);
+  assert.deepEqual(pages.map(p => p.abt), ['MA', 'AL']);
+  assert.equal(pages[0].total, '12');
+  const rows = [{ id: 'a', status: 'offen', position_role: 'MA Minijob' }, { id: 'b', status: 'offen', position_role: 'MA frei' }, { id: 'c', status: 'offen', position_role: 'AL Minijob' }];
+  assert.deepEqual(planWeekDelete(rows, 'MA'), ['a', 'b']);
+  delete global.splitPosition;
+});
+
+test('weekEarningsTotal: one amount for the whole week (sum of the department parts)', () => {
+  const { weekEarningsTotal } = load(['weekEarningsTotal']);
+  global.getDeptWage = d => ({ MA: 15, AL: 20 })[d] || 0;
+  assert.equal(weekEarningsTotal([{ abt: 'MA', total: '4' }, { abt: 'AL', total: '2.5' }, { abt: 'Lager', total: '3' }]), 110);
+  assert.equal(weekEarningsTotal([{ abt: 'Lager', total: '3' }]), 0);
+  delete global.getDeptWage;
 });

@@ -1016,7 +1016,7 @@ function renderHistory(skipSync) {
       '<button type="button" class="ui-icon-btn" aria-label="Monat-Aktionen" onclick="historyMonthMenu(\'' + jsAttrArg(mKey) + '\')">' + uiIcon('dots') + '</button></div>';
     html += m.weeks.map(function (w) {
       var hKey = w.histKey || w.weekStart;
-      var earnW = (w.earnParts || [w]).map(function (p) { return formatEarnings(parseFloat(String(p.total || '0').replace(',', '.')), p.abt); }).filter(Boolean).join(' · ');
+      var earnW = formatEuros(weekEarningsTotal(w.earnParts || [w])); // one amount: several per department squeezed the card
       var kw = w.weekStart ? parseInt(String(w.weekStart).split('-W')[1]) : '';
       var range = '';
       if (w.weekStart) {
@@ -1367,7 +1367,7 @@ async function syncWeekNow(data, quiet) {
 // Protocol shifts and anything accounting already booked ('eingetragen') are never touched.
 function planWeekDelete(existing, role) {
   return (existing || []).filter(function (r) {
-    return r.status === 'offen' && (role === null || r.position_role === role);
+    return r.status === 'offen' && (role === null || editorDept(r.position_role) === editorDept(role));
   }).map(function (r) { return r.id; });
 }
 
@@ -1464,7 +1464,7 @@ function splitWeekByDepts(w) {
   (w.days || []).forEach(function(dd) {
     (dd.shifts || []).forEach(function(sh) {
       if (sh.von && sh.bis) {
-        var d = sh.dept || w.abt;
+        var d = editorDept(sh.dept || w.abt); // "MA", "MA frei", "MA Minijob" are one department
         if (depts.indexOf(d) === -1) depts.push(d);
       }
     });
@@ -1473,7 +1473,7 @@ function splitWeekByDepts(w) {
   return depts.map(function(dept) {
     var filteredDays = w.days.map(function(dd) {
       return { day: dd.day, date: dd.date, isoDate: dd.isoDate,
-        shifts: (dd.shifts || []).filter(function(sh) { return (sh.dept || w.abt) === dept && sh.von && sh.bis; }) };
+        shifts: (dd.shifts || []).filter(function(sh) { return editorDept(sh.dept || w.abt) === dept && sh.von && sh.bis; }) };
     });
     var deptMins = 0;
     filteredDays.forEach(function(dd) {
@@ -1486,6 +1486,14 @@ function splitWeekByDepts(w) {
     var deptTotal = deptMins / 60;
     return Object.assign({}, w, { abt: dept, days: filteredDays, total: deptTotal % 1 === 0 ? deptTotal.toFixed(0) : deptTotal.toFixed(2) });
   });
+}
+
+// Estimated pay of a week: sum over its department parts ({ abt, total }) at the device's wage per department
+function weekEarningsTotal(parts) {
+  return (parts || []).reduce(function (sum, p) {
+    var h = parseFloat(String(p.total || '0').replace(',', '.')) || 0;
+    return sum + h * (getDeptWage(p.abt) || 0);
+  }, 0);
 }
 
 // ── PDF ──
