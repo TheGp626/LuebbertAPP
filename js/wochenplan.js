@@ -154,14 +154,27 @@ function wpInterested(s) {
   return (s._interest || []).filter(function(id) { return assigned.indexOf(id) === -1; });
 }
 
-function wpCanApply(s, me, today) {
-  return !!(me && s._interest && (s.open_slots || []).length && s.date >= today &&
+// Open slot the person may apply for (same rule as public.fits_plan_slot): AL slot for AL/PL/Admin,
+// Fahrer slot only with the "Kann Fahrer" switch, MA/Zenjob/ROCKiT/other slots for everyone
+function wpSlotFits(role, who) {
+  who = who || {};
+  if (role === 'AL') return ['AL', 'PL', 'Admin'].indexOf(who.role) !== -1;
+  if (role === 'Fahrer') return !!who.canDrive;
+  return true;
+}
+
+function wpWho() {
+  return { role: typeof userRole !== 'undefined' ? userRole : null, canDrive: !!window.currentUserCanDrive };
+}
+
+function wpCanApply(s, me, today, who) {
+  return !!(me && s._interest && (s.open_slots || []).some(function(o) { return wpSlotFits(o && o.role, who); }) && s.date >= today &&
     !(s.plan_assignments || []).some(function(a) { return a.user_id === me; }));
 }
 
 function wpInterestButton(s) {
   var me = wpMe();
-  if (!wpCanApply(s, me, localDateStr())) return '';
+  if (!wpCanApply(s, me, localDateStr(), wpWho())) return '';
   var on = s._interest.indexOf(me) !== -1;
   return '<button type="button" class="btn' + (on ? '' : ' primary') + ' wp-prot-btn" onclick="event.stopPropagation(); wpToggleInterest(this, \'' + s.id + '\')">' +
     (on ? 'Doch keine Zeit' : 'Ich hätte Zeit') + '</button>';

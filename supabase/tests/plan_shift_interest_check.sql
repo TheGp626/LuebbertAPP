@@ -17,6 +17,8 @@ begin
     (v_pl, 'ZZ PSI PL', 'PL', true), (v_admin, 'ZZ PSI Admin', 'Admin', true), (v_gast, 'ZZ PSI Gast', 'Gast', true);
   insert into public.app_users (id, full_name, role, is_active, plan_interest_viewer) values (v_viewer, 'ZZ PSI Viewer', 'AL', true, true);
   insert into public.plan_weeks (id, year, kw, week_start, week_end) values (v_week, 1999, 1, '1999-01-04', '1999-01-10');
+  insert into public.plan_shifts (week_id, date, key, open_slots) values -- inserts need an open slot that fits (20261105_plan_interest_slot_fit)
+    (v_week, '1999-01-04', 'k1', '[{"role":"MA","count":1}]'), (v_week, '1999-01-04', 'k2', '[{"role":"MA","count":1}]'), (v_week, '1999-01-04', 'k3', '[{"role":"MA","count":1}]');
   insert into public.plan_shift_interest (week_id, shift_key, user_id) values (v_week, 'k1', v_ma2);
 
   perform set_config('request.jwt.claims', json_build_object('sub', v_ma, 'role', 'authenticated')::text, true);
