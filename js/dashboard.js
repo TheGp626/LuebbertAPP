@@ -146,7 +146,7 @@ function dashWorkerHeadHtml(w) {
   var rates = [w.hourly_rate_conni ? 'Lohn ' + parseFloat(w.hourly_rate_conni).toFixed(2).replace('.', ',') + ' €/h' : '',
     w.hourly_rate_internal ? 'intern ' + parseFloat(w.hourly_rate_internal).toFixed(2).replace('.', ',') + ' €/h' : ''].filter(Boolean).join(' · ');
   return '<div class="ui-title" style="font-size:20px;">' + escapeHtml(w.full_name || 'Unbekannt') + '</div>' +
-    '<div class="ui-sub">' + escapeHtml([w.role, w.default_dept].filter(Boolean).join(' · ')) + (rates ? ' · ' + escapeHtml(rates) : '') + '</div>';
+    '<div class="ui-sub">' + escapeHtml([w.role, w.default_dept].filter(Boolean).join(' · ')) + (rates ? '<span class="cost-only"> · ' + escapeHtml(rates) + '</span>' : '') + '</div>';
 }
 
 function updateEditWorkerBtn() {
@@ -544,7 +544,7 @@ function renderDashboardTable() {
       <td data-label="Projekt"><span class="ui-row-title">${escapeHtml(projName)}</span></td>
       <td data-label="Aktion"><span class="ui-pill ui-pill-info">${escapeHtml(p.action)}</span>${holidayTag}</td>
       <td data-label="AL / PL"><div>${escapeHtml(alName)}</div>${plLine}</td>
-      <td data-label="Kosten" class="dash-num"><b>${escapeHtml(costStr)}</b></td>
+      <td data-label="Kosten" class="dash-num cost-only"><b>${escapeHtml(costStr)}</b></td>
       <td data-label="" class="dash-actions">
         <button type="button" class="ui-btn dash-small-btn" data-action="pdf" data-id="${escapeHtml(p.id)}">PDF</button>
         <button type="button" class="ui-btn dash-small-btn" data-action="detail" data-id="${escapeHtml(p.id)}">Details</button>
@@ -591,7 +591,7 @@ function renderDashStats() {
   var month = now.toLocaleDateString('de-DE', { month: 'long' });
   box.innerHTML =
     '<div class="ui-stat"><span>Protokolle im ' + month + '</span><b>' + s.count + '</b></div>' +
-    '<div class="ui-stat"><span>Kosten im ' + month + '</span><b>' + s.cost.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</b></div>';
+    '<div class="ui-stat cost-only"><span>Kosten im ' + month + '</span><b>' + s.cost.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €</b></div>';
 }
 
 if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
@@ -767,9 +767,9 @@ async function renderWorkerShifts() {
     const share = incomeLimitShare(rateConni ? periodMins / 60 * rateConni : null, worker && worker.income_limit ? parseFloat(worker.income_limit) : null);
     let statsHtml = '<div class="ui-stats">' +
       `<div class="ui-stat"><span>Netto-Stunden gesamt</span><b>${totalNetStr}</b></div>` +
-      (rateConni ? `<div class="ui-stat"><span>Lohn (${rateConni.toFixed(2).replace('.', ',')} €/h)</span><b>${totalNetHrs > 0 ? eur(totalNetHrs * rateConni) : '—'}</b></div>` : '') +
-      (rateInternal ? `<div class="ui-stat"><span>Intern (${rateInternal.toFixed(2).replace('.', ',')} €/h)</span><b>${totalNetHrs > 0 ? eur(totalNetHrs * rateInternal) : '—'}</b></div>` : '') +
-      (share ? `<div class="ui-stat"><span>Grenze ${eur(parseFloat(worker.income_limit))} · ${escapeHtml(periodKey.label)}</span>` +
+      (rateConni ? `<div class="ui-stat cost-only"><span>Lohn (${rateConni.toFixed(2).replace('.', ',')} €/h)</span><b>${totalNetHrs > 0 ? eur(totalNetHrs * rateConni) : '—'}</b></div>` : '') +
+      (rateInternal ? `<div class="ui-stat cost-only"><span>Intern (${rateInternal.toFixed(2).replace('.', ',')} €/h)</span><b>${totalNetHrs > 0 ? eur(totalNetHrs * rateInternal) : '—'}</b></div>` : '') +
+      (share ? `<div class="ui-stat cost-only"><span>Grenze ${eur(parseFloat(worker.income_limit))} · ${escapeHtml(periodKey.label)}</span>` +
         `<b>${eur(periodMins / 60 * rateConni)}</b>` +
         `<div class="ui-bar${share.over ? ' ui-bar-over' : share.pct >= 80 ? ' ui-bar-warn' : ''}"><i style="width:${share.pct}%"></i></div></div>` : '') +
       '</div>';
@@ -1242,7 +1242,7 @@ function openDashDetail(id) {
       <div class="stat-label">Projektleiter (PL)</div>
       <div style="font-weight:600;">${escapeHtml(plName)}</div>
     </div>
-    <div>
+    <div class="cost-only">
       <div class="stat-label">Gesamtkosten (Schätzung)</div>
       <div style="font-weight:600; color:var(--accent);">${escapeHtml((p.total_cost || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 }))} €</div>
     </div>
@@ -1871,7 +1871,7 @@ async function exportDashProtPDF(pId) {
     else if (sigRow) signature = sigRow.signature_text || null;
 
     const entry = dashProtToEntry(p, signature);
-    buildProtPdfDoc(entry).save(protPdfFileName(entry));
+    buildProtPdfDoc(entry, { costs: canSeeCosts(currentUser) }).save(protPdfFileName(entry));
   } catch (err) {
     console.error('exportDashProtPDF error:', err);
     if (typeof showToast === 'function') showToast('PDF konnte nicht erstellt werden', 'danger');

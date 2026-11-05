@@ -353,6 +353,8 @@ function handleSession(user) {
     currentUser = { id: user.id, email: '', full_name: user.full_name || '', role: user.role,
       role_rates: Array.isArray(user.role_rates) ? user.role_rates : [], employment_type: user.employment_type || 'Minijob' }; // Mock basic GoTrue object for backwards compatibility (+ name for the start page greeting)
     userRole = user.role;
+    // Costs and rates only for PL/Buchhaltung/Admin: every '.cost-only' element is hidden otherwise (css/ui.css)
+    document.body.classList.toggle('no-costs', !canSeeCosts(currentUser));
     
     // Auto-sync the user's name across the app (Stundenzettel tracking)
     const snInput = document.getElementById('inp-name');

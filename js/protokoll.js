@@ -809,6 +809,7 @@ function calcProtCosts() {
 
 // Tapping the cost in the action bar: the breakdown of the current calculation
 function openProtCostSheet() {
+  if (!canSeeCosts(currentUser)) return; // AL/MA: no rates (bar is hidden too)
   calcProtCosts();
   var fmt = function(n) { return n.toFixed(2).replace('.', ',') + ' €'; };
   var m = document.getElementById('prot-cost-modal');
@@ -1515,7 +1516,7 @@ async function mailProtokoll(supabaseId, entry, isUpdate, notify) {
   if (!supabaseId || typeof supabaseClient === 'undefined') return false;
   var pdfBase64 = null;
   try {
-    pdfBase64 = buildProtPdfDoc(entry).output('datauristring').split(',')[1] || null;
+    pdfBase64 = buildProtPdfDoc(entry, { costs: true }).output('datauristring').split(',')[1] || null;
     // The function rejects >5 MB with 413 forever → send the summary without attachment instead
     if (pdfBase64 && pdfBase64.length > MAIL_MAX_PDF_B64) {
       console.warn('Protokoll-PDF zu groß für Mail, sende ohne Anhang:', pdfBase64.length);
@@ -1639,7 +1640,7 @@ function renderProtHistoryList() {
         '<div class="ui-sub">' + escapeHtml(e.location || '—') + (e.al ? ' · AL ' + escapeHtml(e.al) : '') + '</div>' +
         '<div style="margin-top:4px;">' + pills + '</div>' +
       '</div>' +
-      '<div class="ui-row-end"><b class="stunden-h">' + escapeHtml(e.totalCost || '—') + '</b>' +
+      '<div class="ui-row-end"><b class="stunden-h cost-only">' + escapeHtml(e.totalCost || '—') + '</b>' +
         '<button type="button" class="ui-icon-btn" aria-label="Protokoll-Aktionen" onclick="event.stopPropagation();protHistoryMenu(\'' + id + '\')">' + uiIcon('dots') + '</button></div>' +
     '</div>';
   }).join('');
@@ -1759,7 +1760,7 @@ async function reExportProtPDF(id) {
   if (!entry) { showToast('Nicht gefunden'); return; }
 
   showToast('Generiere PDF...');
-  buildProtPdfDoc(entry).save(protPdfFileName(entry));
+  buildProtPdfDoc(entry, { costs: canSeeCosts(currentUser) }).save(protPdfFileName(entry));
   showToast('PDF wurde gespeichert!');
 }
 
@@ -1768,7 +1769,8 @@ function protPdfFileName(entry) {
 }
 
 // Builds the protocol PDF from an archived history entry (shared by download and mail)
-function buildProtPdfDoc(entry) {
+// opts.costs === false leaves out the cost block (AL/MA downloads); the mailed PDF for the PL keeps it
+function buildProtPdfDoc(entry, opts) {
   // Everything that reaches doc.text is a string (jsPDF throws on numbers/null)
   var data = {
     event: pdfStr(entry.event, '—'), location: pdfStr(entry.location, '—'),
@@ -1876,6 +1878,7 @@ function buildProtPdfDoc(entry) {
   y = pdfWrappedRow(doc, 'Vorkommnisse:', data.incidents, ml, ml+40, cw-40, y, 4.5, 280);
   y = pdfWrappedRow(doc, 'Feedback:', data.feedback, ml, ml+40, cw-40, y, 4.5, 280); y += 6;
 
+  if (!opts || opts.costs !== false) {
   // Costs, itemized with the same rules as calcProtCosts (custom rates, holiday) so the lines add up to the total
   if (y > 250) { doc.addPage(); y = 20; }
   doc.setDrawColor(24,95,165); doc.setLineWidth(0.5); doc.line(ml,y,ml+cw,y); y += 8;
@@ -1908,6 +1911,7 @@ function buildProtPdfDoc(entry) {
   y += 2;
   doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.setTextColor(24,95,165);
   doc.text('Gesamtkosten (geschätzt): ' + data.totalCost, ml, y); doc.setTextColor(0); y += 12;
+  }
 
   // Signature
   if (entry.signature) {
