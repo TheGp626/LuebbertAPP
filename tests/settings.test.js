@@ -100,7 +100,7 @@ test('saveSettingsTab: a network exception from the rpc shows an error instead o
     console: { log() {}, warn() {}, error() {} },
     localStorage: global.localStorage,
     document: { getElementById: id => id === 'set-error' ? err : id === 'set-save-btn' ? btn : id === 'set-evening_push_hour' ? { value: '18' } : id === 'set-billing_cutoff' ? { value: '21' } : { checked: false },
-      querySelectorAll: () => [{ querySelector: sel => ({ value: /name/.test(sel) ? 'PKW' : '20' }) }] },
+      querySelectorAll: sel => /set-personnel/.test(sel) ? [] : [{ querySelector: sel => ({ value: /name/.test(sel) ? 'PKW' : '20' }) }] },
     showToast() {},
     supabaseClient: { rpc: () => Promise.reject(new TypeError('Failed to fetch')) },
   });
@@ -109,4 +109,17 @@ test('saveSettingsTab: a network exception from the rpc shows an error instead o
   await vm.runInContext('saveSettingsTab()', sandbox);
   assert.match(err.textContent, /fehlgeschlagen/);
   assert.equal(btn.disabled, false);
+});
+
+test('validPersonnelRates: exactly the 4 types × MA/AL/Fahrer, numbers 0–1000; validateSettings uses it', () => {
+  const ok = { Minijob: { MA: 21.5, AL: 25, Fahrer: 30 }, Midijob: { MA: 21.5, AL: 25, Fahrer: 30 },
+    Rechnung: { MA: 30, AL: 35, Fahrer: 40 }, Fest: { MA: 0, AL: 0, Fahrer: 0 } };
+  assert.equal(S.validPersonnelRates(ok), true);
+  const { Fest, ...missing } = ok;
+  assert.equal(S.validPersonnelRates(missing), false);
+  assert.equal(S.validPersonnelRates({ ...ok, Fest: { MA: -1, AL: 0, Fahrer: 0 } }), false);
+  assert.equal(S.validPersonnelRates({ ...ok, Fest: { MA: '0', AL: 0, Fahrer: 0 } }), false);
+  assert.equal(S.validPersonnelRates({ ...ok, Fest: { MA: 0, AL: 0 } }), false);
+  assert.equal(S.validateSettings({ personnel_rates: { ...ok, Fest: { MA: 2000, AL: 0, Fahrer: 0 } } }), 'personnel_rates');
+  assert.equal(S.validateSettings({ personnel_rates: ok }), null);
 });
