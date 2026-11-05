@@ -141,3 +141,13 @@ test('isProfileDenied: permission/JWT errors from PostgREST mean no valid sessio
   for (const e of [{ code: '42501' }, { code: 'PGRST301' }, { code: 'PGRST303' }]) assert.equal(d(e), true, e.code);
   for (const e of [null, new TypeError('Failed to fetch'), { code: '08006' }, { message: 'x' }]) assert.equal(d(e), false);
 });
+
+test('authSessionChanged: a changed employment type or extra roles also re-run the session (I3)', () => {
+  const changed = load('authSessionChanged');
+  const u = { id: 'a', full_name: 'Anna', role: 'AL', default_dept: 'AL', hourly_rate_conni: 15, hourly_rate_internal: 14, employment_type: 'Minijob', role_rates: [] };
+  assert.equal(changed(u, Object.assign({}, u, { employment_type: 'Fest' })), true);
+  assert.equal(changed(u, Object.assign({}, u, { role_rates: [{ role: 'PL' }] })), true);
+  const cachedOld = { id: 'a', full_name: 'Anna', role: 'AL', default_dept: 'AL', hourly_rate_conni: 15, hourly_rate_internal: 14 };
+  assert.equal(changed(cachedOld, u), true, 'profile cached before the update lacks the new fields');
+  assert.equal(changed(u, Object.assign({}, u)), false);
+});

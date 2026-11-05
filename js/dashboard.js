@@ -596,7 +596,7 @@ if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
   UI_TOPBAR_ITEMS.dashboard = function() {
     var view = typeof dashView !== 'undefined' ? dashView : 'prot';
     var items = [];
-    if (view === 'prot') items.push({ label: 'Kosten aller Protokolle neu berechnen', action: 'recalcAllProtocolCosts' });
+    if (view === 'prot' && canSeeCosts(currentUser)) items.push({ label: 'Kosten aller Protokolle neu berechnen', action: 'recalcAllProtocolCosts' });
     if (view === 'work' && typeof dashboardCurrentWorker !== 'undefined' && dashboardCurrentWorker) items.push({ label: 'Monat als PDF (' + (dashboardCurrentWorker.full_name || 'Mitarbeiter') + ')', action: 'exportDashboardMonthlyPDF' });
     // The tab bar is hidden (tiles open one view each): settings and the way back are reachable from here
     if (typeof dashView !== 'undefined' && dashView === 'settings') {
@@ -1086,6 +1086,7 @@ function dashShiftToRow(s) {
     pos: splitPosition(role).func,
     fest: / fest$/.test(role),
     type: splitPosition(role).type,
+    legacy: splitPosition(role).legacy,
     start: (s.start_time || '').substring(0, 5),
     end: (s.end_time || '').substring(0, 5),
     pause: s.pause_mins || 0
@@ -1099,7 +1100,7 @@ function dashShiftRowToDb(row, users) {
   return {
     user_id: userId,
     temp_worker_name: userId ? null : (name || null),
-    position_role: protBasePos({ pos: row.pos, isTemp: !userId, userId: userId, fest: row.fest, type: row.type }, users),
+    position_role: protBasePos({ pos: row.pos, isTemp: !userId, userId: userId, fest: row.fest, type: row.type, legacy: row.legacy }, users),
     start_time: row.start || null,
     end_time: row.end || null,
     pause_mins: parseInt(row.pause, 10) || 0
@@ -1605,12 +1606,14 @@ function onDashShiftName(idx, val) {
   r.name = typed;
   if (hits.length === 1) { r.userId = hits[0].id; r.fest = !!hits[0].is_fest; r.type = hits[0].employment_type || null; }
   else { r.userId = ''; r.fest = false; r.type = null; }
+  r.legacy = false; // another person: their own type applies
 }
 
 function updateDashPeShift(idx, field, val) {
   var r = _editProtShifts[idx];
   if (!r) return;
   r[field] = val;
+  if (field === 'pos') { r.legacy = false; r.type = null; } // another function: the person's current type applies
   if (field === 'pause') r.pauseTouched = true;
   // A new row suggests the break from its length until the break was typed by hand
   if ((field === 'start' || field === 'end') && !r.id && !r.pauseTouched && r.start && r.end) {

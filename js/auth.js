@@ -289,8 +289,9 @@ function initAuthNamePicker() {
 // was deactivated, or nothing was shown from the cache yet
 function authSessionChanged(shown, fresh) {
   if (!shown || !fresh) return true;
-  return ['full_name', 'role', 'default_dept', 'hourly_rate_conni', 'hourly_rate_internal']
-    .some(function(k) { return String(shown[k] == null ? '' : shown[k]) !== String(fresh[k] == null ? '' : fresh[k]); });
+  return ['full_name', 'role', 'default_dept', 'hourly_rate_conni', 'hourly_rate_internal', 'employment_type']
+    .some(function(k) { return String(shown[k] == null ? '' : shown[k]) !== String(fresh[k] == null ? '' : fresh[k]); })
+    || JSON.stringify(shown.role_rates || []) !== JSON.stringify(fresh.role_rates || []);
 }
 
 async function initAuth() {

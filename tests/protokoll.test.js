@@ -902,3 +902,19 @@ test('buildProtPdfDoc: cost block only with costs:true (AL download without, PL 
   assert.ok(/Gesamtkosten/.test(withC) && /Nebenkalkulation/.test(withC));
   assert.ok(/Gesamtkosten/.test(texts(undefined)), 'default keeps the old behaviour for callers that pass nothing');
 });
+
+test('protBasePos: an old "MA frei"/"MA fest" row keeps its stored marker (no repricing of history, I1)', () => {
+  const users = [{ id: 'f', employment_type: 'Fest' }, { id: 'm', employment_type: 'Minijob' }];
+  assert.equal(run('protBasePos')({ pos: 'MA', userId: 'f', legacy: 'frei' }, users), 'MA frei');
+  assert.equal(run('protBasePos')({ pos: 'MA', userId: 'm', legacy: 'fest' }, users), 'MA fest');
+  assert.equal(run('protBasePos')({ pos: 'MA', userId: 'm', legacy: false }, users), 'MA Minijob');
+});
+
+test('updateProtPersonnel: picking another person takes that person\'s type and drops the old marker (I2)', () => {
+  run("protState.personnel = [{ pos: 'MA', userId: 'a', name: 'A', type: 'Minijob', legacy: 'frei', start: '', end: '', pause: '0' }]; appUsers = [{ id: 'b', full_name: 'B', employment_type: 'Fest', is_fest: true }]; renderProtPersonnel = function(){}; saveProtDraft = function(){}; calcProtCosts = function(){};");
+  run("updateProtPersonnel(0, 'userId', 'b')");
+  const p = plain(run('protState.personnel[0]'));
+  assert.equal(p.type, 'Fest');
+  assert.ok(!p.legacy);
+  assert.equal(run("protBasePos(protState.personnel[0], appUsers)"), 'MA Fest');
+});

@@ -78,6 +78,7 @@ function pdfStr(v, fallback) {
 function protBasePos(p, users) {
   if (['AL', 'MA', 'Fahrer'].indexOf(p.pos) === -1) return p.pos;
   if (p.isTemp || !p.userId) return positionKey(p.pos, 'Minijob');
+  if (p.legacy === 'frei' || p.legacy === 'fest') return p.pos + ' ' + p.legacy; // old saved shift: keep how it was priced
   var u = (users || []).find(function(x) { return x.id === p.userId; });
   var type = p.type || (u && u.employment_type);
   if (!type) {
@@ -155,6 +156,7 @@ function protRowToEntry(r) {
       pos: splitPosition(s.position_role).func,
       fest: / fest$/.test(s.position_role || ''),
       type: splitPosition(s.position_role).type,
+      legacy: splitPosition(s.position_role).legacy,
       start: (s.start_time || '').substring(0, 5),
       end: (s.end_time || '').substring(0, 5),
       pause: s.pause_mins || 0
@@ -653,8 +655,9 @@ function onProtPersonnelName(idx, val) {
   if (row.userId === userId && row.name === name) return;
   row.userId = userId;
   row.name = name;
-  if (match) row.fest = !!match.is_fest; // kept on the row for offline saves
-  else delete row.fest;
+  if (match) { row.fest = !!match.is_fest; row.type = match.employment_type || null; } // kept on the row for offline saves
+  else { delete row.fest; row.type = null; }
+  delete row.legacy; // another person: their own type applies
   // Update only this row; renderProtPersonnel() would rebuild all inputs and drop the keyboard
   var title = document.getElementById('prot-pname-' + idx);
   if (title) title.textContent = row.name || row.tempName || 'Ohne Name';
@@ -673,8 +676,13 @@ function updateProtPersonnel(idx, field, val) {
   
   if (field === 'userId') {
     var u = appUsers.find(x => x.id === val);
-    if (u) { protState.personnel[idx].name = u.full_name || u.email; protState.personnel[idx].fest = !!u.is_fest; }
-    else delete protState.personnel[idx].fest;
+    if (u) { protState.personnel[idx].name = u.full_name || u.email; protState.personnel[idx].fest = !!u.is_fest; protState.personnel[idx].type = u.employment_type || null; }
+    else { delete protState.personnel[idx].fest; protState.personnel[idx].type = null; }
+    delete protState.personnel[idx].legacy;
+  }
+  if (field === 'pos') { // another function: the person's current type applies
+    delete protState.personnel[idx].legacy;
+    protState.personnel[idx].type = null;
   }
   if (field === 'tempName') {
     protState.personnel[idx].name = val;

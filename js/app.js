@@ -48,10 +48,15 @@ try {
   departments = DEPT_DEFAULTS;
 }
 // Migrate old verbose department names → protocol-style roles
-// … and the frei/fest names (2026-11-05: the employment type comes from the person, not the department)
-if (departments.some(function(d) { return DEPT_OLD_STYLE.indexOf(d) !== -1 || / (frei|fest)$/.test(d); })) {
+if (departments.some(function(d) { return DEPT_OLD_STYLE.indexOf(d) !== -1; })) {
   departments = DEPT_DEFAULTS;
   localStorage.setItem('stundenzettel_depts', JSON.stringify(DEPT_DEFAULTS));
+}
+// 2026-11-05: "MA frei"/"AL fest" → "MA"/"AL" (the employment type comes from the person); custom entries stay
+if (departments.some(function(d) { return /^(AL|MA|Fahrer) (frei|fest)$/.test(d); })) {
+  departments = departments.map(function(d) { return d.replace(/^(AL|MA|Fahrer) (frei|fest)$/, '$1'); })
+    .filter(function(d, i, all) { return all.indexOf(d) === i; });
+  localStorage.setItem('stundenzettel_depts', JSON.stringify(departments));
 }
 // Default dept of a new shift (no picker any more; each shift has its own dept select)
 var selectedAbt = departments.indexOf('MA') !== -1 ? 'MA' : departments[0];
@@ -62,6 +67,12 @@ try {
 } catch(e) {
   deptWages = Object.assign({}, STUNDEN_DEPT_WAGES_DEFAULT);
 }
+// 2026-11-05: wages saved under "MA frei"/"MA fest" move to "MA" (frei wins); the old keys stay as fallback
+['AL', 'MA', 'Fahrer'].forEach(function(f) {
+  if (!(deptWages[f] > 0) && (deptWages[f + ' frei'] > 0 || deptWages[f + ' fest'] > 0)) {
+    deptWages[f] = deptWages[f + ' frei'] > 0 ? deptWages[f + ' frei'] : deptWages[f + ' fest'];
+  }
+});
 
 // ── MODE SELECTION & NAVIGATION ──
 var MODULE_TITLES = { stunden: 'Stundenzettel', protokoll: 'Protokoll', dashboard: 'Office Dashboard',
