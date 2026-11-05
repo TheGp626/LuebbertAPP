@@ -144,7 +144,7 @@ async function renderSettingsTab() {
   html += '<div class="set-group"><div class="set-group-title">Fahrzeugsätze (€ pro Einsatz)</div>' +
     '<div class="set-veh-row set-veh-head"><span>Fahrzeug</span><span>Mo–Fr</span><span>Sa</span><span>So</span><span></span></div>' +
     '<div id="set-vehicles">' + Object.keys(rates).sort(function(a, b) { return a.localeCompare(b, 'de'); }).map(function(n) { return vehicleRateRowHtml(n, rates[n]); }).join('') + '</div>' +
-    '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Spedition: Kosten kommen per Rechnung. Neue Sätze gelten für neue Berechnungen, gespeicherte Protokoll-Summen bleiben.</small></span>' +
+    '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Spedition: Kosten werden pro Protokoll eingetragen (laut Rechnung). Neue Sätze gelten für neue Berechnungen, gespeicherte Protokoll-Summen bleiben.</small></span>' +
     '<button type="button" class="btn" style="flex:none; width:auto; padding:8px 18px;" onclick="addVehicleRateRow()">+ Fahrzeug</button></div></div>';
   html += '<div class="set-group"><div class="set-group-title">Push testen</div>' +
     '<div class="set-row"><span class="set-text"><b>Test-Push an mich</b><small>Schickt eine Testnachricht an alle Geräte, auf denen du Benachrichtigungen erlaubt hast</small></span>' +

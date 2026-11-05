@@ -26,7 +26,9 @@ function protVehicleTypes() {
   return Object.keys(protVehicleRates()).sort(function(a, b) { return a.localeCompare(b, 'de'); });
 }
 
-function calcTransportCost(type, dateStr) {
+// cost = amount entered for a Spedition transport (its price changes per job); null/'' → no amount
+function calcTransportCost(type, dateStr, cost) {
+  if (type === 'Spedition') return parseFloat(cost) >= 0 ? parseFloat(cost) : 0;
   var r = protVehicleRates()[type];
   if (!r) return 0;
   if (!dateStr) return r.wk;
