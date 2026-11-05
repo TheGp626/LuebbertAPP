@@ -30,7 +30,7 @@ async function fetchAppUsers() {
   if (typeof supabaseClient === 'undefined') return;
   // MA/Gast may only read their own row (RLS): the pickers and rates are office-only
   if (typeof userRole === 'undefined' || !['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole)) return;
-  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, hourly_rate_internal, is_fest').or('is_active.is.null,is_active.eq.true');
+  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, hourly_rate_internal, is_fest, employment_type').or('is_active.is.null,is_active.eq.true');
   if (error) console.error("Error fetching app_users:", error);
   if (data) {
     // The guest login never works shifts → keep it out of AL/PL/staff pickers
@@ -56,7 +56,8 @@ function getEffectivePersonnelRate(basePos, userId) {
   var user = appUsers.find(function(u) { return u.id === userId; });
   if (!user) return undefined;
   if (Array.isArray(user.role_rates)) {
-    var match = user.role_rates.find(function(r) { return r.role === basePos; });
+    var match = user.role_rates.find(function(r) { return r.role === basePos; }) ||
+      user.role_rates.find(function(r) { return roleRateMatches(r.role, basePos); });
     if (match && parseFloat(match.rate_internal) > 0) return parseFloat(match.rate_internal);
   }
   if (parseFloat(user.hourly_rate_internal) > 0) return parseFloat(user.hourly_rate_internal);
@@ -72,16 +73,19 @@ function pdfStr(v, fallback) {
 // Billing position incl. fest/frei for AL/MA/Fahrer. The fest flag stored on the row wins
 // (set when the name is resolved, or from the server), so an offline start before the
 // user list has loaded doesn't bill fest staff as frei.
+// Stored position "<Funktion> <Typ>" (e.g. "MA Minijob"): type of the row → the person's employment type →
+// legacy fest flag (old drafts, old cached user lists) → Minijob. Temp/agency workers are Minijob.
 function protBasePos(p, users) {
-  var basePos = p.pos;
-  if (['AL', 'MA', 'Fahrer'].indexOf(p.pos) === -1) return basePos;
-  if (p.isTemp || !p.userId) return basePos + ' frei';
-  var fest = p.fest;
-  if (fest === undefined || fest === null) {
-    var u = (users || []).find(function(x) { return x.id === p.userId; });
-    fest = !!(u && u.is_fest);
+  if (['AL', 'MA', 'Fahrer'].indexOf(p.pos) === -1) return p.pos;
+  if (p.isTemp || !p.userId) return positionKey(p.pos, 'Minijob');
+  if (p.legacy === 'frei' || p.legacy === 'fest') return p.pos + ' ' + p.legacy; // old saved shift: keep how it was priced
+  var u = (users || []).find(function(x) { return x.id === p.userId; });
+  var type = p.type || (u && u.employment_type);
+  if (!type) {
+    var fest = (p.fest === undefined || p.fest === null) ? !!(u && u.is_fest) : p.fest;
+    type = fest ? 'Fest' : 'Minijob';
   }
-  return basePos + (fest ? ' fest' : ' frei');
+  return positionKey(p.pos, type);
 }
 
 // AL/PL id from its <select>: before the user list has loaded the select is empty → keep the known id
@@ -149,8 +153,10 @@ function protRowToEntry(r) {
       userId: s.user_id || null,
       isTemp: !s.user_id,
       tempName: s.user_id ? null : (s.temp_worker_name || null),
-      pos: (s.position_role || '').replace(/ (fest|frei)$/, ''),
+      pos: splitPosition(s.position_role).func,
       fest: / fest$/.test(s.position_role || ''),
+      type: splitPosition(s.position_role).type,
+      legacy: splitPosition(s.position_role).legacy,
       start: (s.start_time || '').substring(0, 5),
       end: (s.end_time || '').substring(0, 5),
       pause: s.pause_mins || 0
@@ -649,8 +655,9 @@ function onProtPersonnelName(idx, val) {
   if (row.userId === userId && row.name === name) return;
   row.userId = userId;
   row.name = name;
-  if (match) row.fest = !!match.is_fest; // kept on the row for offline saves
-  else delete row.fest;
+  if (match) { row.fest = !!match.is_fest; row.type = match.employment_type || null; } // kept on the row for offline saves
+  else { delete row.fest; row.type = null; }
+  delete row.legacy; // another person: their own type applies
   // Update only this row; renderProtPersonnel() would rebuild all inputs and drop the keyboard
   var title = document.getElementById('prot-pname-' + idx);
   if (title) title.textContent = row.name || row.tempName || 'Ohne Name';
@@ -669,8 +676,13 @@ function updateProtPersonnel(idx, field, val) {
   
   if (field === 'userId') {
     var u = appUsers.find(x => x.id === val);
-    if (u) { protState.personnel[idx].name = u.full_name || u.email; protState.personnel[idx].fest = !!u.is_fest; }
-    else delete protState.personnel[idx].fest;
+    if (u) { protState.personnel[idx].name = u.full_name || u.email; protState.personnel[idx].fest = !!u.is_fest; protState.personnel[idx].type = u.employment_type || null; }
+    else { delete protState.personnel[idx].fest; protState.personnel[idx].type = null; }
+    delete protState.personnel[idx].legacy;
+  }
+  if (field === 'pos') { // another function: the person's current type applies
+    delete protState.personnel[idx].legacy;
+    protState.personnel[idx].type = null;
   }
   if (field === 'tempName') {
     protState.personnel[idx].name = val;
@@ -761,7 +773,7 @@ function protDriverCost(t, users) {
   if (!(hrs > 0) || (!t.driverUserId && !(t.driver || '').trim())) return null;
   var basePos = protBasePos({ pos: 'Fahrer', userId: t.driverUserId || '' }, users);
   var custom = t.driverUserId ? getEffectivePersonnelRate(basePos, t.driverUserId) : undefined;
-  var rate = (typeof custom === 'number' && custom > 0) ? custom : (PROT_PERSONNEL_RATES[basePos] || 0);
+  var rate = (typeof custom === 'number' && custom > 0) ? custom : personnelRate(basePos);
   return { hrs: hrs, rate: rate, amount: hrs * rate };
 }
 
@@ -805,6 +817,7 @@ function calcProtCosts() {
 
 // Tapping the cost in the action bar: the breakdown of the current calculation
 function openProtCostSheet() {
+  if (!canSeeCosts(currentUser)) return; // AL/MA: no rates (bar is hidden too)
   calcProtCosts();
   var fmt = function(n) { return n.toFixed(2).replace('.', ',') + ' €'; };
   var m = document.getElementById('prot-cost-modal');
@@ -1175,7 +1188,7 @@ function protShiftChanges(oldShifts, personnel, users, shiftDate) {
     if (!o) { inserts.push({ person: r.person, row: Object.assign({}, next, { status: 'offen' }) }); return; }
     r.person.shiftId = o.id;
     var patch = {};
-    var oldBase = (o.position_role || '').replace(/ (fest|frei)$/, '');
+    var oldBase = splitPosition(o.position_role).func;
     if ((o.user_id || null) !== next.user_id || (o.temp_worker_name || null) !== next.temp_worker_name) {
       patch.user_id = next.user_id;
       patch.temp_worker_name = next.temp_worker_name;
@@ -1511,7 +1524,7 @@ async function mailProtokoll(supabaseId, entry, isUpdate, notify) {
   if (!supabaseId || typeof supabaseClient === 'undefined') return false;
   var pdfBase64 = null;
   try {
-    pdfBase64 = buildProtPdfDoc(entry).output('datauristring').split(',')[1] || null;
+    pdfBase64 = buildProtPdfDoc(entry, { costs: true }).output('datauristring').split(',')[1] || null;
     // The function rejects >5 MB with 413 forever → send the summary without attachment instead
     if (pdfBase64 && pdfBase64.length > MAIL_MAX_PDF_B64) {
       console.warn('Protokoll-PDF zu groß für Mail, sende ohne Anhang:', pdfBase64.length);
@@ -1635,7 +1648,7 @@ function renderProtHistoryList() {
         '<div class="ui-sub">' + escapeHtml(e.location || '—') + (e.al ? ' · AL ' + escapeHtml(e.al) : '') + '</div>' +
         '<div style="margin-top:4px;">' + pills + '</div>' +
       '</div>' +
-      '<div class="ui-row-end"><b class="stunden-h">' + escapeHtml(e.totalCost || '—') + '</b>' +
+      '<div class="ui-row-end"><b class="stunden-h cost-only">' + escapeHtml(e.totalCost || '—') + '</b>' +
         '<button type="button" class="ui-icon-btn" aria-label="Protokoll-Aktionen" onclick="event.stopPropagation();protHistoryMenu(\'' + id + '\')">' + uiIcon('dots') + '</button></div>' +
     '</div>';
   }).join('');
@@ -1755,7 +1768,7 @@ async function reExportProtPDF(id) {
   if (!entry) { showToast('Nicht gefunden'); return; }
 
   showToast('Generiere PDF...');
-  buildProtPdfDoc(entry).save(protPdfFileName(entry));
+  buildProtPdfDoc(entry, { costs: canSeeCosts(currentUser) }).save(protPdfFileName(entry));
   showToast('PDF wurde gespeichert!');
 }
 
@@ -1764,7 +1777,8 @@ function protPdfFileName(entry) {
 }
 
 // Builds the protocol PDF from an archived history entry (shared by download and mail)
-function buildProtPdfDoc(entry) {
+// opts.costs === false leaves out the cost block (AL/MA downloads); the mailed PDF for the PL keeps it
+function buildProtPdfDoc(entry, opts) {
   // Everything that reaches doc.text is a string (jsPDF throws on numbers/null)
   var data = {
     event: pdfStr(entry.event, '—'), location: pdfStr(entry.location, '—'),
@@ -1872,6 +1886,7 @@ function buildProtPdfDoc(entry) {
   y = pdfWrappedRow(doc, 'Vorkommnisse:', data.incidents, ml, ml+40, cw-40, y, 4.5, 280);
   y = pdfWrappedRow(doc, 'Feedback:', data.feedback, ml, ml+40, cw-40, y, 4.5, 280); y += 6;
 
+  if (!opts || opts.costs !== false) {
   // Costs, itemized with the same rules as calcProtCosts (custom rates, holiday) so the lines add up to the total
   if (y > 250) { doc.addPage(); y = 20; }
   doc.setDrawColor(24,95,165); doc.setLineWidth(0.5); doc.line(ml,y,ml+cw,y); y += 8;
@@ -1904,6 +1919,7 @@ function buildProtPdfDoc(entry) {
   y += 2;
   doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.setTextColor(24,95,165);
   doc.text('Gesamtkosten (geschätzt): ' + data.totalCost, ml, y); doc.setTextColor(0); y += 12;
+  }
 
   // Signature
   if (entry.signature) {

@@ -53,6 +53,48 @@ var PROT_PERSONNEL_RATES = {
   'Rockit Feiertag': 60
 };
 
+// ── EMPLOYMENT TYPE (Beschäftigungsart) ──
+// The type lives on the person (app_users.employment_type); a shift stores "<Funktion> <Typ>" (e.g. "MA Minijob")
+// as a snapshot. Old keys like "MA frei" / "AL fest" stay valid and keep the PROT_PERSONNEL_RATES table.
+var EMPLOYMENT_TYPES = ['Minijob', 'Midijob', 'Rechnung', 'Fest'];
+var TYPED_FUNCTIONS = ['MA', 'AL', 'Fahrer'];
+var PERSONNEL_RATE_DEFAULTS = {
+  Minijob:  { MA: 21.5, AL: 25, Fahrer: 30 },
+  Midijob:  { MA: 21.5, AL: 25, Fahrer: 30 },
+  Rechnung: { MA: 21.5, AL: 25, Fahrer: 30 },
+  Fest:     { MA: 0,    AL: 0,  Fahrer: 0 }
+};
+
+function positionKey(func, type) {
+  if (TYPED_FUNCTIONS.indexOf(func) === -1) return func;
+  return func + ' ' + (EMPLOYMENT_TYPES.indexOf(type) !== -1 ? type : 'Minijob');
+}
+
+function splitPosition(key) {
+  var parts = String(key || '').split(' ');
+  var func = parts[0], rest = parts.slice(1).join(' ');
+  if (TYPED_FUNCTIONS.indexOf(func) !== -1 && EMPLOYMENT_TYPES.indexOf(rest) !== -1) return { func: func, type: rest, legacy: false };
+  if (TYPED_FUNCTIONS.indexOf(func) !== -1 && (rest === 'frei' || rest === 'fest')) return { func: func, type: null, legacy: rest };
+  return { func: String(key || ''), type: null, legacy: false };
+}
+
+// Does a personal rate entry (app_users.role_rates[].role) apply to a position? Old entries "MA frei" keep
+// applying to the paid types, "MA fest" to Fest
+function roleRateMatches(entryRole, key) {
+  if (entryRole === key) return true;
+  var e = splitPosition(entryRole), k = splitPosition(key);
+  if (!e.legacy || !k.type || e.func !== k.func) return false;
+  return e.legacy === 'fest' ? k.type === 'Fest' : k.type !== 'Fest';
+}
+
+function personnelRate(key) {
+  var p = splitPosition(key);
+  if (!p.type) return PROT_PERSONNEL_RATES[key] || 0;
+  var s = (typeof appSetting === 'function') ? appSetting('personnel_rates') : null;
+  var row = (s && s[p.type] && typeof s[p.type][p.func] === 'number') ? s[p.type] : PERSONNEL_RATE_DEFAULTS[p.type];
+  return row[p.func] || 0;
+}
+
 // ── STUNDENZETTEL CONSTANTS ──
 
 var STUNDEN_MONSTER_PRICE = 1.84;
@@ -89,7 +131,7 @@ function calcSplitShiftCosts(basePos, dateStr, isHoliday, startMins, endMins, pa
   // If not Zenjob/Rockit, just return the base position
   if (basePos !== 'Zenjob' && basePos !== 'Rockit') {
     var desc = basePos;
-    var rate = (typeof customRate === 'number' && customRate > 0) ? customRate : (PROT_PERSONNEL_RATES[desc] || 0);
+    var rate = (typeof customRate === 'number' && customRate > 0) ? customRate : personnelRate(desc);
     var hrs = Math.max(3, (totalWorkMins * netFactor) / 60);
     return [{ desc: desc, hrs: hrs, rate: rate }];
   }
