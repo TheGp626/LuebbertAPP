@@ -67,3 +67,33 @@ test('calcTransportCost: Spedition costs the amount entered in the protocol, not
   assert.equal(c('Spedition', '2026-11-02', ''), 0);
   assert.equal(c('Bischoff', '2026-11-02', 999), 750, 'other vehicles keep their rate');
 });
+
+test('positionKey: function + employment type, other departments unchanged, unknown type → Minijob', () => {
+  assert.equal(ctx.positionKey('MA', 'Rechnung'), 'MA Rechnung');
+  assert.equal(ctx.positionKey('AL', 'Fest'), 'AL Fest');
+  assert.equal(ctx.positionKey('MA', undefined), 'MA Minijob');
+  assert.equal(ctx.positionKey('Fahrer', 'quatsch'), 'Fahrer Minijob');
+  assert.equal(ctx.positionKey('Lager', 'Fest'), 'Lager');
+});
+
+test('splitPosition: new keys, legacy frei/fest keys, plain departments', () => {
+  const s = k => JSON.parse(JSON.stringify(ctx.splitPosition(k)));
+  assert.deepEqual(s('MA Minijob'), { func: 'MA', type: 'Minijob', legacy: false });
+  assert.deepEqual(s('AL frei'), { func: 'AL', type: null, legacy: 'frei' });
+  assert.deepEqual(s('Fahrer fest'), { func: 'Fahrer', type: null, legacy: 'fest' });
+  assert.deepEqual(s('Lager'), { func: 'Lager', type: null, legacy: false });
+  assert.deepEqual(s(''), { func: '', type: null, legacy: false });
+});
+
+test('personnelRate: per-type defaults, settings win, missing type in settings → default, legacy keys keep old table', () => {
+  assert.equal(ctx.personnelRate('AL Fest'), 0);
+  assert.equal(ctx.personnelRate('MA Midijob'), 21.5);
+  assert.equal(ctx.personnelRate('Fahrer Rechnung'), 30);
+  assert.equal(ctx.personnelRate('MA frei'), 21.5);
+  assert.equal(ctx.personnelRate('Lager'), 0);
+  vm.runInContext("appSetting = function(k) { return k === 'personnel_rates' ? { Rechnung: { MA: 30, AL: 35, Fahrer: 40 } } : undefined; }", ctx);
+  assert.equal(ctx.personnelRate('MA Rechnung'), 30);
+  assert.equal(ctx.personnelRate('MA Minijob'), 21.5);
+  assert.equal(calc('AL Rechnung', '2026-10-28', false, 480, 960, 0)[0].rate, 35);
+  vm.runInContext('delete appSetting', ctx);
+});
