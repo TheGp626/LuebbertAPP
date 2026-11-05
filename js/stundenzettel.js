@@ -963,17 +963,23 @@ function weekBillingSplit(w) {
     var d = parseDayDate(dd);
     if (!d) return;
     var shifts = dd.shifts || [dd]; // legacy single-shift day format
-    var hrs = 0;
-    shifts.forEach(function (sh) { hrs += shiftNetHours(sh); });
+    var hrs = 0, eur = 0;
+    shifts.forEach(function (sh) {
+      var h = shiftNetHours(sh);
+      hrs += h;
+      eur += h * (getDeptWage(editorDept(sh.dept || w.abt)) || 0); // pay at the device's wage per department
+    });
     if (hrs <= 0) return;
     var p = getBillingKeyForDate(d, billingCutoff);
-    if (!out[p.key]) out[p.key] = { label: p.label, hours: 0 };
+    if (!out[p.key]) out[p.key] = { label: p.label, hours: 0, eur: 0 };
     out[p.key].hours += hrs;
+    out[p.key].eur += eur;
     hasAny = true;
   });
   if (!hasAny) {
     var m = getMonthKeyFromWeek(w.weekStart, billingCutoff);
-    out[m.key] = { label: m.label, hours: parseFloat((w.total || '0').replace(',', '.')) || 0 };
+    var th = parseFloat((w.total || '0').replace(',', '.')) || 0;
+    out[m.key] = { label: m.label, hours: th, eur: th * (getDeptWage(editorDept(w.abt)) || 0) };
   }
   return out;
 }
@@ -1001,9 +1007,10 @@ function renderHistory(skipSync) {
     }
     var periods = weekBillingSplit(w);
     Object.keys(periods).forEach(function (pk) {
-      if (!months[pk]) months[pk] = { label: periods[pk].label, weeks: [], totalHours: 0 };
+      if (!months[pk]) months[pk] = { label: periods[pk].label, weeks: [], totalHours: 0, totalEur: 0 };
       months[pk].weeks.push(w);
       months[pk].totalHours += periods[pk].hours;
+      months[pk].totalEur += periods[pk].eur || 0;
     });
   });
   var html = '';
@@ -1012,7 +1019,7 @@ function renderHistory(skipSync) {
     var hrs = m.totalHours % 1 === 0 ? m.totalHours.toFixed(0) : m.totalHours.toFixed(2);
     var bilRange = getBillingPeriodLabel(mKey, billingCutoff);
     html += '<div class="ui-section"><div class="ui-section-head"><div><div class="ui-row-title">' + escapeHtml(m.label) + '</div>' +
-      '<div class="ui-sub">' + bilRange + ' · ' + hrs.replace('.', ',') + ' h</div></div>' +
+      '<div class="ui-sub">' + bilRange + ' · ' + hrs.replace('.', ',') + ' h' + (formatEuros(m.totalEur) ? ' · ' + formatEuros(m.totalEur) : '') + '</div></div>' +
       '<button type="button" class="ui-icon-btn" aria-label="Monat-Aktionen" onclick="historyMonthMenu(\'' + jsAttrArg(mKey) + '\')">' + uiIcon('dots') + '</button></div>';
     html += m.weeks.map(function (w) {
       var hKey = w.histKey || w.weekStart;
