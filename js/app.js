@@ -279,7 +279,12 @@ function getDeptWage(dept) {
 function formatEarnings(totalHours, dept) {
   var wage = getDeptWage(dept);
   if (wage <= 0 || totalHours <= 0) return null;
-  var euros = totalHours * wage;
+  return formatEuros(totalHours * wage);
+}
+
+// "≈ 123,45 €" (or Monster cans); null for nothing
+function formatEuros(euros) {
+  if (!(euros > 0)) return null;
   if (monsterMode) {
     var cans = Math.floor(euros / (STUNDEN_MONSTER_PRICE || 1.84));
     return '≈ ' + cans + ' <img src="icons/monsta_can.png" class="monster-icon" alt="Monster Can">';
