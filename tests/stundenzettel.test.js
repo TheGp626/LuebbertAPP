@@ -287,7 +287,7 @@ test('dropSyncedWeeks: empty server → synced weeks go, unsynced weeks stay', (
 });
 
 test('mergeUnseenShifts: server shifts the user never saw are added, typed entries kept, nothing duplicated', () => {
-  const { mergeUnseenShifts } = load(['mergeUnseenShifts']);
+  const { mergeUnseenShifts } = load(['mergeUnseenShifts', 'editorDept']);
   const empty = () => sh('', '', 'MA frei');
   const local = week('MA frei', [[empty()], [empty()], [sh('08:00', '12:00', 'MA frei', { sig: 'S' })], [], [], [], []]);
   const server = week('MA frei', [[sh('08:00', '16:00', 'MA frei')], [sh('09:00', '10:00', 'MA frei', { isProtocol: true })], [sh('08:00', '12:00', 'MA frei')], [], [], [], []]);
@@ -334,5 +334,17 @@ test('weekToEditorState: old "MA frei" and new "AL Rechnung" show as function on
   const { weekToEditorState } = load(['weekToEditorState', 'editorDept'], ['timeToMins', 'autoPause']);
   const st = weekToEditorState(week('MA frei', [[sh('08:00', '12:00', 'MA frei'), sh('13:00', '17:00', 'AL Rechnung'), sh('18:00', '20:00', 'Lager')], [], [], [], [], [], []]), 'MA');
   assert.deepEqual(st.shiftValues[0].map(s => s.dept), ['MA', 'AL', 'Lager']);
+  delete global.splitPosition;
+});
+
+test('mergeUnseenShifts: a local "MA" shift and the same server shift as "MA Minijob"/"MA frei" are one shift (C1)', () => {
+  const vm = require('vm'), c = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/formulas.js'), 'utf8'), c);
+  global.splitPosition = c.splitPosition;
+  const { mergeUnseenShifts } = load(['mergeUnseenShifts', 'editorDept']);
+  const local = week('MA', [[sh('08:00', '16:00', 'MA')], [sh('09:00', '12:00', 'MA')], [], [], [], [], []]);
+  assert.equal(mergeUnseenShifts(local, week('MA Minijob', [[sh('08:00', '16:00', 'MA Minijob')], [], [], [], [], [], []])).added, 0);
+  assert.equal(mergeUnseenShifts(local, week('MA frei', [[sh('08:00', '16:00', 'MA frei')], [], [], [], [], [], []])).added, 0);
+  assert.equal(mergeUnseenShifts(local, week('AL Minijob', [[sh('08:00', '16:00', 'AL Minijob')], [], [], [], [], [], []])).added, 1);
   delete global.splitPosition;
 });

@@ -159,7 +159,7 @@ const rowsOf = () => plain(run('(' + JSON.stringify(OLD_SHIFTS) + ').map(dashShi
 test('dashShiftToRow: stored shift becomes an editor row (base position, fest kept, HH:MM)', () => {
   run('appUsers = ' + JSON.stringify(USERS));
   const r = rowsOf();
-  assert.deepEqual(r[0], { id: 's1', userId: 'u1', name: 'Anna Alt', pos: 'AL', fest: true, type: null, start: '08:00', end: '16:00', pause: 30 });
+  assert.deepEqual(r[0], { id: 's1', userId: 'u1', name: 'Anna Alt', pos: 'AL', fest: true, type: null, legacy: 'fest', start: '08:00', end: '16:00', pause: 30 });
   assert.deepEqual([r[1].userId, r[1].name, r[1].pos], ['', 'Zora', 'Zenjob']);
 });
 
@@ -177,7 +177,7 @@ test('dashShiftChanges: nothing edited → nothing to write (status and ids surv
 test('dashShiftChanges: changing only one name is exactly one update with only that name', () => {
   const c = changes(rows => { rows[0].userId = 'u3'; rows[0].name = 'Nora Neu'; rows[0].fest = true; });
   assert.equal(c.updates.length, 1);
-  assert.deepEqual(c.updates[0], { id: 's1', patch: { user_id: 'u3', temp_worker_name: null, position_role: 'AL Fest', status: 'offen' } });
+  assert.deepEqual(c.updates[0], { id: 's1', patch: { user_id: 'u3', temp_worker_name: null, status: 'offen' } });
   assert.deepEqual([c.inserts.length, c.deletes.length], [0, 0]);
 });
 
@@ -192,7 +192,8 @@ test('dashShiftChanges: unchanged position keeps the stored role (legacy "MA" wi
 });
 
 test('dashShiftChanges: position change recomputes fest/frei, time and pause patch only what changed', () => {
-  const c = changes(rows => { rows[0].pos = 'MA'; rows[0].end = '17:00'; rows[0].pause = '45'; });
+  // pos changed the way updateDashPeShift does it (clears the old frei/fest marker)
+  const c = changes(rows => { rows[0].pos = 'MA'; rows[0].legacy = false; rows[0].end = '17:00'; rows[0].pause = '45'; });
   assert.deepEqual(c.updates, [{ id: 's1', patch: { position_role: 'MA Fest', end_time: '17:00', pause_mins: 45, status: 'offen' } }]);
 });
 
@@ -519,7 +520,11 @@ test('dashboard menu: PDF only in the Buchhaltung view with a person, recalc onl
     vm.runInContext('dashView = ' + JSON.stringify(view) + '; dashboardCurrentWorker = ' + JSON.stringify(worker), c2);
     return vm.runInContext('UI_TOPBAR_ITEMS.dashboard()', c2).map(i => i.action);
   };
+  vm.runInContext('currentUser = { role: "PL" }; canSeeCosts = function(u) { return u.role === "PL"; };', c2);
   assert.deepEqual(plain(actions('prot', { full_name: 'A' })), ['recalcAllProtocolCosts']);
+  vm.runInContext('currentUser = { role: "AL" };', c2);
+  assert.deepEqual(plain(actions('prot', { full_name: 'A' })), [], 'AL must not rewrite every protocol total');
+  vm.runInContext('currentUser = { role: "PL" };', c2);
   assert.deepEqual(plain(actions('work', { full_name: 'A' })), ['exportDashboardMonthlyPDF']);
   assert.deepEqual(plain(actions('work', null)), []);
 });
@@ -567,4 +572,14 @@ test('dashRoleOptions: new type keys plus plain departments; a legacy role in us
   assert.ok(!o.includes('AL frei'));
   assert.equal(o[o.length - 1], 'MA frei');
   assert.ok(!plain(ctx.dashRoleOptions('MA Midijob')).slice(-1).includes('MA frei'));
+});
+
+test('dashShiftToRow/dashShiftRowToDb: an old "AL fest" row keeps its marker unless the person or function changes (I1)', () => {
+  const row = plain(ctx.dashShiftToRow({ id: 's', user_id: 'u1', position_role: 'AL fest', start_time: '08:00:00', end_time: '16:00:00', pause_mins: 0 }));
+  assert.equal(row.legacy, 'fest');
+  ctx.appUsers = [{ id: 'u1', full_name: 'Max', employment_type: 'Minijob' }];
+  assert.equal(ctx.dashShiftRowToDb(row, ctx.appUsers).position_role, 'AL fest');
+  ctx._editProtShifts = [Object.assign({}, row)];
+  ctx.updateDashPeShift(0, 'pos', 'MA');
+  assert.equal(ctx.dashShiftRowToDb(ctx._editProtShifts[0], ctx.appUsers).position_role, 'MA Minijob');
 });

@@ -500,7 +500,8 @@ function weekIsBlind(all, weekStart) {
 // Adds shifts the server has but the local week lacks (same day + von + bis + dept); keeps everything local
 function mergeUnseenShifts(local, server) {
   var added = 0;
-  var keyOf = function (s, w) { return [s.von, s.bis, s.dept || w.abt].join('|'); };
+  // by function: the editor keeps "MA", a server-built week "MA Minijob" or old "MA frei" — same shift
+  var keyOf = function (s, w) { return [s.von, s.bis, editorDept(s.dept || w.abt)].join('|'); };
   var days = (local.days || []).map(function (dd, i) {
     var have = (dd.shifts || []).filter(function (s) { return s.von || s.bis; });
     var keys = {};
