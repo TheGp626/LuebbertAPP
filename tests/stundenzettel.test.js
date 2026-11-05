@@ -307,3 +307,11 @@ test('weekIsBlind: a local save made without having seen the server', () => {
   assert.equal(weekIsBlind({ '2026-W44': { unsynced: true } }, '2026-W44'), false);
   assert.equal(weekIsBlind({ '2026-W45': { blind: true } }, '2026-W44'), false);
 });
+
+test('weekToEditorState: shifts of a mixed-dept week come back sorted by start time, signatures follow', () => {
+  const { weekToEditorState, mergeWeekParts, buildWeekEntries } = load(['weekToEditorState', 'mergeWeekParts', 'buildWeekEntries', 'splitWeekByDepts', 'weekPartKey'], ['timeToMins', 'autoPause']);
+  const w = week('AL frei', [[sh('12:00', '18:00', 'AL frei', { sig: 'S-AL' }), sh('07:00', '10:00', 'Lager')], [], [], [], [], [], []]);
+  const st = weekToEditorState(mergeWeekParts(buildWeekEntries(w), '2026-W44'), 'MA frei');
+  assert.deepEqual(st.shiftValues[0].map(s => [s.von, s.dept]), [['07:00', 'Lager'], ['12:00', 'AL frei']]);
+  assert.deepEqual(st.shiftSigData, { '0-1': 'S-AL' });
+});
