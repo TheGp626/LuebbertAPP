@@ -195,7 +195,7 @@ async function fetchOwnProfile(id) {
   let data = null, error = null;
   try {
     ({ data, error } = await supabaseClient.from('app_users')
-      .select('id, full_name, role, role_rates, employment_type, default_dept, hourly_rate_internal, is_active, plan_interest_viewer, app_user_private(hourly_rate_conni)')
+      .select('id, full_name, role, role_rates, employment_type, default_dept, hourly_rate_internal, is_active, plan_interest_viewer, can_drive, app_user_private(hourly_rate_conni)')
       .eq('id', id).maybeSingle());
   } catch (e) { error = e; }
   if (isProfileDenied(error)) return { profile: null, error: false };
@@ -289,7 +289,7 @@ function initAuthNamePicker() {
 // was deactivated, or nothing was shown from the cache yet
 function authSessionChanged(shown, fresh) {
   if (!shown || !fresh) return true;
-  return ['full_name', 'role', 'default_dept', 'hourly_rate_conni', 'hourly_rate_internal', 'employment_type']
+  return ['full_name', 'role', 'default_dept', 'hourly_rate_conni', 'hourly_rate_internal', 'employment_type', 'can_drive']
     .some(function(k) { return String(shown[k] == null ? '' : shown[k]) !== String(fresh[k] == null ? '' : fresh[k]); })
     || JSON.stringify(shown.role_rates || []) !== JSON.stringify(fresh.role_rates || []);
 }
@@ -365,6 +365,7 @@ function handleSession(user) {
     }
     localStorage.setItem('stundenzettel_name', user.full_name);
     window.currentUserSeesInterest = !!user.plan_interest_viewer; // Wochenplan: sees who said "Ich hätte Zeit"
+    window.currentUserCanDrive     = !!user.can_drive;            // Wochenplan: may apply for Fahrer slots
     window.currentUserRateConni    = parseFloat(user.hourly_rate_conni)    || 0;
     window.currentUserRateInternal = parseFloat(user.hourly_rate_internal) || 0;
 
@@ -409,6 +410,7 @@ function handleSession(user) {
     currentUser = null;
     userRole = 'MA';
     window.currentUserSeesInterest = false;
+    window.currentUserCanDrive     = false;
     authSelectedUserId = null;
     if (userChanged && typeof buildDays === 'function') buildDays(true); // no editor content of the logged-out user stays in memory
     const nameInp = document.getElementById('auth-name-input');

@@ -94,6 +94,24 @@ test('wpCanApply: open slots, future, not assigned, interest loaded', () => {
   assert.equal(ctx.wpCanApply(s, null, '2030-01-01'), false);
 });
 
+test('wpSlotFits: AL slot for AL/PL/Admin, Fahrer slot only with can_drive, everything else for all', () => {
+  assert.equal(ctx.wpSlotFits('Fahrer', { role: 'MA', canDrive: false }), false);
+  assert.equal(ctx.wpSlotFits('Fahrer', { role: 'MA', canDrive: true }), true);
+  assert.equal(ctx.wpSlotFits('Fahrer', { role: 'Admin', canDrive: false }), false);
+  assert.equal(ctx.wpSlotFits('AL', { role: 'MA', canDrive: true }), false);
+  ['AL', 'PL', 'Admin'].forEach(r => assert.equal(ctx.wpSlotFits('AL', { role: r }), true));
+  ['MA', 'Zenjob', 'ROCKiT', undefined].forEach(r => assert.equal(ctx.wpSlotFits(r, { role: 'MA' }), true));
+});
+
+test('wpCanApply: only when one open slot fits the person', () => {
+  const s = { date: '2030-01-02', open_slots: [{ role: 'Fahrer', count: 1 }], plan_assignments: [], _interest: [] };
+  assert.equal(ctx.wpCanApply(s, 'a', '2030-01-01', { role: 'MA', canDrive: false }), false);
+  assert.equal(ctx.wpCanApply(s, 'a', '2030-01-01', { role: 'MA', canDrive: true }), true);
+  assert.equal(ctx.wpCanApply({ ...s, open_slots: [{ role: 'Fahrer', count: 1 }, { role: 'MA', count: 2 }] }, 'a', '2030-01-01', { role: 'MA' }), true);
+  assert.equal(ctx.wpCanApply({ ...s, open_slots: [{ role: 'AL', count: 1 }] }, 'a', '2030-01-01', { role: 'MA' }), false);
+  assert.equal(ctx.wpCanApply({ ...s, open_slots: [{ role: 'AL', count: 1 }] }, 'a', '2030-01-01', { role: 'AL' }), true);
+});
+
 test('wpInterested: drops assigned users; [] when not loaded', () => {
   assert.deepEqual(plain(ctx.wpInterested({ plan_assignments: [{ user_id: 'a' }], _interest: ['a', 'b'] })), ['b']);
   assert.deepEqual(plain(ctx.wpInterested({ plan_assignments: [] })), []);
