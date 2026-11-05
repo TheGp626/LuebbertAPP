@@ -451,6 +451,14 @@ function ordnerSyncDeleteField() {
   var auto = ordnerAutoDeleteDate(readEinsatzRows()) || '';
   if (inp) inp.value = ordnerNextDeleteValue(inp.value, _ordnerAutoValue, auto);
   _ordnerAutoValue = auto;
+  ordnerEndsText();
+}
+
+// Folder form: the deletion date as text under the Einsätze (the date field opens via "ändern")
+function ordnerEndsText() {
+  var inp = document.getElementById('inp-ordner-ends'), out = document.getElementById('ordner-ends-text');
+  var p = String((inp && inp.value) || '').split('-');
+  if (out) out.textContent = p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : '—';
 }
 
 function readEinsatzRows() {
@@ -483,6 +491,9 @@ async function openOrdnerForm(id) {
   if (descInp) descInp.value = o ? (o.description || '') : '';
   var endsInp = document.getElementById('inp-ordner-ends');
   if (endsInp) endsInp.value = o && o.ends_on ? o.ends_on : '';
+  ordnerEndsText();
+  var endsDetails = document.getElementById('ordner-ends-field');
+  if (endsDetails) endsDetails.open = false;
   // Subfolders follow their top-level folder: no deletion date of their own
   var endsField = document.getElementById('ordner-ends-field');
   if (endsField) endsField.style.display = o && o.parent_id ? 'none' : '';

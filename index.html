@@ -492,11 +492,12 @@
       <label class="ui-field"><span>Ordnername *</span><input type="text" id="inp-ordner-name" placeholder="z. B. Projekt Berlin 2024" /></label>
       <label class="ui-field"><span>Beschreibung</span><input type="text" id="inp-ordner-desc" placeholder="Kurze Beschreibung…" /></label>
       <label class="ui-field"><span>Projektleitung (PL)</span><select id="inp-ordner-pl"></select></label>
-      <label class="ui-field" id="ordner-ends-field"><span>Löschung am</span><input type="date" id="inp-ordner-ends" /><small class="ui-sub">Automatisch 7 Tage nach dem letzten Einsatz – bei Bedarf verschieben</small></label>
-      <div class="ui-field"><span>Einsätze (für die Protokoll-Erinnerung an die AL)</span>
+      <div class="ui-field"><span>Einsätze / Eventtage (für die Protokoll-Erinnerung an die AL)</span>
         <div id="ordner-einsatz-rows" style="display:flex; flex-direction:column; gap:8px;"></div>
         <button type="button" class="ui-add-row" style="margin-top:8px;" onclick="addEinsatzRow()">+ Einsatz</button>
       </div>
+      <details class="ui-field" id="ordner-ends-field"><summary class="ui-sub" style="cursor:pointer;">Ordner wird automatisch gelöscht am <b id="ordner-ends-text">–</b> (7 Tage nach dem letzten Einsatz) · <u>ändern</u></summary>
+        <input type="date" id="inp-ordner-ends" aria-label="Löschdatum des Ordners" oninput="ordnerEndsText()" style="margin-top:6px;" /></details>
       <div class="ui-sheet-actions">
         <button type="button" class="ui-btn" onclick="closeOrdnerForm()">Abbrechen</button>
         <button type="button" class="ui-btn ui-btn-primary" onclick="saveOrdner()">Speichern</button>
@@ -826,21 +827,21 @@
   <script src="js/supabase-config.js?v=10"></script>
   <script src="js/auth.js?v=32"></script>
   <script src="js/logo.js?v=9"></script>
-  <script src="js/formulas.js?v=14"></script>
+  <script src="js/formulas.js?v=15"></script>
   <script src="js/utils.js?v=20"></script>
   <script src="js/ui.js?v=4"></script>
   <script src="js/changelog.js?v=1"></script>
-  <script src="js/settings.js?v=8"></script>
+  <script src="js/settings.js?v=9"></script>
   <script src="js/stundenzettel.js?v=22"></script>
-  <script src="js/protokoll.js?v=41"></script>
+  <script src="js/protokoll.js?v=42"></script>
   <script src="js/erinnerung.js?v=10"></script>
   <script src="js/plan-pdf.js?v=1"></script>
   <script src="js/plan-parser.js?v=17"></script>
   <script src="js/wochenplan.js?v=19"></script>
   <script src="js/home.js?v=7"></script>
-  <script src="js/dashboard.js?v=33"></script>
+  <script src="js/dashboard.js?v=34"></script>
   <script src="js/produkte.js?v=18"></script>
-  <script src="js/ordner.js?v=25"></script>
+  <script src="js/ordner.js?v=26"></script>
   <script src="js/app.js?v=22"></script>
 </body>
 

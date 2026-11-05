@@ -1025,7 +1025,7 @@ function dashShiftCosts(date, isHoliday, s) {
 function dashTransportsFromRows(rows) {
   return (rows || []).map(function(t) {
     return { type: t.vehicle_type, driver: t.driver_name || '', hours: t.driver_hours == null ? null : Number(t.driver_hours),
-      driverUserId: t.driver_user_id || '' };
+      driverUserId: t.driver_user_id || '', cost: t.cost == null ? null : Number(t.cost) };
   });
 }
 
@@ -1034,7 +1034,7 @@ function dashTransportsFromRows(rows) {
 function calcDashProtTotal(date, isHoliday, transports, shifts) {
   var total = 0;
   (transports || []).forEach(function(t) {
-    total += (typeof calcTransportCost === 'function') ? calcTransportCost(t.type, date) : 0;
+    total += (typeof calcTransportCost === 'function') ? calcTransportCost(t.type, date, t.cost) : 0;
     var drv = (typeof protDriverCost === 'function') ? protDriverCost(t, typeof appUsers !== 'undefined' ? appUsers : []) : null;
     if (drv) total += drv.amount;
   });
@@ -1343,9 +1343,9 @@ function openDashDetail(id) {
 
     // Transport costs
     (p.protocol_transports || []).forEach(function(t) {
-      var r = (typeof calcTransportCost !== 'undefined') ? calcTransportCost(t.vehicle_type, p.date) : 0;
+      var r = (typeof calcTransportCost !== 'undefined') ? calcTransportCost(t.vehicle_type, p.date, t.cost) : 0;
       var label = escapeHtml(t.vehicle_type || '—');
-      if (t.vehicle_type === 'Spedition') {
+      if (t.vehicle_type === 'Spedition' && t.cost == null) {
         rows.push({ section: 'transport', label: label, detail: escapeHtml(t.driver_name || '') + ' (siehe Rechnung)', cost: 0 });
       } else if (r > 0) {
         logTotal += r;
@@ -1478,7 +1478,8 @@ function openDashProtEdit() {
     driverUserId: t.driver_user_id || '',
     hours: t.driver_hours == null ? null : Number(t.driver_hours),
     punctuality: t.punctuality || 'pünktlich',
-    delay: t.delay_mins || ''
+    delay: t.delay_mins || '',
+    cost: t.cost == null ? null : Number(t.cost)
   }));
   _editProtShifts = (p.shifts || []).map(dashShiftToRow);
 
@@ -1512,7 +1513,7 @@ function renderDashProtTransports() {
       : '';
     return '<div class="ui-card">' +
       '<div class="stunden-grid">' +
-        '<label class="ui-field"><span>Fahrzeug</span><select onchange="_editProtTransports[' + i + '].type=this.value">' + selOpts + '</select></label>' +
+        '<label class="ui-field"><span>Fahrzeug</span><select onchange="_editProtTransports[' + i + '].type=this.value;renderDashProtTransports()">' + selOpts + '</select></label>' +
         '<div class="ui-field"><span>Fahrer</span>' + uiComboHtml('pe-drv-' + i, t.driver || '', 'Name', 'onDashDriverName', i) + '</div>' +
       '</div>' +
       '<div class="stunden-grid">' +
@@ -1523,6 +1524,7 @@ function renderDashProtTransports() {
         '</select></label>' +
       '</div>' +
       delayField +
+      (t.type === 'Spedition' ? '<label class="ui-field"><span>Kosten Spedition (€)</span><input type="number" step="0.01" min="0" inputmode="decimal" placeholder="laut Rechnung" value="' + escapeHtml(t.cost == null ? '' : t.cost) + '" oninput="_editProtTransports[' + i + '].cost=this.value"></label>' : '') +
       '<button type="button" class="ui-btn ui-btn-danger prot-remove" onclick="_editProtTransports.splice(' + i + ',1);renderDashProtTransports()">Transport entfernen</button>' +
     '</div>';
   }).join('');
@@ -1672,14 +1674,16 @@ async function dashReplaceRows(table, prot, prop, newRows) {
 function dashTransportToDb(protocolId, t) {
   return { protocol_id: protocolId, vehicle_type: t.type, driver_name: t.driver || null,
            punctuality: t.punctuality, delay_mins: t.punctuality === 'verspätet' && t.delay ? (parseInt(t.delay, 10) || 0) : 0,
-           driver_hours: parseFloat(t.hours) >= 0 ? parseFloat(t.hours) : null, driver_user_id: t.driverUserId || null };
+           driver_hours: parseFloat(t.hours) >= 0 ? parseFloat(t.hours) : null, driver_user_id: t.driverUserId || null,
+           cost: t.type === 'Spedition' && parseFloat(t.cost) >= 0 ? parseFloat(t.cost) : null };
 }
 
 // Did the transports (type, driver, driver hours – the cost-relevant parts) change against the stored rows?
 function dashTransportsChanged(storedRows, edited) {
   const key = function(t) {
     const h = parseFloat(t.hours);
-    return [t.type || '', (t.driver || '').trim(), t.driverUserId || '', h >= 0 ? h : ''].join('|');
+    const c = t.type === 'Spedition' ? parseFloat(t.cost) : NaN;
+    return [t.type || '', (t.driver || '').trim(), t.driverUserId || '', h >= 0 ? h : '', c >= 0 ? c : ''].join('|');
   };
   const a = dashTransportsFromRows(storedRows).map(key), b = (edited || []).map(key);
   return a.length !== b.length || a.some(function(k, i) { return k !== b[i]; });

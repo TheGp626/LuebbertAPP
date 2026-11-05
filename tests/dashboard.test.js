@@ -540,3 +540,13 @@ test('dashTransportToDb: a delay left in the field is dropped when the transport
   assert.equal(plain(f('P', { type: 'Sprinter', punctuality: 'verspätet', delay: '15', hours: '2' })).delay_mins, 15);
   assert.equal(plain(f('P', { type: 'Sprinter', punctuality: 'verspätet', delay: '', hours: '' })).driver_hours, null);
 });
+
+test('Spedition cost: stored only for Spedition, and a changed amount counts as a cost change', () => {
+  const f = ctx.dashTransportToDb, ch = ctx.dashTransportsChanged;
+  assert.equal(plain(f('P', { type: 'Spedition', punctuality: 'pünktlich', cost: '420' })).cost, 420);
+  assert.equal(plain(f('P', { type: 'Sprinter', punctuality: 'pünktlich', cost: '420' })).cost, null);
+  assert.equal(plain(f('P', { type: 'Spedition', punctuality: 'pünktlich', cost: '' })).cost, null);
+  const row = { vehicle_type: 'Spedition', driver_name: 'Hansetrans', driver_hours: null, cost: 400 };
+  assert.equal(ch([row], [{ type: 'Spedition', driver: 'Hansetrans', hours: null, cost: '400' }]), false);
+  assert.equal(ch([row], [{ type: 'Spedition', driver: 'Hansetrans', hours: null, cost: '450' }]), true);
+});
