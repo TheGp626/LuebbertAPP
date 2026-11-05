@@ -30,7 +30,7 @@ async function fetchAppUsers() {
   if (typeof supabaseClient === 'undefined') return;
   // MA/Gast may only read their own row (RLS): the pickers and rates are office-only
   if (typeof userRole === 'undefined' || !['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole)) return;
-  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, hourly_rate_internal, is_fest').or('is_active.is.null,is_active.eq.true');
+  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, hourly_rate_internal, is_fest, employment_type').or('is_active.is.null,is_active.eq.true');
   if (error) console.error("Error fetching app_users:", error);
   if (data) {
     // The guest login never works shifts → keep it out of AL/PL/staff pickers
@@ -56,7 +56,8 @@ function getEffectivePersonnelRate(basePos, userId) {
   var user = appUsers.find(function(u) { return u.id === userId; });
   if (!user) return undefined;
   if (Array.isArray(user.role_rates)) {
-    var match = user.role_rates.find(function(r) { return r.role === basePos; });
+    var match = user.role_rates.find(function(r) { return r.role === basePos; }) ||
+      user.role_rates.find(function(r) { return roleRateMatches(r.role, basePos); });
     if (match && parseFloat(match.rate_internal) > 0) return parseFloat(match.rate_internal);
   }
   if (parseFloat(user.hourly_rate_internal) > 0) return parseFloat(user.hourly_rate_internal);
@@ -72,16 +73,18 @@ function pdfStr(v, fallback) {
 // Billing position incl. fest/frei for AL/MA/Fahrer. The fest flag stored on the row wins
 // (set when the name is resolved, or from the server), so an offline start before the
 // user list has loaded doesn't bill fest staff as frei.
+// Stored position "<Funktion> <Typ>" (e.g. "MA Minijob"): type of the row → the person's employment type →
+// legacy fest flag (old drafts, old cached user lists) → Minijob. Temp/agency workers are Minijob.
 function protBasePos(p, users) {
-  var basePos = p.pos;
-  if (['AL', 'MA', 'Fahrer'].indexOf(p.pos) === -1) return basePos;
-  if (p.isTemp || !p.userId) return basePos + ' frei';
-  var fest = p.fest;
-  if (fest === undefined || fest === null) {
-    var u = (users || []).find(function(x) { return x.id === p.userId; });
-    fest = !!(u && u.is_fest);
+  if (['AL', 'MA', 'Fahrer'].indexOf(p.pos) === -1) return p.pos;
+  if (p.isTemp || !p.userId) return positionKey(p.pos, 'Minijob');
+  var u = (users || []).find(function(x) { return x.id === p.userId; });
+  var type = p.type || (u && u.employment_type);
+  if (!type) {
+    var fest = (p.fest === undefined || p.fest === null) ? !!(u && u.is_fest) : p.fest;
+    type = fest ? 'Fest' : 'Minijob';
   }
-  return basePos + (fest ? ' fest' : ' frei');
+  return positionKey(p.pos, type);
 }
 
 // AL/PL id from its <select>: before the user list has loaded the select is empty → keep the known id
@@ -149,8 +152,9 @@ function protRowToEntry(r) {
       userId: s.user_id || null,
       isTemp: !s.user_id,
       tempName: s.user_id ? null : (s.temp_worker_name || null),
-      pos: (s.position_role || '').replace(/ (fest|frei)$/, ''),
+      pos: splitPosition(s.position_role).func,
       fest: / fest$/.test(s.position_role || ''),
+      type: splitPosition(s.position_role).type,
       start: (s.start_time || '').substring(0, 5),
       end: (s.end_time || '').substring(0, 5),
       pause: s.pause_mins || 0
@@ -761,7 +765,7 @@ function protDriverCost(t, users) {
   if (!(hrs > 0) || (!t.driverUserId && !(t.driver || '').trim())) return null;
   var basePos = protBasePos({ pos: 'Fahrer', userId: t.driverUserId || '' }, users);
   var custom = t.driverUserId ? getEffectivePersonnelRate(basePos, t.driverUserId) : undefined;
-  var rate = (typeof custom === 'number' && custom > 0) ? custom : (PROT_PERSONNEL_RATES[basePos] || 0);
+  var rate = (typeof custom === 'number' && custom > 0) ? custom : personnelRate(basePos);
   return { hrs: hrs, rate: rate, amount: hrs * rate };
 }
 
@@ -1175,7 +1179,7 @@ function protShiftChanges(oldShifts, personnel, users, shiftDate) {
     if (!o) { inserts.push({ person: r.person, row: Object.assign({}, next, { status: 'offen' }) }); return; }
     r.person.shiftId = o.id;
     var patch = {};
-    var oldBase = (o.position_role || '').replace(/ (fest|frei)$/, '');
+    var oldBase = splitPosition(o.position_role).func;
     if ((o.user_id || null) !== next.user_id || (o.temp_worker_name || null) !== next.temp_worker_name) {
       patch.user_id = next.user_id;
       patch.temp_worker_name = next.temp_worker_name;

@@ -195,7 +195,7 @@ async function fetchOwnProfile(id) {
   let data = null, error = null;
   try {
     ({ data, error } = await supabaseClient.from('app_users')
-      .select('id, full_name, role, default_dept, hourly_rate_internal, is_active, app_user_private(hourly_rate_conni)')
+      .select('id, full_name, role, role_rates, employment_type, default_dept, hourly_rate_internal, is_active, app_user_private(hourly_rate_conni)')
       .eq('id', id).maybeSingle());
   } catch (e) { error = e; }
   if (isProfileDenied(error)) return { profile: null, error: false };
@@ -350,7 +350,8 @@ function handleSession(user) {
   if (userChanged) closePinSheet(); // no open PIN sheet or typed PINs across logout/user switch
 
   if (user) {
-    currentUser = { id: user.id, email: '', full_name: user.full_name || '' }; // Mock basic GoTrue object for backwards compatibility (+ name for the start page greeting)
+    currentUser = { id: user.id, email: '', full_name: user.full_name || '', role: user.role,
+      role_rates: Array.isArray(user.role_rates) ? user.role_rates : [], employment_type: user.employment_type || 'Minijob' }; // Mock basic GoTrue object for backwards compatibility (+ name for the start page greeting)
     userRole = user.role;
     
     // Auto-sync the user's name across the app (Stundenzettel tracking)

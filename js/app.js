@@ -19,9 +19,12 @@ function onAppSettingsLoaded() {
   billingCutoff = c;
   if (typeof renderHistory === 'function' && document.getElementById('history-list')) renderHistory(true);
 }
-var DEPT_DEFAULTS = ["AL frei", "MA frei", "Fahrer frei", "Floristik", "Lager", "Stoffe", "Tischlerei"];
+var DEPT_DEFAULTS = ["AL", "MA", "Fahrer", "Floristik", "Lager", "Stoffe", "Tischlerei"];
 var DEPT_OLD_STYLE = ["AL (Aufbauleitung)", "MA für Auf-/ Abbau"];
 var DEPT_LABELS = {
+  "AL": "Aufbauleitung",
+  "MA": "Mitarbeiter für Auf-/ Abbau",
+  "Fahrer": "Fahrer",
   "AL fest": "Aufbauleitung",
   "AL frei": "Aufbauleitung",
   "MA fest": "Mitarbeiter für Auf-/ Abbau",
@@ -33,7 +36,11 @@ var DEPT_LABELS = {
   "Stoffe": "Stoffe",
   "Tischlerei": "Tischlerei"
 };
-function deptLabel(d) { return DEPT_LABELS[d] || d; }
+function deptLabel(d) {
+  if (DEPT_LABELS[d]) return DEPT_LABELS[d];
+  var p = typeof splitPosition === 'function' ? splitPosition(d) : null; // "MA Minijob" → label of "MA"
+  return (p && p.type && DEPT_LABELS[p.func]) || d;
+}
 var departments;
 try {
   departments = JSON.parse(localStorage.getItem('stundenzettel_depts') || 'null') || DEPT_DEFAULTS;
@@ -41,12 +48,13 @@ try {
   departments = DEPT_DEFAULTS;
 }
 // Migrate old verbose department names → protocol-style roles
-if (departments.some(function(d) { return DEPT_OLD_STYLE.indexOf(d) !== -1; })) {
+// … and the frei/fest names (2026-11-05: the employment type comes from the person, not the department)
+if (departments.some(function(d) { return DEPT_OLD_STYLE.indexOf(d) !== -1 || / (frei|fest)$/.test(d); })) {
   departments = DEPT_DEFAULTS;
   localStorage.setItem('stundenzettel_depts', JSON.stringify(DEPT_DEFAULTS));
 }
 // Default dept of a new shift (no picker any more; each shift has its own dept select)
-var selectedAbt = departments.indexOf('MA frei') !== -1 ? 'MA frei' : departments[0];
+var selectedAbt = departments.indexOf('MA') !== -1 ? 'MA' : departments[0];
 var monsterMode = localStorage.getItem('stundenzettel_monster') === 'true';
 var deptWages;
 try {
@@ -250,6 +258,10 @@ function titleTap() {
 
 function getDeptWage(dept) {
   if (dept && deptWages[dept] > 0) return deptWages[dept];
+  // "MA Minijob" / "MA": wages saved under the old names ("MA frei") still count
+  var f = dept && typeof splitPosition === 'function' ? splitPosition(dept).func : null;
+  if (f && f !== dept && deptWages[f] > 0) return deptWages[f];
+  if (f && deptWages[f + ' frei'] > 0) return deptWages[f + ' frei'];
   return hourlyWage > 0 ? hourlyWage : 0;
 }
 
@@ -493,7 +505,7 @@ function deleteDepartment(i) {
   if (departments.length <= 1) { showToast('Mindestens eine Abteilung muss bleiben'); return; }
   var removed = departments.splice(i, 1)[0]; localStorage.setItem('stundenzettel_depts', JSON.stringify(departments));
   // The default for new shifts must stay one from the list
-  if (removed === selectedAbt) selectedAbt = departments.indexOf('MA frei') !== -1 ? 'MA frei' : departments[0];
+  if (removed === selectedAbt) selectedAbt = departments.indexOf('MA') !== -1 ? 'MA' : departments[0];
   renderSettingsDepts();
 }
 

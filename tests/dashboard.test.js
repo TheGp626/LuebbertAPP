@@ -159,7 +159,7 @@ const rowsOf = () => plain(run('(' + JSON.stringify(OLD_SHIFTS) + ').map(dashShi
 test('dashShiftToRow: stored shift becomes an editor row (base position, fest kept, HH:MM)', () => {
   run('appUsers = ' + JSON.stringify(USERS));
   const r = rowsOf();
-  assert.deepEqual(r[0], { id: 's1', userId: 'u1', name: 'Anna Alt', pos: 'AL', fest: true, start: '08:00', end: '16:00', pause: 30 });
+  assert.deepEqual(r[0], { id: 's1', userId: 'u1', name: 'Anna Alt', pos: 'AL', fest: true, type: null, start: '08:00', end: '16:00', pause: 30 });
   assert.deepEqual([r[1].userId, r[1].name, r[1].pos], ['', 'Zora', 'Zenjob']);
 });
 
@@ -177,13 +177,13 @@ test('dashShiftChanges: nothing edited → nothing to write (status and ids surv
 test('dashShiftChanges: changing only one name is exactly one update with only that name', () => {
   const c = changes(rows => { rows[0].userId = 'u3'; rows[0].name = 'Nora Neu'; rows[0].fest = true; });
   assert.equal(c.updates.length, 1);
-  assert.deepEqual(c.updates[0], { id: 's1', patch: { user_id: 'u3', temp_worker_name: null, status: 'offen' } });
+  assert.deepEqual(c.updates[0], { id: 's1', patch: { user_id: 'u3', temp_worker_name: null, position_role: 'AL Fest', status: 'offen' } });
   assert.deepEqual([c.inserts.length, c.deletes.length], [0, 0]);
 });
 
 test('dashShiftChanges: free text name sets temp_worker_name and clears user_id', () => {
   const c = changes(rows => { rows[2].userId = ''; rows[2].name = 'Gast Person'; });
-  assert.deepEqual(c.updates, [{ id: 's3', patch: { user_id: null, temp_worker_name: 'Gast Person', position_role: 'MA frei', status: 'offen' } }]);
+  assert.deepEqual(c.updates, [{ id: 's3', patch: { user_id: null, temp_worker_name: 'Gast Person', position_role: 'MA Minijob', status: 'offen' } }]);
 });
 
 test('dashShiftChanges: unchanged position keeps the stored role (legacy "MA" without fest/frei)', () => {
@@ -193,7 +193,7 @@ test('dashShiftChanges: unchanged position keeps the stored role (legacy "MA" wi
 
 test('dashShiftChanges: position change recomputes fest/frei, time and pause patch only what changed', () => {
   const c = changes(rows => { rows[0].pos = 'MA'; rows[0].end = '17:00'; rows[0].pause = '45'; });
-  assert.deepEqual(c.updates, [{ id: 's1', patch: { position_role: 'MA fest', end_time: '17:00', pause_mins: 45, status: 'offen' } }]);
+  assert.deepEqual(c.updates, [{ id: 's1', patch: { position_role: 'MA Fest', end_time: '17:00', pause_mins: 45, status: 'offen' } }]);
 });
 
 test('dashShiftChanges: removed rows are deleted, new rows are inserted as offen', () => {
@@ -202,7 +202,7 @@ test('dashShiftChanges: removed rows are deleted, new rows are inserted as offen
     rows.push({ userId: 'u3', name: 'Nora Neu', pos: 'MA', fest: true, start: '08:00', end: '12:00', pause: 0 });
   });
   assert.deepEqual(c.deletes, ['s2']);
-  assert.deepEqual(c.inserts, [{ user_id: 'u3', temp_worker_name: null, position_role: 'MA fest', start_time: '08:00', end_time: '12:00', pause_mins: 0, status: 'offen' }]);
+  assert.deepEqual(c.inserts, [{ user_id: 'u3', temp_worker_name: null, position_role: 'MA Fest', start_time: '08:00', end_time: '12:00', pause_mins: 0, status: 'offen' }]);
   assert.equal(c.updates.length, 0);
 });
 
@@ -248,7 +248,7 @@ test('saveDashProtEdit: one renamed person = one shift update; no shift delete/i
   const shiftCalls = calls.filter(c => c.table === 'shifts');
   assert.equal(shiftCalls.length, 1);
   assert.equal(shiftCalls[0].op, 'update');
-  assert.deepEqual(plain(shiftCalls[0].payload), { user_id: 'u3', temp_worker_name: null, status: 'offen' }); // booked hours of the old person are not the new person's
+  assert.deepEqual(plain(shiftCalls[0].payload), { user_id: 'u3', temp_worker_name: null, position_role: 'AL Fest', status: 'offen' }); // booked hours of the old person are not the new person's
   assert.deepEqual(shiftCalls[0].filters, [['id', 's1']]);
   const prot = calls.find(c => c.table === 'protocols');
   assert.ok(!('created_by' in prot.payload));

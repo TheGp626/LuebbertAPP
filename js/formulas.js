@@ -78,6 +78,15 @@ function splitPosition(key) {
   return { func: String(key || ''), type: null, legacy: false };
 }
 
+// Does a personal rate entry (app_users.role_rates[].role) apply to a position? Old entries "MA frei" keep
+// applying to the paid types, "MA fest" to Fest
+function roleRateMatches(entryRole, key) {
+  if (entryRole === key) return true;
+  var e = splitPosition(entryRole), k = splitPosition(key);
+  if (!e.legacy || !k.type || e.func !== k.func) return false;
+  return e.legacy === 'fest' ? k.type === 'Fest' : k.type !== 'Fest';
+}
+
 function personnelRate(key) {
   var p = splitPosition(key);
   if (!p.type) return PROT_PERSONNEL_RATES[key] || 0;

@@ -97,3 +97,14 @@ test('personnelRate: per-type defaults, settings win, missing type in settings â
   assert.equal(calc('AL Rechnung', '2026-10-28', false, 480, 960, 0)[0].rate, 35);
   vm.runInContext('delete appSetting', ctx);
 });
+
+test('roleRateMatches: exact key, or legacy "frei" for paid types and "fest" for Fest', () => {
+  assert.equal(ctx.roleRateMatches('MA Rechnung', 'MA Rechnung'), true);
+  assert.equal(ctx.roleRateMatches('MA frei', 'MA Minijob'), true);
+  assert.equal(ctx.roleRateMatches('MA frei', 'MA Rechnung'), true);
+  assert.equal(ctx.roleRateMatches('MA frei', 'MA Fest'), false);
+  assert.equal(ctx.roleRateMatches('MA fest', 'MA Fest'), true);
+  assert.equal(ctx.roleRateMatches('AL frei', 'MA Minijob'), false);
+  assert.equal(ctx.roleRateMatches('Lager', 'Lager'), true);
+  assert.equal(ctx.roleRateMatches('MA Minijob', 'MA frei'), false);
+});
