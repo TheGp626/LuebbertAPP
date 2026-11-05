@@ -888,3 +888,17 @@ test('protShiftChanges: every paid change on a booked shift sets status offen', 
     assert.ok(key in ch.updates[0].patch, key);
   }
 });
+
+test('buildProtPdfDoc: cost block only with costs:true (AL download without, PL mail with)', () => {
+  const entry = {
+    event: 'Gala', location: 'Estrel', date: '2026-10-28', action: 'Aufbau', al: 'Anna', pl: 'Paul', holiday: false,
+    transports: [{ type: 'Solo', driver: 'Tom', punctuality: 'pünktlich', delay: 0, hours: 2 }],
+    personnel: [{ pos: 'MA', userId: 'u1', name: 'Max', start: '08:00', end: '16:00', pause: 30 }],
+    categories: {}, totalCost: '400,00 €',
+  };
+  const texts = opts => { const fd = fakeDoc(); ctx.jspdf = { jsPDF: function() { return fd.doc; } }; ctx.__e = entry; ctx.__o = opts; run('buildProtPdfDoc(__e, __o)'); return fd.texts.join('\n'); };
+  const without = texts({ costs: false }), withC = texts({ costs: true });
+  assert.ok(!/EUR|Gesamtkosten|Nebenkalkulation/.test(without), without);
+  assert.ok(/Gesamtkosten/.test(withC) && /Nebenkalkulation/.test(withC));
+  assert.ok(/Gesamtkosten/.test(texts(undefined)), 'default keeps the old behaviour for callers that pass nothing');
+});
