@@ -155,6 +155,16 @@ function saveStore(all) {
   if (key) localStorage.setItem(key, JSON.stringify(all));
 }
 
+// Stored department → what the editor's select shows: "MA Minijob" / old "MA frei" → "MA" (the type comes from the person)
+function editorDept(dept) {
+  return typeof splitPosition === 'function' ? (splitPosition(dept).func || dept) : dept;
+}
+
+// Department of an own shift as stored on the server: AL/MA/Fahrer get the user's employment type ("MA Midijob")
+function shiftSyncRole(dept, type) {
+  return positionKey(splitPosition(dept).func, type);
+}
+
 // ── EDITOR STATE ──
 var _editorBaseline = null; // snapshot of the editor right after it was filled/saved → "untouched" check
 var _editorWeek = null;
@@ -171,7 +181,7 @@ function weekToEditorState(w, fallbackDept) {
       if (sh.sig) st.shiftSigData[i + '-' + s] = sh.sig;
       var _v = timeToMins(sh.von || ''), _b = timeToMins(sh.bis || '');
       var _p = (_v !== null && _b !== null) ? autoPause(_b < _v ? _b + 1440 - _v : _b - _v) : 0;
-      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: _p.toString(), dept: sh.dept || fallbackDept, protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
+      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: _p.toString(), dept: editorDept(sh.dept || fallbackDept), protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
     });
   });
   return st;
@@ -1300,7 +1310,7 @@ async function syncWeekNow(data, quiet) {
           start_time:    sh.von,
           end_time:      sh.bis,
           pause_mins:    parseInt(sh.pause) || 0,
-          position_role: sh.dept || data.abt,
+          position_role: shiftSyncRole(sh.dept || data.abt, currentUser.employment_type),
           status:        'offen',
           temp_worker_name: null,
           shift_date:    isoWeekToDate(data.weekStart, dayIdx),

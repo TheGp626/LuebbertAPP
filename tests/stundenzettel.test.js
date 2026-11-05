@@ -201,7 +201,7 @@ test('login refreshes the Stundenzettel name label (shared device: no stale name
 
 // ── Bug round 2026-10-30 ──
 test('weekToEditorState: a stored Mo–Mi week fills the editor (buildDays must not start empty)', () => {
-  const { weekToEditorState } = load(['weekToEditorState'], ['timeToMins', 'autoPause']);
+  const { weekToEditorState } = load(['weekToEditorState', 'editorDept'], ['timeToMins', 'autoPause']);
   const w = week('MA frei', [[sh('08:00', '16:00', 'MA frei', { sig: 'SIG', ort: 'Halle' })], [sh('09:00', '17:00', 'MA frei')], [sh('10:00', '14:00', undefined), sh('15:00', '18:00', 'AL frei', { isProtocol: true, protocolId: 'p1' })], [], [], [], []]);
   const st = weekToEditorState(w, 'MA frei');
   assert.equal(st.shiftCounts[0], 1);
@@ -309,9 +309,30 @@ test('weekIsBlind: a local save made without having seen the server', () => {
 });
 
 test('weekToEditorState: shifts of a mixed-dept week come back sorted by start time, signatures follow', () => {
-  const { weekToEditorState, mergeWeekParts, buildWeekEntries } = load(['weekToEditorState', 'mergeWeekParts', 'buildWeekEntries', 'splitWeekByDepts', 'weekPartKey'], ['timeToMins', 'autoPause']);
+  const { weekToEditorState, mergeWeekParts, buildWeekEntries } = load(['weekToEditorState', 'editorDept', 'mergeWeekParts', 'buildWeekEntries', 'splitWeekByDepts', 'weekPartKey'], ['timeToMins', 'autoPause']);
   const w = week('AL frei', [[sh('12:00', '18:00', 'AL frei', { sig: 'S-AL' }), sh('07:00', '10:00', 'Lager')], [], [], [], [], [], []]);
   const st = weekToEditorState(mergeWeekParts(buildWeekEntries(w), '2026-W44'), 'MA frei');
   assert.deepEqual(st.shiftValues[0].map(s => [s.von, s.dept]), [['07:00', 'Lager'], ['12:00', 'AL frei']]);
   assert.deepEqual(st.shiftSigData, { '0-1': 'S-AL' });
+});
+
+test('shiftSyncRole: own shifts get the user\'s employment type; legacy and plain departments handled', () => {
+  const { shiftSyncRole } = load(['shiftSyncRole']);
+  global.positionKey = (f, t) => ['MA', 'AL', 'Fahrer'].includes(f) ? f + ' ' + (t || 'Minijob') : f;
+  global.splitPosition = k => { const [f, r] = String(k || '').split(' '); return { func: ['MA', 'AL', 'Fahrer'].includes(f) ? f : String(k || ''), type: null, legacy: r || false }; };
+  assert.equal(shiftSyncRole('MA', 'Midijob'), 'MA Midijob');
+  assert.equal(shiftSyncRole('MA frei', 'Rechnung'), 'MA Rechnung');
+  assert.equal(shiftSyncRole('AL', undefined), 'AL Minijob');
+  assert.equal(shiftSyncRole('Lager', 'Fest'), 'Lager');
+  delete global.positionKey; delete global.splitPosition;
+});
+
+test('weekToEditorState: old "MA frei" and new "AL Rechnung" show as function only (type comes from the person)', () => {
+  const vm = require('vm'), c = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/formulas.js'), 'utf8'), c);
+  global.splitPosition = c.splitPosition;
+  const { weekToEditorState } = load(['weekToEditorState', 'editorDept'], ['timeToMins', 'autoPause']);
+  const st = weekToEditorState(week('MA frei', [[sh('08:00', '12:00', 'MA frei'), sh('13:00', '17:00', 'AL Rechnung'), sh('18:00', '20:00', 'Lager')], [], [], [], [], [], []]), 'MA');
+  assert.deepEqual(st.shiftValues[0].map(s => s.dept), ['MA', 'AL', 'Lager']);
+  delete global.splitPosition;
 });

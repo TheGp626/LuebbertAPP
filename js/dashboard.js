@@ -981,7 +981,8 @@ var _dashRateUsersLoaded = false;
 function dashUserRate(user, basePos) {
   if (!user) return undefined;
   if (Array.isArray(user.role_rates)) {
-    var match = user.role_rates.find(function(r) { return r.role === basePos; });
+    var match = user.role_rates.find(function(r) { return r.role === basePos; }) ||
+      user.role_rates.find(function(r) { return roleRateMatches(r.role, basePos); });
     if (match && parseFloat(match.rate_internal) > 0) return parseFloat(match.rate_internal);
   }
   if (parseFloat(user.hourly_rate_internal) > 0) return parseFloat(user.hourly_rate_internal);
@@ -1064,8 +1065,9 @@ function dashShiftToRow(s) {
     id: s.id,
     userId: s.user_id || '',
     name: (s.app_users && s.app_users.full_name) || s.temp_worker_name || ((typeof appUsers !== 'undefined' ? appUsers : []).find(function(u) { return u.id === s.user_id; }) || {}).full_name || '',
-    pos: role.replace(/ (fest|frei)$/, ''),
+    pos: splitPosition(role).func,
     fest: / fest$/.test(role),
+    type: splitPosition(role).type,
     start: (s.start_time || '').substring(0, 5),
     end: (s.end_time || '').substring(0, 5),
     pause: s.pause_mins || 0
@@ -1079,7 +1081,7 @@ function dashShiftRowToDb(row, users) {
   return {
     user_id: userId,
     temp_worker_name: userId ? null : (name || null),
-    position_role: protBasePos({ pos: row.pos, isTemp: !userId, userId: userId, fest: row.fest }, users),
+    position_role: protBasePos({ pos: row.pos, isTemp: !userId, userId: userId, fest: row.fest, type: row.type }, users),
     start_time: row.start || null,
     end_time: row.end || null,
     pause_mins: parseInt(row.pause, 10) || 0
@@ -1096,7 +1098,7 @@ function dashShiftChanges(oldShifts, editedRows, users) {
     if (!old) { inserts.push(Object.assign(next, { status: 'offen' })); return; }
     kept[old.id] = true;
     var patch = {};
-    var oldBase = (old.position_role || '').replace(/ (fest|frei)$/, '');
+    var oldBase = splitPosition(old.position_role).func;
     if ((old.user_id || null) !== next.user_id || (old.temp_worker_name || null) !== next.temp_worker_name) {
       patch.user_id = next.user_id;
       patch.temp_worker_name = next.temp_worker_name;
@@ -1583,8 +1585,8 @@ function onDashShiftName(idx, val) {
   if (typed === (r.name || '')) return; // untouched (keeps the id of duplicate names)
   var hits = (typeof appUsers !== 'undefined' ? appUsers : []).filter(function(u) { return (u.full_name || '').trim().toLowerCase() === typed.toLowerCase(); });
   r.name = typed;
-  if (hits.length === 1) { r.userId = hits[0].id; r.fest = !!hits[0].is_fest; }
-  else { r.userId = ''; r.fest = false; }
+  if (hits.length === 1) { r.userId = hits[0].id; r.fest = !!hits[0].is_fest; r.type = hits[0].employment_type || null; }
+  else { r.userId = ''; r.fest = false; r.type = null; }
 }
 
 function updateDashPeShift(idx, field, val) {

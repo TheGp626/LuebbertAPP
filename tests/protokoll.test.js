@@ -148,17 +148,23 @@ test('sync: fest flag on the personnel row is used when the user list is empty',
   ctx.__data = protData({ personnel: [{ pos: 'MA', userId: 'u-ma', name: 'Max', fest: true, start: '08:00', end: '16:00', pause: '0' }] });
   await run('syncProtokollToSupabase(__data, null)');
   const sh = sb.calls.find(c => c.table === 'shifts' && c.op === 'insert');
-  assert.equal(sh.payload[0].position_role, 'MA fest');
+  assert.equal(sh.payload[0].position_role, 'MA Fest');
 });
 
 test('protBasePos', () => {
   const users = [{ id: 'f', is_fest: true }, { id: 'x', is_fest: false }];
-  assert.equal(run('protBasePos')({ pos: 'MA', userId: 'f' }, users), 'MA fest');
-  assert.equal(run('protBasePos')({ pos: 'MA', userId: 'x' }, users), 'MA frei');
-  assert.equal(run('protBasePos')({ pos: 'MA', userId: 'f', fest: true }, []), 'MA fest');
-  assert.equal(run('protBasePos')({ pos: 'AL', userId: 'f', isTemp: true }, users), 'AL frei');
-  assert.equal(run('protBasePos')({ pos: 'Fahrer', userId: '' }, users), 'Fahrer frei');
+  assert.equal(run('protBasePos')({ pos: 'MA', userId: 'f' }, users), 'MA Fest');
+  assert.equal(run('protBasePos')({ pos: 'MA', userId: 'x' }, users), 'MA Minijob');
+  assert.equal(run('protBasePos')({ pos: 'MA', userId: 'f', fest: true }, []), 'MA Fest');
+  assert.equal(run('protBasePos')({ pos: 'AL', userId: 'f', isTemp: true }, users), 'AL Minijob');
+  assert.equal(run('protBasePos')({ pos: 'Fahrer', userId: '' }, users), 'Fahrer Minijob');
   assert.equal(run('protBasePos')({ pos: 'Zenjob', userId: 'f' }, users), 'Zenjob');
+  // employment type on the person wins over the legacy fest flag; row type wins over both
+  const typed = [{ id: 'r', employment_type: 'Rechnung', is_fest: false }, { id: 'm', employment_type: 'Midijob', is_fest: true }];
+  assert.equal(run('protBasePos')({ pos: 'AL', userId: 'r' }, typed), 'AL Rechnung');
+  assert.equal(run('protBasePos')({ pos: 'MA', userId: 'm', fest: true }, typed), 'MA Midijob');
+  assert.equal(run('protBasePos')({ pos: 'MA', userId: 'r', type: 'Fest' }, typed), 'MA Fest');
+  assert.equal(run('protBasePos')({ pos: 'MA', userId: '', isTemp: true, type: 'Fest' }, typed), 'MA Minijob');
 });
 
 test('protSelectedId keeps the known id until the user list has loaded', () => {
@@ -261,7 +267,7 @@ test('buildProtPdfDoc survives numbers and nulls from a re-synced entry', () => 
   run('buildProtPdfDoc(__e)');
   assert.ok(fd.texts.includes('5') && fd.texts.includes('4'));
   // Finding 14: position label from the fest flag
-  assert.ok(fd.texts.includes('MA fest'));
+  assert.ok(fd.texts.includes('MA Fest'));
 });
 
 test('pdfStr', () => {
@@ -855,7 +861,7 @@ test('fetchAppUsers: no app_users query for MA/Gast; office roles select without
   run('var userRole = "AL"');
   await run('fetchAppUsers()');
   assert.ok(sel && !/email/.test(sel), sel);
-  assert.equal(sel, 'id, full_name, role, role_rates, hourly_rate_internal, is_fest');
+  assert.equal(sel, 'id, full_name, role, role_rates, hourly_rate_internal, is_fest, employment_type');
 });
 
 // Ledger (Review Focus #3), pins current behaviour: a booked shift gets status:'offen' only on paid changes
@@ -870,7 +876,7 @@ test('protShiftChanges: booked shift with nothing changed emits no update', () =
 
 test('protShiftChanges: booked shift with only non-paid change (position / date) is patched WITHOUT status', () => {
   let ch = plain(run('protShiftChanges')([bookedShift], [Object.assign({}, bookedRow, { pos: 'Fahrer' })], [], '2026-10-28'));
-  assert.deepEqual(ch.updates, [{ id: 's1', patch: { position_role: 'Fahrer frei' } }]);
+  assert.deepEqual(ch.updates, [{ id: 's1', patch: { position_role: 'Fahrer Minijob' } }]);
   ch = plain(run('protShiftChanges')([bookedShift], [bookedRow], [], '2026-10-29'));
   assert.deepEqual(ch.updates, [{ id: 's1', patch: { shift_date: '2026-10-29' } }]);
 });
