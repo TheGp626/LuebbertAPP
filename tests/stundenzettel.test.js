@@ -370,3 +370,21 @@ test('weekEarningsTotal: one amount for the whole week (sum of the department pa
   assert.equal(weekEarningsTotal([{ abt: 'Lager', total: '3' }]), 0);
   delete global.getDeptWage;
 });
+
+test('weekBillingSplit: pay per billing month, split day by day at the cutoff like the hours', () => {
+  global.MONTHS_DE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+  global.pad = n => String(n).padStart(2, '0');
+  global.billingCutoff = 20;
+  global.getDeptWage = d => ({ MA: 15, AL: 20 })[d] || 0;
+  const { weekBillingSplit } = load(['weekBillingSplit', 'editorDept'], ['getBillingKeyForDate', 'parseDayDate', 'shiftNetHours', 'timeToMins', 'getMonthKeyFromWeek']);
+  // Mon 19.10. (October period) + Tue 20.10. (November period, cutoff 20)
+  const w = { weekStart: '2026-W43', abt: 'MA', days: [
+    { day: 'Montag', date: '19.10.2026', shifts: [sh('08:00', '12:00', 'MA')] },
+    { day: 'Dienstag', date: '20.10.2026', shifts: [sh('08:00', '10:00', 'AL'), sh('12:00', '16:00', 'MA')] }] };
+  const p = JSON.parse(JSON.stringify(weekBillingSplit(w)));
+  assert.equal(p['2026-10'].hours, 4);
+  assert.equal(p['2026-10'].eur, 60);
+  assert.equal(p['2026-11'].hours, 7, 'AL 2 h counts as the 3 h minimum');
+  assert.equal(p['2026-11'].eur, 3 * 20 + 4 * 15);
+  ['MONTHS_DE', 'pad', 'billingCutoff', 'getDeptWage'].forEach(k => delete global[k]);
+});
