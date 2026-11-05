@@ -164,6 +164,8 @@ function weekToEditorState(w, fallbackDept) {
   var st = { shiftCounts: {}, shiftValues: {}, shiftSigData: {} };
   (w.days || []).forEach(function (dd, i) {
     var shs = dd.shifts || [{ von: dd.von || '', bis: dd.bis || '', pause: dd.pause || '0', ort: dd.ort || '', al: dd.al || '', sig: dd.sig || null }];
+    // Stored per dept part → merged out of time order; show "Schicht 1, 2…" by start time (empty Von last)
+    shs = shs.slice().sort(function (a, b) { return (a.von || '99') < (b.von || '99') ? -1 : (a.von || '99') > (b.von || '99') ? 1 : 0; });
     st.shiftCounts[i] = shs.length;
     st.shiftValues[i] = shs.map(function (sh, s) {
       if (sh.sig) st.shiftSigData[i + '-' + s] = sh.sig;
