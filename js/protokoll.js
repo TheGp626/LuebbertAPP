@@ -173,7 +173,8 @@ function protRowToEntry(r) {
     transports: (r.protocol_transports || []).map(function(t) {
       // hours stays null for rows saved before driver hours existed → no driver cost on recalc
       return { type: t.vehicle_type, driver: t.driver_name, punctuality: t.punctuality, delay: t.delay_mins,
-        hours: t.driver_hours == null ? null : Number(t.driver_hours), driverUserId: t.driver_user_id || '' };
+        hours: t.driver_hours == null ? null : Number(t.driver_hours), driverUserId: t.driver_user_id || '',
+        cost: t.cost == null ? null : Number(t.cost) };
     }),
     personnel: personnel,
     categories: catMap,
@@ -364,7 +365,8 @@ function protTransportSummary(t) {
   var driver = (t.driver || '').trim() || 'ohne Fahrer';
   var hrs = parseFloat(t.hours);
   var when = t.punctuality === 'verspätet' ? ((t.delay ? t.delay + ' min ' : '') + 'Verspätung') : 'pünktlich';
-  return (t.type || 'Fahrzeug') + ' · ' + driver + (hrs > 0 ? ' · ' + String(hrs).replace('.', ',') + ' h' : '') + ' · ' + when;
+  var eur = t.type === 'Spedition' && parseFloat(t.cost) >= 0 ? ' · ' + parseFloat(t.cost).toFixed(2).replace('.', ',') + ' €' : '';
+  return (t.type || 'Fahrzeug') + eur + ' · ' + driver + (hrs > 0 ? ' · ' + String(hrs).replace('.', ',') + ' h' : '') + ' · ' + when;
 }
 
 // Same driver: by user id when both sides have one, else by name (case-insensitive)
@@ -443,7 +445,7 @@ function renderProtTransport() {
         '</div>' +
         '<label class="ui-field"><span>Fahrerstunden</span><input type="number" step="0.5" min="0" placeholder="0" value="' + escapeHtml(t.hours == null ? '' : t.hours) + '" oninput="updateProtTransport(' + i + ', \'hours\', this.value)"/></label>' +
         '<div class="ui-sub" id="prot-drvhint-' + i + '" style="margin:-6px 2px 10px;"></div>' +
-        (t.type === 'Spedition' ? '<div class="ui-sub" style="margin:-4px 2px 10px;">Kosten separat per Rechnung erfassen</div>' : '') +
+        (t.type === 'Spedition' ? '<label class="ui-field"><span>Kosten Spedition (€)</span><input type="number" step="0.01" min="0" inputmode="decimal" placeholder="laut Rechnung" value="' + escapeHtml(t.cost == null ? '' : t.cost) + '" oninput="updateProtTransport(' + i + ', \'cost\', this.value)"/></label>' : '') +
         '<div class="stunden-grid">' +
           '<label class="ui-field"><span>Pünktlichkeit</span><select onchange="updateProtTransport(' + i + ', \'punctuality\', this.value)">' +
             '<option value="pünktlich" ' + (t.punctuality === 'pünktlich' ? 'selected' : '') + '>Pünktlich</option>' +
@@ -470,7 +472,7 @@ function updateProtTransport(idx, field, val) {
   if (sum) sum.textContent = protTransportSummary(protState.transports[idx]);
   saveProtDraft();
   if (field === 'type') { calcProtCosts(); renderProtTransport(); }
-  if (field === 'hours') calcProtCosts();
+  if (field === 'hours' || field === 'cost') calcProtCosts();
 }
 
 // Transport rows of other protocols on the form's date (read-only), cached per date + edited protocol;
@@ -767,7 +769,7 @@ function protDriverCost(t, users) {
 function protCostLines(state, date, holiday) {
   var lines = [];
   (state.transports || []).forEach(function(t) {
-    lines.push({ label: t.type || 'Fahrzeug', amount: calcTransportCost(t.type, date) });
+    lines.push({ label: t.type || 'Fahrzeug', amount: calcTransportCost(t.type, date, t.cost) });
     var drv = protDriverCost(t, appUsers);
     if (drv) lines.push({ label: 'Fahrer ' + ((t.driver || '').trim() || 'ohne Name'), amount: drv.amount });
   });
@@ -1285,7 +1287,8 @@ async function syncProtokollToSupabase(data, targetId, out) {
           punctuality: t.punctuality,
           delay_mins: t.delay ? parseInt(t.delay) : 0,
           driver_hours: (t.hours === null || t.hours === undefined || t.hours === '' || isNaN(parseFloat(t.hours))) ? null : parseFloat(t.hours),
-          driver_user_id: t.driverUserId || null
+          driver_user_id: t.driverUserId || null,
+          cost: t.type === 'Spedition' && parseFloat(t.cost) >= 0 ? parseFloat(t.cost) : null
         };
       });
       var { error: trErr } = await supabaseClient.from('protocol_transports').insert(transInserts);
@@ -1877,7 +1880,7 @@ function buildProtPdfDoc(entry) {
   var calcDate = (data.date && data.date !== '—') ? data.date : localDateStr();
   data.transports.forEach(function(t) {
     if (!t.type) return;
-    var r = calcTransportCost(t.type, calcDate);
+    var r = calcTransportCost(t.type, calcDate, t.cost);
     doc.text('- ' + t.type + (t.driver ? ' (' + t.driver + ')' : '') + ': ' + r.toFixed(2) + ' EUR', ml + 5, y); y += 4;
     if (y > 280) { doc.addPage(); y = 20; }
     var drv = protDriverCost(t, appUsers);

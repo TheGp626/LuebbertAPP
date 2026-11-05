@@ -58,3 +58,12 @@ test('a break longer than the shift never yields negative hours', () => {
   assert.ok(r.every(x => x.hrs >= 0));
   assert.ok(calc('MA frei', '2026-10-28', false, 8 * 60, 10 * 60, 180).every(x => x.hrs >= 0));
 });
+
+test('calcTransportCost: Spedition costs the amount entered in the protocol, nothing without one', () => {
+  const c = (t, d, k) => vm.runInContext('calcTransportCost(' + JSON.stringify(t) + ', ' + JSON.stringify(d) + ', ' + JSON.stringify(k) + ')', ctx);
+  assert.equal(c('Spedition', '2026-11-02', 480.5), 480.5);
+  assert.equal(c('Spedition', '2026-11-01', '390'), 390);
+  assert.equal(c('Spedition', '2026-11-02', null), 0);
+  assert.equal(c('Spedition', '2026-11-02', ''), 0);
+  assert.equal(c('Bischoff', '2026-11-02', 999), 750, 'other vehicles keep their rate');
+});
