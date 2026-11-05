@@ -550,3 +550,21 @@ test('Spedition cost: stored only for Spedition, and a changed amount counts as 
   assert.equal(ch([row], [{ type: 'Spedition', driver: 'Hansetrans', hours: null, cost: '400' }]), false);
   assert.equal(ch([row], [{ type: 'Spedition', driver: 'Hansetrans', hours: null, cost: '450' }]), true);
 });
+
+test('dashShiftSaveRole: same function keeps the stored role (snapshot), a new function takes the worker\'s type', () => {
+  const f = ctx.dashShiftSaveRole;
+  assert.equal(f('MA', 'MA frei', 'Midijob'), 'MA frei');
+  assert.equal(f('MA', 'MA Minijob', 'Rechnung'), 'MA Minijob');
+  assert.equal(f('AL', 'MA frei', 'Midijob'), 'AL Midijob');
+  assert.equal(f('MA', null, 'Rechnung'), 'MA Rechnung');
+  assert.equal(f('Lager', 'MA Minijob', 'Fest'), 'Lager');
+  assert.equal(f('Zenjob', 'MA Minijob', 'Fest'), 'Zenjob');
+});
+
+test('dashRoleOptions: new type keys plus plain departments; a legacy role in use stays selectable', () => {
+  const o = plain(ctx.dashRoleOptions('MA frei'));
+  assert.ok(o.includes('MA Minijob') && o.includes('AL Rechnung') && o.includes('Fahrer Fest') && o.includes('Lager'));
+  assert.ok(!o.includes('AL frei'));
+  assert.equal(o[o.length - 1], 'MA frei');
+  assert.ok(!plain(ctx.dashRoleOptions('MA Midijob')).slice(-1).includes('MA frei'));
+});

@@ -174,18 +174,33 @@ function openEditWorker() {
   document.getElementById('edit-worker-email').value         = worker.email || '';
   _editWorkerRoleRates = Array.isArray(worker.role_rates) ? JSON.parse(JSON.stringify(worker.role_rates)) : [];
   renderRoleRatesList();
-  document.getElementById('edit-worker-fest').checked = !!worker.is_fest;
+  document.getElementById('edit-worker-type').value = worker.employment_type || (worker.is_fest ? 'Fest' : 'Minijob');
   document.getElementById('edit-worker-sees-interest').checked = !!worker.plan_interest_viewer;
   document.getElementById('edit-worker-modal').classList.add('open');
 }
 
-var _ROLE_RATE_OPTIONS = ['AL frei', 'MA frei', 'Fahrer frei', 'Floristik', 'Lager', 'Stoffe', 'Tischlerei', 'AL fest', 'MA fest', 'Fahrer fest'];
+// Position keys for personal rates and the shift editor: "<Funktion> <Typ>" + plain departments;
+// a legacy role in use ("MA frei") is appended so it stays selectable
+function dashRoleOptions(current) {
+  var out = [];
+  ['MA', 'AL', 'Fahrer'].forEach(function(f) { EMPLOYMENT_TYPES.forEach(function(t) { out.push(positionKey(f, t)); }); });
+  out = out.concat(['Floristik', 'Lager', 'Stoffe', 'Tischlerei']);
+  if (current && out.indexOf(current) === -1) out.push(current);
+  return out;
+}
+
+// Shift editor role → stored position_role: same function as before keeps the stored key (type of that day),
+// otherwise the worker's current employment type
+function dashShiftSaveRole(selected, original, workerType) {
+  if (original && splitPosition(original).func === selected) return original;
+  return positionKey(selected, workerType);
+}
 
 function renderRoleRatesList() {
   var c = document.getElementById('edit-worker-role-rates');
   if (!c) return;
   c.innerHTML = _editWorkerRoleRates.map(function(r, i) {
-    var opts = _ROLE_RATE_OPTIONS.map(function(o) {
+    var opts = dashRoleOptions(r.role).map(function(o) {
       return '<option value="' + o + '"' + (r.role === o ? ' selected' : '') + '>' + o + '</option>';
     }).join('');
     return '<div style="display:flex;gap:5px;align-items:center;margin-bottom:4px;">' +
@@ -198,7 +213,7 @@ function renderRoleRatesList() {
 }
 
 function addRoleRateRow() {
-  _editWorkerRoleRates.push({ role: 'MA frei', rate_conni: null, rate_internal: null });
+  _editWorkerRoleRates.push({ role: 'MA Minijob', rate_conni: null, rate_internal: null });
   renderRoleRatesList();
 }
 
@@ -259,7 +274,8 @@ async function saveEditWorker() {
     default_dept:       document.getElementById('edit-worker-dept').value.trim() || null,
     hourly_rate_internal: parseFloat(document.getElementById('edit-worker-rate-internal').value) || null,
     role_rates:           _editWorkerRoleRates.filter(function(r) { return r.role; }),
-    is_fest:              document.getElementById('edit-worker-fest').checked,
+    employment_type:      document.getElementById('edit-worker-type').value,
+    is_fest:              document.getElementById('edit-worker-type').value === 'Fest', // old cached clients still read it
     plan_interest_viewer: document.getElementById('edit-worker-sees-interest').checked,
   };
 
@@ -600,7 +616,7 @@ async function loadDashboardWorkers() {
   try {
     const { data: users, error: uErr } = await supabaseClient
       .from('app_users')
-      .select('id, full_name, role, default_dept, hourly_rate_internal, role_rates, is_active, is_fest, plan_interest_viewer, app_user_private(hourly_rate_conni, income_limit, email)')
+      .select('id, full_name, role, default_dept, hourly_rate_internal, role_rates, is_active, is_fest, employment_type, plan_interest_viewer, app_user_private(hourly_rate_conni, income_limit, email)')
       .eq('is_active', true)
       .order('full_name');
     if (uErr) throw uErr;
@@ -849,8 +865,10 @@ function openShiftEdit(shiftId) {
   const dateVal = shift.protocols?.date || shift.shift_date || '';
   document.getElementById('shift-edit-date').value  = dateVal;
   document.getElementById('shift-edit-ort').value   = shift.ort || '';
-  dashShiftRoleOption(shift.position_role);
-  document.getElementById('shift-edit-role').value  = shift.position_role || 'MA frei';
+  var sp = splitPosition(shift.position_role || 'MA');
+  var selRole = (sp.type || sp.legacy) ? sp.func : (shift.position_role || 'MA');
+  dashShiftRoleOption(selRole);
+  document.getElementById('shift-edit-role').value  = selRole;
   document.getElementById('shift-edit-start').value = (shift.start_time || '').substring(0, 5);
   document.getElementById('shift-edit-end').value   = (shift.end_time   || '').substring(0, 5);
   document.getElementById('shift-edit-note').value  = shift.note || '';
@@ -884,7 +902,7 @@ function openAddShift() {
   document.getElementById('shift-edit-date').value  = localDateStr();
   document.getElementById('shift-edit-ort').value   = '';
   dashShiftRoleOption(null);
-  document.getElementById('shift-edit-role').value  = 'MA frei';
+  document.getElementById('shift-edit-role').value  = 'MA';
   document.getElementById('shift-edit-start').value = '';
   document.getElementById('shift-edit-end').value   = '';
   document.getElementById('shift-edit-note').value  = '';
@@ -899,7 +917,9 @@ function closeShiftEditModal() {
 
 async function saveShiftEdit() {
   const dateVal  = document.getElementById('shift-edit-date').value;
-  const role     = document.getElementById('shift-edit-role').value;
+  const editedShift = _shiftEditId ? dashboardCurrentShifts.find(function(x) { return x.id === _shiftEditId; }) : null;
+  const role     = dashShiftSaveRole(document.getElementById('shift-edit-role').value, editedShift ? editedShift.position_role : null,
+    dashboardCurrentWorker && dashboardCurrentWorker.employment_type);
   const startVal = document.getElementById('shift-edit-start').value;
   const endVal   = document.getElementById('shift-edit-end').value;
   const ortVal   = (document.getElementById('shift-edit-ort') || {}).value || '';
