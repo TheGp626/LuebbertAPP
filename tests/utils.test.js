@@ -208,3 +208,14 @@ test('flattenPrivate: object, array, missing; no mutation', () => {
   assert.deepEqual(flattenPrivate({ id: 'a', full_name: 'X', app_user_private: [] }), none);
   assert.deepEqual(flattenPrivate({ id: 'a', full_name: 'X' }), none);
 });
+
+test('canSeeCosts: PL, Buchhaltung, Admin (also as extra role) — not AL/MA/Gast', () => {
+  const f = new Function(grab('userHasRole') + grab('canSeeCosts') + '; return canSeeCosts;')();
+  assert.equal(f({ role: 'PL' }), true);
+  assert.equal(f({ role: 'Buchhaltung' }), true);
+  assert.equal(f({ role: 'Admin' }), true);
+  assert.equal(f({ role: 'AL' }), false);
+  assert.equal(f({ role: 'MA' }), false);
+  assert.equal(f({ role: 'AL', role_rates: [{ role: 'PL' }] }), true);
+  assert.equal(f(null), false);
+});

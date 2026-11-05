@@ -16,6 +16,11 @@ function userHasRole(user, role) {
   });
 }
 
+// Costs and rates are shown only to PL, Buchhaltung and Admin (also as an additional role)
+function canSeeCosts(user) {
+  return ['PL', 'Buchhaltung', 'Admin'].some(function (r) { return userHasRole(user, r); });
+}
+
 function pad(n) {
   return String(n).padStart(2, '0'); 
 }
