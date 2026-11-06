@@ -195,7 +195,7 @@ async function fetchOwnProfile(id) {
   let data = null, error = null;
   try {
     ({ data, error } = await supabaseClient.from('app_users')
-      .select('id, full_name, role, role_rates, employment_type, default_dept, hourly_rate_internal, is_active, plan_interest_viewer, can_drive, app_user_private(hourly_rate_conni)')
+      .select('id, full_name, role, role_rates, employment_type, default_dept, hourly_rate_internal, is_active, plan_interest_viewer, can_drive, availability_enabled, app_user_private(hourly_rate_conni)')
       .eq('id', id).maybeSingle());
   } catch (e) { error = e; }
   if (isProfileDenied(error)) return { profile: null, error: false };
@@ -366,6 +366,7 @@ function handleSession(user) {
     localStorage.setItem('stundenzettel_name', user.full_name);
     window.currentUserSeesInterest = !!user.plan_interest_viewer; // Wochenplan: sees who said "Ich hätte Zeit"
     window.currentUserCanDrive     = !!user.can_drive;            // Wochenplan: may apply for Fahrer slots
+    window.currentUserAvailability = !!user.availability_enabled; // Wochenplan: may block days (Verfügbarkeit)
     window.currentUserRateConni    = parseFloat(user.hourly_rate_conni)    || 0;
     window.currentUserRateInternal = parseFloat(user.hourly_rate_internal) || 0;
 

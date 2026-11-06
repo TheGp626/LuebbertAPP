@@ -236,6 +236,170 @@ async function wpToggleInterest(btn, shiftId) {
   wpRenderWeek();
 }
 
+// ── Verfügbarkeit: unlocked people block days; no row = available (table availability) ──
+var WP_AVAIL_LEVELS = { nein: { label: 'geht nicht', mark: '✕' }, notfall: { label: 'nur im Notfall', mark: '!' } };
+var WP_AVAIL_WEEKS = 8;
+
+function wpAvailNext(level) { return level === '' || !level ? 'notfall' : level === 'notfall' ? 'nein' : ''; }
+
+// ISO-8601 week number of a YYYY-MM-DD day (the week's Thursday decides the year)
+function wpIsoWeek(iso) {
+  var p = wpParts(iso), d = new Date(Date.UTC(p.y, p.m - 1, p.d));
+  d.setUTCDate(d.getUTCDate() + 3 - (d.getUTCDay() + 6) % 7);
+  var jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  return 1 + Math.round(((d - jan4) / 86400000 - 3 + (jan4.getUTCDay() + 6) % 7) / 7);
+}
+
+// n weeks from the Monday of today's week: [{ monday, kw, days[7] }]
+function wpAvailWeeks(today, n) {
+  var monday = wpAddDays(today, -((wpParts(today).dow + 6) % 7)), out = [];
+  for (var w = 0; w < n; w++) {
+    var mon = wpAddDays(monday, w * 7), days = [];
+    for (var i = 0; i < 7; i++) days.push(wpAddDays(mon, i));
+    out.push({ monday: mon, kw: wpIsoWeek(mon), days: days });
+  }
+  return out;
+}
+
+function wpCanSetAvail(user, forAll) {
+  return !!user && user.role !== 'Gast' && (!!user.availability_enabled || !!forAll);
+}
+
+// Planner grid: one row per person (by name), cells Mo–So with '' | 'notfall' | 'nein'
+function wpAvailGrid(people, rows, monday) {
+  var days = [0, 1, 2, 3, 4, 5, 6].map(function(i) { return wpAddDays(monday, i); }), lv = {};
+  (rows || []).forEach(function(r) { lv[r.user_id + '|' + r.day] = r.level; });
+  return (people || []).map(function(p) {
+    return { id: p.id, name: p.full_name || 'Unbekannt', cells: days.map(function(d) { return lv[p.id + '|' + d] || ''; }) };
+  }).sort(function(a, b) { return a.name.localeCompare(b.name, 'de'); });
+}
+
+var wpAvailRows = {};        // own blocked days: { 'YYYY-MM-DD': 'nein' | 'notfall' }
+var _wpAvailChain = {};      // per day: the last pending write, so writes reach the server in tap order
+var _wpAvailSaved = {};      // per day: last level the server confirmed (load or successful save)
+var wpAvailGridMonday = null; // week shown in the planner grid
+
+function wpAvailMode() {
+  var role = typeof userRole !== 'undefined' ? userRole : null;
+  var forAll = typeof appSetting === 'function' && appSetting('availability_for_all') === true;
+  return {
+    own: wpCanSetAvail({ role: role, availability_enabled: !!window.currentUserAvailability }, forAll),
+    grid: role !== 'Gast' && wpSeesInterest()
+  };
+}
+
+function wpAvailDayHtml(day, today) {
+  var lv = wpAvailRows[day] || '', meta = WP_AVAIL_LEVELS[lv], p = wpParts(day), past = day < today;
+  var label = WP_WEEKDAYS_LONG[p.dow] + ', ' + p.d + '.' + p.m + '.: ' + (meta ? meta.label : 'verfügbar') + (past ? ' (vorbei)' : '');
+  return '<button type="button" class="wp-av-day' + (lv ? ' wp-av-' + lv : '') + (day === today ? ' wp-av-today' : '') + '" data-day="' + day + '"' +
+    (past ? ' disabled' : ' onclick="wpToggleAvail(\'' + day + '\')"') + ' aria-label="' + wpEsc(label) + '">' +
+    '<span class="wp-av-dow">' + WP_WEEKDAYS[p.dow] + '</span><span class="wp-av-num">' + p.d + '</span>' +
+    '<span class="wp-av-mark" aria-hidden="true">' + (meta ? meta.mark : '') + '</span></button>';
+}
+
+function wpAvailLegendHtml() {
+  return '<div class="wp-av-legend" aria-hidden="true"><span><i class="wp-av-sw"></i>verfügbar</span>' +
+    '<span><i class="wp-av-sw wp-av-notfall">!</i>nur im Notfall</span><span><i class="wp-av-sw wp-av-nein">✕</i>geht nicht</span></div>';
+}
+
+function wpAvailCalendarHtml(today) {
+  return '<div class="wp-hint">Trag bitte mindestens 2 Wochen vorher ein, wann du nicht kannst. Nicht markierte Tage = verfügbar. ' +
+    'Tippen wechselt: verfügbar → nur im Notfall → geht nicht.</div>' + wpAvailLegendHtml() +
+    '<div class="wp-av-cal">' + wpAvailWeeks(today, WP_AVAIL_WEEKS).map(function(w) {
+      return '<div class="wp-av-week"><div class="wp-av-kw">KW ' + w.kw + ' · ' + wpDayLabel(w.days[0]).slice(3) + ' – ' + wpDayLabel(w.days[6]).slice(3) + '</div>' +
+        '<div class="wp-av-row">' + w.days.map(function(d) { return wpAvailDayHtml(d, today); }).join('') + '</div></div>';
+    }).join('') + '</div>';
+}
+
+function wpAvailSave(day, level) {
+  var me = wpMe(), q = supabaseClient.from('availability');
+  // .select(): RLS answers a blocked write with 0 rows and no error
+  return level ? q.upsert({ user_id: me, day: day, level: level, updated_at: new Date().toISOString() }, { onConflict: 'user_id,day' }).select('day')
+               : q.delete().eq('user_id', me).eq('day', day).select('day');
+}
+
+// Tap on a day: next level shown at once, saved in tap order; a failed save puts back the last SAVED level
+async function wpToggleAvail(day) {
+  if (!wpMe() || day < localDateStr()) return;
+  var prev = wpAvailRows[day] || '', next = wpAvailNext(prev);
+  if (!(day in _wpAvailSaved)) _wpAvailSaved[day] = prev;
+  if (next) wpAvailRows[day] = next; else delete wpAvailRows[day];
+  wpAvailRepaint(day);
+  var run = (_wpAvailChain[day] || Promise.resolve()).then(function() { return wpAvailSave(day, next); });
+  _wpAvailChain[day] = run.catch(function() {});
+  var r;
+  try { r = await run; } catch (e) { r = { error: e }; }
+  if (r.error || (next && (!r.data || !r.data.length))) {
+    console.error('Verfügbarkeit speichern:', r.error);
+    if ((wpAvailRows[day] || '') === next) {
+      var saved = _wpAvailSaved[day];
+      if (saved) wpAvailRows[day] = saved; else delete wpAvailRows[day];
+      wpAvailRepaint(day);
+    }
+    showToast('Nicht gespeichert. Prüf deine Verbindung und tipp nochmal.', 'danger');
+  } else {
+    _wpAvailSaved[day] = next;
+  }
+}
+
+// Planner grid weeks: the current week up to the last week the calendar offers
+function wpAvailGridBounds() {
+  var weeks = wpAvailWeeks(localDateStr(), WP_AVAIL_WEEKS);
+  return { min: weeks[0].monday, max: weeks[weeks.length - 1].monday };
+}
+
+function wpAvailGridStep(dir) {
+  var b = wpAvailGridBounds(), next = wpAddDays(wpAvailGridMonday || b.min, dir * 7);
+  if (next >= b.min && next <= b.max) wpRenderAvailGrid(next);
+}
+
+async function wpRenderAvailGrid(monday) {
+  var box = document.getElementById('wp-av-planner');
+  if (!box) return;
+  wpAvailGridMonday = monday;
+  var sunday = wpAddDays(monday, 6), b = wpAvailGridBounds();
+  var [p, r] = await Promise.all([
+    supabaseClient.rpc('availability_people'),
+    supabaseClient.from('availability').select('user_id, day, level').gte('day', monday).lte('day', sunday)
+  ]);
+  if (wpAvailGridMonday !== monday) return; // a newer week was picked meanwhile
+  var nav = '<div class="wp-av-planner-head"><div><div class="ui-label" style="margin:0;">Team</div>' +
+    '<b>KW ' + wpIsoWeek(monday) + ' · ' + wpDayLabel(monday).slice(3) + ' – ' + wpDayLabel(sunday).slice(3) + '</b></div>' +
+    '<div class="wp-weeknav" style="display:flex;">' +
+    '<button type="button" aria-label="Vorige Woche" onclick="wpAvailGridStep(-1)"' + (monday <= b.min ? ' disabled' : '') + '><svg class="wp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6"/></svg></button>' +
+    '<button type="button" aria-label="Nächste Woche" onclick="wpAvailGridStep(1)"' + (monday >= b.max ? ' disabled' : '') + '><svg class="wp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6l6 6-6 6"/></svg></button></div></div>';
+  if (p.error || r.error) {
+    console.error('Verfügbarkeit Team:', p.error || r.error);
+    box.innerHTML = nav + '<div class="wp-empty">Die Übersicht konnte nicht geladen werden. Prüf deine Verbindung.</div>';
+    return;
+  }
+  var rows = wpAvailGrid(p.data, r.data, monday);
+  if (!rows.length) {
+    box.innerHTML = nav + uiEmptyHtml('Noch niemand freigeschaltet', 'Im Mitarbeiter-Dialog „Verfügbarkeit eintragen“ anhaken oder in den Einstellungen für alle einschalten.');
+    return;
+  }
+  var days = [0, 1, 2, 3, 4, 5, 6].map(function(i) { return wpAddDays(monday, i); });
+  box.innerHTML = nav + '<div class="wp-av-scroll"><table class="wp-av-grid"><caption class="sr-only">Wer an welchem Tag nicht oder nur im Notfall kann</caption>' +
+    '<thead><tr><th scope="col"><span class="sr-only">Name</span></th>' + days.map(function(d) {
+      var x = wpParts(d);
+      return '<th scope="col">' + WP_WEEKDAYS[x.dow] + '<br>' + x.d + '.' + x.m + '.</th>';
+    }).join('') + '</tr></thead><tbody>' + rows.map(function(row) {
+      return '<tr><th scope="row">' + wpEsc(row.name) + '</th>' + row.cells.map(function(lv) {
+        var meta = WP_AVAIL_LEVELS[lv];
+        return meta ? '<td class="wp-av-' + lv + '" title="' + meta.label + '"><span aria-hidden="true">' + meta.mark + '</span><span class="sr-only">' + meta.label + '</span></td>'
+                    : '<td><span class="sr-only">verfügbar</span></td>';
+      }).join('') + '</tr>';
+    }).join('') + '</tbody></table></div>' + wpAvailLegendHtml();
+}
+
+function wpAvailRepaint(day) {
+  var el = document.querySelector('.wp-av-day[data-day="' + day + '"]');
+  if (!el) return;
+  el.outerHTML = wpAvailDayHtml(day, localDateStr());
+  var again = document.querySelector('.wp-av-day[data-day="' + day + '"]');
+  if (again) again.focus(); // keep keyboard focus on the tapped day
+}
+
 // Compact, expandable shift row (week view and "Danach" list)
 function wpRow(s, opts) {
   opts = opts || {};
@@ -339,14 +503,41 @@ async function wpEnablePush() {
 }
 
 function wpSetView(v) {
+  var mode = wpAvailMode(), availTab = document.getElementById('wp-tab-avail');
+  if (availTab) availTab.hidden = !(mode.own || mode.grid);
+  if (v === 'avail' && !(mode.own || mode.grid)) v = 'mine';
   wpView = v;
-  document.getElementById('wp-tab-mine').classList.toggle('active', v === 'mine');
-  document.getElementById('wp-tab-all').classList.toggle('active', v === 'all');
-  document.getElementById('wp-tab-mine').setAttribute('aria-selected', v === 'mine' ? 'true' : 'false');
-  document.getElementById('wp-tab-all').setAttribute('aria-selected', v === 'all' ? 'true' : 'false');
+  ['mine', 'all', 'avail'].forEach(function(t) {
+    var b = document.getElementById('wp-tab-' + t);
+    if (!b) return;
+    b.classList.toggle('active', v === t);
+    b.setAttribute('aria-selected', v === t ? 'true' : 'false');
+  });
   document.getElementById('wp-week-nav').style.display = v === 'all' ? 'flex' : 'none';
   document.getElementById('wp-days').style.display = v === 'all' ? 'flex' : 'none';
-  if (v === 'mine') wpRenderMine(); else wpRenderWeek();
+  if (v === 'mine') wpRenderMine(); else if (v === 'avail') wpRenderAvail(); else wpRenderWeek();
+}
+
+// Verfügbarkeit tab: own calendar (unlocked people) and/or the planner grid
+async function wpRenderAvail() {
+  var content = document.getElementById('wp-content'), mode = wpAvailMode(), today = localDateStr(), seq = ++_wpRenderSeq;
+  content.innerHTML = '<div class="wp-empty">Lädt…</div>';
+  var html = '';
+  if (mode.own) {
+    var r = await supabaseClient.from('availability').select('day, level').eq('user_id', wpMe()).gte('day', today);
+    if (seq !== _wpRenderSeq) return;
+    if (r.error) {
+      console.error('Verfügbarkeit laden:', r.error);
+      content.innerHTML = '<div class="wp-empty">Deine Verfügbarkeit konnte nicht geladen werden. Prüf deine Verbindung und öffne den Tab erneut.</div>';
+      return;
+    }
+    wpAvailRows = {}; _wpAvailSaved = {};
+    (r.data || []).forEach(function(x) { wpAvailRows[x.day] = x.level; });
+    html += '<section aria-label="Meine Verfügbarkeit">' + wpAvailCalendarHtml(today) + '</section>';
+  }
+  if (mode.grid) html += '<section class="wp-av-planner" aria-label="Verfügbarkeit im Team" id="wp-av-planner"></section>';
+  content.innerHTML = html;
+  if (mode.grid) wpRenderAvailGrid(wpAvailGridMonday || wpAvailWeeks(today, 1)[0].monday);
 }
 
 function wpStepWeek(dir) {

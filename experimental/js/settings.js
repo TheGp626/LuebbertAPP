@@ -16,6 +16,7 @@ var APP_SETTINGS_DEFAULTS = {
   protocol_mail_enabled: true,
   mail_test_mode: true,
   billing_cutoff: 20,
+  availability_for_all: false,
   vehicle_rates: (typeof PROT_VEHICLE_RATES !== 'undefined') ? PROT_VEHICLE_RATES : {}, // js/formulas.js
   personnel_rates: (typeof PERSONNEL_RATE_DEFAULTS !== 'undefined') ? PERSONNEL_RATE_DEFAULTS : {} // js/formulas.js
 };
@@ -129,6 +130,9 @@ var SETTINGS_SWITCHES = [
   ] },
   { group: 'Projektordner', items: [
     { key: 'folder_autodelete_enabled', label: 'Alte Projektordner automatisch löschen', hint: '7 Tage nach dem letzten Einsatz, samt Dateien' }
+  ] },
+  { group: 'Wochenplan', items: [
+    { key: 'availability_for_all', label: 'Verfügbarkeit für alle', hint: 'Alle Mitarbeiter können Tage blocken, nicht nur freigeschaltete' }
   ] },
   { group: 'Protokoll-Mails', items: [
     { key: 'protocol_mail_enabled', label: 'Mails an die PL', hint: 'Fertige und geänderte Protokolle gehen als PDF an die PL' },
@@ -322,5 +326,6 @@ async function sendTestPush() {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { APP_SETTINGS_DEFAULTS: APP_SETTINGS_DEFAULTS, appSetting: appSetting, appSettingsFromCache: appSettingsFromCache,
     validateSettings: validateSettings, changedSettings: changedSettings, testPushMessage: testPushMessage,
-    validVehicleRates: validVehicleRates, readVehicleRates: readVehicleRates, validPersonnelRates: validPersonnelRates };
+    validVehicleRates: validVehicleRates, readVehicleRates: readVehicleRates, validPersonnelRates: validPersonnelRates,
+    SETTINGS_SWITCHES: SETTINGS_SWITCHES };
 }

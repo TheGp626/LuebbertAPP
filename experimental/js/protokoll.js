@@ -1040,11 +1040,44 @@ function protIncompleteNames(personnel) {
   }).map(function(p) { return p.name || p.tempName || 'Ohne Name'; });
 }
 
+// People who end later than the AL's own row (Sonja: the AL must explain why). No AL row or AL time → nobody.
+// An end before the start counts as the next day (over midnight); a row starting more than 12 h before the AL's
+// start belongs to the night after it (AL 18:00–02:00, MA 00:30–03:00).
+var PROT_LONGER_THAN_AL = 'Länger als AL';
+function protLongerThanAl(personnel, alId) {
+  var alStart = null;
+  var endMin = function(p) {
+    var s = timeToMins(p.start), e = timeToMins(p.end);
+    if (s === null || e === null || isNaN(s) || isNaN(e)) return null;
+    if (e < s) e += 1440;
+    return alStart !== null && s + 720 < alStart ? e + 1440 : e;
+  };
+  var al = alId ? (personnel || []).find(function(p) { return p.userId === alId; }) : null;
+  var alEnd = al ? endMin(al) : null;
+  if (alEnd === null) return [];
+  alStart = timeToMins(al.start);
+  return personnel.filter(function(p) {
+    var e = p !== al ? endMin(p) : null;
+    return e !== null && e > alEnd;
+  }).map(function(p) { return p.name || p.tempName || 'Ohne Name'; });
+}
+
 // ── PROTOKOLL SAVE (replaces PDF Export) ──
 async function saveProtokoll() {
   var missing = protIncompleteNames(protState.personnel);
   if (missing.length && !confirm('Ohne Start- oder Endzeit: ' + missing.join(', ') + '.\n\n' +
       (missing.length === 1 ? 'Diese Person wird' : 'Diese Personen werden') + ' nicht mitgespeichert und fehlen bei den Stunden. Trotzdem senden?')) return;
+  // Reason goes into "Vorkommnisse" (mail, PDF, dashboard); once there, a resend doesn't ask again
+  var incEl = document.getElementById('prot-incidents');
+  var longer = protLongerThanAl(protState.personnel,
+    protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, appUsers.length > 0));
+  if (longer.length && incEl && (incEl.value || '').indexOf(PROT_LONGER_THAN_AL) === -1) {
+    var why = prompt(longer.join(', ') + (longer.length === 1 ? ' hat' : ' haben') +
+      ' länger gearbeitet als der Aufbauleiter.\n\nBitte kurz begründen (Pflicht):', '');
+    if (!why || !why.trim()) { showToast('Ohne Begründung wird nicht gesendet.', 'danger'); return; }
+    incEl.value = PROT_LONGER_THAN_AL + ' (' + longer.join(', ') + '): ' + why.trim() +
+      (incEl.value.trim() && incEl.value.trim() !== 'nein' ? '\n' + incEl.value.trim() : '');
+  }
   calcProtCosts(); // the shown total may be stale (restored draft, rates loaded late)
   var usersLoaded = appUsers.length > 0;
   var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded);

@@ -17,7 +17,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <link rel="stylesheet" href="css/style.css?v=38">
-  <link rel="stylesheet" href="css/ui.css?v=14">
+  <link rel="stylesheet" href="css/ui.css?v=15">
 </head>
 
 <body>
@@ -296,6 +296,10 @@
                 <div class="ui-label">Neue Stunden eingereicht</div>
                 <div id="pending-workers-chips" class="ui-list"></div>
               </div>
+              <details id="dash-night-panel">
+                <summary class="ui-label" style="cursor:pointer;">Nachtschichten · letzte 90 Tage</summary>
+                <div id="dash-night-ranking" class="ui-list"></div>
+              </details>
               <div class="ui-label">Alle Mitarbeiter</div>
               <div id="dash-worker-list" class="ui-list"></div>
               <!-- data source for the selection (read by the dashboard code) -->
@@ -361,6 +365,7 @@
             <div class="ui-seg" role="tablist">
               <button type="button" class="active" id="wp-tab-mine" role="tab" aria-selected="true" onclick="wpSetView('mine')">Meine Schichten</button>
               <button type="button" id="wp-tab-all" role="tab" aria-selected="false" onclick="wpSetView('all')">Ganze Woche</button>
+              <button type="button" id="wp-tab-avail" role="tab" aria-selected="false" hidden onclick="wpSetView('avail')">Verfügbarkeit</button>
             </div>
             <div id="wp-week-nav" class="wp-weeknav" style="display:none;">
               <button type="button" id="wp-prev" aria-label="Vorige Woche" onclick="wpStepWeek(-1)"><svg class="wp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6"/></svg></button>
@@ -790,6 +795,12 @@
           </div>
           <div class="field">
             <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" id="edit-worker-avail">
+              <span style="font-size:14px;">Verfügbarkeit eintragen <span style="color:var(--text3); font-size:12px;">(Tage blocken im Wochenplan)</span></span>
+            </label>
+          </div>
+          <div class="field">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
               <input type="checkbox" id="edit-worker-can-drive">
               <span style="font-size:14px;">Kann Fahrer <span style="color:var(--text3); font-size:12px;">(darf sich auf offene Fahrer-Schichten melden)</span></span>
             </label>
@@ -835,21 +846,21 @@
 
   <!-- Scripts -->
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=35"></script>
+  <script src="js/auth.js?v=36"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=16"></script>
   <script src="js/utils.js?v=21"></script>
   <script src="js/ui.js?v=4"></script>
   <script src="js/changelog.js?v=1"></script>
-  <script src="js/settings.js?v=10"></script>
+  <script src="js/settings.js?v=11"></script>
   <script src="js/stundenzettel.js?v=25"></script>
-  <script src="js/protokoll.js?v=43"></script>
+  <script src="js/protokoll.js?v=44"></script>
   <script src="js/erinnerung.js?v=10"></script>
   <script src="js/plan-pdf.js?v=1"></script>
   <script src="js/plan-parser.js?v=17"></script>
-  <script src="js/wochenplan.js?v=20"></script>
+  <script src="js/wochenplan.js?v=21"></script>
   <script src="js/home.js?v=7"></script>
-  <script src="js/dashboard.js?v=37"></script>
+  <script src="js/dashboard.js?v=38"></script>
   <script src="js/produkte.js?v=18"></script>
   <script src="js/ordner.js?v=26"></script>
   <script src="js/app.js?v=24"></script>
