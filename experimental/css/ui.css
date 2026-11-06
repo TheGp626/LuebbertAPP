@@ -262,3 +262,4 @@ button.dash-shift-main:focus-visible { outline: 2px solid var(--accent); outline
 .dash-bee-h { font-size: 13px; color: var(--text2); font-variant-numeric: tabular-nums; }
 .dash-insight-note { font-size: 13px; color: var(--text2); line-height: 1.5; padding: 8px 2px; }
 .dash-insight-note b { color: var(--text); font-weight: 600; }
+.dash-container { width: 100%; box-sizing: border-box; } /* fixed width: opening a panel with long text must not widen the page */
