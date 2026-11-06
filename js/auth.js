@@ -435,7 +435,7 @@ var GAST_MODULES = ['produkte', 'ordner'];
 function moduleAllowedForRole(m, role) {
   if (role === 'Gast') return GAST_MODULES.indexOf(m) !== -1;
   if (m === 'protokoll') return role !== 'MA';
-  if (m === 'auftraege') return role === 'Admin' || role === 'PL';
+  if (m === 'auftraege') return role === 'Admin' || role === 'PL' || !!(typeof window !== 'undefined' && window.currentUserSeesInterest);
   if (m === 'dashboard') return ['AL', 'PL', 'Buchhaltung', 'Admin'].indexOf(role) !== -1;
   return true;
 }

@@ -324,3 +324,72 @@ test('ordCardHtml: venue shown as written in the title (umlauts kept)', () => {
   const x = vx(); x.title = '261109_Neuköllnspeicher_Vernissage';
   assert.match(ctx.ordCardHtml(x), /Neuköllnspeicher · /);
 });
+
+// ── Inbox (both kinds of Meldungen) ──
+function inboxCtx(extra) {
+  stubToday('2026-11-06');
+  vm.runInContext('_ordSaved = { "26-0447.01": { staff_setup: 2, staff_teardown: null } }', ctx);
+  vm.runInContext('_ordCtx = ' + JSON.stringify(Object.assign({
+    apps: [{ job_no: '26-0447.01', phase: 'setup', user_id: 'u2', status: 'offen' }],
+    interest: [{ week_id: 'w', shift_key: 'k1', user_id: 'u3', status: 'offen' }],
+    links: {}, avail: {}, names: { u2: 'Ben', u3: 'Cem' },
+    plan: [{ id: 'p1', week_id: 'w', date: '2026-11-09', key: 'k1', venue: 'Tempodrom', title: 'Gala', wann: 'Aufbau: 8 Uhr',
+      open_slots: [{ role: 'MA', count: 1 }], plan_assignments: [] }],
+  }, extra || {})), ctx);
+}
+const boa = () => ({ job: Object.assign(ordJob('26-0447.01', '2026-11-11T09:00', null), { name: 'Business of Apps' }),
+  file: { id: 'f2' }, folderName: 'O', project: '26-0447', title: '261111_Estrel_Business of Apps' });
+
+test('ordInbox: open from both tables, sorted by day', () => {
+  inboxCtx();
+  const box = ctx.ordInbox([boa()], '2026-11-06');
+  assert.deepEqual(plain(box.open.map(i => i.kind)), ['shift', 'order']);
+  assert.equal(box.open[0].date, '2026-11-09');
+  assert.equal(box.open[1].phase, 'Aufbau');
+  assert.equal(box.open[1].time, '09:00');
+});
+
+test('ordInbox: only today and later', () => {
+  inboxCtx({ plan: [{ id: 'p1', week_id: 'w', date: '2026-11-05', key: 'k1', venue: 'Tempodrom', title: 'Gala', wann: '', plan_assignments: [] }] });
+  assert.equal(ctx.ordInbox([], '2026-11-06').open.length, 0);
+});
+
+test('ordInbox: skips rows without a shift', () => {
+  inboxCtx({ apps: [], interest: [{ week_id: 'w', shift_key: 'weg', user_id: 'u3', status: 'offen' }] });
+  assert.equal(ctx.ordInbox([], '2026-11-06').open.length, 0);
+});
+
+test('ordInbox: accepted-not-in-plan', () => {
+  inboxCtx({ apps: [{ job_no: '26-0447.01', phase: 'setup', user_id: 'u2', status: 'angenommen' }],
+    interest: [{ week_id: 'w', shift_key: 'k1', user_id: 'u3', status: 'angenommen' }] });
+  let box = ctx.ordInbox([boa()], '2026-11-06');
+  assert.equal(box.open.length, 0);
+  assert.deepEqual(plain(box.accepted.map(i => i.kind)), ['shift', 'order']); // the Auftrag phase is not linked → not in plan
+  vm.runInContext('_ordCtx.plan[0].plan_assignments.push({ user_id: "u3", name: "Cem" })', ctx);
+  box = ctx.ordInbox([boa()], '2026-11-06');
+  assert.deepEqual(plain(box.accepted.map(i => i.kind)), ['order']);
+});
+
+test('ordDecideShift: update shape and filters; error keeps status and toasts', async () => {
+  inboxCtx();
+  ctx.ordRenderList = () => {}; let toast = null; ctx.showToast = (m, t) => { toast = t; };
+  let sb = decideClient(false); ctx.supabaseClient = sb;
+  await ctx.ordDecideShift('w', 'k1', 'u3', 'angenommen');
+  assert.equal(sb.calls[0].t, 'plan_shift_interest');
+  assert.deepEqual(plain(sb.calls[0].row), { status: 'angenommen' });
+  assert.deepEqual(plain(sb.calls[0].filters), [['week_id', 'w'], ['shift_key', 'k1'], ['user_id', 'u3']]);
+  assert.equal(vm.runInContext('_ordCtx.interest[0].status', ctx), 'angenommen');
+  sb = decideClient(true); ctx.supabaseClient = sb;
+  await ctx.ordDecideShift('w', 'k1', 'u3', 'abgelehnt');
+  assert.equal(vm.runInContext('_ordCtx.interest[0].status', ctx), 'angenommen');
+  assert.equal(toast, 'danger');
+});
+
+test('ordCanDecide: Admin or the switch', () => {
+  ctx.userRole = 'PL'; ctx.currentUserSeesInterest = false;
+  assert.equal(ctx.ordCanDecide(), false);
+  ctx.currentUserSeesInterest = true;
+  assert.equal(ctx.ordCanDecide(), true);
+  ctx.userRole = 'Admin'; ctx.currentUserSeesInterest = false;
+  assert.equal(ctx.ordCanDecide(), true);
+});

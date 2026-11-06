@@ -1,7 +1,8 @@
 /* Aufträge (Jenni, test build): jobs from the Auftragsbestätigungen in the project folders, with MA needed.
  * PDFs are parsed once (order-parser.js) and the result is stored in order_parsed for everyone;
  * only new files or files parsed by an older ORDER_PARSER_VERSION are downloaded again.
- * MA numbers live in order_staffing (job_no). Admin/PL only (moduleAllowedForRole, RLS). */
+ * MA numbers live in order_staffing (job_no). Admin/PL and „Sieht Bewerbungen“ (moduleAllowedForRole, RLS);
+ * Meldungen (order_applications + plan_shift_interest) are decided by Admin + „Sieht Bewerbungen“ only. */
 
 var ORD_DOW = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 var _ordSaved = {};   // job_no → { staff_setup, staff_teardown } as last confirmed by the server
@@ -9,7 +10,7 @@ var _ordFiles = [];
 var _ordSeq = 0;      // bumped per render; a slower earlier render must not overwrite a newer one
 var _ordView = null;  // { jobs, failed } of the last load, re-rendered after a decision
 // Applications, manual links, Daniel's entries of the slot days, availability and names (each may stay empty on a load error)
-var _ordCtx = { apps: [], links: {}, plan: [], avail: {}, names: {} };
+var _ordCtx = { apps: [], interest: [], links: {}, plan: [], avail: {}, names: {} };
 var ORD_PHASE = { setup: 'Aufbau', teardown: 'Abbau' };
 
 function ordEsc(s) { return escapeHtml(s == null ? '' : String(s)); }
@@ -323,25 +324,72 @@ function ordRenderList() {
   content.innerHTML = ordListHtml(_ordView);
 }
 
-// Context for the phase blocks; a failing part only leaves its hints out
-async function ordLoadCtx(jobs) {
-  var days = {};
-  jobs.forEach(function(x) { ['setup', 'teardown'].forEach(function(ph) { if (x.job[ph]) days[x.job[ph].start.slice(0, 10)] = true; }); });
-  days = Object.keys(days);
+// Context for the phase blocks and the inbox: all upcoming entries of Daniel's plan; a failing part only leaves its hints out
+async function ordLoadCtx() {
+  var today = localDateStr();
   var res = await Promise.all([
     supabaseClient.from('order_applications').select('job_no, phase, user_id, status'),
     supabaseClient.from('order_plan_links').select('job_no, phase, plan_date, plan_key'),
-    days.length ? supabaseClient.from('plan_shifts').select('id, date, key, venue, location, title, wann, plan_assignments(user_id, name, role)').in('date', days) : { data: [] },
-    days.length ? supabaseClient.from('availability').select('user_id, day, level').in('day', days) : { data: [] },
-    supabaseClient.from('app_users').select('id, full_name')
+    supabaseClient.from('plan_shifts').select('id, week_id, date, key, venue, location, title, wann, open_slots, plan_assignments(user_id, name, role)').gte('date', today),
+    supabaseClient.from('availability').select('user_id, day, level').gte('day', today),
+    supabaseClient.from('app_users').select('id, full_name'),
+    supabaseClient.from('plan_shift_interest').select('week_id, shift_key, user_id, status')
   ]);
   res.forEach(function(r) { if (r.error) console.warn('Aufträge: Zusatzdaten fehlen:', r.error); });
   var ok = function(r) { return r.error ? [] : (r.data || []); };
-  var c = { apps: ok(res[0]), links: {}, plan: ok(res[2]), avail: {}, names: {} };
+  var c = { apps: ok(res[0]), interest: ok(res[5]), links: {}, plan: ok(res[2]), avail: {}, names: {} };
   ok(res[1]).forEach(function(l) { c.links[l.job_no + '|' + l.phase] = { plan_date: l.plan_date, plan_key: l.plan_key }; });
   ok(res[3]).forEach(function(a) { c.avail[a.user_id + '|' + a.day] = a.level; });
   ok(res[4]).forEach(function(u) { c.names[u.id] = u.full_name; });
   return c;
+}
+
+// Who decides Meldungen (same rule as sees_plan_interest() in the database)
+function ordCanDecide() {
+  return (typeof userRole !== 'undefined' && userRole === 'Admin') || !!window.currentUserSeesInterest;
+}
+
+// Both kinds of Meldungen as one list: open ones, and accepted ones whose person is not in Daniel's plan yet.
+// Item: { kind: 'order'|'shift', date, time, title, phase, user_id, job_no, phaseKey, week_id, shift_key, ps }
+function ordInbox(jobs, today) {
+  var open = [], accepted = [];
+  var push = function(item, status) {
+    if (!item.date || item.date < today) return;
+    if (status === 'offen') open.push(item);
+    else if (status === 'angenommen' && (!item.ps || ordAssignedIds(item.ps, true).indexOf(item.user_id) === -1)) accepted.push(item);
+  };
+  _ordCtx.apps.forEach(function(a) {
+    var x = (jobs || []).find(function(j) { return j.job.jobNo === a.job_no; });
+    if (!x || !x.job[a.phase]) return;
+    var start = x.job[a.phase].start || '';
+    push({ kind: 'order', date: start.slice(0, 10), time: start.slice(11, 16), title: [ordVenueLabel(x.title), x.job.name].filter(Boolean).join(' – '),
+      phase: ORD_PHASE[a.phase], user_id: a.user_id, job_no: a.job_no, phaseKey: a.phase, ps: ordPhaseInfo(x, a.phase).ps }, a.status);
+  });
+  (_ordCtx.interest || []).forEach(function(r) {
+    var p = _ordCtx.plan.find(function(s) { return s.week_id === r.week_id && s.key === r.shift_key; });
+    if (!p) return;
+    push({ kind: 'shift', date: p.date, time: '', title: [p.venue, p.title].filter(Boolean).join(' – '),
+      phase: String(p.wann || '').split('\n')[0], user_id: r.user_id, week_id: r.week_id, shift_key: r.shift_key, ps: p }, r.status || 'offen');
+  });
+  var order = function(a, b) { return a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.title.localeCompare(b.title); };
+  return { open: open.sort(order), accepted: accepted.sort(order) };
+}
+
+// Decide a Meldung on a shift of Daniel's plan (plan_shift_interest)
+async function ordDecideShift(weekId, key, userId, status) {
+  var row = (_ordCtx.interest || []).find(function(x) { return x.week_id === weekId && x.shift_key === key && x.user_id === userId; });
+  if (!row) return;
+  try {
+    var r = await supabaseClient.from('plan_shift_interest').update({ status: status })
+      .eq('week_id', weekId).eq('shift_key', key).eq('user_id', userId).select('user_id');
+    if (r.error || !r.data || !r.data.length) throw r.error || new Error('nicht gespeichert');
+    row.status = status;
+  } catch (err) {
+    console.error('Meldung entscheiden:', err);
+    showToast('Nicht gespeichert. Prüf deine Verbindung.', 'danger');
+    return;
+  }
+  ordRenderList();
 }
 
 async function initAuftraege() {
@@ -368,7 +416,7 @@ async function initAuftraege() {
   }, function() { return seq !== _ordSeq; });
   if (!out || seq !== _ordSeq) return;
   var jobs = ordJobs(_ordFiles, out.parsed);
-  var c = await ordLoadCtx(jobs);
+  var c = await ordLoadCtx();
   if (seq !== _ordSeq) return;
   _ordCtx = c;
   _ordView = { jobs: jobs, failed: out.failed };

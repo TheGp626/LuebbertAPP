@@ -162,3 +162,15 @@ test('authSessionChanged: Wochenplan flags (Verfügbarkeit, sees interest) re-ru
   assert.equal(changed({ ...u, plan_interest_viewer: false }, { ...u, plan_interest_viewer: true }), true);
   assert.equal(changed({ ...u, availability_enabled: true }, { ...u, availability_enabled: true }), false);
 });
+
+test('moduleAllowedForRole: auftraege for Admin/PL, others only with „Sieht Bewerbungen“, Gast never', () => {
+  const ok = load('moduleAllowedForRole');
+  globalThis.window = { currentUserSeesInterest: false };
+  assert.equal(ok('auftraege', 'PL'), true);
+  assert.equal(ok('auftraege', 'Admin'), true);
+  assert.equal(ok('auftraege', 'AL'), false);
+  window.currentUserSeesInterest = true;
+  assert.equal(ok('auftraege', 'AL'), true);
+  assert.equal(ok('auftraege', 'Gast'), false);
+  delete globalThis.window;
+});
