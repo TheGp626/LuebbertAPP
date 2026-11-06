@@ -164,3 +164,73 @@ test('wpAvailGrid: one row per person, cells Mo–So, sorted by name', () => {
   assert.deepEqual(g[1].cells, ['', '', 'nein', '', '', '', '']);
   assert.deepEqual(g[0].cells, ['', '', '', '', '', '', '']);
 });
+
+// Fake client for availability writes: records calls, answers in the order the test releases them
+function availClient(opts) {
+  const calls = [], pending = [];
+  const from = () => {
+    const q = { filters: [] };
+    const b = {
+      upsert(row, o) { q.op = 'upsert'; q.row = row; q.onConflict = o && o.onConflict; return b; },
+      delete() { q.op = 'delete'; return b; },
+      eq(k, v) { q.filters.push([k, v]); return b; },
+      select() {
+        calls.push(q);
+        return new Promise(res => {
+          const answer = () => res(opts && opts.fail ? { data: null, error: { message: 'x' } } : { data: [{ day: 'd' }], error: null });
+          if (opts && opts.manual) pending.push(answer); else answer();
+        });
+      },
+    };
+    return b;
+  };
+  return { calls, pending, from };
+}
+
+test('wpAvailMode: own calendar for unlocked people, grid for planners', () => {
+  ctx.userRole = 'MA'; ctx.currentUserAvailability = true; ctx.currentUserSeesInterest = false;
+  assert.deepEqual(plain(ctx.wpAvailMode()), { own: true, grid: false });
+  ctx.currentUserAvailability = false; ctx.currentUserSeesInterest = true;
+  assert.deepEqual(plain(ctx.wpAvailMode()), { own: false, grid: true });
+  ctx.userRole = 'Gast'; ctx.currentUserAvailability = true; ctx.currentUserSeesInterest = false;
+  assert.deepEqual(plain(ctx.wpAvailMode()), { own: false, grid: false });
+});
+
+test('wpToggleAvail: verfügbar → upsert notfall; nein → delete; past day → no request', async () => {
+  const sb = availClient(); ctx.supabaseClient = sb; ctx.currentUser = { id: 'me' }; ctx.showToast = () => {};
+  ctx.localDateStr = () => '2026-11-06';
+  await ctx.wpToggleAvail('2026-11-10');
+  assert.equal(sb.calls[0].op, 'upsert');
+  assert.deepEqual(plain(sb.calls[0].row).level, 'notfall');
+  assert.equal(sb.calls[0].row.user_id, 'me');
+  assert.equal(sb.calls[0].onConflict, 'user_id,day');
+  vm.runInContext('wpAvailRows["2026-11-11"] = "nein"', ctx);
+  await ctx.wpToggleAvail('2026-11-11');
+  assert.equal(sb.calls[1].op, 'delete');
+  assert.deepEqual(plain(sb.calls[1].filters), [['user_id', 'me'], ['day', '2026-11-11']]);
+  await ctx.wpToggleAvail('2026-11-05');
+  assert.equal(sb.calls.length, 2);
+});
+
+test('wpToggleAvail: save error reverts the day and shows a toast', async () => {
+  ctx.supabaseClient = availClient({ fail: true }); ctx.currentUser = { id: 'me' }; ctx.localDateStr = () => '2026-11-06';
+  let toast = null; ctx.showToast = (m, t) => { toast = t; };
+  await ctx.wpToggleAvail('2026-11-10');
+  assert.equal(vm.runInContext('wpAvailRows["2026-11-10"] || ""', ctx), '');
+  assert.equal(toast, 'danger');
+});
+
+test('wpToggleAvail: rapid taps reach the server in tap order, last state wins', async () => {
+  const sb = availClient({ manual: true }); ctx.supabaseClient = sb; ctx.currentUser = { id: 'me' }; ctx.showToast = () => {};
+  ctx.localDateStr = () => '2026-11-06';
+  const a = ctx.wpToggleAvail('2026-11-10'), b = ctx.wpToggleAvail('2026-11-10');
+  await new Promise(r => setImmediate(r));
+  assert.equal(sb.calls.length, 1); // second write waits for the first
+  sb.pending.shift()();
+  await new Promise(r => setImmediate(r));
+  assert.equal(sb.calls.length, 2);
+  sb.pending.shift()();
+  await Promise.all([a, b]);
+  assert.deepEqual(sb.calls.map(c => c.row.level), ['notfall', 'nein']);
+  assert.equal(vm.runInContext('wpAvailRows["2026-11-10"]', ctx), 'nein');
+});
