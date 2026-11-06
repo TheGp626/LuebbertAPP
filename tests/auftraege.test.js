@@ -16,7 +16,7 @@ beforeEach(() => {
     setTimeout: () => 0,
   });
   ctx.window = ctx;
-  for (const f of ['utils.js', 'order-parser.js', 'auftraege.js']) {
+  for (const f of ['utils.js', 'order-parser.js', 'order-slots.js', 'auftraege.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../js', f), 'utf8'), ctx, { filename: f });
   }
 });
@@ -157,4 +157,79 @@ test('ordCardHtml: materials listed per group, escaped, no prices', () => {
   assert.match(html, /Bar &lt;b&gt;/);
   assert.ok(html.includes('<b>2×</b> Barelement weiß'));
   assert.match(html, /Stuhl &quot;Clara&quot;/);
+});
+
+// ── Bewerbungen (PL) ──
+const vjob = () => Object.assign(ordJob('26-0415.01', '2026-11-09T10:00', '2026-11-13T10:00'), { name: 'Neuköllnspeicher' });
+const vx = () => ({ job: vjob(), file: { id: 'f' }, folderName: 'O', project: '26-0415', title: '261112_Estrel_Vernissage Streletzki' });
+function setCtx(extra) {
+  vm.runInContext('_ordSaved = { "26-0415.01": { staff_setup: 2, staff_teardown: 0 } }', ctx);
+  vm.runInContext('_ordCtx = ' + JSON.stringify(Object.assign({
+    apps: [], links: {}, avail: {},
+    names: { u1: 'Ana', u2: 'Ben <b>', u3: 'Cem' },
+    plan: [{ id: 'p1', date: '2026-11-09', key: 'k1', venue: 'Estrel', location: 'Vernissage Streletzki', title: 'Neuköllnspeicher',
+      wann: 'Aufbau: 10 Uhr', plan_assignments: [{ user_id: 'u1', name: 'Ana' }] },
+      { id: 'p2', date: '2026-11-09', key: 'k2', venue: 'Estrel', location: 'Reservisten', title: 'STB', wann: 'Abbau: 18 Uhr', plan_assignments: [{ user_id: 'u3', name: 'Cem' }] }],
+  }, extra || {})), ctx);
+}
+
+test('ordSlotHtml: besetzt counts Daniel + accepted without duplicates, warns when full; no block without a number', () => {
+  setCtx({ apps: [{ job_no: '26-0415.01', phase: 'setup', user_id: 'u1', status: 'angenommen' },
+    { job_no: '26-0415.01', phase: 'setup', user_id: 'u2', status: 'angenommen' }] });
+  const html = ctx.ordSlotHtml(vx(), 'setup');
+  assert.match(html, /2 \/ 2 besetzt/);
+  assert.match(html, /voll/);
+  assert.match(html, /Daniels Plan: Mo 9\.11\. · Neuköllnspeicher/);
+  assert.match(html, /Angenommen über Auftrag: Ben &lt;b&gt;/);
+  assert.equal(ctx.ordSlotHtml(vx(), 'teardown'), '');
+});
+
+test('ordSlotHtml: applicants with availability hint and „schon eingeplant“, escaped names', () => {
+  setCtx({ apps: [{ job_no: '26-0415.01', phase: 'setup', user_id: 'u2', status: 'offen' },
+    { job_no: '26-0415.01', phase: 'setup', user_id: 'u3', status: 'offen' }],
+    avail: { 'u2|2026-11-09': 'notfall' } });
+  const html = ctx.ordSlotHtml(vx(), 'setup');
+  assert.match(html, /Ben &lt;b&gt;/);
+  assert.match(html, /nur im Notfall/);
+  assert.match(html, /schon eingeplant/); // Cem is on p2 the same day
+  assert.match(html, /Annehmen/);
+  assert.match(html, /1 \/ 2 besetzt/);
+});
+
+function decideClient(fail) {
+  const calls = [];
+  return { calls, from: (t) => { const q = { t, filters: [] }; const b = {
+    update(row) { q.op = 'update'; q.row = row; return b; }, upsert(row, o) { q.op = 'upsert'; q.row = row; q.o = o; return b; },
+    delete() { q.op = 'delete'; return b; }, eq(k, v) { q.filters.push([k, v]); return b; },
+    select() { calls.push(q); return Promise.resolve(fail ? { data: null, error: { message: 'x' } } : { data: [{ job_no: 'j' }], error: null }); } };
+    return b; } };
+}
+
+test('ordDecide: update shape; error keeps the status and toasts', async () => {
+  setCtx({ apps: [{ job_no: '26-0415.01', phase: 'setup', user_id: 'u2', status: 'offen' }] });
+  ctx.ordRenderList = () => {}; let toast = null; ctx.showToast = (m, t) => { toast = t; };
+  let sb = decideClient(false); ctx.supabaseClient = sb;
+  await ctx.ordDecide('26-0415.01', 'setup', 'u2', 'angenommen');
+  assert.equal(sb.calls[0].t, 'order_applications');
+  assert.deepEqual(plain(sb.calls[0].row), { status: 'angenommen' });
+  assert.deepEqual(plain(sb.calls[0].filters), [['job_no', '26-0415.01'], ['phase', 'setup'], ['user_id', 'u2']]);
+  assert.equal(vm.runInContext('_ordCtx.apps[0].status', ctx), 'angenommen');
+  sb = decideClient(true); ctx.supabaseClient = sb;
+  await ctx.ordDecide('26-0415.01', 'setup', 'u2', 'abgelehnt');
+  assert.equal(vm.runInContext('_ordCtx.apps[0].status', ctx), 'angenommen');
+  assert.equal(toast, 'danger');
+});
+
+test('ordSetLink: unlink writes nulls, a pick writes date + key, auto deletes the row', async () => {
+  setCtx(); ctx.ordRenderList = () => {}; ctx.showToast = () => {};
+  const sb = decideClient(false); ctx.supabaseClient = sb;
+  const sel = v => ({ value: v, dataset: { job: '26-0415.01', phase: 'setup' } });
+  await ctx.ordSetLink(sel('none'));
+  assert.deepEqual(plain(sb.calls[0].row), { job_no: '26-0415.01', phase: 'setup', plan_date: null, plan_key: null });
+  assert.equal(sb.calls[0].o.onConflict, 'job_no,phase');
+  await ctx.ordSetLink(sel('2026-11-09|k2'));
+  assert.deepEqual(plain(sb.calls[1].row), { job_no: '26-0415.01', phase: 'setup', plan_date: '2026-11-09', plan_key: 'k2' });
+  await ctx.ordSetLink(sel('auto'));
+  assert.equal(sb.calls[2].op, 'delete');
+  assert.equal(vm.runInContext('Object.keys(_ordCtx.links).length', ctx), 0);
 });
