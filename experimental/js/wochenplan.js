@@ -94,6 +94,7 @@ function wpPeopleSummary(s) {
 }
 
 function wpOpenPills(s) {
+  if (s._orders && s._orders.length) return ''; // the Auftrag block shows how full it is (with the PL's number)
   return (s.open_slots || []).map(function(o) {
     return '<span class="ui-pill ui-pill-warn">' + o.count + ' ' + wpEsc(o.role) + ' ' + (o.count === 1 ? 'fehlt' : 'fehlen') + '</span>';
   }).join('');
@@ -823,12 +824,10 @@ function wpOrderBlock(slot, planShift) {
 
 // Phase without an entry in Daniel's plan: its own row
 function wpOrderCard(slot, opts) {
-  var venue = ordSlotVenue(slot.title);
   return '<div class="ui-row wp-ord-row">' +
     '<div class="wp-time"><b>' + wpEsc(wpSlotTime(slot.start_at) || '—') + '</b><span>' + WP_PHASE[slot.phase] + '</span></div>' +
     '<div class="wp-main">' +
-      '<div class="wp-head"><div class="wp-venue">' + wpEsc(venue ? venue.charAt(0).toUpperCase() + venue.slice(1) : '—') + '</div>' +
-        '<div class="wp-badges"><span class="ui-pill ui-pill-warn">Auftrag</span></div></div>' +
+      '<div class="wp-head"><div class="wp-venue">' + wpEsc(ordVenueLabel(slot.title) || '—') + '</div></div>' +
       '<div class="wp-sub">' + (opts && opts.showDate ? wpDayLabel(ordSlotDate(slot)) + ' · ' : '') +
         wpEsc([slot.name, slot.room].filter(Boolean).join(' · ')) + '</div>' +
       wpOrderBlock(slot, null) +
@@ -844,7 +843,7 @@ async function wpOrderApply(jobNo, phase, on) {
       : await q.delete().eq('job_no', jobNo).eq('phase', phase).eq('user_id', me).eq('status', 'offen').select('job_no');
     if (r.error || !r.data || !r.data.length) throw r.error || new Error(on ? 'nicht gespeichert' : 'schon entschieden');
     slot.my_status = on ? 'offen' : null;
-    showToast(on ? 'Gemeldet. Die PL meldet sich, wenn du eingeteilt bist.' : 'Zurückgezogen.', 'success');
+    showToast(on ? 'Gemeldet. Ob du dabei bist, siehst du hier im Wochenplan.' : 'Zurückgezogen.', 'success');
   } catch (err) {
     console.error('Auftrag melden:', err);
     showToast(on ? 'Nicht gespeichert. Prüf deine Verbindung.' : 'Nicht zurückgezogen – vielleicht hat die PL schon entschieden.', 'danger');

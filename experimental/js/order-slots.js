@@ -16,6 +16,9 @@ function ordSlotVenue(title) {
   return ordWords(String(title || '').split('_')[1] || '')[0] || '';
 }
 
+// For display, as written: '261109_Neuköllnspeicher_Vernissage' → 'Neuköllnspeicher'
+function ordVenueLabel(title) { return (String(title || '').split('_')[1] || '').trim(); }
+
 // First line of Daniel's "wann" names the phase; an empty "wann" fits both
 function ordPhaseFits(phase, wann) {
   var first = String(wann || '').trim().split('\n')[0];
