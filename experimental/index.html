@@ -16,8 +16,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=38">
-  <link rel="stylesheet" href="css/ui.css?v=15">
+  <link rel="stylesheet" href="css/style.css?v=39">
+  <link rel="stylesheet" href="css/ui.css?v=16">
 </head>
 
 <body>
@@ -292,10 +292,6 @@
                 <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
                 <input type="search" id="dash-worker-search" placeholder="Mitarbeiter suchen" oninput="renderDashWorkerList()">
               </div>
-              <div id="pending-workers-panel" style="display:none;">
-                <div class="ui-label">Neue Stunden eingereicht</div>
-                <div id="pending-workers-chips" class="ui-list"></div>
-              </div>
               <details id="dash-night-panel">
                 <summary class="ui-label" style="cursor:pointer;">Nachtschichten · letzte 90 Tage</summary>
                 <div id="dash-night-ranking" class="ui-list"></div>
@@ -309,12 +305,14 @@
             </aside>
             <section class="dash-work-detail">
               <button type="button" class="stunden-link dash-work-back" onclick="closeDashWorker()">‹ Alle Mitarbeiter</button>
-              <div class="dash-worker-head" id="dash-worker-head"></div>
-              <div class="dash-worker-controls">
+              <div class="dash-worker-top">
+                <div class="dash-worker-head" id="dash-worker-head"></div>
                 <button id="edit-worker-btn" type="button" class="ui-btn dash-small-btn" style="display:none;" onclick="openEditWorker()">Bearbeiten</button>
-                <label class="ui-field dash-month"><span>Monat für den PDF-Export</span>
-                  <select id="dash-month-filter" style="display: none;"><option value="">-- Monat --</option></select></label>
-                <button id="dash-export-month-btn" type="button" class="ui-btn dash-small-btn" style="display: none;" onclick="exportDashboardMonthlyPDF()">Monat als PDF</button>
+              </div>
+              <div class="dash-worker-controls">
+                <label class="ui-field dash-month"><span>Abrechnungsmonat</span>
+                  <select id="dash-month-filter" style="display: none;" onchange="dashRenderWorkerMonth()"></select></label>
+                <button id="dash-export-month-btn" type="button" class="ui-btn dash-small-btn" style="display: none;" onclick="exportDashboardMonthlyPDF()">PDF</button>
               </div>
               <div id="worker-shifts-container"></div>
             </section>
@@ -860,7 +858,7 @@
   <script src="js/plan-parser.js?v=17"></script>
   <script src="js/wochenplan.js?v=21"></script>
   <script src="js/home.js?v=7"></script>
-  <script src="js/dashboard.js?v=38"></script>
+  <script src="js/dashboard.js?v=39"></script>
   <script src="js/produkte.js?v=18"></script>
   <script src="js/ordner.js?v=26"></script>
   <script src="js/app.js?v=24"></script>
