@@ -153,6 +153,54 @@ function dashShiftNightMins(s) {
 // Night shift = more than 2 h between 22 and 6 (Nachtarbeit as in §2 ArbZG)
 function dashIsNightShift(s) { return dashShiftNightMins(s) > 120; }
 
+// Who takes night shifts most: active workers with ≥1 night shift, most nights first, then the higher share
+function dashNightRanking(shifts, workers) {
+  var by = {};
+  (shifts || []).forEach(function(s) {
+    if (!s.user_id) return;
+    var r = by[s.user_id] || (by[s.user_id] = { nights: 0, total: 0 });
+    r.total++;
+    if (dashIsNightShift(s)) r.nights++;
+  });
+  return (workers || []).filter(function(w) { return by[w.id] && by[w.id].nights > 0; }).map(function(w) {
+    var r = by[w.id];
+    return { id: w.id, name: w.full_name || 'Unbekannt', nights: r.nights, total: r.total, share: Math.round(r.nights / r.total * 100) };
+  }).sort(function(a, b) { return b.nights - a.nights || b.share - a.share || a.name.localeCompare(b.name, 'de'); });
+}
+
+var dashNightRows = [];
+var DASH_NIGHT_DAYS = 90;
+
+// Shifts of the last 90 days by shift_date; a failure only leaves the ranking empty, never the worker list
+// shortcut: PostgREST caps answers at 1000 rows, page it if 90 days of shifts ever exceed that
+async function loadDashNightRanking() {
+  try {
+    const { data, error } = await supabaseClient
+      .from('shifts')
+      .select('user_id, start_time, end_time')
+      .gte('shift_date', localDateStr(new Date(Date.now() - DASH_NIGHT_DAYS * 86400000)))
+      .not('user_id', 'is', null);
+    if (error) throw error;
+    dashNightRows = dashNightRanking(data, dashboardWorkers);
+  } catch (err) {
+    console.error('Nachtschichten laden:', err);
+    dashNightRows = [];
+  }
+  renderDashNightRanking();
+}
+
+function renderDashNightRanking() {
+  var el = document.getElementById('dash-night-ranking');
+  if (!el) return;
+  var rows = dashNightRows.slice(0, 10);
+  el.innerHTML = rows.length ? rows.map(function(r, i) {
+    return '<button type="button" class="ui-row dash-worker-row" onclick="selectDashWorker(\'' + jsAttrArg(r.id) + '\')">' +
+      '<span class="ui-row-main"><span class="ui-row-title">' + (i + 1) + '. ' + escapeHtml(r.name) + '</span>' +
+      '<span class="ui-sub">' + r.share + ' % der Schichten (' + r.nights + ' von ' + r.total + ')</span></span>' +
+      '<span class="ui-pill ui-pill-info" title="Nachtschichten">' + r.nights + '</span></button>';
+  }).join('') : '<div class="ui-sub" style="padding:6px 2px;">Keine Nachtschichten in den letzten ' + DASH_NIGHT_DAYS + ' Tagen.</div>';
+}
+
 function dashWorkerHeadHtml(w) {
   if (!w) return '';
   var rates = [w.hourly_rate_conni ? 'Lohn ' + parseFloat(w.hourly_rate_conni).toFixed(2).replace('.', ',') + ' €/h' : '',
@@ -647,6 +695,7 @@ async function loadDashboardWorkers() {
     });
     dashboardWorkers = (users || []).map(flattenPrivate);
     dashPendingMap = pendingMap;
+    loadDashNightRanking();
 
     const sel = document.getElementById('dash-worker-select');
     const prevSelected = sel.value; // the rebuild below would drop the open employee
@@ -773,19 +822,14 @@ async function renderWorkerShifts() {
     const eur = n => n.toFixed(2).replace('.', ',') + ' €';
     const cutoff = (typeof billingCutoff !== 'undefined') ? billingCutoff : 20;
     const periodKey = getBillingKeyForDate(new Date(), cutoff);
-    let periodMins = 0, periodNights = 0, totalNights = 0, totalNightMins = 0;
+    let periodMins = 0;
     dashboardCurrentShifts.forEach(s => {
       const d = s.protocols?.date || s.shift_date || (s.created_at || '').slice(0, 10);
-      const inPeriod = d && getBillingKeyForDate(new Date(d + 'T12:00:00'), cutoff).key === periodKey.key;
-      if (inPeriod) periodMins += dashShiftNetMins(s);
-      if (dashIsNightShift(s)) { totalNights++; if (inPeriod) periodNights++; }
-      totalNightMins += dashShiftNightMins(s);
+      if (d && getBillingKeyForDate(new Date(d + 'T12:00:00'), cutoff).key === periodKey.key) periodMins += dashShiftNetMins(s);
     });
     const share = incomeLimitShare(rateConni ? periodMins / 60 * rateConni : null, worker && worker.income_limit ? parseFloat(worker.income_limit) : null);
     let statsHtml = '<div class="ui-stats">' +
       `<div class="ui-stat"><span>Netto-Stunden gesamt</span><b>${totalNetStr}</b></div>` +
-      `<div class="ui-stat" title="Schichten mit mehr als 2 h zwischen 22 und 6 Uhr"><span>Nachtschichten · ${escapeHtml(periodKey.label)}</span>` +
-        `<b>${periodNights}</b><div class="ui-sub">gesamt ${totalNights} · ${(totalNightMins / 60).toFixed(1).replace('.', ',')} h nachts</div></div>` +
       (rateConni ? `<div class="ui-stat cost-only"><span>Lohn (${rateConni.toFixed(2).replace('.', ',')} €/h)</span><b>${totalNetHrs > 0 ? eur(totalNetHrs * rateConni) : '—'}</b></div>` : '') +
       (rateInternal ? `<div class="ui-stat cost-only"><span>Intern (${rateInternal.toFixed(2).replace('.', ',')} €/h)</span><b>${totalNetHrs > 0 ? eur(totalNetHrs * rateInternal) : '—'}</b></div>` : '') +
       (share ? `<div class="ui-stat cost-only"><span>Grenze ${eur(parseFloat(worker.income_limit))} · ${escapeHtml(periodKey.label)}</span>` +

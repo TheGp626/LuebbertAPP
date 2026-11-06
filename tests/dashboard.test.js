@@ -593,3 +593,14 @@ test('dashShiftNightMins / dashIsNightShift: 22–6 Uhr, over midnight, night sh
   assert.equal(ctx.dashIsNightShift(sh('18:00', '00:00')), false); // exactly 2 h
   assert.equal(ctx.dashIsNightShift(sh('18:00', '00:30')), true);
 });
+
+test('dashNightRanking: most nights first, ties by share; workers without night shifts left out', () => {
+  const sh = (u, a, b) => ({ user_id: u, start_time: a + ':00', end_time: b + ':00' });
+  const workers = [{ id: 'a', full_name: 'Anna' }, { id: 'b', full_name: 'Bert' }, { id: 'c', full_name: 'Cem' }];
+  const rows = JSON.parse(JSON.stringify(ctx.dashNightRanking([
+    sh('a', '20:00', '02:00'), sh('a', '08:00', '16:00'), sh('a', '08:00', '16:00'),
+    sh('b', '20:00', '02:00'), sh('b', '08:00', '16:00'),
+    sh('c', '08:00', '16:00'), sh('x', '20:00', '02:00'),
+  ], workers)));
+  assert.deepEqual(rows.map(r => [r.name, r.nights, r.share]), [['Bert', 1, 50], ['Anna', 1, 33]]);
+});
