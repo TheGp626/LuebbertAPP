@@ -251,3 +251,14 @@ button.dash-shift-main:focus-visible { outline: 2px solid var(--accent); outline
 .dash-shift-top { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dash-shift-booked .dash-shift-main { opacity: .6; }
 .dash-work-detail, .dash-work-list { min-width: 0; } /* long project names must not widen the grid column */
+
+/* ── Buchhaltung → Auswertung (renderDashInsights) ── */
+.dash-bees { background: var(--warn-bg); border-radius: var(--r-card); padding: 10px 12px; margin: 10px 0 4px; }
+.dash-bees-title { font-size: 12px; font-weight: 700; color: var(--warn); margin-bottom: 4px; }
+.dash-bee { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 2px 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.dash-bee:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.dash-bee-medal { font-size: 18px; width: 22px; text-align: center; }
+.dash-bee-name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-bee-h { font-size: 13px; color: var(--text2); font-variant-numeric: tabular-nums; }
+.dash-insight-note { font-size: 13px; color: var(--text2); line-height: 1.5; padding: 8px 2px; }
+.dash-insight-note b { color: var(--text); font-weight: 600; }

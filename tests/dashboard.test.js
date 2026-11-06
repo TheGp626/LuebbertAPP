@@ -644,17 +644,54 @@ test('markAllShiftsBooked: books only the open shifts of the picked month', asyn
   assert.deepEqual(plain(sb.calls[0].filters.find(f => f[0] === 'id')), ['id', ['s1']]);
 });
 
-test('loadDashNightRanking: current calendar year, pages past the 1000-row cap', async () => {
-  const ranges = [], gte = [];
-  const page = (from) => Array.from({ length: from === 0 ? 1000 : 3 }, (_, i) => ({ id: 'r' + (from + i), user_id: 'u', start_time: '22:00:00', end_time: '03:00:00' }));
+test('loadDashInsights: pages past the 1000-row cap; night ranking only counts the current year', async () => {
+  const ranges = [], y = String(new Date().getFullYear());
+  const page = (from) => Array.from({ length: from === 0 ? 1000 : 3 }, (_, i) =>
+    ({ id: 'r' + (from + i), user_id: 'u', shift_date: (i === 0 && from === 0 ? '2001' : y) + '-01-05', start_time: '22:00:00', end_time: '03:00:00' }));
   ctx.supabaseClient = { from: () => {
-    const b = { select() { return b; }, gte(k, v) { gte.push(v); return b; }, lte() { return b; }, not() { return b; }, order() { return b; },
+    const b = { select() { return b; }, not() { return b; }, order() { return b; },
       range(a, z) { ranges.push([a, z]); return Promise.resolve({ data: page(a), error: null }); } };
     return b;
   } };
-  run("dashboardWorkers = [{ id: 'u', full_name: 'Nina' }]");
-  await ctx.loadDashNightRanking();
+  run("dashboardWorkers = [{ id: 'u', full_name: 'Nina', role: 'MA' }]");
+  await ctx.loadDashInsights();
   assert.deepEqual(ranges, [[0, 999], [1000, 1999]]);
-  assert.equal(gte[0], new Date().getFullYear() + '-01-01');
-  assert.equal(run('dashNightRows')[0].nights, 1003);
+  assert.equal(run('dashInsights').nights[0].nights, 1002); // the 2001 shift is not this year
+});
+
+// ── Auswertung (Jenni 06.11.): no night shift, inactive for 4 weeks, busiest bees ──
+const AW = [
+  { id: 'a', full_name: 'Anna', role: 'MA' }, { id: 'b', full_name: 'Ben', role: 'AL' },
+  { id: 'c', full_name: 'Cleo', role: 'MA' },                 // never worked
+  { id: 'g', full_name: 'Gast Zugang', role: 'Gast' },        // never listed
+  { id: 'p', full_name: 'Paula', role: 'PL' },                // office, no shifts → not listed
+  { id: 'x', full_name: 'Xaver', role: 'Admin' },             // admin with shifts → listed
+];
+const sh = (u, d, a, b) => ({ user_id: u, shift_date: d, start_time: a + ':00', end_time: b + ':00', pause_mins: 0 });
+
+test('dashEligible: active MA/AL or anyone with a shift; never Gast', () => {
+  const ids = plain(ctx.dashEligible(AW, [sh('x', '2026-10-01', '08:00', '12:00')])).map(w => w.id);
+  assert.deepEqual(ids, ['a', 'b', 'c', 'x']);
+});
+
+test('dashNoNight: eligible people without a night shift in the given shifts', () => {
+  const year = [sh('a', '2026-05-01', '20:00', '02:00'), sh('b', '2026-05-01', '08:00', '16:00'), sh('x', '2026-05-02', '08:00', '12:00')];
+  assert.deepEqual(plain(ctx.dashNoNight(year, AW)).map(w => w.name), ['Ben', 'Cleo', 'Xaver']);
+});
+
+test('dashInactive: last shift 4+ weeks ago (or never), longest first; protocol date counts', () => {
+  const all = [sh('a', '2026-11-01', '08:00', '12:00'), sh('b', '2026-09-01', '08:00', '12:00'),
+    { user_id: 'x', shift_date: null, protocols: { date: '2026-10-08' }, start_time: '08:00:00', end_time: '12:00:00' }];
+  const r = plain(ctx.dashInactive(all, AW, '2026-11-06', 28));
+  assert.deepEqual(r.map(x => [x.name, x.days]), [['Cleo', null], ['Ben', 66], ['Xaver', 29]]);
+  assert.equal(r[1].last, '2026-09-01');
+});
+
+test('dashBees: top 3 by net hours in the billing month', () => {
+  const nov = ctx.getBillingKeyForDate(new Date('2026-11-05T12:00:00'), 20).key;
+  const s = [sh('a', '2026-11-02', '08:00', '18:00'), sh('b', '2026-11-03', '08:00', '20:00'), sh('c', '2026-11-04', '08:00', '12:00'),
+    sh('x', '2026-11-05', '08:00', '16:00'), sh('a', '2026-12-01', '08:00', '23:00')];
+  const top = plain(ctx.dashBees(s, AW, nov, 20));
+  assert.deepEqual(top.map(t => t.name), ['Ben', 'Anna', 'Xaver']);
+  assert.equal(top[0].mins, 720);
 });

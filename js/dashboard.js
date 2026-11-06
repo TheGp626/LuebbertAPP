@@ -162,47 +162,122 @@ function dashNightRanking(shifts, workers) {
   }).sort(function(a, b) { return b.nights - a.nights || b.share - a.share || a.name.localeCompare(b.name, 'de'); });
 }
 
-var dashNightRows = [];
-var DASH_NIGHT_PAGE = 1000; // PostgREST answers at most 1000 rows per request
+// ── Auswertung (Jenni): night shifts per year, people without work for 4+ weeks, busiest bees of the month ──
+var DASH_PAGE = 1000;          // PostgREST answers at most 1000 rows per request
+var DASH_INACTIVE_DAYS = 28;   // "seit vier Wochen nicht im Einsatz"
+var DASH_INACTIVE_ALERT = 56;  // from 8 weeks: Minijob deregistration may be due
+var dashInsights = { year: null, nights: [], noNight: [], inactive: [], bees: [], beesLabel: '' };
 
-// Shifts of the current calendar year (Jenni: internal yearly evaluation), loaded page by page;
-// a failure only leaves the ranking empty, never the worker list
-async function loadDashNightRanking() {
-  var year = new Date().getFullYear(), all = [];
-  try {
-    for (var from = 0; ; from += DASH_NIGHT_PAGE) {
-      const { data, error } = await supabaseClient
-        .from('shifts')
-        .select('id, user_id, start_time, end_time')
-        .gte('shift_date', year + '-01-01')
-        .lte('shift_date', year + '-12-31')
-        .not('user_id', 'is', null)
-        .order('id')
-        .range(from, from + DASH_NIGHT_PAGE - 1);
-      if (error) throw error;
-      all = all.concat(data || []);
-      if (!data || data.length < DASH_NIGHT_PAGE) break;
-    }
-    dashNightRows = dashNightRanking(all, dashboardWorkers);
-  } catch (err) {
-    console.error('Nachtschichten laden:', err);
-    dashNightRows = [];
-  }
-  renderDashNightRanking(year);
+// People the evaluations are about: active, never Gast; MA/AL always, other roles only once they worked a shift
+function dashEligible(workers, shifts) {
+  var worked = {};
+  (shifts || []).forEach(function(s) { if (s.user_id) worked[s.user_id] = true; });
+  return (workers || []).filter(function(w) {
+    return w.is_active !== false && w.role !== 'Gast' && (w.role === 'MA' || w.role === 'AL' || worked[w.id]);
+  });
 }
 
-function renderDashNightRanking(year) {
-  var el = document.getElementById('dash-night-ranking');
-  if (!el) return;
-  var title = document.getElementById('dash-night-title');
-  if (title) title.textContent = 'Nachtschichten · ' + year;
-  var rows = dashNightRows;
-  el.innerHTML = rows.length ? rows.map(function(r, i) {
-    return '<button type="button" class="ui-row dash-worker-row" onclick="selectDashWorker(\'' + jsAttrArg(r.id) + '\')">' +
-      '<span class="ui-row-main"><span class="ui-row-title">' + (i + 1) + '. ' + escapeHtml(r.name) + '</span>' +
-      '<span class="ui-sub">' + r.share + ' % der Schichten (' + r.nights + ' von ' + r.total + ')</span></span>' +
-      '<span class="ui-pill ui-pill-info" title="Nachtschichten">' + r.nights + '</span></button>';
-  }).join('') : '<div class="ui-sub" style="padding:6px 2px;">Keine Nachtschichten in ' + year + '.</div>';
+// Eligible people with no night shift among the given shifts, by name
+function dashNoNight(shifts, workers) {
+  var night = {};
+  (shifts || []).forEach(function(s) { if (s.user_id && dashIsNightShift(s)) night[s.user_id] = true; });
+  return dashEligible(workers, shifts).filter(function(w) { return !night[w.id]; })
+    .map(function(w) { return { id: w.id, name: w.full_name || 'Unbekannt' }; })
+    .sort(function(a, b) { return a.name.localeCompare(b.name, 'de'); });
+}
+
+// Eligible people whose last shift is minDays+ before today (or who never worked): never first, then longest ago
+function dashInactive(shifts, workers, today, minDays) {
+  var last = {};
+  (shifts || []).forEach(function(s) {
+    var d = dashShiftDate(s);
+    if (s.user_id && d && d <= today && (!last[s.user_id] || d > last[s.user_id])) last[s.user_id] = d;
+  });
+  var dayNo = function(iso) { var p = iso.split('-').map(Number); return Date.UTC(p[0], p[1] - 1, p[2]) / 86400000; };
+  return dashEligible(workers, shifts).map(function(w) {
+    var l = last[w.id] || null;
+    return { id: w.id, name: w.full_name || 'Unbekannt', last: l, days: l ? dayNo(today) - dayNo(l) : null };
+  }).filter(function(r) { return r.days === null || r.days >= minDays; })
+    .sort(function(a, b) { return (b.days === null) - (a.days === null) || b.days - a.days || a.name.localeCompare(b.name, 'de'); });
+}
+
+// Top 3 by net hours in one billing month
+function dashBees(shifts, workers, key, cutoff) {
+  var mins = {};
+  dashShiftsInMonth(shifts, key, cutoff).forEach(function(s) { if (s.user_id) mins[s.user_id] = (mins[s.user_id] || 0) + dashShiftNetMins(s); });
+  return dashEligible(workers, shifts).filter(function(w) { return mins[w.id] > 0; })
+    .map(function(w) { return { id: w.id, name: w.full_name || 'Unbekannt', mins: mins[w.id] }; })
+    .sort(function(a, b) { return b.mins - a.mins || a.name.localeCompare(b.name, 'de'); }).slice(0, 3);
+}
+
+// All shifts, page by page; a failure only leaves the evaluations empty, never the worker list
+// shortcut: loads every shift ever (≈1000/year), add a date filter if the dashboard gets slow
+async function loadDashInsights() {
+  var all = [], today = localDateStr(), year = today.slice(0, 4), cutoff = dashBillingCutoff();
+  var month = getBillingKeyForDate(new Date(), cutoff);
+  try {
+    for (var from = 0; ; from += DASH_PAGE) {
+      const { data, error } = await supabaseClient
+        .from('shifts')
+        .select('id, user_id, start_time, end_time, pause_mins, shift_date, created_at, protocols(date)')
+        .not('user_id', 'is', null)
+        .order('id')
+        .range(from, from + DASH_PAGE - 1);
+      if (error) throw error;
+      all = all.concat(data || []);
+      if (!data || data.length < DASH_PAGE) break;
+    }
+    var yearShifts = all.filter(function(s) { return dashShiftDate(s).slice(0, 4) === year; });
+    dashInsights = {
+      year: year,
+      nights: dashNightRanking(yearShifts, dashboardWorkers),
+      noNight: dashNoNight(yearShifts, dashEligible(dashboardWorkers, all)),
+      inactive: dashInactive(all, dashboardWorkers, today, DASH_INACTIVE_DAYS),
+      bees: dashBees(all, dashboardWorkers, month.key, cutoff),
+      beesLabel: month.label
+    };
+  } catch (err) {
+    console.error('Auswertung laden:', err);
+    dashInsights = { year: year, nights: [], noNight: [], inactive: [], bees: [], beesLabel: month.label };
+  }
+  renderDashInsights();
+}
+
+function dashPersonBtn(id, title, sub, end) {
+  return '<button type="button" class="ui-row dash-worker-row" onclick="selectDashWorker(\'' + jsAttrArg(id) + '\')">' +
+    '<span class="ui-row-main"><span class="ui-row-title">' + title + '</span>' + (sub ? '<span class="ui-sub">' + sub + '</span>' : '') + '</span>' + (end || '') + '</button>';
+}
+
+function renderDashInsights() {
+  var I = dashInsights, el;
+  if ((el = document.getElementById('dash-bees'))) {
+    var medals = ['🥇', '🥈', '🥉'];
+    el.innerHTML = I.bees.length ? '<div class="dash-bees"><div class="dash-bees-title">🐝 Fleißigste Bienen · ' + escapeHtml(I.beesLabel) + '</div>' +
+      I.bees.map(function(b, i) {
+        return '<button type="button" class="dash-bee" onclick="selectDashWorker(\'' + jsAttrArg(b.id) + '\')">' +
+          '<span class="dash-bee-medal" aria-label="Platz ' + (i + 1) + '">' + medals[i] + '</span><span class="dash-bee-name">' + escapeHtml(b.name) + '</span>' +
+          '<span class="dash-bee-h">' + (b.mins / 60).toFixed(1).replace('.', ',') + ' h</span></button>';
+      }).join('') + '</div>' : '';
+  }
+  if ((el = document.getElementById('dash-night-title'))) el.textContent = 'Nachtschichten · ' + I.year;
+  if ((el = document.getElementById('dash-night-ranking'))) {
+    el.innerHTML = (I.nights.length ? I.nights.map(function(r, i) {
+      return dashPersonBtn(r.id, (i + 1) + '. ' + escapeHtml(r.name), r.share + ' % der Schichten (' + r.nights + ' von ' + r.total + ')',
+        '<span class="ui-pill ui-pill-info" title="Nachtschichten">' + r.nights + '</span>');
+    }).join('') : '<div class="ui-sub" style="padding:6px 2px;">Keine Nachtschichten in ' + I.year + '.</div>') +
+      (I.noNight.length ? '<div class="dash-insight-note"><b>Noch keine Nachtschicht (' + I.noNight.length + '):</b> ' +
+        I.noNight.map(function(w) { return escapeHtml(w.name); }).join(', ') + '</div>' : '');
+  }
+  if ((el = document.getElementById('dash-inactive-title'))) el.textContent = 'Seit 4 Wochen kein Einsatz (' + I.inactive.length + ')';
+  if ((el = document.getElementById('dash-inactive-list'))) {
+    el.innerHTML = I.inactive.length ? I.inactive.map(function(r) {
+      var alert = r.days === null || r.days >= DASH_INACTIVE_ALERT;
+      var when = r.last ? 'letzter Einsatz ' + r.last.slice(8, 10) + '.' + r.last.slice(5, 7) + '.' + r.last.slice(0, 4) : 'noch nie im Einsatz';
+      var pill = r.days === null ? 'nie' : 'vor ' + Math.floor(r.days / 7) + ' Wo.';
+      return dashPersonBtn(r.id, escapeHtml(r.name), when + (alert ? ' · Abmeldung prüfen' : ''),
+        '<span class="ui-pill ' + (alert ? 'ui-pill-danger' : 'ui-pill-warn') + '">' + pill + '</span>');
+    }).join('') : '<div class="ui-sub" style="padding:6px 2px;">Alle waren in den letzten 4 Wochen im Einsatz.</div>';
+  }
 }
 
 function dashWorkerHeadHtml(w) {
@@ -701,7 +776,7 @@ async function loadDashboardWorkers() {
     });
     dashboardWorkers = (users || []).map(flattenPrivate);
     dashPendingMap = pendingMap;
-    loadDashNightRanking();
+    loadDashInsights();
 
     const sel = document.getElementById('dash-worker-select');
     const prevSelected = sel.value; // the rebuild below would drop the open employee
