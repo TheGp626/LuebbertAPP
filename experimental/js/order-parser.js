@@ -25,9 +25,14 @@ function orderLines(pages) {
 
 function orderIsAb(name) { return /auftragsbest/i.test(name || ''); }
 
+// Stored parse results (table order_parsed) older than this are parsed again: bump on every parser change
+var ORDER_PARSER_VERSION = 2;
+
 var ORDER_JOB_RE = /^(\d{2}-\d{4}\.\d{2}) \/ (.+)$/;
 var ORDER_LABEL_RE = /^([A-ZÄÖÜ][A-Za-zÄÖÜäöüß&.\- ]{0,40}):\s*(.*)$/;
-var ORDER_CONTACT_RE = /Projektleitung|Koordination|Ansprechpartner|Ihr Zeichen|Telefon|E-Mail/i;
+var ORDER_CONTACT_RE = /Projektleitung|Koordination|Ansprechpartner|Ihr Zeichen|Telefon|E-Mail|Endabnahme/i;
+// "12 55 Stuhl "Clara" transparent 16,00 1,00 880,00" → pos, quantity, name, unit price, factor, total
+var ORDER_ITEM_RE = /^\d+ (\d+) (.+?) -?[\d.]+,\d{2} [\d.,]+ -?[\d.]+,\d{2}$/;
 
 // Digit runs that look like phone numbers (7+ digits, with spaces / ( ) . - +) go; dates, times and "16 - 19 Uhr" stay
 function orderStripPhones(s) {
@@ -50,8 +55,10 @@ function orderRange(s) {
 
 function orderParse(lines) {
   var res = { project: '', title: '', jobs: [], warnings: [] }, seen = {}, job = null, prev = '', note = false, lead = false;
+  var items = false, group = null, plain = ''; // item section after the first "Job" row: groups and article rows
   var close = function() {
     if (!job) return;
+    job.materials = job.materials.filter(function(g) { return g.items.length; });
     if (job.setup || job.teardown) res.jobs.push(job);
     job = null;
   };
@@ -64,12 +71,18 @@ function orderParse(lines) {
       close();
       if (/\.{4,}|€/.test(l) || seen[m[1]]) { prev = ''; return; } // summary list at the end repeats every job
       seen[m[1]] = true;
-      job = { jobNo: m[1], name: orderStripPhones(m[2]), address: '', room: '', setup: null, event: null, teardown: null, lead: '', notes: '' };
-      prev = 'head'; note = lead = false;
+      job = { jobNo: m[1], name: orderStripPhones(m[2]), address: '', room: '', setup: null, event: null, teardown: null, lead: '', notes: '', materials: [] };
+      prev = 'head'; note = lead = items = false; group = null; plain = '';
       return;
     }
     if (!job) return;
-    if (/^Job(\.|\s|$)/.test(l)) { close(); return; }
+    if (items) {
+      if (/^Job\.Gruppe$/.test(l)) { group = { group: plain, items: [] }; job.materials.push(group); }
+      else if ((m = ORDER_ITEM_RE.exec(l)) && group) group.items.push({ qty: +m[1], name: m[2].trim() });
+      if (!/^(\d+\s+)?Job/.test(l)) plain = l;
+      return;
+    }
+    if (/^Job(\.|\s|$)/.test(l)) { items = true; return; }
     var lab = ORDER_LABEL_RE.exec(l);
     if (!lab) {
       if (prev === 'address') job.room = orderStripPhones(l);

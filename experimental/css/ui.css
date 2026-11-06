@@ -264,19 +264,25 @@ button.dash-shift-main:focus-visible { outline: 2px solid var(--accent); outline
 .dash-insight-note b { color: var(--text); font-weight: 600; }
 .dash-container { width: 100%; box-sizing: border-box; } /* fixed width: opening a panel with long text must not widen the page */
 
-/* ── Wochenplan: Aufträge aus Auftragsbestätigungen ── */
-.wp-ord { margin-bottom: 12px; }
-.wp-ord .wp-sub { margin-top: 2px; }
-.wp-ord-room { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 14px; }
-.wp-ord-times { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 10px 0 0; font-size: 14px; }
-.wp-ord-times dt { color: var(--text2); }
-.wp-ord-times dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.wp-ord-notes { margin-top: 10px; font-size: 13px; }
-.wp-ord-notes summary { cursor: pointer; color: var(--text2); }
-.wp-ord-notes div { margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; }
-.wp-ord-foot { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-top: 12px; }
-.ui-field.wp-ord-num { margin: 0; }
-.ui-field.wp-ord-num > span { font-size: 12px; }
-.ui-field.wp-ord-num input { width: 84px; text-align: center; }
-.wp-ord-foot .ui-btn { margin-left: auto; min-height: 44px; }
-.wp-ord-failed .wp-card-title { color: var(--text2); }
+/* ── Aufträge (auftraege.js) ── */
+.ord-h { margin: 4px 2px 4px; font-size: 22px; }
+.ord-intro { margin: 0 2px 14px; font-size: 13px; color: var(--text2); line-height: 1.45; }
+.ord { margin-bottom: 12px; }
+.ord-title { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; }
+.ord-sub { margin-top: 2px; font-size: 13px; color: var(--text2); overflow-wrap: anywhere; }
+.ord-room { margin-top: 8px; font-size: 14px; }
+.ord-times { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 10px 0 0; font-size: 14px; }
+.ord-times dt { color: var(--text2); }
+.ord-times dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.ord-more { margin-top: 10px; font-size: 13px; }
+.ord-more summary { cursor: pointer; color: var(--text2); min-height: 32px; display: flex; align-items: center; }
+.ord-more > div { margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; }
+.ord-group { margin-top: 8px; font-weight: 600; font-size: 13px; }
+.ord-items { margin: 4px 0 0; padding-left: 18px; line-height: 1.5; }
+.ord-items li { overflow-wrap: anywhere; }
+.ord-foot { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-top: 12px; }
+.ui-field.ord-num { margin: 0; }
+.ui-field.ord-num > span { font-size: 12px; }
+.ui-field.ord-num input { width: 84px; text-align: center; }
+.ord-foot .ui-btn { margin-left: auto; min-height: 44px; }
+.ord-failed .ord-title { color: var(--text2); }

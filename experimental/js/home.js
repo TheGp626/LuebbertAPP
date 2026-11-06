@@ -7,6 +7,7 @@ var HOME_TILES = [
   { mode: 'stunden', label: 'Stundenzettel', icon: 'clock' },
   { mode: 'protokoll', label: 'Protokoll schreiben', icon: 'clipboard' },
   { mode: 'wochenplan', label: 'Wochenplan', icon: 'calendar' },
+  { mode: 'auftraege', label: 'Aufträge', icon: 'file' },
   { mode: 'produkte', label: 'Produktdatenbank', icon: 'box' },
   { mode: 'ordner', label: 'Projektordner', icon: 'folder' },
   // The office dashboard is two tiles: same module (role guard), different view
