@@ -406,7 +406,7 @@ test('wpOrderBlock: a full Auftrag shows „voll“ and no „Ich kann“; an ow
 test('wpMineOrdersHtml: only accepted Aufträge, no „Offene Aufträge“ list', () => {
   stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
   const html = ctx.wpMineOrdersHtml([oslot(), oslot({ job_no: '26-0447.01', my_status: 'angenommen' }), oslot({ job_no: '26-0500.01', my_status: 'offen' })], []);
-  assert.match(html, /Angenommen über Auftrag/);
+  assert.match(html, />Angenommen</);
   assert.equal((html.match(/wp-ord-row/g) || []).length, 1); // only the accepted one
   assert.match(html, /Angenommen ✓/);
   assert.doesNotMatch(html, /Offene Aufträge|Gemeldet|Ich kann/);
@@ -424,4 +424,33 @@ test('wpOrderCard: one „Auftrag“ label, venue as written', () => {
     start_at: '2026-11-09T10:00', needed: 2, accepted_ids: [], materials: [] });
   assert.equal((html.match(/>Auftrag</g) || []).length, 1);
   assert.match(html, /Neuköllnspeicher/);
+});
+
+test('wpMineOrdersHtml: accepted Daniel shift listed under „Angenommen“ with „Angenommen ✓“', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  const sh = { id: 'p9', week_id: 'w', date: '2026-11-10', key: 'k9', venue: 'Tempodrom', wann: 'Abbau: 22 Uhr', plan_assignments: [],
+    open_slots: [{ role: 'MA', count: 1 }], _interest: [{ user_id: 'me', status: 'angenommen' }] };
+  const html = ctx.wpMineOrdersHtml([], [], [sh]);
+  assert.match(html, />Angenommen</);
+  assert.match(html, /Tempodrom/);
+  assert.match(html, /Angenommen ✓/);
+});
+
+test('wpMineOrdersHtml: nothing when both lists empty', () => {
+  ctx.currentUser = { id: 'me' };
+  assert.equal(ctx.wpMineOrdersHtml([], [], []), '');
+  assert.equal(ctx.wpMineOrdersHtml([], [], null), '');
+});
+
+test('wpLoadAcceptedShifts: own accepted rows → their upcoming shifts where I am not assigned yet', async () => {
+  ctx.currentUser = { id: 'me' };
+  const shifts = [{ id: 'a', week_id: 'w', key: 'k1', date: '2026-11-10', plan_assignments: [] },
+    { id: 'b', week_id: 'w', key: 'k2', date: '2026-11-10', plan_assignments: [{ user_id: 'me' }] },
+    { id: 'c', week_id: 'w', key: 'k3', date: '2026-11-10', plan_assignments: [] }];
+  ctx.supabaseClient = { from: (t) => { const b = { select: () => b, eq: () => b, in: () => b, gte: () => b,
+    then: (res) => res(t === 'plan_shift_interest' ? { data: [{ week_id: 'w', shift_key: 'k1', status: 'angenommen' }, { week_id: 'w', shift_key: 'k2', status: 'angenommen' }], error: null }
+      : { data: shifts, error: null }) }; return b; } };
+  const out = await ctx.wpLoadAcceptedShifts();
+  assert.deepEqual(plain(out.map(s => s.id)), ['a']);
+  assert.deepEqual(plain(out[0]._interest), [{ user_id: 'me', status: 'angenommen' }]);
 });

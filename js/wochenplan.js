@@ -525,13 +525,38 @@ function wpStepWeek(dir) {
   if (n) { wpWeekId = n.id; wpRenderWeek(); }
 }
 
-// "Meine Schichten": accepted Aufträge that are not already one of my plan shifts (open ones are in "Ganze Woche")
-function wpMineOrdersHtml(slots, myShifts) {
+// "Meine Schichten": accepted Meldungen that are not one of my plan shifts yet (open ones are in "Ganze Woche").
+// acceptedShifts = Daniel's shifts with my accepted Meldung (wpLoadAcceptedShifts), slots = order_slots()
+function wpMineOrdersHtml(slots, myShifts, acceptedShifts) {
   var att = ordAttachSlots(slots, myShifts), onMine = {};
   Object.keys(att.bySid).forEach(function(id) { att.bySid[id].forEach(function(sl) { onMine[sl.job_no + sl.phase] = true; }); });
   var accepted = slots.filter(function(sl) { return sl.my_status === 'angenommen' && !onMine[sl.job_no + sl.phase]; });
-  return accepted.length ? '<div class="ui-label">Angenommen über Auftrag</div>' +
+  var shifts = acceptedShifts || [];
+  return accepted.length || shifts.length ? '<div class="ui-label">Angenommen</div>' +
+    shifts.map(function(s) { return wpRow(s, { showDate: true }); }).join('') +
     accepted.map(function(sl) { return wpOrderCard(sl, { showDate: true }); }).join('') : '';
+}
+
+// Shifts of Daniel's plan where my Meldung was accepted and he has not put me in yet; null on a load error
+async function wpLoadAcceptedShifts() {
+  var me = wpMe();
+  try {
+    var r = await supabaseClient.from('plan_shift_interest').select('week_id, shift_key, status').eq('user_id', me).eq('status', 'angenommen');
+    if (r.error) throw r.error;
+    var rows = r.data || [];
+    if (!rows.length) return [];
+    var yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+    var weeks = rows.map(function(x) { return x.week_id; }).filter(function(w, i, all) { return all.indexOf(w) === i; });
+    var q = await supabaseClient.from('plan_shifts').select('*, plan_assignments(*)').in('week_id', weeks).gte('date', localDateStr(yesterday));
+    if (q.error) throw q.error;
+    return (q.data || []).filter(function(s) {
+      return rows.some(function(x) { return x.week_id === s.week_id && x.shift_key === s.key; }) &&
+        !(s.plan_assignments || []).some(function(a) { return a.user_id === me; });
+    }).map(function(s) { s._interest = [{ user_id: me, status: 'angenommen' }]; _wpShiftCache[s.id] = s; return s; });
+  } catch (err) {
+    console.error('Angenommene Schichten laden:', err); // "Meine Schichten" still shows, just without them
+    return null;
+  }
 }
 
 async function wpRenderMine() {
@@ -541,12 +566,13 @@ async function wpRenderMine() {
   // From yesterday on: a night shift (Abbau 0.30 Uhr) of the day before is still running after midnight (planShiftOrder filters)
   var yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
   var from = localDateStr(yesterday);
-  var [mineRes, slots] = await Promise.all([
+  var [mineRes, slots, acceptedShifts] = await Promise.all([
     supabaseClient.from('plan_assignments')
       .select('shift:plan_shifts!inner(*, plan_assignments(*), plan_weeks(kw))')
       .eq('user_id', wpMe())
       .gte('shift.date', from),
-    wpLoadSlots()
+    wpLoadSlots(),
+    wpLoadAcceptedShifts()
   ]);
   var data = mineRes.data, error = mineRes.error;
   // The user switched tab/week or another render started meanwhile → drop this result
@@ -557,7 +583,7 @@ async function wpRenderMine() {
     .filter(function(s) { if (!s || seen[s.id]) return false; seen[s.id] = true; return true; }), new Date(), true);
   shifts.forEach(function(s) { _wpShiftCache[s.id] = s; });
   _wpSlots = slots;
-  var orderHtml = wpMineOrdersHtml(slots || [], shifts);
+  var orderHtml = wpMineOrdersHtml(slots || [], shifts, acceptedShifts);
   if (!shifts.length) {
     content.innerHTML = '<div class="wp-empty"><div class="wp-empty-title">Keine anstehenden Schichten</div>' +
       'Sobald du im Wochenplan eingeteilt bist, steht dein nächster Einsatz hier.' +
