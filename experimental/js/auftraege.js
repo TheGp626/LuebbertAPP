@@ -1,7 +1,8 @@
 /* Aufträge (Jenni, test build): jobs from the Auftragsbestätigungen in the project folders, with MA needed.
  * PDFs are parsed once (order-parser.js) and the result is stored in order_parsed for everyone;
  * only new files or files parsed by an older ORDER_PARSER_VERSION are downloaded again.
- * MA numbers live in order_staffing (job_no). Admin/PL only (moduleAllowedForRole, RLS). */
+ * MA numbers live in order_staffing (job_no). Admin/PL and „Sieht Bewerbungen“ (moduleAllowedForRole, RLS);
+ * Meldungen (order_applications + plan_shift_interest) are decided by Admin + „Sieht Bewerbungen“ only. */
 
 var ORD_DOW = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 var _ordSaved = {};   // job_no → { staff_setup, staff_teardown } as last confirmed by the server
@@ -9,7 +10,7 @@ var _ordFiles = [];
 var _ordSeq = 0;      // bumped per render; a slower earlier render must not overwrite a newer one
 var _ordView = null;  // { jobs, failed } of the last load, re-rendered after a decision
 // Applications, manual links, Daniel's entries of the slot days, availability and names (each may stay empty on a load error)
-var _ordCtx = { apps: [], links: {}, plan: [], avail: {}, names: {} };
+var _ordCtx = { apps: [], interest: [], accepted: {}, links: {}, plan: [], avail: {}, names: {}, users: [] };
 var ORD_PHASE = { setup: 'Aufbau', teardown: 'Abbau' };
 
 function ordEsc(s) { return escapeHtml(s == null ? '' : String(s)); }
@@ -107,8 +108,10 @@ function ordPhaseInfo(x, phase) {
   Object.keys(att.bySid).forEach(function(id) { ps = _ordCtx.plan.find(function(p) { return p.id === id; }) || null; });
   return {
     slot: slot, ps: ps, needed: (_ordSaved[x.job.jobNo] || {})['staff_' + phase],
-    taken: ordTaken(slot, ps, _ordCtx.apps),
-    apps: _ordCtx.apps.filter(function(a) { return a.job_no === x.job.jobNo && a.phase === phase; })
+    taken: ordTaken(slot, ps, _ordCtx.apps).concat(((_ordCtx.accepted || {})[x.job.jobNo + '|' + phase] || []))
+      .filter(function(id, i, all) { return all.indexOf(id) === i; }),
+    // Applications are decided by Admin + „Sieht Bewerbungen“ only; for anyone else RLS returns just their own row
+    apps: ordCanDecide() ? _ordCtx.apps.filter(function(a) { return a.job_no === x.job.jobNo && a.phase === phase; }) : []
   };
 }
 
@@ -161,12 +164,22 @@ function ordCardHtml(x) {
     '</div></div></div>';
 }
 
+// Hints for a person on a day: availability („geht nicht“ / „nur im Notfall“) and „schon eingeplant“ on another entry
+function ordHints(uid, date, ps) {
+  var h = [], lvl = _ordCtx.avail[uid + '|' + date];
+  if (lvl === 'nein') h.push('<span class="ord-pill ord-pill-danger">geht nicht</span>');
+  else if (lvl === 'notfall') h.push('<span class="ord-pill ord-pill-warn">nur im Notfall</span>');
+  if (_ordCtx.plan.some(function(p) { return p.date === date && p !== ps && ordAssignedIds(p, true).indexOf(uid) !== -1; })) h.push('<span class="ord-pill ord-pill-danger">schon eingeplant</span>');
+  return h.join('');
+}
+
 // One phase: MA stepper, how full it is, link to Daniel's plan, who is on it, applications with hints, accept / reject
 function ordSlotHtml(x, phase) {
   if (!x.job[phase]) return '';
   var i = ordPhaseInfo(x, phase), slot = i.slot, ps = i.ps, needed = i.needed, apps = i.apps, date = ordSlotDate(slot);
   var field = 'staff_' + phase, jobArg = jsAttrArg(slot.job_no);
-  var stepper = '<div class="ord-step" role="group" aria-label="MA für den ' + ORD_PHASE[phase] + '">' +
+  var stepper = !ordCanEdit() ? '<div class="ord-step ord-step-ro"><output>' + (needed == null ? '–' : needed) + '<small>MA</small></output></div>'
+    : '<div class="ord-step" role="group" aria-label="MA für den ' + ORD_PHASE[phase] + '">' +
     '<button type="button" aria-label="Einen MA weniger"' + (needed ? '' : ' disabled') + ' onclick="ordStep(\'' + jobArg + '\', \'' + field + '\', -1)">' + ORD_ICON.minus + '</button>' +
     '<output>' + (needed == null ? '–' : needed) + '<small>MA</small></output>' +
     '<button type="button" aria-label="Einen MA mehr"' + (needed >= 99 ? ' disabled' : '') + ' onclick="ordStep(\'' + jobArg + '\', \'' + field + '\', 1)">' + ORD_ICON.plus + '</button></div>';
@@ -188,9 +201,9 @@ function ordSlotHtml(x, phase) {
     return '<option value="' + ordEsc(p.date + '|' + p.key) + '"' + (ps && ps.key === p.key ? ' selected' : '') + '>' + ordEsc((p.venue || '') + ' · ' + (p.title || '')) + '</option>';
   }).join('');
   var link = '<div class="ord-link"><span class="ord-link-text">' + ORD_ICON.link + (ps ? 'Daniels Plan: ' + ordEsc(ps.title || ps.venue || '') : 'Nicht in Daniels Plan') + '</span>' +
-    '<details class="ord-link-edit"><summary>ändern</summary><label><span class="sr-only">Verknüpfung mit Daniels Plan</span>' +
+    (!ordCanEdit() ? '</div>' : '<details class="ord-link-edit"><summary>ändern</summary><label><span class="sr-only">Verknüpfung mit Daniels Plan</span>' +
     '<select data-job="' + ordEsc(slot.job_no) + '" data-phase="' + phase + '" onchange="ordSetLink(this)">' +
-    '<option value="">Eintrag wählen …</option><option value="auto">Automatisch</option><option value="none">Nicht verknüpfen</option>' + dayOptions + '</select></label></details></div>';
+    '<option value="">Eintrag wählen …</option><option value="auto">Automatisch</option><option value="none">Nicht verknüpfen</option>' + dayOptions + '</select></label></details></div>');
   var decide = function(a, status) { return 'ordDecide(\'' + jobArg + '\', \'' + phase + '\', \'' + jsAttrArg(a.user_id) + '\', \'' + status + '\')'; };
   var person = function(id, cls, right) {
     return '<li class="ord-person"><span class="ord-avatar ' + cls + '">' + ordInitial(id) + '</span><span class="ord-person-name">' + ordEsc(ordName(id)) + '</span>' + right + '</li>';
@@ -202,13 +215,7 @@ function ordSlotHtml(x, phase) {
     drivers.map(function(id) {
       return '<li class="ord-person ord-person-driver"><span class="ord-avatar">' + ORD_ICON.truck + '</span><span class="ord-person-name">' + ordEsc(ordName(id)) + ' · Fahrer</span><span class="ord-person-note">zählt nicht</span></li>';
     }).join('');
-  var hint = function(uid) {
-    var h = [], lvl = _ordCtx.avail[uid + '|' + date];
-    if (lvl === 'nein') h.push('<span class="ord-pill ord-pill-danger">geht nicht</span>');
-    else if (lvl === 'notfall') h.push('<span class="ord-pill ord-pill-warn">nur im Notfall</span>');
-    if (_ordCtx.plan.some(function(p) { return p.date === date && p !== ps && ordAssignedIds(p, true).indexOf(uid) !== -1; })) h.push('<span class="ord-pill ord-pill-danger">schon eingeplant</span>');
-    return h.join('');
-  };
+  var hint = function(uid) { return ordHints(uid, date, ps); };
   var open = apps.filter(function(a) { return a.status === 'offen'; });
   var rejected = apps.filter(function(a) { return a.status === 'abgelehnt'; });
   var requests = open.map(function(a) {
@@ -222,7 +229,7 @@ function ordSlotHtml(x, phase) {
   return '<section class="ord-slot">' + top + progress + link +
     (people ? '<ul class="ord-people">' + people + '</ul>' : '') +
     (requests ? '<div class="ord-label">Meldungen' + (open.length ? ' · ' + open.length + ' neu' : '') + '</div><ul class="ord-reqs">' + requests + '</ul>'
-      : needed > taken.length ? '<div class="ord-slot-sub">Noch keine Meldungen.</div>' : '') +
+      : needed > taken.length && ordCanDecide() ? '<div class="ord-slot-sub">Noch keine Meldungen.</div>' : '') +
     (extra.length ? '<div class="ord-slot-sub">Angenommen über Auftrag: ' + extra.map(function(a) { return ordEsc(ordName(a.user_id)); }).join(', ') + ' – Daniel Bescheid geben, damit er sie einplant.</div>' : '') +
   '</section>';
 }
@@ -285,7 +292,7 @@ async function ordSetLink(sel) {
       link = { plan_date: parts[0], plan_key: parts[0] ? parts.slice(1).join('|') : null };
       r = await q.upsert({ job_no: job, phase: phase, plan_date: link.plan_date, plan_key: link.plan_key }, { onConflict: 'job_no,phase' }).select('job_no');
     }
-    if (r.error) throw r.error;
+    if (r.error || !r.data || !r.data.length) throw r.error || new Error('nicht gespeichert'); // RLS: 0 rows, no error
     if (link) _ordCtx.links[k] = link; else delete _ordCtx.links[k];
   } catch (err) {
     console.error('Verknüpfung speichern:', err);
@@ -301,16 +308,15 @@ function ordDayHead(iso) {
 
 // Cards grouped by the day they start (jobs come sorted from ordJobs), files that could not be read at the end
 function ordListHtml(view) {
-  var html = '', day = '', fresh = 0;
+  var html = '', day = '', box = ordCanDecide() ? ordInbox(view.jobs, localDateStr()) : null, fresh = box ? box.open.length : 0;
   view.jobs.forEach(function(x) {
-    fresh += _ordCtx.apps.filter(function(a) { return a.job_no === x.job.jobNo && a.status === 'offen'; }).length;
     var d = ordStart(x.job).slice(0, 10);
     if (d && d !== day) { day = d; html += '<div class="ord-day">' + ordDayHead(d) + '</div>'; }
     html += ordCardHtml(x);
   });
   var summary = '<p class="ord-summary">' + view.jobs.length + (view.jobs.length === 1 ? ' kommender Einsatz' : ' kommende Einsätze') +
     (fresh ? ' · ' + fresh + (fresh === 1 ? ' neue Meldung' : ' neue Meldungen') : '') + '</p>';
-  return summary + (view.jobs.length ? html : '<div class="wp-empty">Keine kommenden Aufträge in den Projektordnern.</div>') +
+  return summary + (box ? ordInboxHtml(box, ordAvailable(view.jobs, localDateStr())) : '') + (view.jobs.length ? html : '<div class="wp-empty">Keine kommenden Aufträge in den Projektordnern.</div>') +
     view.failed.map(function(f) {
       return '<div class="ord-failed"><span>Nicht erkannt: ' + ordEsc(f.name) + '</span>' +
         '<button type="button" class="ord-textbtn" onclick="ordOpenPdf(\'' + jsAttrArg(f.id) + '\')">Ansehen</button></div>';
@@ -323,25 +329,175 @@ function ordRenderList() {
   content.innerHTML = ordListHtml(_ordView);
 }
 
-// Context for the phase blocks; a failing part only leaves its hints out
-async function ordLoadCtx(jobs) {
-  var days = {};
-  jobs.forEach(function(x) { ['setup', 'teardown'].forEach(function(ph) { if (x.job[ph]) days[x.job[ph].start.slice(0, 10)] = true; }); });
-  days = Object.keys(days);
+// Context for the phase blocks and the inbox: all upcoming entries of Daniel's plan; a failing part only leaves its hints out
+async function ordLoadCtx() {
+  var today = localDateStr();
   var res = await Promise.all([
     supabaseClient.from('order_applications').select('job_no, phase, user_id, status'),
     supabaseClient.from('order_plan_links').select('job_no, phase, plan_date, plan_key'),
-    days.length ? supabaseClient.from('plan_shifts').select('id, date, key, venue, location, title, wann, plan_assignments(user_id, name, role)').in('date', days) : { data: [] },
-    days.length ? supabaseClient.from('availability').select('user_id, day, level').in('day', days) : { data: [] },
-    supabaseClient.from('app_users').select('id, full_name')
+    supabaseClient.from('plan_shifts').select('id, week_id, date, key, venue, location, title, wann, open_slots, plan_assignments(user_id, name, role)').gte('date', today),
+    supabaseClient.from('availability').select('user_id, day, level').gte('day', today),
+    supabaseClient.from('app_users').select('id, full_name, role, is_active, availability_enabled, can_drive'),
+    supabaseClient.from('plan_shift_interest').select('week_id, shift_key, user_id, status'),
+    supabaseClient.rpc('order_slots') // accepted ids for everyone (security definer)
   ]);
   res.forEach(function(r) { if (r.error) console.warn('Aufträge: Zusatzdaten fehlen:', r.error); });
   var ok = function(r) { return r.error ? [] : (r.data || []); };
-  var c = { apps: ok(res[0]), links: {}, plan: ok(res[2]), avail: {}, names: {} };
+  var c = { apps: ok(res[0]), interest: ok(res[5]), accepted: {}, links: {}, plan: ok(res[2]), avail: {}, names: {}, users: ok(res[4]) };
+  ok(res[6]).forEach(function(sl) { c.accepted[sl.job_no + '|' + sl.phase] = sl.accepted_ids || []; });
   ok(res[1]).forEach(function(l) { c.links[l.job_no + '|' + l.phase] = { plan_date: l.plan_date, plan_key: l.plan_key }; });
   ok(res[3]).forEach(function(a) { c.avail[a.user_id + '|' + a.day] = a.level; });
   ok(res[4]).forEach(function(u) { c.names[u.id] = u.full_name; });
   return c;
+}
+
+// Who sets MA numbers and links to Daniel's plan (RLS on order_staffing / order_plan_links)
+function ordCanEdit() { return typeof userRole !== 'undefined' && (userRole === 'Admin' || userRole === 'PL'); }
+
+// Who decides Meldungen (same rule as sees_plan_interest() in the database)
+function ordCanDecide() {
+  return (typeof userRole !== 'undefined' && userRole === 'Admin') || !!window.currentUserSeesInterest;
+}
+
+// Both kinds of Meldungen as one list: open ones, and accepted ones whose person is not in Daniel's plan yet.
+// Item: { kind: 'order'|'shift', date, time, title, phase, full, user_id, job_no, phaseKey, week_id, shift_key, ps }
+function ordInbox(jobs, today) {
+  var open = [], accepted = [];
+  var push = function(item, status) {
+    if (!item.date || item.date < today) return;
+    if (status === 'offen') open.push(item);
+    else if (status === 'angenommen' && (!item.ps || ordAssignedIds(item.ps, true).indexOf(item.user_id) === -1)) accepted.push(item);
+  };
+  _ordCtx.apps.forEach(function(a) {
+    var x = (jobs || []).find(function(j) { return j.job.jobNo === a.job_no; });
+    if (!x || !x.job[a.phase]) return;
+    var start = x.job[a.phase].start || '', info = ordPhaseInfo(x, a.phase);
+    push({ kind: 'order', date: start.slice(0, 10), time: start.slice(11, 16), title: [ordVenueLabel(x.title), x.job.name].filter(Boolean).join(' – '),
+      phase: ORD_PHASE[a.phase], user_id: a.user_id, job_no: a.job_no, phaseKey: a.phase, ps: info.ps,
+      full: info.needed ? info.taken.length + ' von ' + info.needed + ' besetzt' : '' }, a.status);
+  });
+  (_ordCtx.interest || []).forEach(function(r) {
+    var p = _ordCtx.plan.find(function(s) { return s.week_id === r.week_id && s.key === r.shift_key; });
+    if (!p) return;
+    push({ kind: 'shift', date: p.date, time: '', title: [p.venue, p.title].filter(Boolean).join(' – '),
+      phase: String(p.wann || '').split('\n')[0], user_id: r.user_id, week_id: r.week_id, shift_key: r.shift_key, ps: p,
+      full: (p.open_slots || []).map(function(o) { return o.count + ' ' + (o.role || 'MA') + (o.count === 1 ? ' fehlt' : ' fehlen'); }).join(', ') }, r.status || 'offen');
+  });
+  var order = function(a, b) { return a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.title.localeCompare(b.title); };
+  return { open: open.sort(order), accepted: accepted.sort(order) };
+}
+
+// Inbox above the Auftrag cards (deciders only): open Meldungen with ✓ / ✕, then accepted ones not in Daniel's plan yet
+function ordInboxHtml(box, avail) {
+  var call = function(it, status) {
+    return it.kind === 'shift'
+      ? 'ordDecideShift(\'' + jsAttrArg(it.week_id) + '\', \'' + jsAttrArg(it.shift_key) + '\', \'' + jsAttrArg(it.user_id) + '\', \'' + status + '\')'
+      : 'ordDecide(\'' + jsAttrArg(it.job_no) + '\', \'' + it.phaseKey + '\', \'' + jsAttrArg(it.user_id) + '\', \'' + status + '\')';
+  };
+  var row = function(it, accepted) {
+    var what = [ordDay(it.date) + (it.time ? ' ' + it.time : ''), it.title, it.phase, it.full].filter(Boolean).map(ordEsc).join(' · ');
+    return '<li class="ord-req"><div class="ord-inbox-what">' + what + '</div>' +
+      '<div class="ord-req-top"><span class="ord-avatar ' + (accepted ? 'ord-avatar-ok' : 'ord-avatar-new') + '">' + ordInitial(it.user_id) + '</span>' +
+        '<b class="ord-person-name">' + ordEsc(ordName(it.user_id)) + '</b>' + (accepted ? '' : ordHints(it.user_id, it.date, it.ps)) +
+        (accepted ? '<button type="button" class="ord-textbtn" onclick="' + call(it, 'offen') + '">Zurücknehmen</button>' : '') + '</div>' +
+      (accepted ? '' : '<div class="ord-req-acts"><button type="button" class="ord-accept" onclick="' + call(it, 'angenommen') + '">' + ORD_ICON.check + 'Annehmen</button>' +
+        '<button type="button" class="ord-reject" aria-label="' + ordEsc(ordName(it.user_id)) + ' ablehnen" onclick="' + call(it, 'abgelehnt') + '">' + ORD_ICON.x + '</button></div>') +
+    '</li>';
+  };
+  return '<section class="ord-inbox"><div class="ord-label">Meldungen' + (box.open.length ? ' · ' + box.open.length + ' offen' : '') + '</div>' +
+    (box.open.length ? '<ul class="ord-reqs">' + box.open.map(function(it) { return row(it, false); }).join('') + '</ul>'
+      : '<div class="ord-slot-sub">Keine offenen Meldungen.</div>') +
+    (box.accepted.length ? '<div class="ord-label">Angenommen, noch nicht in Daniels Plan</div><ul class="ord-reqs">' +
+      box.accepted.map(function(it) { return row(it, true); }).join('') + '</ul>' : '') +
+    ((avail || []).length ? '<div class="ord-label">Hätten laut Verfügbarkeit Zeit</div><ul class="ord-reqs">' + avail.map(function(g) {
+      var add = function(p) {
+        return '<li class="ord-person"><span class="ord-avatar">' + ordInitial(p.user_id) + '</span><span class="ord-person-name">' + ordEsc(ordName(p.user_id)) + '</span>' +
+          (p.notfall ? '<span class="ord-pill ord-pill-warn">nur im Notfall</span>' : '') +
+          '<button type="button" class="ord-textbtn" onclick="ordAcceptAvailable(\'' + g.kind + '\', \'' + jsAttrArg(g.kind === 'shift' ? g.week_id : g.job_no) + '\', \'' +
+            jsAttrArg(g.kind === 'shift' ? g.shift_key : g.phaseKey) + '\', \'' + jsAttrArg(p.user_id) + '\')">Annehmen</button></li>';
+      };
+      var what = [ordDay(g.date) + (g.time ? ' ' + g.time : ''), g.title, g.phase, g.full].filter(Boolean).map(ordEsc).join(' · ');
+      var rest = g.people.slice(5);
+      return '<li class="ord-req"><div class="ord-inbox-what">' + what + '</div><ul class="ord-people">' + g.people.slice(0, 5).map(add).join('') + '</ul>' +
+        (rest.length ? '<details class="ord-more"><summary class="ord-textbtn">+' + rest.length + ' weitere</summary><ul class="ord-people">' + rest.map(add).join('') + '</ul></details>' : '') + '</li>';
+    }).join('') + '</ul>' : '') +
+  '</section>';
+}
+
+// Same rule as wpSlotFits / public.fits_plan_slot: AL places for AL/PL/Admin, Fahrer places only with „Kann Fahrer“
+function ordFitsSlot(role, u) {
+  if (role === 'AL') return ['AL', 'PL', 'Admin'].indexOf(u.role) !== -1;
+  if (role === 'Fahrer') return !!u.can_drive;
+  return true;
+}
+
+// „Hätten laut Verfügbarkeit Zeit“: per place that is still free (Daniel's open slots, Auftrag phases below their number),
+// unlocked people without „geht nicht“ that day, not on any of Daniel's entries that day, without a Meldung for it.
+// Group: { kind, date, time, title, phase, full, week_id, shift_key | job_no, phaseKey, people: [{ user_id, notfall }] }
+function ordAvailable(jobs, today) {
+  var groups = [], withOrder = {};
+  var busy = function(uid, date) { return _ordCtx.plan.some(function(p) { return p.date === date && ordAssignedIds(p, true).indexOf(uid) !== -1; }); };
+  var people = function(date, fits, applied) {
+    return (_ordCtx.users || []).filter(function(u) {
+      return u.availability_enabled && u.is_active !== false && u.role !== 'Gast' && _ordCtx.avail[u.id + '|' + date] !== 'nein' &&
+        applied.indexOf(u.id) === -1 && !busy(u.id, date) && fits(u);
+    }).map(function(u) { return { user_id: u.id, notfall: _ordCtx.avail[u.id + '|' + date] === 'notfall' }; })
+      .sort(function(a, b) { return (a.notfall - b.notfall) || ordName(a.user_id).localeCompare(ordName(b.user_id)); });
+  };
+  (jobs || []).forEach(function(x) {
+    ['setup', 'teardown'].forEach(function(ph) {
+      if (!x.job[ph]) return;
+      var i = ordPhaseInfo(x, ph), start = x.job[ph].start || '', date = start.slice(0, 10);
+      if (i.ps) withOrder[i.ps.id] = true;
+      if (!i.needed || i.taken.length >= i.needed || date < today) return;
+      var applied = _ordCtx.apps.filter(function(a) { return a.job_no === x.job.jobNo && a.phase === ph; }).map(function(a) { return a.user_id; }).concat(i.taken);
+      var list = people(date, function() { return true; }, applied);
+      if (list.length) groups.push({ kind: 'order', date: date, time: start.slice(11, 16), title: [ordVenueLabel(x.title), x.job.name].filter(Boolean).join(' – '),
+        phase: ORD_PHASE[ph], full: i.taken.length + ' von ' + i.needed + ' besetzt', job_no: x.job.jobNo, phaseKey: ph, people: list });
+    });
+  });
+  _ordCtx.plan.forEach(function(p) {
+    if (withOrder[p.id] || p.date < today || !(p.open_slots || []).length) return;
+    var applied = (_ordCtx.interest || []).filter(function(r) { return r.week_id === p.week_id && r.shift_key === p.key; }).map(function(r) { return r.user_id; });
+    var list = people(p.date, function(u) { return p.open_slots.some(function(o) { return ordFitsSlot(o && o.role, u); }); }, applied);
+    if (list.length) groups.push({ kind: 'shift', date: p.date, time: '', title: [p.venue, p.title].filter(Boolean).join(' – '), phase: String(p.wann || '').split('\n')[0],
+      full: p.open_slots.map(function(o) { return o.count + ' ' + (o.role || 'MA') + (o.count === 1 ? ' fehlt' : ' fehlen'); }).join(', '),
+      week_id: p.week_id, shift_key: p.key, people: list });
+  });
+  return groups.sort(function(a, b) { return a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.title.localeCompare(b.title); });
+}
+
+// Accept someone straight from „Hätten laut Verfügbarkeit Zeit“: an accepted Meldung on their behalf
+async function ordAcceptAvailable(kind, a, b, userId) {
+  var row = kind === 'shift' ? { week_id: a, shift_key: b, user_id: userId, status: 'angenommen' }
+    : { job_no: a, phase: b, user_id: userId, status: 'angenommen' };
+  try {
+    var r = await supabaseClient.from(kind === 'shift' ? 'plan_shift_interest' : 'order_applications').insert(row).select('user_id');
+    if (r.error || !r.data || !r.data.length) throw r.error || new Error('nicht gespeichert');
+  } catch (err) {
+    console.error('Direkt annehmen:', err);
+    showToast('Nicht gespeichert. Prüf deine Verbindung.', 'danger');
+    return;
+  }
+  if (kind === 'shift') _ordCtx.interest.push(row); else _ordCtx.apps.push(row);
+  ordRenderList();
+}
+
+// Decide a Meldung on a shift of Daniel's plan (plan_shift_interest)
+async function ordDecideShift(weekId, key, userId, status) {
+  var row = (_ordCtx.interest || []).find(function(x) { return x.week_id === weekId && x.shift_key === key && x.user_id === userId; });
+  if (!row) return;
+  try {
+    var r = await supabaseClient.from('plan_shift_interest').update({ status: status })
+      .eq('week_id', weekId).eq('shift_key', key).eq('user_id', userId).select('user_id');
+    if (r.error || !r.data || !r.data.length) throw r.error || new Error('nicht gespeichert');
+    row.status = status;
+  } catch (err) {
+    console.error('Meldung entscheiden:', err);
+    showToast('Nicht gespeichert. Prüf deine Verbindung.', 'danger');
+    return;
+  }
+  ordRenderList();
 }
 
 async function initAuftraege() {
@@ -368,7 +524,7 @@ async function initAuftraege() {
   }, function() { return seq !== _ordSeq; });
   if (!out || seq !== _ordSeq) return;
   var jobs = ordJobs(_ordFiles, out.parsed);
-  var c = await ordLoadCtx(jobs);
+  var c = await ordLoadCtx();
   if (seq !== _ordSeq) return;
   _ordCtx = c;
   _ordView = { jobs: jobs, failed: out.failed };
