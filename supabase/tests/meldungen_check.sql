@@ -16,11 +16,12 @@ begin
   insert into public.plan_weeks (id, year, kw, week_start, week_end) values (v_week, 1999, 1, '1999-01-04', '1999-01-10');
   insert into public.plan_shifts (week_id, date, key, open_slots) values
     (v_week, '1999-01-04', 'k1', '[{"role":"MA","count":1}]'), (v_week, '1999-01-04', 'k2', '[{"role":"MA","count":1}]'),
-    (v_week, '1999-01-04', 'k3', '[{"role":"MA","count":1}]');
+    (v_week, '1999-01-04', 'k3', '[{"role":"MA","count":1}]'), (v_week, '1999-01-04', 'k4', '[{"role":"MA","count":1}]');
   insert into public.order_staffing (job_no, staff_setup) values ('99-9999.01', 2);
   -- PL's own rows (to prove an unflagged PL sees only own rows)
   insert into public.plan_shift_interest (week_id, shift_key, user_id) values (v_week, 'k3', v_pl);
   insert into public.order_applications (job_no, phase, user_id) values ('99-9999.01', 'teardown', v_pl);
+  insert into public.plan_shift_interest (week_id, shift_key, user_id, status) values (v_week, 'k4', v_ma, 'abgelehnt');
 
   -- MA: insert only 'offen', decided_* not forgeable, no update, delete only own 'offen'
   perform set_config('request.jwt.claims', json_build_object('sub', v_ma, 'role', 'authenticated')::text, true);
@@ -52,6 +53,12 @@ begin
   if n <> 1 then raise exception 'check failed: viewer decided % order rows', n; end if;
   select count(*) into n from public.order_staffing where job_no = '99-9999.01';
   if n <> 1 then raise exception 'check failed: viewer sees % order_staffing rows', n; end if;
+  -- the live client lists every interest row a viewer can read as "Hätten Zeit": rejected ones stay hidden
+  select count(*) into n from public.plan_shift_interest where week_id = v_week and shift_key = 'k4';
+  if n <> 0 then raise exception 'check failed: viewer sees a rejected interest'; end if;
+  -- rejecting reads the row back (client .select()) → must work for the one who rejects
+  with u as (update public.plan_shift_interest set status = 'abgelehnt' where week_id = v_week and shift_key = 'k3' returning user_id) select count(*) into n from u;
+  if n <> 1 then raise exception 'check failed: viewer reject with returning gave % rows', n; end if;
   reset role;
 
   -- MA again: own accepted row cannot be deleted, own open row can
@@ -63,6 +70,8 @@ begin
   delete from public.plan_shift_interest where week_id = v_week and shift_key = 'k2' and user_id = v_ma;
   get diagnostics n = row_count;
   if n <> 1 then raise exception 'check failed: MA could not withdraw an open interest'; end if;
+  select count(*) into n from public.plan_shift_interest where week_id = v_week and shift_key = 'k4' and user_id = v_ma;
+  if n <> 1 then raise exception 'check failed: MA does not see own rejected interest'; end if;
   reset role;
 
   -- PL without the switch: only own rows, cannot decide

@@ -170,6 +170,7 @@ test('ordCardHtml: materials listed per group, escaped, no prices', () => {
 const vjob = () => Object.assign(ordJob('26-0415.01', '2026-11-09T10:00', '2026-11-13T10:00'), { name: 'Neuköllnspeicher' });
 const vx = () => ({ job: vjob(), file: { id: 'f' }, folderName: 'O', project: '26-0415', title: '261112_Estrel_Vernissage Streletzki' });
 function setCtx(extra) {
+  ctx.userRole = 'Admin'; ctx.currentUserSeesInterest = false;
   vm.runInContext('_ordSaved = { "26-0415.01": { staff_setup: 2, staff_teardown: 0 } }', ctx);
   vm.runInContext('_ordCtx = ' + JSON.stringify(Object.assign({
     apps: [], links: {}, avail: {},
@@ -433,4 +434,39 @@ test('ordInboxHtml: nothing for non-deciders', () => {
   assert.match(html, /ord-inbox/);
   assert.match(html, /2 neue Meldungen/); // both tables counted
   ctx.currentUserSeesInterest = false;
+});
+
+// ── Review fixes ──
+test('fix: a PL without the switch sees no Meldungen on the cards (own row from RLS), no „neu“', () => {
+  setCtx({ apps: [{ job_no: '26-0415.01', phase: 'setup', user_id: 'u2', status: 'offen' }] });
+  ctx.userRole = 'PL';
+  vm.runInContext('_ordOpen = {}', ctx);
+  assert.doesNotMatch(ctx.ordCardHtml(vx()), /neu/);
+  const html = ctx.ordSlotHtml(vx(), 'setup');
+  assert.doesNotMatch(html, /Annehmen|Meldungen|Noch keine Meldungen/);
+  assert.match(html, /Einen MA mehr/); // PL still sets the number
+});
+
+test('fix: accepted ids from order_slots() count for everyone (RLS hides other people’s applications)', () => {
+  setCtx({ apps: [], accepted: { '26-0415.01|setup': ['u2', 'u1'] } });
+  ctx.userRole = 'PL';
+  const html = ctx.ordSlotHtml(vx(), 'setup');
+  assert.match(html, /2<\/b> von 2 besetzt/); // u1 from Daniel + u2 accepted, u1 not counted twice
+});
+
+test('fix: a viewer without Admin/PL role sees no stepper buttons and no link editor', () => {
+  setCtx();
+  ctx.userRole = 'AL'; ctx.currentUserSeesInterest = true;
+  const html = ctx.ordSlotHtml(vx(), 'setup');
+  assert.doesNotMatch(html, /Einen MA mehr|ord-link-edit/);
+  assert.match(html, /2<small>MA<\/small>|2 MA/);
+});
+
+test('fix: ordSetLink treats 0 changed rows as not saved', async () => {
+  setCtx({ links: { '26-0415.01|setup': { plan_date: '2026-11-09', plan_key: 'k1' } } });
+  ctx.ordRenderList = () => {}; let toast = null; ctx.showToast = (m, t) => { toast = t; };
+  ctx.supabaseClient = { from: () => { const b = { delete: () => b, eq: () => b, select: () => Promise.resolve({ data: [], error: null }) }; return b; } };
+  await ctx.ordSetLink({ dataset: { job: '26-0415.01', phase: 'setup' }, value: 'auto' });
+  assert.equal(toast, 'danger');
+  assert.equal(vm.runInContext('_ordCtx.links["26-0415.01|setup"].plan_key', ctx), 'k1');
 });

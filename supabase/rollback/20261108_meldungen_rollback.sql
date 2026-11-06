@@ -23,6 +23,9 @@ drop policy rls_plan_shift_interest_delete on public.plan_shift_interest;
 create policy rls_plan_shift_interest_delete on public.plan_shift_interest for delete to authenticated
   using (user_id = (select auth.uid()) or (select public.app_role()) in ('PL', 'Admin'));
 drop policy rls_plan_shift_interest_update on public.plan_shift_interest;
+drop policy rls_plan_shift_interest_select on public.plan_shift_interest;
+create policy rls_plan_shift_interest_select on public.plan_shift_interest for select to authenticated
+  using (user_id = (select auth.uid()) or (select public.sees_plan_interest()));
 drop policy rls_plan_shift_interest_insert on public.plan_shift_interest;
 create policy rls_plan_shift_interest_insert on public.plan_shift_interest for insert to authenticated
   with check (user_id = (select auth.uid()) and (select public.app_role()) <> 'Gast'

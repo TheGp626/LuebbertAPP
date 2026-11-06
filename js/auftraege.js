@@ -10,7 +10,7 @@ var _ordFiles = [];
 var _ordSeq = 0;      // bumped per render; a slower earlier render must not overwrite a newer one
 var _ordView = null;  // { jobs, failed } of the last load, re-rendered after a decision
 // Applications, manual links, Daniel's entries of the slot days, availability and names (each may stay empty on a load error)
-var _ordCtx = { apps: [], interest: [], links: {}, plan: [], avail: {}, names: {} };
+var _ordCtx = { apps: [], interest: [], accepted: {}, links: {}, plan: [], avail: {}, names: {} };
 var ORD_PHASE = { setup: 'Aufbau', teardown: 'Abbau' };
 
 function ordEsc(s) { return escapeHtml(s == null ? '' : String(s)); }
@@ -108,8 +108,10 @@ function ordPhaseInfo(x, phase) {
   Object.keys(att.bySid).forEach(function(id) { ps = _ordCtx.plan.find(function(p) { return p.id === id; }) || null; });
   return {
     slot: slot, ps: ps, needed: (_ordSaved[x.job.jobNo] || {})['staff_' + phase],
-    taken: ordTaken(slot, ps, _ordCtx.apps),
-    apps: _ordCtx.apps.filter(function(a) { return a.job_no === x.job.jobNo && a.phase === phase; })
+    taken: ordTaken(slot, ps, _ordCtx.apps).concat(((_ordCtx.accepted || {})[x.job.jobNo + '|' + phase] || []))
+      .filter(function(id, i, all) { return all.indexOf(id) === i; }),
+    // Applications are decided by Admin + „Sieht Bewerbungen“ only; for anyone else RLS returns just their own row
+    apps: ordCanDecide() ? _ordCtx.apps.filter(function(a) { return a.job_no === x.job.jobNo && a.phase === phase; }) : []
   };
 }
 
@@ -176,7 +178,8 @@ function ordSlotHtml(x, phase) {
   if (!x.job[phase]) return '';
   var i = ordPhaseInfo(x, phase), slot = i.slot, ps = i.ps, needed = i.needed, apps = i.apps, date = ordSlotDate(slot);
   var field = 'staff_' + phase, jobArg = jsAttrArg(slot.job_no);
-  var stepper = '<div class="ord-step" role="group" aria-label="MA für den ' + ORD_PHASE[phase] + '">' +
+  var stepper = !ordCanEdit() ? '<div class="ord-step ord-step-ro"><output>' + (needed == null ? '–' : needed) + '<small>MA</small></output></div>'
+    : '<div class="ord-step" role="group" aria-label="MA für den ' + ORD_PHASE[phase] + '">' +
     '<button type="button" aria-label="Einen MA weniger"' + (needed ? '' : ' disabled') + ' onclick="ordStep(\'' + jobArg + '\', \'' + field + '\', -1)">' + ORD_ICON.minus + '</button>' +
     '<output>' + (needed == null ? '–' : needed) + '<small>MA</small></output>' +
     '<button type="button" aria-label="Einen MA mehr"' + (needed >= 99 ? ' disabled' : '') + ' onclick="ordStep(\'' + jobArg + '\', \'' + field + '\', 1)">' + ORD_ICON.plus + '</button></div>';
@@ -198,9 +201,9 @@ function ordSlotHtml(x, phase) {
     return '<option value="' + ordEsc(p.date + '|' + p.key) + '"' + (ps && ps.key === p.key ? ' selected' : '') + '>' + ordEsc((p.venue || '') + ' · ' + (p.title || '')) + '</option>';
   }).join('');
   var link = '<div class="ord-link"><span class="ord-link-text">' + ORD_ICON.link + (ps ? 'Daniels Plan: ' + ordEsc(ps.title || ps.venue || '') : 'Nicht in Daniels Plan') + '</span>' +
-    '<details class="ord-link-edit"><summary>ändern</summary><label><span class="sr-only">Verknüpfung mit Daniels Plan</span>' +
+    (!ordCanEdit() ? '</div>' : '<details class="ord-link-edit"><summary>ändern</summary><label><span class="sr-only">Verknüpfung mit Daniels Plan</span>' +
     '<select data-job="' + ordEsc(slot.job_no) + '" data-phase="' + phase + '" onchange="ordSetLink(this)">' +
-    '<option value="">Eintrag wählen …</option><option value="auto">Automatisch</option><option value="none">Nicht verknüpfen</option>' + dayOptions + '</select></label></details></div>';
+    '<option value="">Eintrag wählen …</option><option value="auto">Automatisch</option><option value="none">Nicht verknüpfen</option>' + dayOptions + '</select></label></details></div>');
   var decide = function(a, status) { return 'ordDecide(\'' + jobArg + '\', \'' + phase + '\', \'' + jsAttrArg(a.user_id) + '\', \'' + status + '\')'; };
   var person = function(id, cls, right) {
     return '<li class="ord-person"><span class="ord-avatar ' + cls + '">' + ordInitial(id) + '</span><span class="ord-person-name">' + ordEsc(ordName(id)) + '</span>' + right + '</li>';
@@ -226,7 +229,7 @@ function ordSlotHtml(x, phase) {
   return '<section class="ord-slot">' + top + progress + link +
     (people ? '<ul class="ord-people">' + people + '</ul>' : '') +
     (requests ? '<div class="ord-label">Meldungen' + (open.length ? ' · ' + open.length + ' neu' : '') + '</div><ul class="ord-reqs">' + requests + '</ul>'
-      : needed > taken.length ? '<div class="ord-slot-sub">Noch keine Meldungen.</div>' : '') +
+      : needed > taken.length && ordCanDecide() ? '<div class="ord-slot-sub">Noch keine Meldungen.</div>' : '') +
     (extra.length ? '<div class="ord-slot-sub">Angenommen über Auftrag: ' + extra.map(function(a) { return ordEsc(ordName(a.user_id)); }).join(', ') + ' – Daniel Bescheid geben, damit er sie einplant.</div>' : '') +
   '</section>';
 }
@@ -289,7 +292,7 @@ async function ordSetLink(sel) {
       link = { plan_date: parts[0], plan_key: parts[0] ? parts.slice(1).join('|') : null };
       r = await q.upsert({ job_no: job, phase: phase, plan_date: link.plan_date, plan_key: link.plan_key }, { onConflict: 'job_no,phase' }).select('job_no');
     }
-    if (r.error) throw r.error;
+    if (r.error || !r.data || !r.data.length) throw r.error || new Error('nicht gespeichert'); // RLS: 0 rows, no error
     if (link) _ordCtx.links[k] = link; else delete _ordCtx.links[k];
   } catch (err) {
     console.error('Verknüpfung speichern:', err);
@@ -335,16 +338,21 @@ async function ordLoadCtx() {
     supabaseClient.from('plan_shifts').select('id, week_id, date, key, venue, location, title, wann, open_slots, plan_assignments(user_id, name, role)').gte('date', today),
     supabaseClient.from('availability').select('user_id, day, level').gte('day', today),
     supabaseClient.from('app_users').select('id, full_name'),
-    supabaseClient.from('plan_shift_interest').select('week_id, shift_key, user_id, status')
+    supabaseClient.from('plan_shift_interest').select('week_id, shift_key, user_id, status'),
+    supabaseClient.rpc('order_slots') // accepted ids for everyone (security definer)
   ]);
   res.forEach(function(r) { if (r.error) console.warn('Aufträge: Zusatzdaten fehlen:', r.error); });
   var ok = function(r) { return r.error ? [] : (r.data || []); };
-  var c = { apps: ok(res[0]), interest: ok(res[5]), links: {}, plan: ok(res[2]), avail: {}, names: {} };
+  var c = { apps: ok(res[0]), interest: ok(res[5]), accepted: {}, links: {}, plan: ok(res[2]), avail: {}, names: {} };
+  ok(res[6]).forEach(function(sl) { c.accepted[sl.job_no + '|' + sl.phase] = sl.accepted_ids || []; });
   ok(res[1]).forEach(function(l) { c.links[l.job_no + '|' + l.phase] = { plan_date: l.plan_date, plan_key: l.plan_key }; });
   ok(res[3]).forEach(function(a) { c.avail[a.user_id + '|' + a.day] = a.level; });
   ok(res[4]).forEach(function(u) { c.names[u.id] = u.full_name; });
   return c;
 }
+
+// Who sets MA numbers and links to Daniel's plan (RLS on order_staffing / order_plan_links)
+function ordCanEdit() { return typeof userRole !== 'undefined' && (userRole === 'Admin' || userRole === 'PL'); }
 
 // Who decides Meldungen (same rule as sees_plan_interest() in the database)
 function ordCanDecide() {

@@ -282,6 +282,7 @@ button.dash-shift-main:focus-visible { outline: 2px solid var(--accent); outline
 .ord-inbox { margin: 4px 0 18px; padding: 12px; border-radius: var(--r-card); background: var(--bg2); border: 0.5px solid var(--border); }
 .ord-inbox .ord-label:first-child { margin-top: 0; }
 .ord-inbox .ord-req { background: var(--bg); }
+.ord-step-ro { border: 0; padding: 0 4px; }
 .ord-inbox-what { font-size: 13px; color: var(--text2); margin-bottom: 8px; line-height: 1.4; }
 .ord-h { margin: 4px 2px 2px; font-size: 26px; letter-spacing: -0.01em; }
 .ord-summary { margin: 0 2px 14px; font-size: 13px; color: var(--text2); }

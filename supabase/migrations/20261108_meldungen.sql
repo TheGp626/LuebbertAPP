@@ -14,6 +14,13 @@ create trigger plan_shift_interest_decided before insert or update on public.pla
 
 grant update on public.plan_shift_interest to authenticated;
 
+-- The live client lists every row a viewer can read as "Hätten Zeit": a rejected Meldung is visible to its owner and to
+-- whoever rejected it (the decide call reads the row back with RETURNING, which needs the new row to be visible)
+drop policy rls_plan_shift_interest_select on public.plan_shift_interest;
+create policy rls_plan_shift_interest_select on public.plan_shift_interest for select to authenticated
+  using (user_id = (select auth.uid())
+         or ((select public.sees_plan_interest()) and (status <> 'abgelehnt' or decided_by = (select auth.uid()))));
+
 drop policy rls_plan_shift_interest_insert on public.plan_shift_interest;
 create policy rls_plan_shift_interest_insert on public.plan_shift_interest for insert to authenticated
   with check (user_id = (select auth.uid()) and (select public.app_role()) <> 'Gast'
