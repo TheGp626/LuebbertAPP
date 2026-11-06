@@ -106,3 +106,12 @@ test('ordAttachSlots: a manual link to an entry of the other phase (keys shifted
   assert.equal(Object.keys(r.bySid).length, 0);
   assert.equal(r.unlinked.length, 1);
 });
+
+test('Fahrer: not counted as MA in taken/count, but a Fahrer on the shift cannot apply as MA', () => {
+  const p = { id: 'p', plan_assignments: [{ user_id: 'u1', role: 'MA' }, { user_id: 'd1', role: 'Fahrer' }] };
+  const s = slot('26-0415.01', 'setup', '2026-11-09T10:00', VER, 'Neuköllnspeicher', { accepted_ids: [] });
+  assert.deepEqual([...ctx.ordTaken(s, p, [])], ['u1']);
+  assert.equal(ctx.ordTakenCount(s, p), 1);
+  assert.equal(ctx.ordCanApply(s, 'd1', '2026-11-06', 'Fahrer', p), false);
+  assert.deepEqual([...ctx.ordDrivers(p)], ['d1']);
+});

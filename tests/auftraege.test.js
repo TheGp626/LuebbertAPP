@@ -152,8 +152,9 @@ test('ordOpenPdf: opens the in-app viewer (window.open after await is blocked on
 test('ordCardHtml: materials listed per group, escaped, no prices', () => {
   const j = ordJob('26-0415.01', '2026-11-09T10:00', '2026-11-13T10:00');
   j.materials = [{ group: 'Bar <b>', items: [{ qty: 2, name: 'Barelement weiß' }, { qty: 1, name: 'Stuhl "Clara"' }] }];
+  vm.runInContext('_ordOpen = { "26-0415.01": true }', ctx);
   const html = ctx.ordCardHtml({ job: j, file: { id: 'f' }, folderName: 'Ordner', project: '26-0415' });
-  assert.match(html, /Material \(2 Positionen\)/);
+  assert.match(html, /Material <b>2<\/b>/);
   assert.match(html, /Bar &lt;b&gt;/);
   assert.ok(html.includes('<b>2×</b> Barelement weiß'));
   assert.match(html, /Stuhl &quot;Clara&quot;/);
@@ -177,11 +178,14 @@ test('ordSlotHtml: besetzt counts Daniel + accepted without duplicates, warns wh
   setCtx({ apps: [{ job_no: '26-0415.01', phase: 'setup', user_id: 'u1', status: 'angenommen' },
     { job_no: '26-0415.01', phase: 'setup', user_id: 'u2', status: 'angenommen' }] });
   const html = ctx.ordSlotHtml(vx(), 'setup');
-  assert.match(html, /2 \/ 2 besetzt/);
+  assert.match(html, /2<\/b> von 2 besetzt/);
   assert.match(html, /voll/);
-  assert.match(html, /Daniels Plan: Mo 9\.11\. · Neuköllnspeicher/);
+  assert.match(html, /Daniels Plan: Neuköllnspeicher/);
   assert.match(html, /Angenommen über Auftrag: Ben &lt;b&gt;/);
-  assert.equal(ctx.ordSlotHtml(vx(), 'teardown'), '');
+  const td = ctx.ordSlotHtml(vx(), 'teardown'); // 0 MA: compact block with the stepper, so the number can go up again
+  assert.match(td, /Keine MA ausgeschrieben/);
+  assert.match(td, /Einen MA mehr/);
+  assert.doesNotMatch(td, /besetzt/);
 });
 
 test('ordSlotHtml: applicants with availability hint and „schon eingeplant“, escaped names', () => {
@@ -193,7 +197,8 @@ test('ordSlotHtml: applicants with availability hint and „schon eingeplant“,
   assert.match(html, /nur im Notfall/);
   assert.match(html, /schon eingeplant/); // Cem is on p2 the same day
   assert.match(html, /Annehmen/);
-  assert.match(html, /1 \/ 2 besetzt/);
+  assert.match(html, /1<\/b> von 2 besetzt/);
+  assert.match(html, /1 fehlt/);
 });
 
 function decideClient(fail) {
@@ -240,5 +245,62 @@ test('ordSlotHtml: MA number set to 0 keeps the applications visible as „nicht
   assert.match(html, /nicht mehr ausgeschrieben/);
   assert.match(html, /Ben &lt;b&gt;/);
   const x = vx(); x.job.materials = [{ group: 'G', items: [{ qty: '<img src=x>', name: 'n' }] }];
+  vm.runInContext('_ordOpen = { "26-0415.01": true }', ctx);
   assert.doesNotMatch(ctx.ordCardHtml(x), /<img/);
+});
+
+// ── Layout: collapsed cards, status pills, day groups, stepper, drivers ──
+test('ordCardHtml: collapsed by default with phase pills and a „neu“ badge; open shows the phase blocks', () => {
+  setCtx({ apps: [{ job_no: '26-0415.01', phase: 'setup', user_id: 'u2', status: 'offen' },
+    { job_no: '26-0415.01', phase: 'setup', user_id: 'u3', status: 'offen' }] });
+  vm.runInContext('_ordSaved["26-0415.01"] = { staff_setup: 1, staff_teardown: null }; _ordOpen = {}', ctx);
+  let html = ctx.ordCardHtml(vx());
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /ord-pill-ok">Aufbau 1\/1/);
+  assert.match(html, /Abbau – MA eintragen/);
+  assert.match(html, /2 neu/);
+  assert.doesNotMatch(html, /ord-slot/);
+  ctx.ordToggle('26-0415.01');
+  html = ctx.ordCardHtml(vx());
+  assert.match(html, /aria-expanded="true"/);
+  assert.match(html, /ord-slot/);
+});
+
+test('ordCardHtml: no taken places → red pill', () => {
+  setCtx({ plan: [] });
+  vm.runInContext('_ordOpen = {}', ctx);
+  assert.match(ctx.ordCardHtml(vx()), /ord-pill-danger">Aufbau 0\/2/);
+});
+
+test('ordListHtml: grouped by day in date order, failed files at the end', () => {
+  setCtx();
+  stubToday('2026-11-06');
+  const a = vx(), b = vx();
+  b.job = Object.assign(ordJob('26-0447.01', '2026-11-11T09:00', '2026-11-12T19:15'), { name: 'Business of Apps' });
+  const html = ctx.ordListHtml({ jobs: [a, b], failed: [{ id: 'f9', name: 'kaputt.pdf' }] });
+  const i = html.indexOf('Montag 09.11.'), k = html.indexOf('Mittwoch 11.11.'), f = html.indexOf('kaputt.pdf');
+  assert.ok(i !== -1 && k > i && f > k, [i, k, f].join());
+});
+
+test('ordStep: stepper changes the number by one, never below 0 or above 99', async () => {
+  setCtx(); ctx.showToast = () => {}; ctx.ordRenderList = () => {};
+  const calls = [];
+  ctx.supabaseClient = { from: () => { const b = { upsert(row) { calls.push(row); return b; }, select: () => Promise.resolve({ data: [{ job_no: 'j' }], error: null }) }; return b; } };
+  vm.runInContext('_ordSaved["26-0415.01"] = { staff_setup: 3, staff_teardown: null }', ctx);
+  await ctx.ordStep('26-0415.01', 'staff_setup', -1);
+  assert.equal(calls[0].staff_setup, 2);
+  await ctx.ordStep('26-0415.01', 'staff_teardown', 1);
+  assert.equal(calls[1].staff_teardown, 1);
+  vm.runInContext('_ordSaved["26-0415.01"].staff_setup = 0', ctx);
+  await ctx.ordStep('26-0415.01', 'staff_setup', -1);
+  assert.equal(calls.length, 2);
+});
+
+test('ordSlotHtml: a Fahrer on Daniel’s entry is listed but does not count', () => {
+  setCtx();
+  vm.runInContext('_ordCtx.plan[0].plan_assignments.push({ user_id: "d1", name: "Hassan", role: "Fahrer" }); _ordCtx.names.d1 = "Hassan"', ctx);
+  const html = ctx.ordSlotHtml(vx(), 'setup');
+  assert.match(html, /Hassan · Fahrer/);
+  assert.match(html, /zählt nicht/);
+  assert.match(html, /1<\/b> von 2 besetzt/);
 });
