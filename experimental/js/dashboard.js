@@ -163,36 +163,46 @@ function dashNightRanking(shifts, workers) {
 }
 
 var dashNightRows = [];
-var DASH_NIGHT_DAYS = 90;
+var DASH_NIGHT_PAGE = 1000; // PostgREST answers at most 1000 rows per request
 
-// Shifts of the last 90 days by shift_date; a failure only leaves the ranking empty, never the worker list
-// shortcut: PostgREST caps answers at 1000 rows, page it if 90 days of shifts ever exceed that
+// Shifts of the current calendar year (Jenni: internal yearly evaluation), loaded page by page;
+// a failure only leaves the ranking empty, never the worker list
 async function loadDashNightRanking() {
+  var year = new Date().getFullYear(), all = [];
   try {
-    const { data, error } = await supabaseClient
-      .from('shifts')
-      .select('user_id, start_time, end_time')
-      .gte('shift_date', localDateStr(new Date(Date.now() - DASH_NIGHT_DAYS * 86400000)))
-      .not('user_id', 'is', null);
-    if (error) throw error;
-    dashNightRows = dashNightRanking(data, dashboardWorkers);
+    for (var from = 0; ; from += DASH_NIGHT_PAGE) {
+      const { data, error } = await supabaseClient
+        .from('shifts')
+        .select('id, user_id, start_time, end_time')
+        .gte('shift_date', year + '-01-01')
+        .lte('shift_date', year + '-12-31')
+        .not('user_id', 'is', null)
+        .order('id')
+        .range(from, from + DASH_NIGHT_PAGE - 1);
+      if (error) throw error;
+      all = all.concat(data || []);
+      if (!data || data.length < DASH_NIGHT_PAGE) break;
+    }
+    dashNightRows = dashNightRanking(all, dashboardWorkers);
   } catch (err) {
     console.error('Nachtschichten laden:', err);
     dashNightRows = [];
   }
-  renderDashNightRanking();
+  renderDashNightRanking(year);
 }
 
-function renderDashNightRanking() {
+function renderDashNightRanking(year) {
   var el = document.getElementById('dash-night-ranking');
   if (!el) return;
-  var rows = dashNightRows.slice(0, 10);
+  var title = document.getElementById('dash-night-title');
+  if (title) title.textContent = 'Nachtschichten · ' + year;
+  var rows = dashNightRows;
   el.innerHTML = rows.length ? rows.map(function(r, i) {
     return '<button type="button" class="ui-row dash-worker-row" onclick="selectDashWorker(\'' + jsAttrArg(r.id) + '\')">' +
       '<span class="ui-row-main"><span class="ui-row-title">' + (i + 1) + '. ' + escapeHtml(r.name) + '</span>' +
       '<span class="ui-sub">' + r.share + ' % der Schichten (' + r.nights + ' von ' + r.total + ')</span></span>' +
       '<span class="ui-pill ui-pill-info" title="Nachtschichten">' + r.nights + '</span></button>';
-  }).join('') : '<div class="ui-sub" style="padding:6px 2px;">Keine Nachtschichten in den letzten ' + DASH_NIGHT_DAYS + ' Tagen.</div>';
+  }).join('') : '<div class="ui-sub" style="padding:6px 2px;">Keine Nachtschichten in ' + year + '.</div>';
 }
 
 function dashWorkerHeadHtml(w) {
