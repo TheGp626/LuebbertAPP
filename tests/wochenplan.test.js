@@ -112,9 +112,57 @@ test('wpCanApply: only when one open slot fits the person', () => {
   assert.equal(ctx.wpCanApply({ ...s, open_slots: [{ role: 'AL', count: 1 }] }, 'a', '2030-01-01', { role: 'AL' }), true);
 });
 
-test('wpInterested: drops assigned users; [] when not loaded', () => {
-  assert.deepEqual(plain(ctx.wpInterested({ plan_assignments: [{ user_id: 'a' }], _interest: ['a', 'b'] })), ['b']);
-  assert.deepEqual(plain(ctx.wpInterested({ plan_assignments: [] })), []);
+// ── Meldungen on Daniel's shifts (plan_shift_interest rows { user_id, status }) ──
+const ishift = (rows) => ({ id: 'p1', week_id: 'w', date: '2026-11-09', key: 'k', venue: 'Estrel', wann: 'Aufbau: 10 Uhr',
+  plan_assignments: [], open_slots: [{ role: 'MA', count: 2 }], _interest: rows });
+
+test('wpMyInterest: own row status, null without own row or when not loaded', () => {
+  ctx.currentUser = { id: 'me' };
+  assert.equal(ctx.wpMyInterest(ishift([{ user_id: 'x', status: 'offen' }, { user_id: 'me', status: 'angenommen' }])), 'angenommen');
+  assert.equal(ctx.wpMyInterest(ishift([{ user_id: 'x', status: 'offen' }])), null);
+  assert.equal(ctx.wpMyInterest(ishift(null)), null);
+});
+
+test('wpInterestBlock: „Ich kann“ when a slot fits and no own row', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  const html = ctx.wpInterestBlock(ishift([]));
+  assert.match(html, /Ich kann/);
+  assert.doesNotMatch(html, /Ich hätte Zeit/);
+});
+
+test('wpInterestBlock: offen → „Gemeldet“ + „Zurückziehen“; angenommen → „Angenommen ✓“ without button; abgelehnt → „Abgelehnt“', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  let html = ctx.wpInterestBlock(ishift([{ user_id: 'me', status: 'offen' }]));
+  assert.match(html, /Gemeldet/); assert.match(html, /Zurückziehen/); assert.doesNotMatch(html, /Ich kann/);
+  html = ctx.wpInterestBlock(ishift([{ user_id: 'me', status: 'angenommen' }]));
+  assert.match(html, /Angenommen ✓/); assert.doesNotMatch(html, /<button/);
+  html = ctx.wpInterestBlock(ishift([{ user_id: 'me', status: 'abgelehnt' }]));
+  assert.match(html, /Abgelehnt/); assert.doesNotMatch(html, /<button/);
+});
+
+test('wpInterestBlock: empty on a shift with an Auftrag (s._orders), when not loaded, or with no fitting slot', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  assert.equal(ctx.wpInterestBlock(Object.assign(ishift([]), { _orders: [{ job_no: 'j', phase: 'setup' }] })), '');
+  assert.equal(ctx.wpInterestBlock(ishift(null)), '');
+  assert.equal(ctx.wpInterestBlock(Object.assign(ishift([]), { open_slots: [] })), '');
+});
+
+test('wpToggleInterest: withdraw deletes only an open own row; insert otherwise', async () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.showToast = () => {}; ctx.wpRenderWeek = () => {};
+  const calls = [];
+  ctx.supabaseClient = { from: (t) => { const q = { t, filters: [] }; const b = {
+    insert(row) { q.op = 'insert'; q.row = row; return b; }, delete() { q.op = 'delete'; return b; },
+    eq(k, v) { q.filters.push([k, v]); return b; },
+    select() { calls.push(q); return Promise.resolve({ data: [{ user_id: 'me' }], error: null }); } }; return b; } };
+  const s = ishift([{ user_id: 'me', status: 'offen' }]);
+  vm.runInContext('_wpShiftCache.p1 = null', ctx); ctx._wpShiftCache.p1 = s;
+  await ctx.wpToggleInterest({ disabled: false }, 'p1');
+  assert.equal(calls[0].op, 'delete');
+  assert.deepEqual(plain(calls[0].filters), [['week_id', 'w'], ['shift_key', 'k'], ['user_id', 'me'], ['status', 'offen']]);
+  s._interest = [];
+  await ctx.wpToggleInterest({ disabled: false }, 'p1');
+  assert.equal(calls[1].op, 'insert');
+  assert.deepEqual(plain(calls[1].row), { week_id: 'w', shift_key: 'k', user_id: 'me' });
 });
 
 test('wochenplan.js: no top-level function is defined twice (the later one silently wins)', () => {
@@ -290,15 +338,15 @@ test('wpOrderBlock: open = needed − taken, „Ich kann“ only when applying i
   assert.doesNotMatch(ctx.wpOrderBlock(oslot(), null), /Ich kann/);
 });
 
-test('wpRow: a shift with an Auftrag shows its block instead of „Ich hätte Zeit“', () => {
+test('wpRow: a shift with an Auftrag shows its block instead of the shift’s own „Ich kann“', () => {
   stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
   const s = { id: 'p1', date: '2026-11-09', key: 'k', venue: 'Estrel', wann: 'Aufbau: 10 Uhr', plan_assignments: [],
     open_slots: [{ role: 'MA', count: 2 }], _interest: [] };
-  assert.match(ctx.wpRow(s), /Ich hätte Zeit/);
+  assert.match(ctx.wpRow(s), /wpToggleInterest/);
   s._orders = [oslot()];
   const html = ctx.wpRow(s);
-  assert.doesNotMatch(html, /Ich hätte Zeit/);
-  assert.match(html, /Ich kann/);
+  assert.doesNotMatch(html, /wpToggleInterest/);
+  assert.match(html, /wpOrderApply\([^)]*true\)">Ich kann/);
 });
 
 function applyClient(fail) {
