@@ -130,3 +130,37 @@ test('wpSeesInterest: only with the per-user switch (PL/Admin role check needs a
   assert.equal(ctx.wpSeesInterest(), true);
   ctx.currentUserSeesInterest = false;
 });
+
+// ── Verfügbarkeit ──
+test('wpAvailNext cycles verfügbar → notfall → nein → verfügbar', () => {
+  assert.equal(ctx.wpAvailNext(''), 'notfall');
+  assert.equal(ctx.wpAvailNext('notfall'), 'nein');
+  assert.equal(ctx.wpAvailNext('nein'), '');
+});
+
+test('wpAvailWeeks: starts Monday, crosses the year (KW 53/1)', () => {
+  const w = plain(ctx.wpAvailWeeks('2026-12-30', 2));
+  assert.equal(w[0].monday, '2026-12-28');
+  assert.equal(w[0].days[6], '2027-01-03');
+  assert.equal(w[0].kw, 53);
+  assert.equal(w[1].monday, '2027-01-04');
+  assert.equal(w[1].kw, 1);
+  assert.equal(plain(ctx.wpAvailWeeks('2026-11-08', 1))[0].monday, '2026-11-02'); // Sunday as today
+  assert.equal(plain(ctx.wpAvailWeeks('2026-11-06', 8)).length, 8);
+});
+
+test('wpCanSetAvail: flag or forAll, never Gast', () => {
+  assert.equal(ctx.wpCanSetAvail({ role: 'MA', availability_enabled: true }, false), true);
+  assert.equal(ctx.wpCanSetAvail({ role: 'MA' }, false), false);
+  assert.equal(ctx.wpCanSetAvail({ role: 'MA' }, true), true);
+  assert.equal(ctx.wpCanSetAvail({ role: 'Gast', availability_enabled: true }, true), false);
+  assert.equal(ctx.wpCanSetAvail(null, true), false);
+});
+
+test('wpAvailGrid: one row per person, cells Mo–So, sorted by name', () => {
+  const g = plain(ctx.wpAvailGrid([{ id: 'b', full_name: 'Mo' }, { id: 'a', full_name: 'Kacper' }],
+    [{ user_id: 'b', day: '2026-11-04', level: 'nein' }, { user_id: 'a', day: '2026-11-09', level: 'notfall' }], '2026-11-02'));
+  assert.deepEqual(g.map(r => r.name), ['Kacper', 'Mo']);
+  assert.deepEqual(g[1].cells, ['', '', 'nein', '', '', '', '']);
+  assert.deepEqual(g[0].cells, ['', '', '', '', '', '', '']);
+});

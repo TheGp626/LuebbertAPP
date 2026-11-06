@@ -236,6 +236,44 @@ async function wpToggleInterest(btn, shiftId) {
   wpRenderWeek();
 }
 
+// ── Verfügbarkeit: unlocked people block days; no row = available (table availability) ──
+var WP_AVAIL_LEVELS = { nein: { label: 'geht nicht', mark: '✕' }, notfall: { label: 'nur im Notfall', mark: '!' } };
+var WP_AVAIL_WEEKS = 8;
+
+function wpAvailNext(level) { return level === '' || !level ? 'notfall' : level === 'notfall' ? 'nein' : ''; }
+
+// ISO-8601 week number of a YYYY-MM-DD day (the week's Thursday decides the year)
+function wpIsoWeek(iso) {
+  var p = wpParts(iso), d = new Date(Date.UTC(p.y, p.m - 1, p.d));
+  d.setUTCDate(d.getUTCDate() + 3 - (d.getUTCDay() + 6) % 7);
+  var jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  return 1 + Math.round(((d - jan4) / 86400000 - 3 + (jan4.getUTCDay() + 6) % 7) / 7);
+}
+
+// n weeks from the Monday of today's week: [{ monday, kw, days[7] }]
+function wpAvailWeeks(today, n) {
+  var monday = wpAddDays(today, -((wpParts(today).dow + 6) % 7)), out = [];
+  for (var w = 0; w < n; w++) {
+    var mon = wpAddDays(monday, w * 7), days = [];
+    for (var i = 0; i < 7; i++) days.push(wpAddDays(mon, i));
+    out.push({ monday: mon, kw: wpIsoWeek(mon), days: days });
+  }
+  return out;
+}
+
+function wpCanSetAvail(user, forAll) {
+  return !!user && user.role !== 'Gast' && (!!user.availability_enabled || !!forAll);
+}
+
+// Planner grid: one row per person (by name), cells Mo–So with '' | 'notfall' | 'nein'
+function wpAvailGrid(people, rows, monday) {
+  var days = [0, 1, 2, 3, 4, 5, 6].map(function(i) { return wpAddDays(monday, i); }), lv = {};
+  (rows || []).forEach(function(r) { lv[r.user_id + '|' + r.day] = r.level; });
+  return (people || []).map(function(p) {
+    return { id: p.id, name: p.full_name || 'Unbekannt', cells: days.map(function(d) { return lv[p.id + '|' + d] || ''; }) };
+  }).sort(function(a, b) { return a.name.localeCompare(b.name, 'de'); });
+}
+
 // Compact, expandable shift row (week view and "Danach" list)
 function wpRow(s, opts) {
   opts = opts || {};
