@@ -286,3 +286,17 @@ button.dash-shift-main:focus-visible { outline: 2px solid var(--accent); outline
 .ui-field.ord-num input { width: 84px; text-align: center; }
 .ord-foot .ui-btn { margin-left: auto; min-height: 44px; }
 .ord-failed .ord-title { color: var(--text2); }
+
+/* ── Wochenplan: Aufträge (order_slots) ── */
+.wp-ord-block { margin-top: 10px; padding: 10px 12px; border-radius: var(--r-control); background: var(--bg); border: 0.5px solid var(--border2); font-size: 13px; cursor: default; }
+.wp-ord-line { line-height: 1.4; overflow-wrap: anywhere; }
+.wp-ord-more { margin-top: 6px; }
+.wp-ord-more summary { cursor: pointer; color: var(--text2); min-height: 32px; display: flex; align-items: center; }
+.wp-ord-more > div, .wp-ord-more ul { margin: 4px 0 0; line-height: 1.45; overflow-wrap: anywhere; }
+.wp-ord-more ul { padding-left: 18px; }
+.wp-ord-group { margin-top: 6px; font-weight: 600; }
+.wp-ord-action { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wp-ord-action .wp-prot-btn { min-height: 44px; }
+.wp-ord-row { cursor: default; }
+.wp-ord-fail { margin: 0 2px 10px; }
+

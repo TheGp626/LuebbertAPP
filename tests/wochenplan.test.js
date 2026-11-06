@@ -16,7 +16,7 @@ beforeEach(() => {
     setTimeout: () => 0,
   });
   ctx.window = ctx;
-  for (const f of ['utils.js', 'ui.js', 'plan-parser.js', 'wochenplan.js']) {
+  for (const f of ['utils.js', 'ui.js', 'plan-parser.js', 'order-slots.js', 'wochenplan.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../js', f), 'utf8'), ctx, { filename: f });
   }
 });
@@ -268,4 +268,70 @@ test('wpToggleAvail: two failed taps fall back to the last saved value, not an u
   sb.pending.shift()();
   await Promise.all([a, b]);
   assert.equal(vm.runInContext('wpAvailRows["2026-11-10"] || ""', ctx), '');
+});
+
+// ── Aufträge im Wochenplan (order_slots) ──
+const oslot = (extra) => Object.assign({ job_no: '26-0415.01', phase: 'setup', start_at: '2026-11-09T10:00', end_at: '2026-11-09T18:00',
+  title: '261112_Estrel_Vernissage', name: 'Speicher', room: 'Halle', needed: 4, accepted: 1, my_status: null,
+  materials: [{ group: 'Bar', items: [{ qty: 2, name: 'Barelement <weiß>' }] }], notes: 'Info: X', link_set: false }, extra || {});
+
+test('wpOrderBlock: open = needed − taken, „Ich kann“ only when applying is possible', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  const ps = { id: 'p1', date: '2026-11-09', plan_assignments: [{ user_id: 'u1' }] };
+  let html = ctx.wpOrderBlock(oslot(), ps);
+  assert.match(html, /4 MA · 2 offen/);
+  assert.match(html, /Ich kann/);
+  assert.match(html, /Barelement &lt;weiß&gt;/);
+  html = ctx.wpOrderBlock(oslot(), { id: 'p1', date: '2026-11-09', plan_assignments: [{ user_id: 'me' }] });
+  assert.doesNotMatch(html, /Ich kann/);
+  assert.match(ctx.wpOrderBlock(oslot({ my_status: 'offen' }), null), /Zurückziehen/);
+  assert.match(ctx.wpOrderBlock(oslot({ my_status: 'angenommen' }), null), /Angenommen/);
+  ctx.userRole = 'Gast';
+  assert.doesNotMatch(ctx.wpOrderBlock(oslot(), null), /Ich kann/);
+});
+
+test('wpRow: a shift with an Auftrag shows its block instead of „Ich hätte Zeit“', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  const s = { id: 'p1', date: '2026-11-09', key: 'k', venue: 'Estrel', wann: 'Aufbau: 10 Uhr', plan_assignments: [],
+    open_slots: [{ role: 'MA', count: 2 }], _interest: [] };
+  assert.match(ctx.wpRow(s), /Ich hätte Zeit/);
+  s._orders = [oslot()];
+  const html = ctx.wpRow(s);
+  assert.doesNotMatch(html, /Ich hätte Zeit/);
+  assert.match(html, /Ich kann/);
+});
+
+function applyClient(fail) {
+  const calls = [];
+  return { calls, from: (t) => { const q = { t, filters: [] }; const b = {
+    insert(row) { q.op = 'insert'; q.row = row; return b; }, delete() { q.op = 'delete'; return b; },
+    eq(k, v) { q.filters.push([k, v]); return b; },
+    select() { calls.push(q); return Promise.resolve(fail ? { data: null, error: { message: 'x' } } : { data: [{ job_no: 'j' }], error: null }); } };
+    return b; } };
+}
+
+test('wpOrderApply: insert row shape; error toasts and keeps the state', async () => {
+  ctx.currentUser = { id: 'me' }; let toast = null; ctx.showToast = (m, t) => { toast = t; };
+  ctx.wpRenderWeek = async () => {}; ctx.wpRenderMine = async () => {};
+  vm.runInContext('_wpSlots = [' + JSON.stringify(oslot()) + ']', ctx);
+  let sb = applyClient(false); ctx.supabaseClient = sb;
+  await ctx.wpOrderApply('26-0415.01', 'setup', true);
+  assert.equal(sb.calls[0].t, 'order_applications');
+  assert.deepEqual(plain(sb.calls[0].row), { job_no: '26-0415.01', phase: 'setup', user_id: 'me' });
+  assert.equal(vm.runInContext('_wpSlots[0].my_status', ctx), 'offen');
+  sb = applyClient(true); ctx.supabaseClient = sb;
+  await ctx.wpOrderApply('26-0415.01', 'setup', false);
+  assert.equal(toast, 'danger');
+  assert.equal(vm.runInContext('_wpSlots[0].my_status', ctx), 'offen');
+});
+
+test('wpOrderApply: withdraw deletes only the own open row', async () => {
+  ctx.currentUser = { id: 'me' }; ctx.showToast = () => {};
+  ctx.wpRenderWeek = async () => {}; ctx.wpRenderMine = async () => {};
+  vm.runInContext('_wpSlots = [' + JSON.stringify(oslot({ my_status: 'offen' })) + ']', ctx);
+  const sb = applyClient(false); ctx.supabaseClient = sb;
+  await ctx.wpOrderApply('26-0415.01', 'setup', false);
+  assert.equal(sb.calls[0].op, 'delete');
+  assert.deepEqual(plain(sb.calls[0].filters), [['job_no', '26-0415.01'], ['phase', 'setup'], ['user_id', 'me'], ['status', 'offen']]);
+  assert.equal(vm.runInContext('_wpSlots[0].my_status', ctx), null);
 });
