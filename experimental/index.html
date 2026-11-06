@@ -17,7 +17,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <link rel="stylesheet" href="css/style.css?v=39">
-  <link rel="stylesheet" href="css/ui.css?v=18">
+  <link rel="stylesheet" href="css/ui.css?v=19">
 </head>
 
 <body>
@@ -369,6 +369,7 @@
               <button type="button" class="active" id="wp-tab-mine" role="tab" aria-selected="true" onclick="wpSetView('mine')">Meine Schichten</button>
               <button type="button" id="wp-tab-all" role="tab" aria-selected="false" onclick="wpSetView('all')">Ganze Woche</button>
               <button type="button" id="wp-tab-avail" role="tab" aria-selected="false" hidden onclick="wpSetView('avail')">Verfügbarkeit</button>
+              <button type="button" id="wp-tab-orders" role="tab" aria-selected="false" hidden onclick="wpSetView('orders')">Aufträge</button>
             </div>
             <div id="wp-week-nav" class="wp-weeknav" style="display:none;">
               <button type="button" id="wp-prev" aria-label="Vorige Woche" onclick="wpStepWeek(-1)"><svg class="wp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6"/></svg></button>
@@ -859,9 +860,10 @@
   <script src="js/stundenzettel.js?v=25"></script>
   <script src="js/protokoll.js?v=44"></script>
   <script src="js/erinnerung.js?v=10"></script>
-  <script src="js/plan-pdf.js?v=1"></script>
+  <script src="js/plan-pdf.js?v=2"></script>
   <script src="js/plan-parser.js?v=17"></script>
-  <script src="js/wochenplan.js?v=21"></script>
+  <script src="js/order-parser.js?v=2"></script>
+  <script src="js/wochenplan.js?v=22"></script>
   <script src="js/home.js?v=7"></script>
   <script src="js/dashboard.js?v=41"></script>
   <script src="js/produkte.js?v=18"></script>

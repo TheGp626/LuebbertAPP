@@ -263,3 +263,20 @@ button.dash-shift-main:focus-visible { outline: 2px solid var(--accent); outline
 .dash-insight-note { font-size: 13px; color: var(--text2); line-height: 1.5; padding: 8px 2px; }
 .dash-insight-note b { color: var(--text); font-weight: 600; }
 .dash-container { width: 100%; box-sizing: border-box; } /* fixed width: opening a panel with long text must not widen the page */
+
+/* ── Wochenplan: Aufträge aus Auftragsbestätigungen ── */
+.wp-ord { margin-bottom: 12px; }
+.wp-ord .wp-sub { margin-top: 2px; }
+.wp-ord-room { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 14px; }
+.wp-ord-times { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 10px 0 0; font-size: 14px; }
+.wp-ord-times dt { color: var(--text2); }
+.wp-ord-times dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.wp-ord-notes { margin-top: 10px; font-size: 13px; }
+.wp-ord-notes summary { cursor: pointer; color: var(--text2); }
+.wp-ord-notes div { margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; }
+.wp-ord-foot { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-top: 12px; }
+.ui-field.wp-ord-num { margin: 0; }
+.ui-field.wp-ord-num > span { font-size: 12px; }
+.ui-field.wp-ord-num input { width: 84px; text-align: center; }
+.wp-ord-foot .ui-btn { margin-left: auto; min-height: 44px; }
+.wp-ord-failed .wp-card-title { color: var(--text2); }
