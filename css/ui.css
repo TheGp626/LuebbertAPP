@@ -233,3 +233,4 @@ input[type=checkbox].ui-switch:checked::before { transform: translateX(18px); }
 .wp-av-grid th[scope="row"] { position: sticky; left: 0; z-index: 1; background: var(--bg); text-align: left; font-weight: 500; padding-left: 12px; white-space: nowrap; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
 .wp-av-grid tr:last-child > * { border-bottom: 0; }
 .wp-av-grid td.wp-av-notfall, .wp-av-grid td.wp-av-nein { font-weight: 700; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

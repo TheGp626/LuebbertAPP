@@ -198,7 +198,7 @@ test('wpAvailMode: own calendar for unlocked people, grid for planners', () => {
 
 test('wpToggleAvail: verfügbar → upsert notfall; nein → delete; past day → no request', async () => {
   const sb = availClient(); ctx.supabaseClient = sb; ctx.currentUser = { id: 'me' }; ctx.showToast = () => {};
-  ctx.localDateStr = () => '2026-11-06';
+  stubToday('2026-11-06');
   await ctx.wpToggleAvail('2026-11-10');
   assert.equal(sb.calls[0].op, 'upsert');
   assert.deepEqual(plain(sb.calls[0].row).level, 'notfall');
@@ -213,7 +213,7 @@ test('wpToggleAvail: verfügbar → upsert notfall; nein → delete; past day �
 });
 
 test('wpToggleAvail: save error reverts the day and shows a toast', async () => {
-  ctx.supabaseClient = availClient({ fail: true }); ctx.currentUser = { id: 'me' }; ctx.localDateStr = () => '2026-11-06';
+  ctx.supabaseClient = availClient({ fail: true }); ctx.currentUser = { id: 'me' }; stubToday('2026-11-06');
   let toast = null; ctx.showToast = (m, t) => { toast = t; };
   await ctx.wpToggleAvail('2026-11-10');
   assert.equal(vm.runInContext('wpAvailRows["2026-11-10"] || ""', ctx), '');
@@ -222,7 +222,7 @@ test('wpToggleAvail: save error reverts the day and shows a toast', async () => 
 
 test('wpToggleAvail: rapid taps reach the server in tap order, last state wins', async () => {
   const sb = availClient({ manual: true }); ctx.supabaseClient = sb; ctx.currentUser = { id: 'me' }; ctx.showToast = () => {};
-  ctx.localDateStr = () => '2026-11-06';
+  stubToday('2026-11-06');
   const a = ctx.wpToggleAvail('2026-11-10'), b = ctx.wpToggleAvail('2026-11-10');
   await new Promise(r => setImmediate(r));
   assert.equal(sb.calls.length, 1); // second write waits for the first
@@ -234,3 +234,26 @@ test('wpToggleAvail: rapid taps reach the server in tap order, last state wins',
   assert.deepEqual(sb.calls.map(c => c.row.level), ['notfall', 'nein']);
   assert.equal(vm.runInContext('wpAvailRows["2026-11-10"]', ctx), 'nein');
 });
+
+test('wpRenderAvail: planner without own unlock gets the grid, no calendar; week nav stays within now…+8 weeks', async () => {
+  const el = { innerHTML: '' }, planner = { innerHTML: '' };
+  ctx.document.getElementById = id => (id === 'wp-content' ? el : id === 'wp-av-planner' ? planner : null);
+  ctx.userRole = 'PL'; ctx.currentUserAvailability = false; ctx.currentUserSeesInterest = true;
+  stubToday('2026-11-06');
+  const q = { select() { return q; }, gte() { return q; }, lte() { return Promise.resolve({ data: [{ user_id: 'k', day: '2026-11-04', level: 'nein' }], error: null }); } };
+  ctx.supabaseClient = { from: () => q, rpc: () => Promise.resolve({ data: [{ id: 'k', full_name: 'Kacper' }], error: null }) };
+  await ctx.wpRenderAvail();
+  await new Promise(r => setImmediate(r));
+  assert.doesNotMatch(el.innerHTML, /wp-av-cal/);
+  assert.match(planner.innerHTML, /wp-av-grid/);
+  assert.match(planner.innerHTML, /Kacper/);
+  assert.match(planner.innerHTML, /geht nicht/);
+  assert.equal(ctx.wpAvailGridBounds().min, '2026-11-02');
+  assert.equal(ctx.wpAvailGridBounds().max, '2026-12-21'); // + 7 weeks = 8th week shown
+});
+
+// "today" fixed; localDateStr(date) keeps formatting real dates (wpAddDays uses it)
+function stubToday(iso) {
+  const real = ctx.localDateStr;
+  ctx.localDateStr = d => (d ? real(d) : iso);
+}
