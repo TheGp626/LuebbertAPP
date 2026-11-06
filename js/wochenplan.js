@@ -549,18 +549,13 @@ function wpStepWeek(dir) {
   if (n) { wpWeekId = n.id; wpRenderWeek(); }
 }
 
-// "Meine Schichten": accepted Aufträge not already on one of my plan shifts, then the ones I can still say "Ich kann" to
+// "Meine Schichten": accepted Aufträge that are not already one of my plan shifts (open ones are in "Ganze Woche")
 function wpMineOrdersHtml(slots, myShifts) {
-  var me = wpMe(), role = typeof userRole !== 'undefined' ? userRole : null, today = localDateStr();
   var att = ordAttachSlots(slots, myShifts), onMine = {};
   Object.keys(att.bySid).forEach(function(id) { att.bySid[id].forEach(function(sl) { onMine[sl.job_no + sl.phase] = true; }); });
   var accepted = slots.filter(function(sl) { return sl.my_status === 'angenommen' && !onMine[sl.job_no + sl.phase]; });
-  var open = slots.filter(function(sl) {
-    return !onMine[sl.job_no + sl.phase] && (sl.my_status === 'offen' || ordCanApply(sl, me, today, role, null));
-  });
-  var card = function(sl) { return wpOrderCard(sl, { showDate: true }); };
-  return (accepted.length ? '<div class="ui-label">Angenommen über Auftrag</div>' + accepted.map(card).join('') : '') +
-    (open.length ? '<div class="ui-label">Offene Aufträge</div>' + open.map(card).join('') : '');
+  return accepted.length ? '<div class="ui-label">Angenommen über Auftrag</div>' +
+    accepted.map(function(sl) { return wpOrderCard(sl, { showDate: true }); }).join('') : '';
 }
 
 async function wpRenderMine() {
@@ -797,23 +792,31 @@ var WP_PHASE = { setup: 'Aufbau', teardown: 'Abbau' };
 
 function wpSlotTime(t) { return t && t.length > 10 ? t.slice(11, 16) : ''; }
 
-// Auftrag info and the "Ich kann" button for one phase; planShift = Daniel's linked entry or null
+// Auftrag info and the "Ich kann" button for one phase; planShift = Daniel's linked entry or null.
+// A full phase offers no "Ich kann"; an own open application can still be withdrawn.
 function wpOrderBlock(slot, planShift) {
   var me = wpMe(), role = typeof userRole !== 'undefined' ? userRole : null;
-  var free = Math.max(0, slot.needed - ordTakenCount(slot, planShift));
+  var free = slot.needed - ordTakenCount(slot, planShift);
   var mats = slot.materials || [], count = mats.reduce(function(n, g) { return n + (g.items || []).length; }, 0);
   var args = "'" + jsAttrArg(slot.job_no) + "', '" + slot.phase + "'";
-  var action = slot.my_status === 'angenommen' ? '<span class="ui-pill ui-pill-ok">Angenommen ✓</span>'
-    : slot.my_status === 'abgelehnt' ? '<span class="ui-pill">Abgelehnt</span>'
-    : slot.my_status === 'offen' ? '<span class="ui-pill ui-pill-info">Beworben</span> <button type="button" class="btn wp-prot-btn" onclick="event.stopPropagation(); wpOrderApply(' + args + ', false)">Zurückziehen</button>'
-    : ordCanApply(slot, me, localDateStr(), role, planShift) ? '<button type="button" class="btn primary wp-prot-btn" onclick="event.stopPropagation(); wpOrderApply(' + args + ', true)">Ich kann</button>' : '';
+  var status = slot.my_status === 'angenommen' ? '<span class="ord-pill ord-pill-ok">Angenommen ✓</span>'
+    : slot.my_status === 'offen' ? '<span class="ord-pill ord-pill-new">Gemeldet</span>'
+    : slot.my_status === 'abgelehnt' ? '<span class="ord-pill ord-pill-muted">Abgelehnt</span>'
+    : free > 0 ? '<span class="ord-pill ord-pill-warn">' + (free === 1 ? '1 Platz frei' : free + ' Plätze frei') + '</span>'
+    : '<span class="ord-pill ord-pill-ok">voll</span>';
+  var action = slot.my_status === 'offen'
+    ? '<button type="button" class="ord-textbtn" onclick="event.stopPropagation(); wpOrderApply(' + args + ', false)">Zurückziehen</button>'
+    : free > 0 && ordCanApply(slot, me, localDateStr(), role, planShift)
+      ? '<button type="button" class="wp-ord-apply" onclick="event.stopPropagation(); wpOrderApply(' + args + ', true)">Ich kann</button>' : '';
+  var chips = (count ? '<details class="ord-chip-d"><summary class="ord-chip">Material <b>' + count + '</b></summary><div class="ord-chip-body">' +
+      mats.map(function(g) {
+        return '<div class="ord-group">' + wpEsc(g.group) + '</div><ul class="ord-items">' + (g.items || []).map(function(it) {
+          return '<li><b>' + wpEsc(it.qty) + '×</b> ' + wpEsc(it.name) + '</li>'; }).join('') + '</ul>';
+      }).join('') + '</div></details>' : '') +
+    (slot.notes ? '<details class="ord-chip-d"><summary class="ord-chip">Hinweise</summary><div class="ord-chip-body">' + wpEsc(slot.notes).replace(/\n/g, '<br>') + '</div></details>' : '');
   return '<div class="wp-ord-block" onclick="event.stopPropagation()">' +
-    '<div class="wp-ord-line"><b>Auftrag ' + wpEsc(slot.job_no) + '</b> · ' + WP_PHASE[slot.phase] + ' · ' + slot.needed + ' MA · ' + free + ' offen</div>' +
-    (count ? '<details class="wp-ord-more"><summary>Material (' + count + ')</summary>' + mats.map(function(g) {
-      return '<div class="wp-ord-group">' + wpEsc(g.group) + '</div><ul>' + (g.items || []).map(function(it) {
-        return '<li><b>' + wpEsc(it.qty) + '×</b> ' + wpEsc(it.name) + '</li>'; }).join('') + '</ul>';
-    }).join('') + '</details>' : '') +
-    (slot.notes ? '<details class="wp-ord-more"><summary>Hinweise</summary><div>' + wpEsc(slot.notes).replace(/\n/g, '<br>') + '</div></details>' : '') +
+    '<div class="wp-ord-head"><span class="wp-ord-tag">Auftrag</span><span class="wp-ord-meta">' + WP_PHASE[slot.phase] + ' · ' + slot.needed + ' MA</span>' + status + '</div>' +
+    (chips ? '<div class="ord-chips wp-ord-chips">' + chips + '</div>' : '') +
     (action ? '<div class="wp-ord-action">' + action + '</div>' : '') +
   '</div>';
 }

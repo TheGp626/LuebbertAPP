@@ -279,7 +279,7 @@ test('wpOrderBlock: open = needed − taken, „Ich kann“ only when applying i
   stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
   const ps = { id: 'p1', date: '2026-11-09', plan_assignments: [{ user_id: 'u1' }] };
   let html = ctx.wpOrderBlock(oslot(), ps);
-  assert.match(html, /4 MA · 2 offen/);
+  assert.match(html, /2 Plätze frei/);
   assert.match(html, /Ich kann/);
   assert.match(html, /Barelement &lt;weiß&gt;/);
   html = ctx.wpOrderBlock(oslot(), { id: 'p1', date: '2026-11-09', plan_assignments: [{ user_id: 'me' }] });
@@ -340,4 +340,26 @@ test('wpOrderBlock: material quantity is escaped (order_parsed is free jsonb)', 
   stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
   const html = ctx.wpOrderBlock(oslot({ materials: [{ group: 'G', items: [{ qty: '<img src=x onerror=alert(1)>', name: 'n' }] }] }), null);
   assert.doesNotMatch(html, /<img/);
+});
+
+test('wpOrderBlock: a full Auftrag shows „voll“ and no „Ich kann“; an own application can still be withdrawn', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  const ps = { id: 'p1', date: '2026-11-09', plan_assignments: [{ user_id: 'u1' }, { user_id: 'u2' }, { user_id: 'u3' }] };
+  let html = ctx.wpOrderBlock(oslot({ needed: 3, accepted: 0, accepted_ids: [] }), ps);
+  assert.match(html, /voll/);
+  assert.doesNotMatch(html, /Ich kann/);
+  html = ctx.wpOrderBlock(oslot({ needed: 3, accepted: 0, accepted_ids: [], my_status: 'offen' }), ps);
+  assert.match(html, /Zurückziehen/);
+  html = ctx.wpOrderBlock(oslot({ needed: 4, accepted: 0, accepted_ids: [] }), ps);
+  assert.match(html, /1 Platz frei/);
+  assert.match(html, /Ich kann/);
+});
+
+test('wpMineOrdersHtml: only accepted Aufträge, no „Offene Aufträge“ list', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  const html = ctx.wpMineOrdersHtml([oslot(), oslot({ job_no: '26-0447.01', my_status: 'angenommen' }), oslot({ job_no: '26-0500.01', my_status: 'offen' })], []);
+  assert.match(html, /Angenommen über Auftrag/);
+  assert.equal((html.match(/wp-ord-row/g) || []).length, 1); // only the accepted one
+  assert.match(html, /Angenommen ✓/);
+  assert.doesNotMatch(html, /Offene Aufträge|Gemeldet|Ich kann/);
 });
