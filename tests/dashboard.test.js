@@ -618,3 +618,28 @@ test('saveEditWorker sends availability_enabled from the "Verfügbarkeit eintrag
   await ctx.saveEditWorker();
   assert.equal(payload.availability_enabled, true);
 });
+
+test('dashShiftsInMonth: billing month by protocol date, else shift_date (cut-off 20)', () => {
+  const s = [
+    { id: 'a', shift_date: '2026-11-05' },                         // Nov period (20.10.–19.11.)
+    { id: 'b', shift_date: '2026-11-20' },                         // Dec period
+    { id: 'c', shift_date: '2026-10-01', protocols: { date: '2026-11-10' } }, // protocol date wins → Nov
+    { id: 'd' },                                                   // no date → never
+  ];
+  const nov = ctx.getBillingKeyForDate(new Date('2026-11-05T12:00:00'), 20).key;
+  assert.deepEqual(plain(ctx.dashShiftsInMonth(s, nov, 20)).map(x => x.id), ['a', 'c']);
+});
+
+test('markAllShiftsBooked: books only the open shifts of the picked month', async () => {
+  const sb = mkSb(q => ({ data: [{ id: 'x' }], error: null }));
+  ctx.supabaseClient = sb; ctx.confirm = () => true; ctx.showToast = () => {};
+  const nov = ctx.getBillingKeyForDate(new Date('2026-11-05T12:00:00'), 20).key;
+  ctx.document.getElementById = id => (id === 'dash-month-filter' ? { value: nov, selectedIndex: -1, options: [] } : null);
+  run("renderWorkerShifts = function() {}; dashboardCurrentShifts = [" +
+    "{ id: 's1', user_id: 'u1', status: 'offen', shift_date: '2026-11-05' }," +
+    "{ id: 's2', user_id: 'u1', status: 'eingetragen', shift_date: '2026-11-06' }," +
+    "{ id: 's3', user_id: 'u1', status: 'offen', shift_date: '2026-12-01' }]");
+  await run("markAllShiftsBooked('u1')");
+  assert.equal(sb.calls.length, 1);
+  assert.deepEqual(plain(sb.calls[0].filters.find(f => f[0] === 'id')), ['id', ['s1']]);
+});
