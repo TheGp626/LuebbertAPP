@@ -393,3 +393,44 @@ test('ordCanDecide: Admin or the switch', () => {
   ctx.userRole = 'Admin'; ctx.currentUserSeesInterest = false;
   assert.equal(ctx.ordCanDecide(), true);
 });
+
+test('ordInboxHtml: open rows with name, hint, ✓ / ✕ wired to the right decide call', () => {
+  inboxCtx({ names: { u2: 'Ben <b>', u3: 'Cem' }, avail: { 'u3|2026-11-09': 'notfall' } });
+  const html = ctx.ordInboxHtml(ctx.ordInbox([boa()], '2026-11-06'));
+  assert.match(html, /ord-inbox/);
+  assert.match(html, />Meldungen · 2 offen</);
+  assert.match(html, /ordDecideShift\('w', 'k1', 'u3', 'angenommen'\)/);
+  assert.match(html, /ordDecide\('26-0447\.01', 'setup', 'u2', 'abgelehnt'\)/);
+  assert.match(html, /nur im Notfall/);
+  assert.match(html, /Ben &lt;b&gt;/);
+  assert.match(html, /1 MA fehlt/);         // Daniel's open slot
+  assert.match(html, /0 von 2 besetzt/);    // the Auftrag phase
+  assert.ok(html.indexOf('Tempodrom') < html.indexOf('Business of Apps'), 'sorted by day');
+});
+
+test('ordInboxHtml: accepted section with „Zurücknehmen“', () => {
+  inboxCtx({ apps: [], interest: [{ week_id: 'w', shift_key: 'k1', user_id: 'u3', status: 'angenommen' }] });
+  const html = ctx.ordInboxHtml(ctx.ordInbox([], '2026-11-06'));
+  assert.match(html, /Angenommen, noch nicht in Daniels Plan/);
+  assert.match(html, /Zurücknehmen/);
+  assert.match(html, /ordDecideShift\('w', 'k1', 'u3', 'offen'\)/);
+  assert.match(html, /Keine offenen Meldungen\./);
+});
+
+test('ordInboxHtml: empty → „Keine offenen Meldungen.“', () => {
+  inboxCtx({ apps: [], interest: [] });
+  const html = ctx.ordInboxHtml(ctx.ordInbox([], '2026-11-06'));
+  assert.match(html, /Keine offenen Meldungen\./);
+  assert.doesNotMatch(html, /Angenommen, noch nicht/);
+});
+
+test('ordInboxHtml: nothing for non-deciders', () => {
+  inboxCtx();
+  ctx.userRole = 'PL'; ctx.currentUserSeesInterest = false;
+  assert.doesNotMatch(ctx.ordListHtml({ jobs: [boa()], failed: [] }), /ord-inbox/);
+  ctx.currentUserSeesInterest = true;
+  const html = ctx.ordListHtml({ jobs: [boa()], failed: [] });
+  assert.match(html, /ord-inbox/);
+  assert.match(html, /2 neue Meldungen/); // both tables counted
+  ctx.currentUserSeesInterest = false;
+});
