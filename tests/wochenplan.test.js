@@ -1,5 +1,5 @@
 // Run from the repo root: node --test tests/wochenplan.test.js
-// Loads utils.js, ui.js, plan-parser.js and wochenplan.js into one sandbox (as in index.html); only pure helpers are tested.
+// Loads utils.js, ui.js, plan-parser.js, order-parser.js and wochenplan.js into one sandbox (as in index.html); only pure helpers are tested.
 const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('vm');
@@ -16,7 +16,7 @@ beforeEach(() => {
     setTimeout: () => 0,
   });
   ctx.window = ctx;
-  for (const f of ['utils.js', 'ui.js', 'plan-parser.js', 'wochenplan.js']) {
+  for (const f of ['utils.js', 'ui.js', 'plan-parser.js', 'order-parser.js', 'wochenplan.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../js', f), 'utf8'), ctx, { filename: f });
   }
 });
@@ -268,4 +268,68 @@ test('wpToggleAvail: two failed taps fall back to the last saved value, not an u
   sb.pending.shift()();
   await Promise.all([a, b]);
   assert.equal(vm.runInContext('wpAvailRows["2026-11-10"] || ""', ctx), '');
+});
+
+// ── Aufträge ──
+const ordJob = (no, setup, teardown, room) => ({ jobNo: no, name: 'Job ' + no, room: room || '', setup: setup && { start: setup, end: null },
+  event: null, teardown: teardown && { start: teardown, end: null }, lead: '', notes: '' });
+
+test('wpOrderJobs: newer file wins per jobNo', () => {
+  stubToday('2026-11-06');
+  const files = [{ id: 'a', name: 'AB alt.pdf', created_at: '2026-10-01T10:00:00Z', project_folders: { name: 'GdP' } },
+    { id: 'b', name: 'AB neu.pdf', created_at: '2026-11-01T10:00:00Z', project_folders: { name: 'GdP' } }];
+  const parsed = { a: { project: '26-0394', jobs: [ordJob('26-0394.01', '2026-11-10T08:00', '2026-11-12T08:00', 'alt')] },
+    b: { project: '26-0394', jobs: [ordJob('26-0394.01', '2026-11-10T08:00', '2026-11-12T08:00', 'neu')] } };
+  const r = plain(ctx.wpOrderJobs(files, parsed));
+  assert.equal(r.length, 1);
+  assert.equal(r[0].job.room, 'neu');
+  assert.equal(r[0].file.id, 'b');
+  assert.equal(r[0].folderName, 'GdP');
+});
+
+test('wpOrderJobs: past jobs hidden, sorted by setup start, unparsed files skipped', () => {
+  stubToday('2026-11-06');
+  const files = [{ id: 'a', name: 'a.pdf', created_at: '2026-10-01' }, { id: 'b', name: 'b.pdf', created_at: '2026-10-02' }, { id: 'c', name: 'c.pdf', created_at: '2026-10-03' }];
+  const parsed = {
+    a: { jobs: [ordJob('26-0001.01', '2026-11-20T08:00', '2026-11-21T08:00'), ordJob('26-0001.02', '2026-11-01T08:00', '2026-11-05T22:00')] },
+    b: { jobs: [ordJob('26-0002.01', '2026-11-09T08:00', '2026-11-06T08:00')] },
+    c: null,
+  };
+  assert.deepEqual(plain(ctx.wpOrderJobs(files, parsed)).map(x => x.job.jobNo), ['26-0002.01', '26-0001.01']);
+});
+
+function staffClient(fail) {
+  const calls = [];
+  return { calls, from: () => { const b = { upsert(row, o) { calls.push({ row, o }); return b; },
+    select: () => Promise.resolve(fail ? { data: null, error: { message: 'x' } } : { data: [{ job_no: 'j' }], error: null }) }; return b; } };
+}
+const staffInput = (value) => ({ value, dataset: { job: '26-0447.01', field: 'staff_setup' } });
+
+test('wpOrderSaveStaff: saves, error restores saved value and toasts', async () => {
+  let toast = null; ctx.showToast = (m, t) => { toast = t; };
+  vm.runInContext('_wpOrderSaved = { "26-0447.01": { staff_setup: 3, staff_teardown: null } }', ctx);
+  let sb = staffClient(false); ctx.supabaseClient = sb;
+  await ctx.wpOrderSaveStaff(staffInput('5'));
+  assert.equal(sb.calls[0].row.job_no, '26-0447.01');
+  assert.equal(sb.calls[0].row.staff_setup, 5);
+  assert.equal(sb.calls[0].row.staff_teardown, undefined); // the other number is left alone
+  assert.equal(sb.calls[0].o.onConflict, 'job_no');
+  assert.equal(vm.runInContext('_wpOrderSaved["26-0447.01"].staff_setup', ctx), 5);
+  sb = staffClient(true); ctx.supabaseClient = sb;
+  const inp = staffInput('7');
+  await ctx.wpOrderSaveStaff(inp);
+  assert.equal(inp.value, '5');
+  assert.equal(toast, 'danger');
+});
+
+test('wpOrderSaveStaff: empty input saves null, 100 rejected without request', async () => {
+  ctx.showToast = () => {};
+  vm.runInContext('_wpOrderSaved = { "26-0447.01": { staff_setup: 2 } }', ctx);
+  const sb = staffClient(false); ctx.supabaseClient = sb;
+  await ctx.wpOrderSaveStaff(staffInput(''));
+  assert.equal(sb.calls[0].row.staff_setup, null);
+  const inp = staffInput('100');
+  await ctx.wpOrderSaveStaff(inp);
+  assert.equal(sb.calls.length, 1);
+  assert.equal(inp.value, '');
 });
