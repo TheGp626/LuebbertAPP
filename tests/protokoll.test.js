@@ -488,6 +488,34 @@ test('saveProtokoll: incomplete rows → asks first; "Abbrechen" sends nothing',
   assert.equal(sb.calls.length, 0);
 });
 
+test('protLongerThanAl: names ending after the AL row, over midnight; no AL row → nobody', () => {
+  const rows = [
+    { userId: 'al', name: 'Ali', start: '18:00', end: '23:00' },
+    { name: 'Bert', start: '18:00', end: '22:30' },
+    { name: 'Cem', start: '18:00', end: '00:30' },
+    { isTemp: true, tempName: 'Zoe', start: '19:00', end: '23:15' },
+    { name: 'Dora', start: '18:00', end: '' },
+  ];
+  assert.deepEqual(plain(run('protLongerThanAl')(rows, 'al')), ['Cem', 'Zoe']);
+  assert.deepEqual(plain(run('protLongerThanAl')(rows, 'other')), []);
+  assert.deepEqual(plain(run('protLongerThanAl')(rows, null)), []);
+});
+
+test('saveProtokoll: MA longer than AL → no reason sends nothing; reason lands in Vorkommnisse', async () => {
+  dom['prot-total-cost'] = { textContent: '0,00' };
+  dom['prot-incidents'] = { value: 'nein' };
+  ctx.prompt = () => '';
+  run('protState.alId = "al"; protState.personnel = [{ pos: "AL", userId: "al", name: "Ali", start: "08:00", end: "12:00", pause: "0" }, { pos: "MA", name: "Bert", start: "08:00", end: "14:00", pause: "0" }]');
+  await run('saveProtokoll()');
+  assert.equal(sb.calls.length, 0);
+  let asked = 0;
+  ctx.prompt = () => { asked++; return 'Abbau dauerte länger'; };
+  await run('saveProtokoll()').catch(() => {});
+  assert.equal(dom['prot-incidents'].value, 'Länger als AL (Bert): Abbau dauerte länger');
+  await run('saveProtokoll()').catch(() => {});
+  assert.equal(asked, 1); // already explained → resend does not ask again
+});
+
 test('loading another protocol or resetting the form closes all rows (no stale open state)', () => {
   store['luebbert_protokoll_history'] = JSON.stringify([{ id: 'h1', event: 'Gala', personnel: [{ pos: 'MA', name: 'Max', start: '08:00', end: '16:00' }], transports: [] }]);
   ctx.confirm = () => true;

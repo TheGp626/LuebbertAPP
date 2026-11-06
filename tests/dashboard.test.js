@@ -583,3 +583,13 @@ test('dashShiftToRow/dashShiftRowToDb: an old "AL fest" row keeps its marker unl
   ctx.updateDashPeShift(0, 'pos', 'MA');
   assert.equal(ctx.dashShiftRowToDb(ctx._editProtShifts[0], ctx.appUsers).position_role, 'MA Minijob');
 });
+
+test('dashShiftNightMins / dashIsNightShift: 22–6 Uhr, over midnight, night shift only above 2 h', () => {
+  const sh = (a, b) => ({ start_time: a + ':00', end_time: b + ':00' });
+  assert.equal(ctx.dashShiftNightMins(sh('08:00', '16:00')), 0);
+  assert.equal(ctx.dashShiftNightMins(sh('18:00', '02:00')), 240);
+  assert.equal(ctx.dashShiftNightMins(sh('04:00', '12:00')), 120);
+  assert.equal(ctx.dashShiftNightMins({ start_time: null, end_time: '02:00:00' }), 0);
+  assert.equal(ctx.dashIsNightShift(sh('18:00', '00:00')), false); // exactly 2 h
+  assert.equal(ctx.dashIsNightShift(sh('18:00', '00:30')), true);
+});

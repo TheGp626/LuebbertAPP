@@ -141,6 +141,18 @@ function dashShiftNetMins(s) {
   return net > 0 ? net : 0;
 }
 
+// Minutes of a shift between 22:00 and 6:00 (gross, pause not subtracted), over midnight
+function dashShiftNightMins(s) {
+  var st = timeToMins(s.start_time ? s.start_time.substring(0, 5) : null), en = timeToMins(s.end_time ? s.end_time.substring(0, 5) : null);
+  if (st === null || en === null || isNaN(st) || isNaN(en)) return 0;
+  if (en <= st) en += 1440;
+  var n = 0;
+  for (var m = st; m < en; m++) { var d = m % 1440; if (d >= 1320 || d < 360) n++; }
+  return n;
+}
+// Night shift = more than 2 h between 22 and 6 (Nachtarbeit as in §2 ArbZG)
+function dashIsNightShift(s) { return dashShiftNightMins(s) > 120; }
+
 function dashWorkerHeadHtml(w) {
   if (!w) return '';
   var rates = [w.hourly_rate_conni ? 'Lohn ' + parseFloat(w.hourly_rate_conni).toFixed(2).replace('.', ',') + ' €/h' : '',
@@ -739,7 +751,7 @@ async function renderWorkerShifts() {
       html += `<tr>
         <td data-label="Datum / Projekt"><div class="dash-num"><b>${escapeHtml(dateLabel)}</b></div><div class="ui-sub">${escapeHtml(projLabel)}</div></td>
         <td data-label="Rolle">${escapeHtml(s.position_role || '—')}</td>
-        <td data-label="Zeiten" class="dash-num">${escapeHtml(timeStr)}</td>
+        <td data-label="Zeiten" class="dash-num">${escapeHtml(timeStr)}${dashIsNightShift(s) ? ' <span class="ui-pill ui-pill-info" title="Mehr als 2 h zwischen 22 und 6 Uhr">Nacht</span>' : ''}</td>
         <td data-label="Netto" class="dash-num"><b>${escapeHtml(netStr)}</b></td>
         <td data-label="Verbucht">${checkboxHtml}</td>
         ${canEdit ? `<td data-label="" class="dash-actions"><button type="button" class="ui-icon-btn" onclick="openShiftEdit('${escapeHtml(s.id)}')" aria-label="Schicht bearbeiten">${uiIcon('edit')}</button></td>` : ''}
@@ -761,14 +773,19 @@ async function renderWorkerShifts() {
     const eur = n => n.toFixed(2).replace('.', ',') + ' €';
     const cutoff = (typeof billingCutoff !== 'undefined') ? billingCutoff : 20;
     const periodKey = getBillingKeyForDate(new Date(), cutoff);
-    let periodMins = 0;
+    let periodMins = 0, periodNights = 0, totalNights = 0, totalNightMins = 0;
     dashboardCurrentShifts.forEach(s => {
       const d = s.protocols?.date || s.shift_date || (s.created_at || '').slice(0, 10);
-      if (d && getBillingKeyForDate(new Date(d + 'T12:00:00'), cutoff).key === periodKey.key) periodMins += dashShiftNetMins(s);
+      const inPeriod = d && getBillingKeyForDate(new Date(d + 'T12:00:00'), cutoff).key === periodKey.key;
+      if (inPeriod) periodMins += dashShiftNetMins(s);
+      if (dashIsNightShift(s)) { totalNights++; if (inPeriod) periodNights++; }
+      totalNightMins += dashShiftNightMins(s);
     });
     const share = incomeLimitShare(rateConni ? periodMins / 60 * rateConni : null, worker && worker.income_limit ? parseFloat(worker.income_limit) : null);
     let statsHtml = '<div class="ui-stats">' +
       `<div class="ui-stat"><span>Netto-Stunden gesamt</span><b>${totalNetStr}</b></div>` +
+      `<div class="ui-stat" title="Schichten mit mehr als 2 h zwischen 22 und 6 Uhr"><span>Nachtschichten · ${escapeHtml(periodKey.label)}</span>` +
+        `<b>${periodNights}</b><div class="ui-sub">gesamt ${totalNights} · ${(totalNightMins / 60).toFixed(1).replace('.', ',')} h nachts</div></div>` +
       (rateConni ? `<div class="ui-stat cost-only"><span>Lohn (${rateConni.toFixed(2).replace('.', ',')} €/h)</span><b>${totalNetHrs > 0 ? eur(totalNetHrs * rateConni) : '—'}</b></div>` : '') +
       (rateInternal ? `<div class="ui-stat cost-only"><span>Intern (${rateInternal.toFixed(2).replace('.', ',')} €/h)</span><b>${totalNetHrs > 0 ? eur(totalNetHrs * rateInternal) : '—'}</b></div>` : '') +
       (share ? `<div class="ui-stat cost-only"><span>Grenze ${eur(parseFloat(worker.income_limit))} · ${escapeHtml(periodKey.label)}</span>` +
