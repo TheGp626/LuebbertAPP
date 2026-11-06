@@ -1,4 +1,4 @@
-const CACHE = 'stundenzettel-v156';
+const CACHE = 'stundenzettel-v157';
 
 // Offline start needs every script/stylesheet of index.html (own files + CDN libs): the install step reads
 // index.html and caches whatever it references, so this list never has to be kept in sync by hand.
