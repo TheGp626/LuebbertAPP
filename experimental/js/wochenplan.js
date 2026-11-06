@@ -173,6 +173,7 @@ function wpCanApply(s, me, today, who) {
 }
 
 function wpInterestButton(s) {
+  if (s._orders && s._orders.length) return '';
   var me = wpMe();
   if (!wpCanApply(s, me, localDateStr(), wpWho())) return '';
   var on = s._interest.indexOf(me) !== -1;
@@ -413,6 +414,7 @@ function wpRow(s, opts) {
       (opts.showDate ? '<div class="wp-sub">' + wpDayLabel(s.date) + (sub ? ' · ' + wpEsc(sub) : '') + '</div>' : (sub ? '<div class="wp-sub">' + wpEsc(sub) + '</div>' : '')) +
       wpTeamLine(s) + wpInterestList(s) +
       wpDetails(s) +
+      (s._orders || []).map(function(o) { return wpOrderBlock(o, s); }).join('') +
       wpProtButton(s) + wpInterestButton(s) +
     '</div>' +
   '</div>';
@@ -547,6 +549,20 @@ function wpStepWeek(dir) {
   if (n) { wpWeekId = n.id; wpRenderWeek(); }
 }
 
+// "Meine Schichten": accepted Aufträge not already on one of my plan shifts, then the ones I can still say "Ich kann" to
+function wpMineOrdersHtml(slots, myShifts) {
+  var me = wpMe(), role = typeof userRole !== 'undefined' ? userRole : null, today = localDateStr();
+  var att = ordAttachSlots(slots, myShifts), onMine = {};
+  Object.keys(att.bySid).forEach(function(id) { att.bySid[id].forEach(function(sl) { onMine[sl.job_no + sl.phase] = true; }); });
+  var accepted = slots.filter(function(sl) { return sl.my_status === 'angenommen' && !onMine[sl.job_no + sl.phase]; });
+  var open = slots.filter(function(sl) {
+    return !onMine[sl.job_no + sl.phase] && (sl.my_status === 'offen' || ordCanApply(sl, me, today, role, null));
+  });
+  var card = function(sl) { return wpOrderCard(sl, { showDate: true }); };
+  return (accepted.length ? '<div class="ui-label">Angenommen über Auftrag</div>' + accepted.map(card).join('') : '') +
+    (open.length ? '<div class="ui-label">Offene Aufträge</div>' + open.map(card).join('') : '');
+}
+
 async function wpRenderMine() {
   var content = document.getElementById('wp-content');
   if (!wpMe()) return;
@@ -554,10 +570,14 @@ async function wpRenderMine() {
   // From yesterday on: a night shift (Abbau 0.30 Uhr) of the day before is still running after midnight (planShiftOrder filters)
   var yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
   var from = localDateStr(yesterday);
-  var { data, error } = await supabaseClient.from('plan_assignments')
-    .select('shift:plan_shifts!inner(*, plan_assignments(*), plan_weeks(kw))')
-    .eq('user_id', wpMe())
-    .gte('shift.date', from);
+  var [mineRes, slots] = await Promise.all([
+    supabaseClient.from('plan_assignments')
+      .select('shift:plan_shifts!inner(*, plan_assignments(*), plan_weeks(kw))')
+      .eq('user_id', wpMe())
+      .gte('shift.date', from),
+    wpLoadSlots()
+  ]);
+  var data = mineRes.data, error = mineRes.error;
   // The user switched tab/week or another render started meanwhile → drop this result
   if (seq !== _wpRenderSeq || wpView !== 'mine') return;
   if (error) { console.error('Meine Schichten:', error); content.innerHTML = '<div class="wp-empty">Deine Schichten konnten nicht geladen werden.</div>'; return; }
@@ -565,15 +585,18 @@ async function wpRenderMine() {
   var shifts = planShiftOrder((data || []).map(function(r) { return r.shift; })
     .filter(function(s) { if (!s || seen[s.id]) return false; seen[s.id] = true; return true; }), new Date(), true);
   shifts.forEach(function(s) { _wpShiftCache[s.id] = s; });
+  _wpSlots = slots;
+  var orderHtml = wpMineOrdersHtml(slots || [], shifts);
   if (!shifts.length) {
     content.innerHTML = '<div class="wp-empty"><div class="wp-empty-title">Keine anstehenden Schichten</div>' +
       'Sobald du im Wochenplan eingeteilt bist, steht dein nächster Einsatz hier.' +
-      (wpWeeks.length ? '<br><button type="button" class="btn wp-empty-btn" onclick="wpSetView(\'all\')">Ganze Woche ansehen</button>' : '') + '</div>';
+      (wpWeeks.length ? '<br><button type="button" class="btn wp-empty-btn" onclick="wpSetView(\'all\')">Ganze Woche ansehen</button>' : '') + '</div>' + orderHtml;
     return;
   }
   _wpMineShifts = shifts;
   content.innerHTML = wpHero(shifts[0]) +
     (shifts.length > 1 ? '<div class="ui-label">Danach</div>' + shifts.slice(1).map(function(s) { return wpRow(s, { showDate: true }); }).join('') : '') +
+    orderHtml +
     '<button type="button" class="ui-btn wp-cal-btn" onclick="wpCalendarSheet()">' + uiIcon('calendar') + ' In Kalender übernehmen</button>' +
     '<div class="ui-sub wp-cal-hint" id="wp-cal-hint">Nach Planänderungen erneut tippen – vorhandene Einträge werden aktualisiert.</div>';
   // With a subscription link the calendar updates itself → say so (hint stays as is without a token)
@@ -706,9 +729,10 @@ async function wpRenderWeek() {
   label.innerHTML = 'KW ' + week.kw + ' <span>' + s0.d + '.' + (s0.m !== s1.m ? s0.m + '.' : '') + '–' + s1.d + '.' + s1.m + '.' +
     (week.version > 1 ? ' · Stand ' + week.version : '') + '</span>';
   content.innerHTML = '<div class="wp-empty">Lädt…</div>';
-  var [res, iq] = await Promise.all([
+  var [res, iq, slots] = await Promise.all([
     supabaseClient.from('plan_shifts').select('*, plan_assignments(*)').eq('week_id', week.id).order('date').order('sort'),
-    supabaseClient.from('plan_shift_interest').select('shift_key, user_id').eq('week_id', week.id)
+    supabaseClient.from('plan_shift_interest').select('shift_key, user_id').eq('week_id', week.id),
+    wpLoadSlots()
   ]);
   var data = res.data, error = res.error;
   if (seq !== _wpRenderSeq || wpView !== 'all' || wpWeekId !== week.id) return;
@@ -718,10 +742,17 @@ async function wpRenderWeek() {
     s._interest = iq.error ? null : (iq.data || []).filter(function(r) { return r.shift_key === s.key; }).map(function(r) { return r.user_id; });
   });
   (data || []).forEach(function(s) { _wpShiftCache[s.id] = s; });
+  _wpSlots = slots;
+  var att = ordAttachSlots(slots || [], data || []), orderByDay = {};
+  (data || []).forEach(function(s) { s._orders = att.bySid[s.id] || []; });
+  att.unlinked.forEach(function(sl) {
+    var d = ordSlotDate(sl);
+    if (d >= week.week_start && d <= week.week_end) (orderByDay[d] = orderByDay[d] || []).push(sl);
+  });
   var byDay = {};
   (data || []).forEach(function(s) { (byDay[s.date] = byDay[s.date] || []).push(s); });
   wpRenderDays(week, byDay);
-  var html = '';
+  var html = slots === null ? '<div class="ui-sub wp-ord-fail">Aufträge konnten nicht geladen werden.</div>' : '';
   // Entries with kind 'unassigned' only drive the push ("nicht mehr eingeteilt"); that shift still exists
   var gone = (week.removed || []).filter(function(r) { return r.kind !== 'unassigned'; });
   if (gone.length) {
@@ -729,11 +760,11 @@ async function wpRenderWeek() {
       gone.map(function(r) { return '<div>' + wpDayLabel(r.date) + ' · ' + wpEsc(r.venue) + (planShiftHeading(r) ? ' – ' + wpEsc(planShiftHeading(r)) : '') + '</div>'; }).join('') + '</div>';
   }
   html += wpInterestOverview(data || []);
-  Object.keys(byDay).sort().forEach(function(d) {
-    var p = wpParts(d);
+  Object.keys(Object.assign({}, byDay, orderByDay)).sort().forEach(function(d) {
+    var p = wpParts(d), list = byDay[d] || [], orders = orderByDay[d] || [], n = list.length + orders.length;
     html += '<div class="wp-dayhead" id="wp-day-' + d + '">' + WP_WEEKDAYS_LONG[p.dow] + ' <span>' + ('0' + p.d).slice(-2) + '.' + ('0' + p.m).slice(-2) + '. · ' +
-      byDay[d].length + (byDay[d].length === 1 ? ' Einsatz' : ' Einsätze') + '</span></div>' +
-      byDay[d].map(function(s) { return wpRow(s); }).join('');
+      n + (n === 1 ? ' Einsatz' : ' Einsätze') + '</span></div>' +
+      list.map(function(s) { return wpRow(s); }).join('') + orders.map(function(sl) { return wpOrderCard(sl); }).join('');
   });
   content.innerHTML = html || '<div class="wp-empty">Keine Einsätze in dieser Woche.</div>';
 }
@@ -746,6 +777,77 @@ function wpStartProtokoll(shiftId) {
     event: planEventName(parsed), date: s.date, action: planGuessAction(parsed.wann),
     alId: wpMe(), location: [s.venue].concat(parsed.location.slice(0, 1)).filter(Boolean).join(', '), shift: parsed
   });
+}
+
+// ── Aufträge (order_slots): "Ich kann" on phases from the Auftragsbestätigungen; PL accepts in auftraege.js ──
+var _wpSlots = null; // last order_slots() result; null = not loaded / failed
+
+async function wpLoadSlots() {
+  try {
+    var r = await supabaseClient.rpc('order_slots');
+    if (r.error) throw r.error;
+    return r.data || [];
+  } catch (err) {
+    console.error('Aufträge laden:', err); // the plan still shows, just without the Auftrag blocks
+    return null;
+  }
+}
+
+var WP_PHASE = { setup: 'Aufbau', teardown: 'Abbau' };
+
+function wpSlotTime(t) { return t && t.length > 10 ? t.slice(11, 16) : ''; }
+
+// Auftrag info and the "Ich kann" button for one phase; planShift = Daniel's linked entry or null
+function wpOrderBlock(slot, planShift) {
+  var me = wpMe(), role = typeof userRole !== 'undefined' ? userRole : null;
+  var free = Math.max(0, slot.needed - ordTakenCount(slot, planShift));
+  var mats = slot.materials || [], count = mats.reduce(function(n, g) { return n + (g.items || []).length; }, 0);
+  var args = "'" + jsAttrArg(slot.job_no) + "', '" + slot.phase + "'";
+  var action = slot.my_status === 'angenommen' ? '<span class="ui-pill ui-pill-ok">Angenommen ✓</span>'
+    : slot.my_status === 'abgelehnt' ? '<span class="ui-pill">Abgelehnt</span>'
+    : slot.my_status === 'offen' ? '<span class="ui-pill ui-pill-info">Beworben</span> <button type="button" class="btn wp-prot-btn" onclick="event.stopPropagation(); wpOrderApply(' + args + ', false)">Zurückziehen</button>'
+    : ordCanApply(slot, me, localDateStr(), role, planShift) ? '<button type="button" class="btn primary wp-prot-btn" onclick="event.stopPropagation(); wpOrderApply(' + args + ', true)">Ich kann</button>' : '';
+  return '<div class="wp-ord-block" onclick="event.stopPropagation()">' +
+    '<div class="wp-ord-line"><b>Auftrag ' + wpEsc(slot.job_no) + '</b> · ' + WP_PHASE[slot.phase] + ' · ' + slot.needed + ' MA · ' + free + ' offen</div>' +
+    (count ? '<details class="wp-ord-more"><summary>Material (' + count + ')</summary>' + mats.map(function(g) {
+      return '<div class="wp-ord-group">' + wpEsc(g.group) + '</div><ul>' + (g.items || []).map(function(it) {
+        return '<li><b>' + wpEsc(it.qty) + '×</b> ' + wpEsc(it.name) + '</li>'; }).join('') + '</ul>';
+    }).join('') + '</details>' : '') +
+    (slot.notes ? '<details class="wp-ord-more"><summary>Hinweise</summary><div>' + wpEsc(slot.notes).replace(/\n/g, '<br>') + '</div></details>' : '') +
+    (action ? '<div class="wp-ord-action">' + action + '</div>' : '') +
+  '</div>';
+}
+
+// Phase without an entry in Daniel's plan: its own row
+function wpOrderCard(slot, opts) {
+  var venue = ordSlotVenue(slot.title);
+  return '<div class="ui-row wp-ord-row">' +
+    '<div class="wp-time"><b>' + wpEsc(wpSlotTime(slot.start_at) || '—') + '</b><span>' + WP_PHASE[slot.phase] + '</span></div>' +
+    '<div class="wp-main">' +
+      '<div class="wp-head"><div class="wp-venue">' + wpEsc(venue ? venue.charAt(0).toUpperCase() + venue.slice(1) : '—') + '</div>' +
+        '<div class="wp-badges"><span class="ui-pill ui-pill-warn">Auftrag</span></div></div>' +
+      '<div class="wp-sub">' + (opts && opts.showDate ? wpDayLabel(ordSlotDate(slot)) + ' · ' : '') +
+        wpEsc([slot.name, slot.room].filter(Boolean).join(' · ')) + '</div>' +
+      wpOrderBlock(slot, null) +
+    '</div></div>';
+}
+
+async function wpOrderApply(jobNo, phase, on) {
+  var me = wpMe(), slot = (_wpSlots || []).find(function(x) { return x.job_no === jobNo && x.phase === phase; });
+  if (!me || !slot) return;
+  try {
+    var q = supabaseClient.from('order_applications');
+    var r = on ? await q.insert({ job_no: jobNo, phase: phase, user_id: me }).select('job_no')
+      : await q.delete().eq('job_no', jobNo).eq('phase', phase).eq('user_id', me).eq('status', 'offen').select('job_no');
+    if (r.error || !r.data || !r.data.length) throw r.error || new Error(on ? 'nicht gespeichert' : 'schon entschieden');
+    slot.my_status = on ? 'offen' : null;
+    showToast(on ? 'Gemeldet. Die PL meldet sich, wenn du eingeteilt bist.' : 'Zurückgezogen.', 'success');
+  } catch (err) {
+    console.error('Auftrag melden:', err);
+    showToast(on ? 'Nicht gespeichert. Prüf deine Verbindung.' : 'Nicht zurückgezogen – vielleicht hat die PL schon entschieden.', 'danger');
+    return;
+  }
+  if (wpView === 'all') wpRenderWeek(); else if (wpView === 'mine') wpRenderMine();
 }
 
 // ── IMPORT ──

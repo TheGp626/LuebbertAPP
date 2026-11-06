@@ -1,0 +1,82 @@
+/* Aufträge ↔ Daniel's weekly plan: pure helpers, no DOM (used by wochenplan.js and auftraege.js).
+ * A slot is one phase (setup = Aufbau, teardown = Abbau) of a sub-order, as returned by the RPC order_slots().
+ * Daniel's PDF has no order number, so a slot is matched by date, venue, shared words and phase. */
+
+var ORD_STOP = ['und', 'der', 'die', 'das', 'den', 'dem', 'fur', 'mit', 'von', 'the', 'of', 'im', 'am', 'an', 'in', 'zu', 'bei',
+  'aufbau', 'abbau', 'berlin', 'gmbh', 'uhr', 'nach', 'ab', 'bis'];
+
+// Lower case, accents off (ö → o, both sides alike), words of 2+ characters, no pure numbers, no stop words
+function ordWords(text) {
+  return String(text || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .split(/[^a-z0-9ß]+/).filter(function(w) { return w.length >= 2 && !/^\d+$/.test(w) && ORD_STOP.indexOf(w) === -1; });
+}
+
+// '261112_Estrel_Business of Apps' → 'estrel'
+function ordSlotVenue(title) {
+  return ordWords(String(title || '').split('_')[1] || '')[0] || '';
+}
+
+// First line of Daniel's "wann" names the phase; an empty "wann" fits both
+function ordPhaseFits(phase, wann) {
+  var first = String(wann || '').trim().split('\n')[0];
+  if (!first) return true;
+  return phase === 'setup' ? /^(aufbau|anlieferung|umbau|schnellumbau)/i.test(first) : /^(abbau|abholung)/i.test(first);
+}
+
+function ordSlotDate(slot) { return String(slot.start_at || '').slice(0, 10); }
+
+// Best entry of Daniel's plan for a slot, or null (equal best scores → null: a separate card beats a wrong link)
+function ordMatchSlot(slot, planShifts) {
+  var venue = ordSlotVenue(slot.title), date = ordSlotDate(slot);
+  if (!venue) return null;
+  var words = ordWords(String(slot.title || '').split('_').slice(2).join(' ') + ' ' + (slot.name || ''))
+    .filter(function(w) { return w !== venue; });
+  var best = null, bestScore = 0, tie = false;
+  (planShifts || []).forEach(function(p) {
+    if (p.date !== date || ordWords(p.venue).indexOf(venue) === -1 || !ordPhaseFits(slot.phase, p.wann)) return;
+    var theirs = ordWords((p.location || '') + ' ' + (p.title || ''));
+    var score = words.filter(function(w, i) { return words.indexOf(w) === i && theirs.indexOf(w) !== -1; }).length;
+    if (score > bestScore) { best = p; bestScore = score; tie = false; } else if (score && score === bestScore) tie = true;
+  });
+  return bestScore && !tie ? best : null;
+}
+
+// Slots on Daniel's entries (by plan shift id) and the rest; a manual link (order_plan_links) beats the automatic match
+function ordAttachSlots(slots, planShifts) {
+  var bySid = {}, unlinked = [];
+  (slots || []).forEach(function(s) {
+    var p = null;
+    if (s.link_set) {
+      if (s.link_date) p = (planShifts || []).find(function(x) { return x.date === s.link_date && x.key === s.link_key; }) || null;
+      // Daniel's re-import renumbers equal keys (k, k#2): a link that now points at the other phase is dropped
+      if (p && !ordPhaseFits(s.phase, p.wann)) p = null;
+    } else p = ordMatchSlot(s, planShifts);
+    if (p) (bySid[p.id] = bySid[p.id] || []).push(s); else unlinked.push(s);
+  });
+  return { bySid: bySid, unlinked: unlinked };
+}
+
+function ordAssignedIds(planShift) {
+  return ((planShift && planShift.plan_assignments) || []).map(function(a) { return a.user_id; }).filter(Boolean);
+}
+
+// PL view: user ids on the slot = Daniel's assignment ∪ accepted applications
+function ordTaken(slot, planShift, applications) {
+  var ids = ordAssignedIds(planShift);
+  (applications || []).forEach(function(a) {
+    if (a.job_no === slot.job_no && a.phase === slot.phase && a.status === 'angenommen' && ids.indexOf(a.user_id) === -1) ids.push(a.user_id);
+  });
+  return ids;
+}
+
+// MA view: Daniel's people ∪ accepted ids from order_slots() (the PL copies accepted names into Daniel's plan)
+function ordTakenCount(slot, planShift) {
+  var ids = ordAssignedIds(planShift);
+  if (!Array.isArray(slot.accepted_ids)) return ids.length + (slot.accepted || 0);
+  slot.accepted_ids.forEach(function(id) { if (ids.indexOf(id) === -1) ids.push(id); });
+  return ids.length;
+}
+
+function ordCanApply(slot, me, today, role, planShift) {
+  return !!(me && role && role !== 'Gast' && ordSlotDate(slot) >= today && !slot.my_status && ordAssignedIds(planShift).indexOf(me) === -1);
+}

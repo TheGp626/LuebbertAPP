@@ -7,6 +7,10 @@ var ORD_DOW = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 var _ordSaved = {};   // job_no → { staff_setup, staff_teardown } as last confirmed by the server
 var _ordFiles = [];
 var _ordSeq = 0;      // bumped per render; a slower earlier render must not overwrite a newer one
+var _ordView = null;  // { jobs, failed } of the last load, re-rendered after a decision
+// Applications, manual links, Daniel's entries of the slot days, availability and names (each may stay empty on a load error)
+var _ordCtx = { apps: [], links: {}, plan: [], avail: {}, names: {} };
+var ORD_PHASE = { setup: 'Aufbau', teardown: 'Abbau' };
 
 function ordEsc(s) { return escapeHtml(s == null ? '' : String(s)); }
 
@@ -101,12 +105,139 @@ function ordCardHtml(x) {
     (count ? '<details class="ord-more"><summary>Material (' + count + ' Position' + (count === 1 ? '' : 'en') + ')</summary>' +
       mats.map(function(g) {
         return '<div class="ord-group">' + ordEsc(g.group) + '</div><ul class="ord-items">' +
-          g.items.map(function(it) { return '<li><b>' + it.qty + '×</b> ' + ordEsc(it.name) + '</li>'; }).join('') + '</ul>';
+          g.items.map(function(it) { return '<li><b>' + ordEsc(it.qty) + '×</b> ' + ordEsc(it.name) + '</li>'; }).join('') + '</ul>';
       }).join('') + '</details>' : '') +
     (j.notes ? '<details class="ord-more"><summary>Hinweise</summary><div>' + ordEsc(j.notes).replace(/\n/g, '<br>') + '</div></details>' : '') +
     '<div class="ord-foot">' + num('staff_setup', 'MA Aufbau') + num('staff_teardown', 'MA Abbau') +
     '<button type="button" class="ui-btn dash-small-btn" onclick="ordOpenPdf(\'' + jsAttrArg(x.file.id) + '\')">PDF öffnen</button></div>' +
+    ordSlotHtml(x, 'setup') + ordSlotHtml(x, 'teardown') +
     '</div>';
+}
+
+function ordName(id) { return _ordCtx.names[id] || 'Unbekannt'; }
+
+// The slot of a card phase in the shape order-slots.js expects (as order_slots() returns it)
+function ordCardSlot(x, phase) {
+  var link = _ordCtx.links[x.job.jobNo + '|' + phase];
+  return { job_no: x.job.jobNo, phase: phase, title: x.title, name: x.job.name, start_at: (x.job[phase] || {}).start || '',
+    link_set: !!link, link_date: link ? link.plan_date : null, link_key: link ? link.plan_key : null };
+}
+
+// One phase with an MA number: link to Daniel's plan, who is on it, applicants with hints, accept / reject
+function ordSlotHtml(x, phase) {
+  var needed = (_ordSaved[x.job.jobNo] || {})['staff_' + phase];
+  if (!x.job[phase]) return '';
+  var apps = _ordCtx.apps.filter(function(a) { return a.job_no === x.job.jobNo && a.phase === phase; });
+  if (!needed && !apps.length) return ''; // number taken back to 0: applications stay visible
+  var slot = ordCardSlot(x, phase), date = ordSlotDate(slot);
+  var att = ordAttachSlots([slot], _ordCtx.plan), ps = null;
+  Object.keys(att.bySid).forEach(function(id) { ps = _ordCtx.plan.find(function(p) { return p.id === id; }); });
+  var taken = ordTaken(slot, ps, _ordCtx.apps), daniel = ordAssignedIds(ps);
+  var extra = apps.filter(function(a) { return a.status === 'angenommen' && daniel.indexOf(a.user_id) === -1; });
+  var dayOptions = _ordCtx.plan.filter(function(p) { return p.date === date; }).map(function(p) {
+    var v = p.date + '|' + p.key;
+    return '<option value="' + ordEsc(v) + '"' + (ps && ps.key === p.key ? ' selected' : '') + '>' + ordEsc((p.venue || '') + ' · ' + (p.title || '')) + '</option>';
+  }).join('');
+  var hint = function(uid) {
+    var h = [], lvl = _ordCtx.avail[uid + '|' + date];
+    if (lvl === 'nein') h.push('<span class="ui-pill ui-pill-danger">geht nicht</span>');
+    else if (lvl === 'notfall') h.push('<span class="ui-pill ui-pill-warn">nur im Notfall</span>');
+    var busy = _ordCtx.plan.some(function(p) { return p.date === date && p !== ps && ordAssignedIds(p).indexOf(uid) !== -1; });
+    if (busy) h.push('<span class="ui-pill ui-pill-warn">schon eingeplant</span>');
+    return h.join(' ');
+  };
+  var btn = function(a, status, label, primary) {
+    return '<button type="button" class="ui-btn dash-small-btn' + (primary ? ' ui-btn-primary' : '') + '" onclick="ordDecide(\'' + jsAttrArg(slot.job_no) + '\', \'' + phase +
+      '\', \'' + jsAttrArg(a.user_id) + '\', \'' + status + '\')">' + label + '</button>';
+  };
+  var full = needed && taken.length >= needed;
+  var pill = !needed ? '<span class="ui-pill">nicht mehr ausgeschrieben</span>'
+    : '<span class="ui-pill ' + (full ? 'ui-pill-ok' : 'ui-pill-warn') + '">' + taken.length + ' / ' + needed + ' besetzt' + (taken.length > needed ? ' · zu viele' : full ? ' · voll' : '') + '</span>';
+  return '<div class="ord-slot">' +
+    '<div class="ord-slot-head"><b>' + ORD_PHASE[phase] + '</b> · ' + ordEsc(ordRange(x.job[phase])) + ' ' + pill + '</div>' +
+    '<div class="ord-slot-link">' + (ps ? 'Daniels Plan: ' + ordEsc(ordDay(ps.date) + ' · ' + (ps.title || ps.venue || '')) : 'Nicht in Daniels Plan') +
+      '<label class="ord-slot-pick"><span class="sr-only">Verknüpfung ändern</span><select data-job="' + ordEsc(slot.job_no) + '" data-phase="' + phase + '" onchange="ordSetLink(this)">' +
+        '<option value="">Ändern …</option><option value="auto">Automatisch</option><option value="none">Nicht verknüpfen</option>' + dayOptions + '</select></label></div>' +
+    (daniel.length ? '<div class="ord-slot-sub">Eingeteilt: ' + daniel.map(function(id) { return ordEsc(ordName(id)); }).join(', ') + '</div>' : '') +
+    (apps.length ? '<ul class="ord-apps">' + apps.map(function(a) {
+      var st = a.status === 'angenommen' ? '<span class="ui-pill ui-pill-ok">angenommen</span>' : a.status === 'abgelehnt' ? '<span class="ui-pill">abgelehnt</span>' : '';
+      var acts = a.status === 'offen' ? btn(a, 'angenommen', 'Annehmen', true) + btn(a, 'abgelehnt', 'Ablehnen')
+        : a.status === 'angenommen' ? btn(a, 'offen', 'Zurücknehmen') : btn(a, 'angenommen', 'Annehmen');
+      return '<li><span class="ord-app-name">' + ordEsc(ordName(a.user_id)) + ' ' + st + ' ' + hint(a.user_id) + '</span><span class="ord-app-acts">' + acts + '</span></li>';
+    }).join('') + '</ul>' : '<div class="ord-slot-sub">Noch keine Meldungen.</div>') +
+    (extra.length ? '<div class="ord-slot-sub">Angenommen über Auftrag: ' + extra.map(function(a) { return ordEsc(ordName(a.user_id)); }).join(', ') +
+      ' <span class="ui-sub">(in Daniels Plan übertragen)</span></div>' : '') +
+  '</div>';
+}
+
+async function ordDecide(jobNo, phase, userId, status) {
+  var a = _ordCtx.apps.find(function(x) { return x.job_no === jobNo && x.phase === phase && x.user_id === userId; });
+  if (!a) return;
+  try {
+    var r = await supabaseClient.from('order_applications').update({ status: status })
+      .eq('job_no', jobNo).eq('phase', phase).eq('user_id', userId).select('job_no');
+    if (r.error || !r.data || !r.data.length) throw r.error || new Error('nicht gespeichert');
+    a.status = status;
+  } catch (err) {
+    console.error('Bewerbung entscheiden:', err);
+    showToast('Nicht gespeichert. Prüf deine Verbindung.', 'danger');
+    return;
+  }
+  ordRenderList();
+}
+
+// <select>: 'auto' = automatic match again, 'none' = not in Daniel's plan, 'date|key' = that entry
+async function ordSetLink(sel) {
+  var job = sel.dataset.job, phase = sel.dataset.phase, v = sel.value, k = job + '|' + phase;
+  if (!v) return;
+  try {
+    var q = supabaseClient.from('order_plan_links'), r, link = null;
+    if (v === 'auto') r = await q.delete().eq('job_no', job).eq('phase', phase).select('job_no');
+    else {
+      var parts = v === 'none' ? [null, null] : v.split('|');
+      link = { plan_date: parts[0], plan_key: parts[0] ? parts.slice(1).join('|') : null };
+      r = await q.upsert({ job_no: job, phase: phase, plan_date: link.plan_date, plan_key: link.plan_key }, { onConflict: 'job_no,phase' }).select('job_no');
+    }
+    if (r.error) throw r.error;
+    if (link) _ordCtx.links[k] = link; else delete _ordCtx.links[k];
+  } catch (err) {
+    console.error('Verknüpfung speichern:', err);
+    showToast('Verknüpfung nicht gespeichert.', 'danger');
+  }
+  ordRenderList();
+}
+
+function ordRenderList() {
+  var content = document.getElementById('ord-content');
+  if (!content || !_ordView) return;
+  var jobs = _ordView.jobs, failed = _ordView.failed;
+  content.innerHTML =
+    (jobs.length ? jobs.map(ordCardHtml).join('') : '<div class="wp-empty">Keine kommenden Aufträge in den Projektordnern.</div>') +
+    failed.map(function(f) {
+      return '<div class="ui-card ord ord-failed"><div class="ord-title">Nicht erkannt</div><div class="ord-sub">' + ordEsc(f.name) + '</div>' +
+        '<div class="ord-foot"><button type="button" class="ui-btn dash-small-btn" onclick="ordOpenPdf(\'' + jsAttrArg(f.id) + '\')">PDF öffnen</button></div></div>';
+    }).join('');
+}
+
+// Context for the phase blocks; a failing part only leaves its hints out
+async function ordLoadCtx(jobs) {
+  var days = {};
+  jobs.forEach(function(x) { ['setup', 'teardown'].forEach(function(ph) { if (x.job[ph]) days[x.job[ph].start.slice(0, 10)] = true; }); });
+  days = Object.keys(days);
+  var res = await Promise.all([
+    supabaseClient.from('order_applications').select('job_no, phase, user_id, status'),
+    supabaseClient.from('order_plan_links').select('job_no, phase, plan_date, plan_key'),
+    days.length ? supabaseClient.from('plan_shifts').select('id, date, key, venue, location, title, wann, plan_assignments(user_id, name)').in('date', days) : { data: [] },
+    days.length ? supabaseClient.from('availability').select('user_id, day, level').in('day', days) : { data: [] },
+    supabaseClient.from('app_users').select('id, full_name')
+  ]);
+  res.forEach(function(r) { if (r.error) console.warn('Aufträge: Zusatzdaten fehlen:', r.error); });
+  var ok = function(r) { return r.error ? [] : (r.data || []); };
+  var c = { apps: ok(res[0]), links: {}, plan: ok(res[2]), avail: {}, names: {} };
+  ok(res[1]).forEach(function(l) { c.links[l.job_no + '|' + l.phase] = { plan_date: l.plan_date, plan_key: l.plan_key }; });
+  ok(res[3]).forEach(function(a) { c.avail[a.user_id + '|' + a.day] = a.level; });
+  ok(res[4]).forEach(function(u) { c.names[u.id] = u.full_name; });
+  return c;
 }
 
 async function initAuftraege() {
@@ -133,12 +264,11 @@ async function initAuftraege() {
   }, function() { return seq !== _ordSeq; });
   if (!out || seq !== _ordSeq) return;
   var jobs = ordJobs(_ordFiles, out.parsed);
-  content.innerHTML =
-    (jobs.length ? jobs.map(ordCardHtml).join('') : '<div class="wp-empty">Keine kommenden Aufträge in den Projektordnern.</div>') +
-    out.failed.map(function(f) {
-      return '<div class="ui-card ord ord-failed"><div class="ord-title">Nicht erkannt</div><div class="ord-sub">' + ordEsc(f.name) + '</div>' +
-        '<div class="ord-foot"><button type="button" class="ui-btn dash-small-btn" onclick="ordOpenPdf(\'' + jsAttrArg(f.id) + '\')">PDF öffnen</button></div></div>';
-    }).join('');
+  var c = await ordLoadCtx(jobs);
+  if (seq !== _ordSeq) return;
+  _ordCtx = c;
+  _ordView = { jobs: jobs, failed: out.failed };
+  ordRenderList();
 }
 
 // Number field changed: empty = not set; 0–99 saved, anything else goes back to the saved value
@@ -155,6 +285,7 @@ async function ordSaveStaff(input) {
     var r = await supabaseClient.from('order_staffing').upsert(row, { onConflict: 'job_no' }).select('job_no');
     if (r.error || !r.data || !r.data.length) throw r.error || new Error('nicht gespeichert');
     saved[field] = v;
+    ordRenderList();
   } catch (err) {
     console.error('MA-Bedarf speichern:', err);
     showToast('Nicht gespeichert. Prüf deine Verbindung.', 'danger');
