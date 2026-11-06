@@ -17,6 +17,9 @@ test('moduleAllowedForRole: same guards as selectMode', () => {
   assert.equal(ok('stunden', 'Gast'), false);
   assert.equal(ok('ordner', 'Gast'), true);
   assert.equal(ok('produkte', 'Gast'), true);
+  assert.equal(ok('auftraege', 'Admin'), true);
+  assert.equal(ok('auftraege', 'PL'), true);
+  for (const r of ['MA', 'AL', 'Buchhaltung', 'Gast']) assert.equal(ok('auftraege', r), false, r);
 });
 
 test('parseCachedUsers: offline user list from localStorage, junk → []', () => {

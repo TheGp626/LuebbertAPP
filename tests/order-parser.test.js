@@ -179,3 +179,62 @@ test('orderParse: start without time is kept as a date', () => {
   assert.deepEqual(r.jobs[0].setup, { start: '2026-11-09', end: '2026-11-10T12:00' });
   assert.deepEqual(r.warnings, []);
 });
+
+// Item section as pdf.js rows (real catalog names, prices made up); page header repeats mid-list
+const ITEMS = [
+  'Auftragsbestätigung BER26-0415 / 261112_Test',
+  '26-0415.01 / Speicher',
+  'Aufbau: 09.11.2026 10:00 - 18:00',
+  'Abbau: 13.11.2026 10:00 - 18:00',
+  'Pos. Anzahl Bezeichnung Einzelpreis Faktor Gesamt',
+  'Endabnahme: ???',
+  'Info: Servietten übergeben',
+  'Job',
+  'Bar',
+  'Job.Gruppe',
+  '1 2 Barelement weiß, beleuchtet 0,00 1,00 0,00',
+  'mit weißem Rahmen und hinterleuchteter Plexiglasfront,',
+  'Maße: 2,00 x 0,80 x 1,06 m',
+  'Job.Gruppe.Artikel',
+  '2 2 Bar Skirting, weiß 8,00 1,00 16,00',
+  'Job.Gruppe.Artikel',
+  'Zwischensumme Bar: 16,00',
+  'Job.GruppeFußzeile',
+  'Dinner',
+  'Job.Gruppe',
+  '7 7 Tafel rechteckig 2,35 m 0,00 1,00 0,00',
+  'Job.Gruppe.Artikel Job.Gruppe.Artikel.Referenzartikel',
+  '8 7 Molton für eckige Tafel 2,40x1,00m, weiß 0,00 1,00 0,00',
+  'Job.Gruppe.Artikel',
+  'Test Event',
+  'Pos. Anzahl Bezeichnung Einzelpreis Faktor Gesamt',
+  '12 55 Stuhl "Clara" transparent 1.200,00 1,00 66.000,00',
+  'Maße: B45 x T52 x H87cm I Sitzhöhe: 46cm',
+  'Job.Gruppe.Artikel',
+  'Zwischensumme Dinner: 0,00',
+  'Job.GruppeFußzeile',
+  '26-0415.01 / Speicher ............................ € 0,00',
+  '1 9 Nicht mehr im Job 0,00 1,00 0,00',
+];
+
+test('orderParse: materials per group with quantity, no prices or descriptions, across a page break', () => {
+  const j = plain(ctx.orderParse(ITEMS)).jobs[0];
+  assert.deepEqual(j.materials, [
+    { group: 'Bar', items: [{ qty: 2, name: 'Barelement weiß, beleuchtet' }, { qty: 2, name: 'Bar Skirting, weiß' }] },
+    { group: 'Dinner', items: [{ qty: 7, name: 'Tafel rechteckig 2,35 m' }, { qty: 7, name: 'Molton für eckige Tafel 2,40x1,00m, weiß' },
+      { qty: 55, name: 'Stuhl "Clara" transparent' }] },
+  ]);
+});
+
+test('orderParse: Endabnahme and item-section lines are not notes', () => {
+  const j = plain(ctx.orderParse(ITEMS)).jobs[0];
+  assert.equal(j.notes, 'Info: Servietten übergeben');
+});
+
+test('orderParse: job without item section has empty materials', () => {
+  assert.deepEqual(plain(ctx.orderParse(MULTI)).jobs[1].materials, []);
+});
+
+test('ORDER_PARSER_VERSION: positive integer (bump on every parser change)', () => {
+  assert.ok(Number.isInteger(ctx.ORDER_PARSER_VERSION) && ctx.ORDER_PARSER_VERSION >= 2);
+});

@@ -396,6 +396,7 @@ function handleSession(user) {
     if (typeof handleOrdnerDeepLink === 'function') handleOrdnerDeepLink();
     // Wochenplan restored from before the login needs the user to load "Meine Schichten"
     if (!wpDeepLink && typeof activeModule !== 'undefined' && activeModule === 'wochenplan' && typeof initWochenplan === 'function') initWochenplan();
+    if (typeof activeModule !== 'undefined' && activeModule === 'auftraege' && typeof initAuftraege === 'function') initAuftraege();
     // If Projektordner is already rendered, re-render with correct permissions
     if (typeof activeModule !== 'undefined' && activeModule === 'ordner' &&
         typeof renderOrdner === 'function' && typeof alleOrdner !== 'undefined') {
@@ -434,6 +435,7 @@ var GAST_MODULES = ['produkte', 'ordner'];
 function moduleAllowedForRole(m, role) {
   if (role === 'Gast') return GAST_MODULES.indexOf(m) !== -1;
   if (m === 'protokoll') return role !== 'MA';
+  if (m === 'auftraege') return role === 'Admin' || role === 'PL';
   if (m === 'dashboard') return ['AL', 'PL', 'Buchhaltung', 'Admin'].indexOf(role) !== -1;
   return true;
 }

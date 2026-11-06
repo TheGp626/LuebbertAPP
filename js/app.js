@@ -76,7 +76,7 @@ try {
 
 // ── MODE SELECTION & NAVIGATION ──
 var MODULE_TITLES = { stunden: 'Stundenzettel', protokoll: 'Protokoll', dashboard: 'Office Dashboard',
-  produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan' };
+  produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan', auftraege: 'Aufträge' };
 
 // The office dashboard is opened from two tiles; each shows one view ('prot' | 'work'), Admin settings come via "…"
 var DASH_VIEW_TITLES = { prot: 'Protokoll-Übersicht', work: 'Buchhaltung', settings: 'Einstellungen' };
@@ -103,6 +103,7 @@ function selectMode(m, view) {
   if (loggedIn && !moduleAllowedForRole(m, userRole)) {
     showToast(userRole === 'Gast' ? 'Zugriff verweigert: Gastzugang nur für Produktdatenbank und Projektordner.'
       : m === 'protokoll' ? 'Zugriff verweigert: Nur für AL/PL.'
+      : m === 'auftraege' ? 'Zugriff verweigert: Nur für PL/Admin.'
       : 'Zugriff verweigert: Nur für AL/PL/Buchhaltung.');
     return;
   }
@@ -111,7 +112,7 @@ function selectMode(m, view) {
   if (m === 'dashboard') dashView = view || dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY));
   // The test build at /experimental/ shares localStorage with the live app, which doesn't know
   // the Wochenplan module → never hand it over as the module to restore
-  if (window.IS_TEST_BUILD && m === 'wochenplan') localStorage.removeItem('luebbert_mode');
+  if (window.IS_TEST_BUILD && (m === 'wochenplan' || m === 'auftraege')) localStorage.removeItem('luebbert_mode');
   else localStorage.setItem('luebbert_mode', m);
   
   // Hide startup
@@ -160,6 +161,13 @@ function selectMode(m, view) {
     navigate('wochenplan');
     // The plan needs the logged-in user; a module restored before login is initialised from handleSession
     if (typeof initWochenplan === 'function' && typeof currentUser !== 'undefined' && currentUser) initWochenplan();
+  } else if (m === 'auftraege') {
+    document.getElementById('main-nav').style.display = 'none';
+    var pn5 = document.getElementById('prot-nav');
+    if (pn5) pn5.style.display = 'none';
+    navigate('auftraege');
+    // Needs the session for the queries; a module restored before login is initialised from handleSession
+    if (typeof initAuftraege === 'function' && typeof currentUser !== 'undefined' && currentUser) initAuftraege();
   }
 }
 

@@ -23,7 +23,8 @@ test('homeTiles follow the role rules of auth.js', () => {
   assert.deepEqual(labels('MA'), ['Stundenzettel', 'Wochenplan', 'Produktdatenbank', 'Projektordner']);
   assert.deepEqual(labels('Gast'), ['Produktdatenbank', 'Projektordner']);
   assert.deepEqual(labels('AL'), ['Stundenzettel', 'Protokoll schreiben', 'Wochenplan', 'Produktdatenbank', 'Projektordner'].concat(office));
-  assert.deepEqual(labels('Admin'), labels('AL'));
+  assert.deepEqual(labels('Admin'), ['Stundenzettel', 'Protokoll schreiben', 'Wochenplan', 'Aufträge', 'Produktdatenbank', 'Projektordner'].concat(office));
+  assert.deepEqual(labels('PL'), labels('Admin'));
   assert.deepEqual(labels('Buchhaltung'), labels('AL').filter(l => l !== 'Protokoll schreiben' || allowed('protokoll', 'Buchhaltung')));
 });
 
