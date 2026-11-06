@@ -151,3 +151,11 @@ test('authSessionChanged: a changed employment type or extra roles also re-run t
   assert.equal(changed(cachedOld, u), true, 'profile cached before the update lacks the new fields');
   assert.equal(changed(u, Object.assign({}, u)), false);
 });
+
+test('authSessionChanged: Wochenplan flags (Verfügbarkeit, sees interest) re-run the session', () => {
+  const changed = load('authSessionChanged');
+  const u = { full_name: 'A', role: 'Admin' };
+  assert.equal(changed(u, { ...u, availability_enabled: true }), true);       // old cache had no field yet
+  assert.equal(changed({ ...u, plan_interest_viewer: false }, { ...u, plan_interest_viewer: true }), true);
+  assert.equal(changed({ ...u, availability_enabled: true }, { ...u, availability_enabled: true }), false);
+});

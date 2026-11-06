@@ -291,7 +291,9 @@ function authSessionChanged(shown, fresh) {
   if (!shown || !fresh) return true;
   return ['full_name', 'role', 'default_dept', 'hourly_rate_conni', 'hourly_rate_internal', 'employment_type', 'can_drive']
     .some(function(k) { return String(shown[k] == null ? '' : shown[k]) !== String(fresh[k] == null ? '' : fresh[k]); })
-    || JSON.stringify(shown.role_rates || []) !== JSON.stringify(fresh.role_rates || []);
+    || JSON.stringify(shown.role_rates || []) !== JSON.stringify(fresh.role_rates || [])
+    // Wochenplan switches; a cached profile from before a new column existed counts as false
+    || ['plan_interest_viewer', 'availability_enabled'].some(function(k) { return !!shown[k] !== !!fresh[k]; });
 }
 
 async function initAuth() {
