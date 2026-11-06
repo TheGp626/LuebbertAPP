@@ -16,7 +16,7 @@ begin
   insert into public.plan_weeks (id, year, kw, week_start, week_end) values (v_week, 1999, 1, '1999-01-04', '1999-01-10');
   insert into public.plan_shifts (week_id, date, key, open_slots) values
     (v_week, '1999-01-04', 'k1', '[{"role":"MA","count":1}]'), (v_week, '1999-01-04', 'k2', '[{"role":"MA","count":1}]'),
-    (v_week, '1999-01-04', 'k3', '[{"role":"MA","count":1}]'), (v_week, '1999-01-04', 'k4', '[{"role":"MA","count":1}]');
+    (v_week, '1999-01-04', 'k3', '[{"role":"MA","count":1}]'), (v_week, '1999-01-04', 'k4', '[{"role":"MA","count":1}]'), (v_week, '1999-01-04', 'k5', '[{"role":"MA","count":1}]');
   insert into public.order_staffing (job_no, staff_setup) values ('99-9999.01', 2);
   -- PL's own rows (to prove an unflagged PL sees only own rows)
   insert into public.plan_shift_interest (week_id, shift_key, user_id) values (v_week, 'k3', v_pl);
@@ -59,6 +59,14 @@ begin
   -- rejecting reads the row back (client .select()) → must work for the one who rejects
   with u as (update public.plan_shift_interest set status = 'abgelehnt' where week_id = v_week and shift_key = 'k3' returning user_id) select count(*) into n from u;
   if n <> 1 then raise exception 'check failed: viewer reject with returning gave % rows', n; end if;
+  -- direct accept from „Hätten laut Verfügbarkeit Zeit“: accepted row for someone else, decided_by from the server
+  with i as (insert into public.plan_shift_interest (week_id, shift_key, user_id, status) values (v_week, 'k5', v_ma, 'angenommen') returning decided_by) select decided_by into who from i;
+  if who is distinct from v_viewer then raise exception 'check failed: direct accept decided_by is %', who; end if;
+  insert into public.order_applications (job_no, phase, user_id, status) values ('99-9999.02', 'setup', v_ma, 'angenommen');
+  ok := false;
+  begin insert into public.plan_shift_interest (week_id, shift_key, user_id) values (v_week, 'k5', v_pl);
+  exception when insufficient_privilege then ok := true; end;
+  if not ok then raise exception 'check failed: viewer inserted an open Meldung for someone else'; end if;
   reset role;
 
   -- MA again: own accepted row cannot be deleted, own open row can
@@ -84,6 +92,10 @@ begin
   update public.order_applications set status = 'abgelehnt' where job_no = '99-9999.01';
   get diagnostics n = row_count;
   if n <> 0 then raise exception 'check failed: unflagged PL decided % order rows', n; end if;
+  ok := false;
+  begin insert into public.order_applications (job_no, phase, user_id, status) values ('99-9999.03', 'setup', v_ma, 'angenommen');
+  exception when insufficient_privilege then ok := true; end;
+  if not ok then raise exception 'check failed: unflagged PL accepted for someone else'; end if;
   select count(*) into n from public.order_staffing where job_no = '99-9999.01';
   if n <> 1 then raise exception 'check failed: PL lost order_staffing read'; end if;
   reset role;

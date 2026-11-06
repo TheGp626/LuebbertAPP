@@ -10,7 +10,7 @@ var _ordFiles = [];
 var _ordSeq = 0;      // bumped per render; a slower earlier render must not overwrite a newer one
 var _ordView = null;  // { jobs, failed } of the last load, re-rendered after a decision
 // Applications, manual links, Daniel's entries of the slot days, availability and names (each may stay empty on a load error)
-var _ordCtx = { apps: [], interest: [], accepted: {}, links: {}, plan: [], avail: {}, names: {} };
+var _ordCtx = { apps: [], interest: [], accepted: {}, links: {}, plan: [], avail: {}, names: {}, users: [] };
 var ORD_PHASE = { setup: 'Aufbau', teardown: 'Abbau' };
 
 function ordEsc(s) { return escapeHtml(s == null ? '' : String(s)); }
@@ -316,7 +316,7 @@ function ordListHtml(view) {
   });
   var summary = '<p class="ord-summary">' + view.jobs.length + (view.jobs.length === 1 ? ' kommender Einsatz' : ' kommende Einsätze') +
     (fresh ? ' · ' + fresh + (fresh === 1 ? ' neue Meldung' : ' neue Meldungen') : '') + '</p>';
-  return summary + (box ? ordInboxHtml(box) : '') + (view.jobs.length ? html : '<div class="wp-empty">Keine kommenden Aufträge in den Projektordnern.</div>') +
+  return summary + (box ? ordInboxHtml(box, ordAvailable(view.jobs, localDateStr())) : '') + (view.jobs.length ? html : '<div class="wp-empty">Keine kommenden Aufträge in den Projektordnern.</div>') +
     view.failed.map(function(f) {
       return '<div class="ord-failed"><span>Nicht erkannt: ' + ordEsc(f.name) + '</span>' +
         '<button type="button" class="ord-textbtn" onclick="ordOpenPdf(\'' + jsAttrArg(f.id) + '\')">Ansehen</button></div>';
@@ -337,13 +337,13 @@ async function ordLoadCtx() {
     supabaseClient.from('order_plan_links').select('job_no, phase, plan_date, plan_key'),
     supabaseClient.from('plan_shifts').select('id, week_id, date, key, venue, location, title, wann, open_slots, plan_assignments(user_id, name, role)').gte('date', today),
     supabaseClient.from('availability').select('user_id, day, level').gte('day', today),
-    supabaseClient.from('app_users').select('id, full_name'),
+    supabaseClient.from('app_users').select('id, full_name, role, is_active, availability_enabled, can_drive'),
     supabaseClient.from('plan_shift_interest').select('week_id, shift_key, user_id, status'),
     supabaseClient.rpc('order_slots') // accepted ids for everyone (security definer)
   ]);
   res.forEach(function(r) { if (r.error) console.warn('Aufträge: Zusatzdaten fehlen:', r.error); });
   var ok = function(r) { return r.error ? [] : (r.data || []); };
-  var c = { apps: ok(res[0]), interest: ok(res[5]), accepted: {}, links: {}, plan: ok(res[2]), avail: {}, names: {} };
+  var c = { apps: ok(res[0]), interest: ok(res[5]), accepted: {}, links: {}, plan: ok(res[2]), avail: {}, names: {}, users: ok(res[4]) };
   ok(res[6]).forEach(function(sl) { c.accepted[sl.job_no + '|' + sl.phase] = sl.accepted_ids || []; });
   ok(res[1]).forEach(function(l) { c.links[l.job_no + '|' + l.phase] = { plan_date: l.plan_date, plan_key: l.plan_key }; });
   ok(res[3]).forEach(function(a) { c.avail[a.user_id + '|' + a.day] = a.level; });
@@ -388,7 +388,7 @@ function ordInbox(jobs, today) {
 }
 
 // Inbox above the Auftrag cards (deciders only): open Meldungen with ✓ / ✕, then accepted ones not in Daniel's plan yet
-function ordInboxHtml(box) {
+function ordInboxHtml(box, avail) {
   var call = function(it, status) {
     return it.kind === 'shift'
       ? 'ordDecideShift(\'' + jsAttrArg(it.week_id) + '\', \'' + jsAttrArg(it.shift_key) + '\', \'' + jsAttrArg(it.user_id) + '\', \'' + status + '\')'
@@ -409,7 +409,78 @@ function ordInboxHtml(box) {
       : '<div class="ord-slot-sub">Keine offenen Meldungen.</div>') +
     (box.accepted.length ? '<div class="ord-label">Angenommen, noch nicht in Daniels Plan</div><ul class="ord-reqs">' +
       box.accepted.map(function(it) { return row(it, true); }).join('') + '</ul>' : '') +
+    ((avail || []).length ? '<div class="ord-label">Hätten laut Verfügbarkeit Zeit</div><ul class="ord-reqs">' + avail.map(function(g) {
+      var add = function(p) {
+        return '<li class="ord-person"><span class="ord-avatar">' + ordInitial(p.user_id) + '</span><span class="ord-person-name">' + ordEsc(ordName(p.user_id)) + '</span>' +
+          (p.notfall ? '<span class="ord-pill ord-pill-warn">nur im Notfall</span>' : '') +
+          '<button type="button" class="ord-textbtn" onclick="ordAcceptAvailable(\'' + g.kind + '\', \'' + jsAttrArg(g.kind === 'shift' ? g.week_id : g.job_no) + '\', \'' +
+            jsAttrArg(g.kind === 'shift' ? g.shift_key : g.phaseKey) + '\', \'' + jsAttrArg(p.user_id) + '\')">Annehmen</button></li>';
+      };
+      var what = [ordDay(g.date) + (g.time ? ' ' + g.time : ''), g.title, g.phase, g.full].filter(Boolean).map(ordEsc).join(' · ');
+      var rest = g.people.slice(5);
+      return '<li class="ord-req"><div class="ord-inbox-what">' + what + '</div><ul class="ord-people">' + g.people.slice(0, 5).map(add).join('') + '</ul>' +
+        (rest.length ? '<details class="ord-more"><summary class="ord-textbtn">+' + rest.length + ' weitere</summary><ul class="ord-people">' + rest.map(add).join('') + '</ul></details>' : '') + '</li>';
+    }).join('') + '</ul>' : '') +
   '</section>';
+}
+
+// Same rule as wpSlotFits / public.fits_plan_slot: AL places for AL/PL/Admin, Fahrer places only with „Kann Fahrer“
+function ordFitsSlot(role, u) {
+  if (role === 'AL') return ['AL', 'PL', 'Admin'].indexOf(u.role) !== -1;
+  if (role === 'Fahrer') return !!u.can_drive;
+  return true;
+}
+
+// „Hätten laut Verfügbarkeit Zeit“: per place that is still free (Daniel's open slots, Auftrag phases below their number),
+// unlocked people without „geht nicht“ that day, not on any of Daniel's entries that day, without a Meldung for it.
+// Group: { kind, date, time, title, phase, full, week_id, shift_key | job_no, phaseKey, people: [{ user_id, notfall }] }
+function ordAvailable(jobs, today) {
+  var groups = [], withOrder = {};
+  var busy = function(uid, date) { return _ordCtx.plan.some(function(p) { return p.date === date && ordAssignedIds(p, true).indexOf(uid) !== -1; }); };
+  var people = function(date, fits, applied) {
+    return (_ordCtx.users || []).filter(function(u) {
+      return u.availability_enabled && u.is_active !== false && u.role !== 'Gast' && _ordCtx.avail[u.id + '|' + date] !== 'nein' &&
+        applied.indexOf(u.id) === -1 && !busy(u.id, date) && fits(u);
+    }).map(function(u) { return { user_id: u.id, notfall: _ordCtx.avail[u.id + '|' + date] === 'notfall' }; })
+      .sort(function(a, b) { return (a.notfall - b.notfall) || ordName(a.user_id).localeCompare(ordName(b.user_id)); });
+  };
+  (jobs || []).forEach(function(x) {
+    ['setup', 'teardown'].forEach(function(ph) {
+      if (!x.job[ph]) return;
+      var i = ordPhaseInfo(x, ph), start = x.job[ph].start || '', date = start.slice(0, 10);
+      if (i.ps) withOrder[i.ps.id] = true;
+      if (!i.needed || i.taken.length >= i.needed || date < today) return;
+      var applied = _ordCtx.apps.filter(function(a) { return a.job_no === x.job.jobNo && a.phase === ph; }).map(function(a) { return a.user_id; }).concat(i.taken);
+      var list = people(date, function() { return true; }, applied);
+      if (list.length) groups.push({ kind: 'order', date: date, time: start.slice(11, 16), title: [ordVenueLabel(x.title), x.job.name].filter(Boolean).join(' – '),
+        phase: ORD_PHASE[ph], full: i.taken.length + ' von ' + i.needed + ' besetzt', job_no: x.job.jobNo, phaseKey: ph, people: list });
+    });
+  });
+  _ordCtx.plan.forEach(function(p) {
+    if (withOrder[p.id] || p.date < today || !(p.open_slots || []).length) return;
+    var applied = (_ordCtx.interest || []).filter(function(r) { return r.week_id === p.week_id && r.shift_key === p.key; }).map(function(r) { return r.user_id; });
+    var list = people(p.date, function(u) { return p.open_slots.some(function(o) { return ordFitsSlot(o && o.role, u); }); }, applied);
+    if (list.length) groups.push({ kind: 'shift', date: p.date, time: '', title: [p.venue, p.title].filter(Boolean).join(' – '), phase: String(p.wann || '').split('\n')[0],
+      full: p.open_slots.map(function(o) { return o.count + ' ' + (o.role || 'MA') + (o.count === 1 ? ' fehlt' : ' fehlen'); }).join(', '),
+      week_id: p.week_id, shift_key: p.key, people: list });
+  });
+  return groups.sort(function(a, b) { return a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.title.localeCompare(b.title); });
+}
+
+// Accept someone straight from „Hätten laut Verfügbarkeit Zeit“: an accepted Meldung on their behalf
+async function ordAcceptAvailable(kind, a, b, userId) {
+  var row = kind === 'shift' ? { week_id: a, shift_key: b, user_id: userId, status: 'angenommen' }
+    : { job_no: a, phase: b, user_id: userId, status: 'angenommen' };
+  try {
+    var r = await supabaseClient.from(kind === 'shift' ? 'plan_shift_interest' : 'order_applications').insert(row).select('user_id');
+    if (r.error || !r.data || !r.data.length) throw r.error || new Error('nicht gespeichert');
+  } catch (err) {
+    console.error('Direkt annehmen:', err);
+    showToast('Nicht gespeichert. Prüf deine Verbindung.', 'danger');
+    return;
+  }
+  if (kind === 'shift') _ordCtx.interest.push(row); else _ordCtx.apps.push(row);
+  ordRenderList();
 }
 
 // Decide a Meldung on a shift of Daniel's plan (plan_shift_interest)

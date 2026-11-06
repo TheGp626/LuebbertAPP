@@ -470,3 +470,85 @@ test('fix: ordSetLink treats 0 changed rows as not saved', async () => {
   assert.equal(toast, 'danger');
   assert.equal(vm.runInContext('_ordCtx.links["26-0415.01|setup"].plan_key', ctx), 'k1');
 });
+
+// ── „Hätten laut Verfügbarkeit Zeit“ ──
+const U = (id, extra) => Object.assign({ id, full_name: 'N ' + id, role: 'MA', is_active: true, availability_enabled: true, can_drive: false }, extra || {});
+function availCtx(extra) {
+  inboxCtx(Object.assign({
+    apps: [], interest: [{ week_id: 'w', shift_key: 'k1', user_id: 'u3', status: 'offen' }],
+    users: [U('a1'), U('a2'), U('nf'), U('no'), U('busy'), U('u3'), U('off', { availability_enabled: false }),
+      U('gone', { is_active: false }), U('gast', { role: 'Gast' })],
+    avail: { 'nf|2026-11-09': 'notfall', 'no|2026-11-09': 'nein' },
+    plan: [{ id: 'p1', week_id: 'w', date: '2026-11-09', key: 'k1', venue: 'Tempodrom', title: 'Gala', wann: 'Aufbau: 8 Uhr',
+      open_slots: [{ role: 'MA', count: 1 }], plan_assignments: [] },
+      { id: 'p2', week_id: 'w', date: '2026-11-09', key: 'k2', venue: 'Estrel', title: 'Andere', wann: '', open_slots: [],
+        plan_assignments: [{ user_id: 'busy', name: 'Busy' }] }],
+  }, extra || {}));
+}
+
+test('ordAvailable: free, unlocked people for a Daniel shift with an open slot; „nur im Notfall“ last', () => {
+  availCtx();
+  const groups = ctx.ordAvailable([], '2026-11-06');
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].kind, 'shift');
+  assert.equal(groups[0].shift_key, 'k1');
+  assert.deepEqual(plain(groups[0].people.map(p => p.user_id)), ['a1', 'a2', 'nf']); // not: nein, busy that day, already applied, locked, inactive, Gast
+  assert.equal(groups[0].people[2].notfall, true);
+});
+
+test('ordAvailable: AL slot only for AL/PL/Admin, Fahrer slot only with „Kann Fahrer“', () => {
+  availCtx({ users: [U('a1'), U('al', { role: 'AL' }), U('fa', { can_drive: true })] });
+  vm.runInContext('_ordCtx.plan[0].open_slots = [{ role: "AL", count: 1 }]', ctx);
+  assert.deepEqual(plain(ctx.ordAvailable([], '2026-11-06')[0].people.map(p => p.user_id)), ['al']);
+  vm.runInContext('_ordCtx.plan[0].open_slots = [{ role: "Fahrer", count: 1 }]', ctx);
+  assert.deepEqual(plain(ctx.ordAvailable([], '2026-11-06')[0].people.map(p => p.user_id)), ['fa']);
+});
+
+test('ordAvailable: Auftrag phase with free places is listed, a full one is not; a shift with an Auftrag is not listed twice', () => {
+  availCtx({ users: [U('a1')], interest: [], plan: [] });
+  let groups = ctx.ordAvailable([boa()], '2026-11-06');
+  assert.deepEqual(plain(groups.map(g => [g.kind, g.job_no, g.phaseKey])), [['order', '26-0447.01', 'setup']]);
+  vm.runInContext('_ordCtx.accepted = { "26-0447.01|setup": ["x", "y"] }', ctx); // 2 of 2
+  assert.equal(ctx.ordAvailable([boa()], '2026-11-06').length, 0);
+  availCtx({ users: [U('a1')], interest: [], plan: [{ id: 'p9', week_id: 'w', date: '2026-11-11', key: 'k9', venue: 'Estrel',
+    title: 'Business of Apps', location: '', wann: 'Aufbau: 9 Uhr', open_slots: [{ role: 'MA', count: 1 }], plan_assignments: [] }] });
+  groups = ctx.ordAvailable([boa()], '2026-11-06');
+  assert.deepEqual(plain(groups.map(g => g.kind)), ['order']); // p9 is the Auftrag's entry → only the Auftrag phase
+});
+
+test('ordAvailable: past days are left out', () => {
+  availCtx();
+  assert.equal(ctx.ordAvailable([], '2026-11-10').length, 0);
+});
+
+test('ordAcceptAvailable: inserts an accepted Meldung for the person; error keeps everything and toasts', async () => {
+  availCtx();
+  ctx.ordRenderList = () => {}; let toast = null; ctx.showToast = (m, t) => { toast = t; };
+  const calls = [];
+  const client = (fail) => ({ from: (t) => { const q = { t }; const b = { insert(row) { q.row = row; return b; },
+    select() { calls.push(q); return Promise.resolve(fail ? { data: null, error: { message: 'x' } } : { data: [{ user_id: 'a1' }], error: null }); } }; return b; } });
+  ctx.supabaseClient = client(false);
+  await ctx.ordAcceptAvailable('shift', 'w', 'k1', 'a1');
+  assert.equal(calls[0].t, 'plan_shift_interest');
+  assert.deepEqual(plain(calls[0].row), { week_id: 'w', shift_key: 'k1', user_id: 'a1', status: 'angenommen' });
+  assert.ok(vm.runInContext('_ordCtx.interest.some(r => r.user_id === "a1" && r.status === "angenommen")', ctx));
+  ctx.supabaseClient = client(false);
+  await ctx.ordAcceptAvailable('order', '26-0447.01', 'setup', 'a2');
+  assert.equal(calls[1].t, 'order_applications');
+  assert.deepEqual(plain(calls[1].row), { job_no: '26-0447.01', phase: 'setup', user_id: 'a2', status: 'angenommen' });
+  const before = vm.runInContext('_ordCtx.interest.length', ctx);
+  ctx.supabaseClient = client(true);
+  await ctx.ordAcceptAvailable('shift', 'w', 'k1', 'a2');
+  assert.equal(vm.runInContext('_ordCtx.interest.length', ctx), before);
+  assert.equal(toast, 'danger');
+});
+
+test('ordInboxHtml: „Hätten laut Verfügbarkeit Zeit“ with „Annehmen“, the rest behind „+N weitere“', () => {
+  availCtx({ users: ['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7'].map(id => U(id)).concat([U('x<y', { full_name: 'X <b>' })]), names: { 'x<y': 'X <b>' } });
+  const html = ctx.ordInboxHtml({ open: [], accepted: [] }, ctx.ordAvailable([], '2026-11-06'));
+  assert.match(html, /Hätten laut Verfügbarkeit Zeit/);
+  assert.match(html, /ordAcceptAvailable\('shift', 'w', 'k1', 'b1'\)/);
+  assert.match(html, /\+3 weitere/);
+  assert.match(html, /X &lt;b&gt;/);
+  assert.doesNotMatch(ctx.ordInboxHtml({ open: [], accepted: [] }, []), /Hätten laut Verfügbarkeit/);
+});

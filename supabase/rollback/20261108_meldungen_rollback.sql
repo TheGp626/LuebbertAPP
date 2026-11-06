@@ -15,6 +15,9 @@ drop policy rls_order_applications_update on public.order_applications;
 create policy rls_order_applications_update on public.order_applications for update to authenticated
   using ((select public.app_role()) in ('Admin', 'PL'))
   with check ((select public.app_role()) in ('Admin', 'PL'));
+drop policy rls_order_applications_insert on public.order_applications;
+create policy rls_order_applications_insert on public.order_applications for insert to authenticated
+  with check (user_id = (select auth.uid()) and (select public.app_role()) <> 'Gast' and status = 'offen');
 drop policy rls_order_applications_select on public.order_applications;
 create policy rls_order_applications_select on public.order_applications for select to authenticated
   using (user_id = (select auth.uid()) or (select public.app_role()) in ('Admin', 'PL'));
@@ -30,6 +33,20 @@ drop policy rls_plan_shift_interest_insert on public.plan_shift_interest;
 create policy rls_plan_shift_interest_insert on public.plan_shift_interest for insert to authenticated
   with check (user_id = (select auth.uid()) and (select public.app_role()) <> 'Gast'
               and public.fits_plan_slot(week_id, shift_key));
+
+create or replace function public.order_applications_decided() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    new.created_at := now();
+    new.decided_by := null;
+    new.decided_at := null;
+  elsif new.status is distinct from old.status then
+    new.decided_by := auth.uid();
+    new.decided_at := now();
+  end if;
+  return new;
+end $$;
 
 revoke update on public.plan_shift_interest from authenticated;
 drop trigger plan_shift_interest_decided on public.plan_shift_interest;

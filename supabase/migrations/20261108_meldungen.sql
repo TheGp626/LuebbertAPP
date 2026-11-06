@@ -8,6 +8,27 @@ alter table public.plan_shift_interest
   add column decided_by uuid references public.app_users(id) on delete set null,
   add column decided_at timestamptz;
 
+-- Deciders may add an accepted Meldung for someone else („Hätten laut Verfügbarkeit Zeit“ → Annehmen):
+-- an insert that is not 'offen' records who accepted it; an 'offen' insert starts undecided as before
+create or replace function public.order_applications_decided() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    new.created_at := now();
+    if new.status = 'offen' then
+      new.decided_by := null;
+      new.decided_at := null;
+    else
+      new.decided_by := auth.uid();
+      new.decided_at := now();
+    end if;
+  elsif new.status is distinct from old.status then
+    new.decided_by := auth.uid();
+    new.decided_at := now();
+  end if;
+  return new;
+end $$;
+
 -- Same bookkeeping as order_applications: starts undecided at now(); who decided and when comes from the server
 create trigger plan_shift_interest_decided before insert or update on public.plan_shift_interest
   for each row execute function public.order_applications_decided();
@@ -24,7 +45,8 @@ create policy rls_plan_shift_interest_select on public.plan_shift_interest for s
 drop policy rls_plan_shift_interest_insert on public.plan_shift_interest;
 create policy rls_plan_shift_interest_insert on public.plan_shift_interest for insert to authenticated
   with check (user_id = (select auth.uid()) and (select public.app_role()) <> 'Gast'
-              and public.fits_plan_slot(week_id, shift_key) and status = 'offen');
+              and public.fits_plan_slot(week_id, shift_key) and status = 'offen'
+              or ((select public.sees_plan_interest()) and status = 'angenommen'));
 create policy rls_plan_shift_interest_update on public.plan_shift_interest for update to authenticated
   using ((select public.sees_plan_interest()))
   with check ((select public.sees_plan_interest()));
@@ -32,6 +54,10 @@ drop policy rls_plan_shift_interest_delete on public.plan_shift_interest;
 create policy rls_plan_shift_interest_delete on public.plan_shift_interest for delete to authenticated
   using ((user_id = (select auth.uid()) and status = 'offen') or (select public.sees_plan_interest()));
 
+drop policy rls_order_applications_insert on public.order_applications;
+create policy rls_order_applications_insert on public.order_applications for insert to authenticated
+  with check (user_id = (select auth.uid()) and (select public.app_role()) <> 'Gast' and status = 'offen'
+              or ((select public.sees_plan_interest()) and status = 'angenommen'));
 drop policy rls_order_applications_select on public.order_applications;
 create policy rls_order_applications_select on public.order_applications for select to authenticated
   using (user_id = (select auth.uid()) or (select public.sees_plan_interest()));
