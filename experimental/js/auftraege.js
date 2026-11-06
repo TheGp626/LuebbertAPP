@@ -86,35 +86,13 @@ async function ordSaveCache(row) {
   if (r.error) throw r.error;
 }
 
-function ordCardHtml(x) {
-  var j = x.job, saved = _ordSaved[j.jobNo] || {}, mats = j.materials || [];
-  var num = function(field, label) {
-    var v = saved[field];
-    return '<label class="ui-field ord-num"><span>' + label + '</span><input type="number" min="0" max="99" step="1" inputmode="numeric"' +
-      ' data-job="' + ordEsc(j.jobNo) + '" data-field="' + field + '" value="' + (v == null ? '' : v) + '" onchange="ordSaveStaff(this)"></label>';
-  };
-  var count = mats.reduce(function(n, g) { return n + g.items.length; }, 0);
-  return '<div class="ui-card ord">' +
-    '<div class="ord-title">' + ordEsc(j.name) + '</div>' +
-    '<div class="ord-sub">' + ordEsc([j.jobNo, x.folderName || x.title].filter(Boolean).join(' · ')) + '</div>' +
-    (j.room ? '<div class="ord-room">' + ordEsc(j.room) + '</div>' : '') +
-    '<dl class="ord-times"><dt>Aufbau</dt><dd>' + ordEsc(ordRange(j.setup)) + '</dd>' +
-    '<dt>Veranstaltung</dt><dd>' + ordEsc(ordRange(j.event)) + '</dd>' +
-    '<dt>Abbau</dt><dd>' + ordEsc(ordRange(j.teardown)) + '</dd>' +
-    '<dt>AL</dt><dd>' + (j.lead ? ordEsc(j.lead) : '<span class="ui-pill ui-pill-warn">offen</span>') + '</dd></dl>' +
-    (count ? '<details class="ord-more"><summary>Material (' + count + ' Position' + (count === 1 ? '' : 'en') + ')</summary>' +
-      mats.map(function(g) {
-        return '<div class="ord-group">' + ordEsc(g.group) + '</div><ul class="ord-items">' +
-          g.items.map(function(it) { return '<li><b>' + ordEsc(it.qty) + '×</b> ' + ordEsc(it.name) + '</li>'; }).join('') + '</ul>';
-      }).join('') + '</details>' : '') +
-    (j.notes ? '<details class="ord-more"><summary>Hinweise</summary><div>' + ordEsc(j.notes).replace(/\n/g, '<br>') + '</div></details>' : '') +
-    '<div class="ord-foot">' + num('staff_setup', 'MA Aufbau') + num('staff_teardown', 'MA Abbau') +
-    '<button type="button" class="ui-btn dash-small-btn" onclick="ordOpenPdf(\'' + jsAttrArg(x.file.id) + '\')">PDF öffnen</button></div>' +
-    ordSlotHtml(x, 'setup') + ordSlotHtml(x, 'teardown') +
-    '</div>';
-}
+var ORD_DAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+var _ordOpen = {}; // jobNo → card expanded (kept across re-renders)
+
+function ordToggle(jobNo) { _ordOpen[jobNo] = !_ordOpen[jobNo]; ordRenderList(); }
 
 function ordName(id) { return _ordCtx.names[id] || 'Unbekannt'; }
+function ordInitial(id) { return ordEsc((ordName(id).trim().charAt(0) || '?').toUpperCase()); }
 
 // The slot of a card phase in the shape order-slots.js expects (as order_slots() returns it)
 function ordCardSlot(x, phase) {
@@ -123,51 +101,138 @@ function ordCardSlot(x, phase) {
     link_set: !!link, link_date: link ? link.plan_date : null, link_key: link ? link.plan_key : null };
 }
 
-// One phase with an MA number: link to Daniel's plan, who is on it, applicants with hints, accept / reject
-function ordSlotHtml(x, phase) {
-  var needed = (_ordSaved[x.job.jobNo] || {})['staff_' + phase];
-  if (!x.job[phase]) return '';
-  var apps = _ordCtx.apps.filter(function(a) { return a.job_no === x.job.jobNo && a.phase === phase; });
-  if (!needed && !apps.length) return ''; // number taken back to 0: applications stay visible
-  var slot = ordCardSlot(x, phase), date = ordSlotDate(slot);
-  var att = ordAttachSlots([slot], _ordCtx.plan), ps = null;
-  Object.keys(att.bySid).forEach(function(id) { ps = _ordCtx.plan.find(function(p) { return p.id === id; }); });
-  var taken = ordTaken(slot, ps, _ordCtx.apps), daniel = ordAssignedIds(ps);
-  var extra = apps.filter(function(a) { return a.status === 'angenommen' && daniel.indexOf(a.user_id) === -1; });
-  var dayOptions = _ordCtx.plan.filter(function(p) { return p.date === date; }).map(function(p) {
-    var v = p.date + '|' + p.key;
-    return '<option value="' + ordEsc(v) + '"' + (ps && ps.key === p.key ? ' selected' : '') + '>' + ordEsc((p.venue || '') + ' · ' + (p.title || '')) + '</option>';
+// Everything a phase shows: number, Daniel's linked entry, who counts, applications
+function ordPhaseInfo(x, phase) {
+  var slot = ordCardSlot(x, phase), att = ordAttachSlots([slot], _ordCtx.plan), ps = null;
+  Object.keys(att.bySid).forEach(function(id) { ps = _ordCtx.plan.find(function(p) { return p.id === id; }) || null; });
+  return {
+    slot: slot, ps: ps, needed: (_ordSaved[x.job.jobNo] || {})['staff_' + phase],
+    taken: ordTaken(slot, ps, _ordCtx.apps),
+    apps: _ordCtx.apps.filter(function(a) { return a.job_no === x.job.jobNo && a.phase === phase; })
+  };
+}
+
+function ordPills(x) {
+  var fresh = 0, pills = ['setup', 'teardown'].filter(function(ph) { return x.job[ph]; }).map(function(ph) {
+    var i = ordPhaseInfo(x, ph);
+    fresh += i.apps.filter(function(a) { return a.status === 'offen'; }).length;
+    if (i.needed == null) return '<span class="ord-pill ord-pill-muted">' + ORD_PHASE[ph] + ' – MA eintragen</span>';
+    if (!i.needed) return '';
+    var cls = i.taken.length >= i.needed ? 'ok' : i.taken.length ? 'warn' : 'danger';
+    return '<span class="ord-pill ord-pill-' + cls + '">' + ORD_PHASE[ph] + ' ' + i.taken.length + '/' + i.needed + '</span>';
   }).join('');
+  return pills + (fresh ? '<span class="ord-pill ord-pill-new">' + fresh + ' neu</span>' : '');
+}
+
+var ORD_ICON = {
+  chevron: '<svg class="ord-chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
+  minus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14"/></svg>',
+  plus: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  link: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>',
+  check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>',
+  x: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  truck: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="1" y="7" width="13" height="10" rx="1"/><path d="M14 10h4l3 3v4h-7z"/><circle cx="6" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg>',
+  file: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>'
+};
+
+function ordCardHtml(x) {
+  var j = x.job, open = !!_ordOpen[j.jobNo], first = j.setup || j.event || j.teardown;
+  var phase = j.setup ? 'Aufbau' : j.event ? 'Veranstaltung' : 'Abbau';
+  var venue = ordSlotVenue(x.title);
+  var sub = [venue ? venue.charAt(0).toUpperCase() + venue.slice(1) : '', j.room, j.jobNo].filter(Boolean).join(' · ');
+  var head = '<button type="button" class="ord-head" aria-expanded="' + open + '" onclick="ordToggle(\'' + jsAttrArg(j.jobNo) + '\')">' +
+    '<span class="ord-time"><b>' + ordEsc(first && first.start.length > 10 ? first.start.slice(11, 16) : '—') + '</b><span>' + phase + '</span></span>' +
+    '<span class="ord-head-main"><span class="ord-title-row"><b class="ord-title">' + ordEsc(j.name) + '</b>' + ORD_ICON.chevron + '</span>' +
+      '<span class="ord-sub">' + ordEsc(sub) + '</span><span class="ord-pills">' + ordPills(x) + '</span></span></button>';
+  if (!open) return '<div class="ord-card">' + head + '</div>';
+  var mats = j.materials || [], count = mats.reduce(function(n, g) { return n + g.items.length; }, 0);
+  return '<div class="ord-card ord-card-open">' + head + '<div class="ord-body">' +
+    ordSlotHtml(x, 'setup') + ordSlotHtml(x, 'teardown') +
+    '<div class="ord-meta">' + (j.event ? '<span>Veranstaltung: ' + ordEsc(ordRange(j.event)) + '</span>' : '') +
+      '<span>AL: ' + (j.lead ? ordEsc(j.lead) : 'offen') + (j.room ? ' · Raum: ' + ordEsc(j.room) : '') + '</span>' +
+      (x.folderName ? '<span>Ordner: ' + ordEsc(x.folderName) + '</span>' : '') + '</div>' +
+    '<div class="ord-chips">' +
+      (count ? '<details class="ord-chip-d"><summary class="ord-chip">Material <b>' + count + '</b></summary><div class="ord-chip-body">' +
+        mats.map(function(g) {
+          return '<div class="ord-group">' + ordEsc(g.group) + '</div><ul class="ord-items">' +
+            g.items.map(function(it) { return '<li><b>' + ordEsc(it.qty) + '×</b> ' + ordEsc(it.name) + '</li>'; }).join('') + '</ul>';
+        }).join('') + '</div></details>' : '') +
+      (j.notes ? '<details class="ord-chip-d"><summary class="ord-chip">Hinweise</summary><div class="ord-chip-body">' + ordEsc(j.notes).replace(/\n/g, '<br>') + '</div></details>' : '') +
+      '<button type="button" class="ord-chip" onclick="ordOpenPdf(\'' + jsAttrArg(x.file.id) + '\')">' + ORD_ICON.file + 'PDF</button>' +
+    '</div></div></div>';
+}
+
+// One phase: MA stepper, how full it is, link to Daniel's plan, who is on it, applications with hints, accept / reject
+function ordSlotHtml(x, phase) {
+  if (!x.job[phase]) return '';
+  var i = ordPhaseInfo(x, phase), slot = i.slot, ps = i.ps, needed = i.needed, apps = i.apps, date = ordSlotDate(slot);
+  var field = 'staff_' + phase, jobArg = jsAttrArg(slot.job_no);
+  var stepper = '<div class="ord-step" role="group" aria-label="MA für den ' + ORD_PHASE[phase] + '">' +
+    '<button type="button" aria-label="Einen MA weniger"' + (needed ? '' : ' disabled') + ' onclick="ordStep(\'' + jobArg + '\', \'' + field + '\', -1)">' + ORD_ICON.minus + '</button>' +
+    '<output>' + (needed == null ? '–' : needed) + '<small>MA</small></output>' +
+    '<button type="button" aria-label="Einen MA mehr"' + (needed >= 99 ? ' disabled' : '') + ' onclick="ordStep(\'' + jobArg + '\', \'' + field + '\', 1)">' + ORD_ICON.plus + '</button></div>';
+  var top = '<div class="ord-slot-top"><div class="ord-slot-name"><b>' + ORD_PHASE[phase] + '</b><span>' + ordEsc(ordRange(x.job[phase])) + '</span></div>' + stepper + '</div>';
+  if (!needed && !apps.length) {
+    return '<section class="ord-slot">' + top + '<div class="ord-slot-sub">' + (needed === 0 ? 'Keine MA ausgeschrieben.' : 'Trag ein, wie viele MA ihr braucht.') + '</div></section>';
+  }
+  var taken = i.taken, daniel = ordAssignedIds(ps), drivers = ordDrivers(ps);
+  var extra = apps.filter(function(a) { return a.status === 'angenommen' && daniel.indexOf(a.user_id) === -1; });
+  var progress = !needed ? '<div class="ord-slot-sub"><span class="ord-pill ord-pill-muted">nicht mehr ausgeschrieben</span></div>'
+    : (function() {
+      var pct = Math.min(100, Math.round(taken.length / needed * 100)), d = needed - taken.length;
+      var cls = d <= 0 ? 'ok' : taken.length ? 'warn' : 'danger';
+      return '<div class="ord-progress"><div class="ord-progress-row"><span><b>' + taken.length + '</b> von ' + needed + ' besetzt</span>' +
+        '<span class="ord-tone-' + cls + '">' + (d > 0 ? d + ' fehlt' : d < 0 ? -d + ' zu viel' : 'voll') + '</span></div>' +
+        '<div class="ord-bar"><i class="ord-bar-' + cls + '" style="width:' + pct + '%"></i></div></div>';
+    })();
+  var dayOptions = _ordCtx.plan.filter(function(p) { return p.date === date; }).map(function(p) {
+    return '<option value="' + ordEsc(p.date + '|' + p.key) + '"' + (ps && ps.key === p.key ? ' selected' : '') + '>' + ordEsc((p.venue || '') + ' · ' + (p.title || '')) + '</option>';
+  }).join('');
+  var link = '<div class="ord-link"><span class="ord-link-text">' + ORD_ICON.link + (ps ? 'Daniels Plan: ' + ordEsc(ps.title || ps.venue || '') : 'Nicht in Daniels Plan') + '</span>' +
+    '<details class="ord-link-edit"><summary>ändern</summary><label><span class="sr-only">Verknüpfung mit Daniels Plan</span>' +
+    '<select data-job="' + ordEsc(slot.job_no) + '" data-phase="' + phase + '" onchange="ordSetLink(this)">' +
+    '<option value="">Eintrag wählen …</option><option value="auto">Automatisch</option><option value="none">Nicht verknüpfen</option>' + dayOptions + '</select></label></details></div>';
+  var decide = function(a, status) { return 'ordDecide(\'' + jobArg + '\', \'' + phase + '\', \'' + jsAttrArg(a.user_id) + '\', \'' + status + '\')'; };
+  var person = function(id, cls, right) {
+    return '<li class="ord-person"><span class="ord-avatar ' + cls + '">' + ordInitial(id) + '</span><span class="ord-person-name">' + ordEsc(ordName(id)) + '</span>' + right + '</li>';
+  };
+  var people = daniel.map(function(id) { return person(id, '', '<span class="ord-person-note">Daniels Plan</span>'); }).join('') +
+    extra.map(function(a) {
+      return person(a.user_id, 'ord-avatar-ok', '<span class="ord-person-note ord-tone-ok">angenommen</span><button type="button" class="ord-textbtn" onclick="' + decide(a, 'offen') + '">Zurücknehmen</button>');
+    }).join('') +
+    drivers.map(function(id) {
+      return '<li class="ord-person ord-person-driver"><span class="ord-avatar">' + ORD_ICON.truck + '</span><span class="ord-person-name">' + ordEsc(ordName(id)) + ' · Fahrer</span><span class="ord-person-note">zählt nicht</span></li>';
+    }).join('');
   var hint = function(uid) {
     var h = [], lvl = _ordCtx.avail[uid + '|' + date];
-    if (lvl === 'nein') h.push('<span class="ui-pill ui-pill-danger">geht nicht</span>');
-    else if (lvl === 'notfall') h.push('<span class="ui-pill ui-pill-warn">nur im Notfall</span>');
-    var busy = _ordCtx.plan.some(function(p) { return p.date === date && p !== ps && ordAssignedIds(p).indexOf(uid) !== -1; });
-    if (busy) h.push('<span class="ui-pill ui-pill-warn">schon eingeplant</span>');
-    return h.join(' ');
+    if (lvl === 'nein') h.push('<span class="ord-pill ord-pill-danger">geht nicht</span>');
+    else if (lvl === 'notfall') h.push('<span class="ord-pill ord-pill-warn">nur im Notfall</span>');
+    if (_ordCtx.plan.some(function(p) { return p.date === date && p !== ps && ordAssignedIds(p, true).indexOf(uid) !== -1; })) h.push('<span class="ord-pill ord-pill-danger">schon eingeplant</span>');
+    return h.join('');
   };
-  var btn = function(a, status, label, primary) {
-    return '<button type="button" class="ui-btn dash-small-btn' + (primary ? ' ui-btn-primary' : '') + '" onclick="ordDecide(\'' + jsAttrArg(slot.job_no) + '\', \'' + phase +
-      '\', \'' + jsAttrArg(a.user_id) + '\', \'' + status + '\')">' + label + '</button>';
-  };
-  var full = needed && taken.length >= needed;
-  var pill = !needed ? '<span class="ui-pill">nicht mehr ausgeschrieben</span>'
-    : '<span class="ui-pill ' + (full ? 'ui-pill-ok' : 'ui-pill-warn') + '">' + taken.length + ' / ' + needed + ' besetzt' + (taken.length > needed ? ' · zu viele' : full ? ' · voll' : '') + '</span>';
-  return '<div class="ord-slot">' +
-    '<div class="ord-slot-head"><b>' + ORD_PHASE[phase] + '</b> · ' + ordEsc(ordRange(x.job[phase])) + ' ' + pill + '</div>' +
-    '<div class="ord-slot-link">' + (ps ? 'Daniels Plan: ' + ordEsc(ordDay(ps.date) + ' · ' + (ps.title || ps.venue || '')) : 'Nicht in Daniels Plan') +
-      '<label class="ord-slot-pick"><span class="sr-only">Verknüpfung ändern</span><select data-job="' + ordEsc(slot.job_no) + '" data-phase="' + phase + '" onchange="ordSetLink(this)">' +
-        '<option value="">Ändern …</option><option value="auto">Automatisch</option><option value="none">Nicht verknüpfen</option>' + dayOptions + '</select></label></div>' +
-    (daniel.length ? '<div class="ord-slot-sub">Eingeteilt: ' + daniel.map(function(id) { return ordEsc(ordName(id)); }).join(', ') + '</div>' : '') +
-    (apps.length ? '<ul class="ord-apps">' + apps.map(function(a) {
-      var st = a.status === 'angenommen' ? '<span class="ui-pill ui-pill-ok">angenommen</span>' : a.status === 'abgelehnt' ? '<span class="ui-pill">abgelehnt</span>' : '';
-      var acts = a.status === 'offen' ? btn(a, 'angenommen', 'Annehmen', true) + btn(a, 'abgelehnt', 'Ablehnen')
-        : a.status === 'angenommen' ? btn(a, 'offen', 'Zurücknehmen') : btn(a, 'angenommen', 'Annehmen');
-      return '<li><span class="ord-app-name">' + ordEsc(ordName(a.user_id)) + ' ' + st + ' ' + hint(a.user_id) + '</span><span class="ord-app-acts">' + acts + '</span></li>';
-    }).join('') + '</ul>' : '<div class="ord-slot-sub">Noch keine Meldungen.</div>') +
-    (extra.length ? '<div class="ord-slot-sub">Angenommen über Auftrag: ' + extra.map(function(a) { return ordEsc(ordName(a.user_id)); }).join(', ') +
-      ' <span class="ui-sub">(in Daniels Plan übertragen)</span></div>' : '') +
-  '</div>';
+  var open = apps.filter(function(a) { return a.status === 'offen'; });
+  var rejected = apps.filter(function(a) { return a.status === 'abgelehnt'; });
+  var requests = open.map(function(a) {
+    return '<li class="ord-req"><div class="ord-req-top"><span class="ord-avatar ord-avatar-new">' + ordInitial(a.user_id) + '</span><b class="ord-person-name">' + ordEsc(ordName(a.user_id)) + '</b>' + hint(a.user_id) + '</div>' +
+      '<div class="ord-req-acts"><button type="button" class="ord-accept" onclick="' + decide(a, 'angenommen') + '">' + ORD_ICON.check + 'Annehmen</button>' +
+      '<button type="button" class="ord-reject" aria-label="' + ordEsc(ordName(a.user_id)) + ' ablehnen" onclick="' + decide(a, 'abgelehnt') + '">' + ORD_ICON.x + '</button></div></li>';
+  }).join('') + rejected.map(function(a) {
+    return '<li class="ord-person ord-person-off"><span class="ord-avatar">' + ordInitial(a.user_id) + '</span><span class="ord-person-name">' + ordEsc(ordName(a.user_id)) + ' · abgelehnt</span>' +
+      '<button type="button" class="ord-textbtn" onclick="' + decide(a, 'angenommen') + '">Doch annehmen</button></li>';
+  }).join('');
+  return '<section class="ord-slot">' + top + progress + link +
+    (people ? '<ul class="ord-people">' + people + '</ul>' : '') +
+    (requests ? '<div class="ord-label">Meldungen' + (open.length ? ' · ' + open.length + ' neu' : '') + '</div><ul class="ord-reqs">' + requests + '</ul>'
+      : '<div class="ord-slot-sub">Noch keine Meldungen.</div>') +
+    (extra.length ? '<div class="ord-slot-sub">Angenommen über Auftrag: ' + extra.map(function(a) { return ordEsc(ordName(a.user_id)); }).join(', ') + ' – bitte in Daniels Plan übertragen.</div>' : '') +
+  '</section>';
+}
+
+// Stepper: one more / one less MA for a phase, 0–99 (an empty number starts at 0)
+async function ordStep(jobNo, field, delta) {
+  var cur = (_ordSaved[jobNo] || {})[field], v = (cur == null ? 0 : cur) + delta;
+  if (v < 0 || v > 99 || (cur == null && delta < 0)) return;
+  await ordSaveStaff({ value: String(v), dataset: { job: jobNo, field: field } });
 }
 
 async function ordDecide(jobNo, phase, userId, status) {
@@ -207,16 +272,33 @@ async function ordSetLink(sel) {
   ordRenderList();
 }
 
+function ordDayHead(iso) {
+  var p = iso.split('-').map(Number);
+  return ORD_DAYS[new Date(p[0], p[1] - 1, p[2]).getDay()] + ' ' + ('0' + p[2]).slice(-2) + '.' + ('0' + p[1]).slice(-2) + '.';
+}
+
+// Cards grouped by the day they start (jobs come sorted from ordJobs), files that could not be read at the end
+function ordListHtml(view) {
+  var html = '', day = '', fresh = 0;
+  view.jobs.forEach(function(x) {
+    fresh += _ordCtx.apps.filter(function(a) { return a.job_no === x.job.jobNo && a.status === 'offen'; }).length;
+    var d = ordStart(x.job).slice(0, 10);
+    if (d && d !== day) { day = d; html += '<div class="ord-day">' + ordDayHead(d) + '</div>'; }
+    html += ordCardHtml(x);
+  });
+  var summary = '<p class="ord-summary">' + view.jobs.length + (view.jobs.length === 1 ? ' kommender Einsatz' : ' kommende Einsätze') +
+    (fresh ? ' · ' + fresh + (fresh === 1 ? ' neue Meldung' : ' neue Meldungen') : '') + '</p>';
+  return summary + (view.jobs.length ? html : '<div class="wp-empty">Keine kommenden Aufträge in den Projektordnern.</div>') +
+    view.failed.map(function(f) {
+      return '<div class="ord-failed"><span>Nicht erkannt: ' + ordEsc(f.name) + '</span>' +
+        '<button type="button" class="ord-textbtn" onclick="ordOpenPdf(\'' + jsAttrArg(f.id) + '\')">Ansehen</button></div>';
+    }).join('');
+}
+
 function ordRenderList() {
   var content = document.getElementById('ord-content');
   if (!content || !_ordView) return;
-  var jobs = _ordView.jobs, failed = _ordView.failed;
-  content.innerHTML =
-    (jobs.length ? jobs.map(ordCardHtml).join('') : '<div class="wp-empty">Keine kommenden Aufträge in den Projektordnern.</div>') +
-    failed.map(function(f) {
-      return '<div class="ui-card ord ord-failed"><div class="ord-title">Nicht erkannt</div><div class="ord-sub">' + ordEsc(f.name) + '</div>' +
-        '<div class="ord-foot"><button type="button" class="ui-btn dash-small-btn" onclick="ordOpenPdf(\'' + jsAttrArg(f.id) + '\')">PDF öffnen</button></div></div>';
-    }).join('');
+  content.innerHTML = ordListHtml(_ordView);
 }
 
 // Context for the phase blocks; a failing part only leaves its hints out
@@ -227,7 +309,7 @@ async function ordLoadCtx(jobs) {
   var res = await Promise.all([
     supabaseClient.from('order_applications').select('job_no, phase, user_id, status'),
     supabaseClient.from('order_plan_links').select('job_no, phase, plan_date, plan_key'),
-    days.length ? supabaseClient.from('plan_shifts').select('id, date, key, venue, location, title, wann, plan_assignments(user_id, name)').in('date', days) : { data: [] },
+    days.length ? supabaseClient.from('plan_shifts').select('id, date, key, venue, location, title, wann, plan_assignments(user_id, name, role)').in('date', days) : { data: [] },
     days.length ? supabaseClient.from('availability').select('user_id, day, level').in('day', days) : { data: [] },
     supabaseClient.from('app_users').select('id, full_name')
   ]);

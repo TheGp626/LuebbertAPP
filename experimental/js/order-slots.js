@@ -56,8 +56,16 @@ function ordAttachSlots(slots, planShifts) {
   return { bySid: bySid, unlinked: unlinked };
 }
 
-function ordAssignedIds(planShift) {
-  return ((planShift && planShift.plan_assignments) || []).map(function(a) { return a.user_id; }).filter(Boolean);
+// Daniel's people who count as MA: drivers (role 'Fahrer') are on the shift but never fill an MA place
+function ordAssignedIds(planShift, withDrivers) {
+  return ((planShift && planShift.plan_assignments) || [])
+    .filter(function(a) { return withDrivers || a.role !== 'Fahrer'; })
+    .map(function(a) { return a.user_id; }).filter(Boolean);
+}
+
+function ordDrivers(planShift) {
+  return ((planShift && planShift.plan_assignments) || []).filter(function(a) { return a.role === 'Fahrer'; })
+    .map(function(a) { return a.user_id; }).filter(Boolean);
 }
 
 // PL view: user ids on the slot = Daniel's assignment ∪ accepted applications
@@ -78,5 +86,5 @@ function ordTakenCount(slot, planShift) {
 }
 
 function ordCanApply(slot, me, today, role, planShift) {
-  return !!(me && role && role !== 'Gast' && ordSlotDate(slot) >= today && !slot.my_status && ordAssignedIds(planShift).indexOf(me) === -1);
+  return !!(me && role && role !== 'Gast' && ordSlotDate(slot) >= today && !slot.my_status && ordAssignedIds(planShift, true).indexOf(me) === -1);
 }
