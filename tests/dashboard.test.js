@@ -643,3 +643,18 @@ test('markAllShiftsBooked: books only the open shifts of the picked month', asyn
   assert.equal(sb.calls.length, 1);
   assert.deepEqual(plain(sb.calls[0].filters.find(f => f[0] === 'id')), ['id', ['s1']]);
 });
+
+test('loadDashNightRanking: current calendar year, pages past the 1000-row cap', async () => {
+  const ranges = [], gte = [];
+  const page = (from) => Array.from({ length: from === 0 ? 1000 : 3 }, (_, i) => ({ id: 'r' + (from + i), user_id: 'u', start_time: '22:00:00', end_time: '03:00:00' }));
+  ctx.supabaseClient = { from: () => {
+    const b = { select() { return b; }, gte(k, v) { gte.push(v); return b; }, lte() { return b; }, not() { return b; }, order() { return b; },
+      range(a, z) { ranges.push([a, z]); return Promise.resolve({ data: page(a), error: null }); } };
+    return b;
+  } };
+  run("dashboardWorkers = [{ id: 'u', full_name: 'Nina' }]");
+  await ctx.loadDashNightRanking();
+  assert.deepEqual(ranges, [[0, 999], [1000, 1999]]);
+  assert.equal(gte[0], new Date().getFullYear() + '-01-01');
+  assert.equal(run('dashNightRows')[0].nights, 1003);
+});
