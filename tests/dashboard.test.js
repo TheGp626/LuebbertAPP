@@ -604,3 +604,17 @@ test('dashNightRanking: most nights first, ties by share; workers without night 
   ], workers)));
   assert.deepEqual(rows.map(r => [r.name, r.nights, r.share]), [['Bert', 1, 50], ['Anna', 1, 33]]);
 });
+
+test('saveEditWorker sends availability_enabled from the "Verfügbarkeit eintragen" box', async () => {
+  const f = { 'edit-worker-firstname': { value: 'Mo' }, 'edit-worker-lastname': { value: 'T' }, 'edit-worker-email': { value: '' },
+    'edit-worker-role': { value: 'MA' }, 'edit-worker-dept': { value: '' }, 'edit-worker-rate-internal': { value: '' },
+    'edit-worker-type': { value: 'Minijob' }, 'edit-worker-sees-interest': { checked: false }, 'edit-worker-can-drive': { checked: false },
+    'edit-worker-avail': { checked: true } };
+  ctx.document.getElementById = id => f[id] || null;
+  vm.runInContext("dashboardCurrentWorker = { id: 'w1' }", ctx);
+  let payload = null;
+  ctx.supabaseClient = { from: () => ({ update(p) { payload = p; return this; }, eq() { return this; }, select() { return Promise.resolve({ data: [], error: null }); } }) };
+  ctx.showToast = () => {};
+  await ctx.saveEditWorker();
+  assert.equal(payload.availability_enabled, true);
+});

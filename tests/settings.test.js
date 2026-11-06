@@ -123,3 +123,8 @@ test('validPersonnelRates: exactly the 4 types × MA/AL/Fahrer, numbers 0–1000
   assert.equal(S.validateSettings({ personnel_rates: { ...ok, Fest: { MA: 2000, AL: 0, Fahrer: 0 } } }), 'personnel_rates');
   assert.equal(S.validateSettings({ personnel_rates: ok }), null);
 });
+
+test('availability_for_all: default off, listed as a switch', () => {
+  assert.equal(S.APP_SETTINGS_DEFAULTS.availability_for_all, false);
+  assert.ok(S.SETTINGS_SWITCHES.some(g => g.items.some(i => i.key === 'availability_for_all')));
+});
