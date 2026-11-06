@@ -233,3 +233,12 @@ test('ordSetLink: unlink writes nulls, a pick writes date + key, auto deletes th
   assert.equal(sb.calls[2].op, 'delete');
   assert.equal(vm.runInContext('Object.keys(_ordCtx.links).length', ctx), 0);
 });
+
+test('ordSlotHtml: MA number set to 0 keeps the applications visible as „nicht mehr ausgeschrieben“; quantities escaped', () => {
+  setCtx({ apps: [{ job_no: '26-0415.01', phase: 'teardown', user_id: 'u2', status: 'angenommen' }] });
+  const html = ctx.ordSlotHtml(vx(), 'teardown');
+  assert.match(html, /nicht mehr ausgeschrieben/);
+  assert.match(html, /Ben &lt;b&gt;/);
+  const x = vx(); x.job.materials = [{ group: 'G', items: [{ qty: '<img src=x>', name: 'n' }] }];
+  assert.doesNotMatch(ctx.ordCardHtml(x), /<img/);
+});

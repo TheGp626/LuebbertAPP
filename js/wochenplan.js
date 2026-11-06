@@ -811,7 +811,7 @@ function wpOrderBlock(slot, planShift) {
     '<div class="wp-ord-line"><b>Auftrag ' + wpEsc(slot.job_no) + '</b> · ' + WP_PHASE[slot.phase] + ' · ' + slot.needed + ' MA · ' + free + ' offen</div>' +
     (count ? '<details class="wp-ord-more"><summary>Material (' + count + ')</summary>' + mats.map(function(g) {
       return '<div class="wp-ord-group">' + wpEsc(g.group) + '</div><ul>' + (g.items || []).map(function(it) {
-        return '<li><b>' + it.qty + '×</b> ' + wpEsc(it.name) + '</li>'; }).join('') + '</ul>';
+        return '<li><b>' + wpEsc(it.qty) + '×</b> ' + wpEsc(it.name) + '</li>'; }).join('') + '</ul>';
     }).join('') + '</details>' : '') +
     (slot.notes ? '<details class="wp-ord-more"><summary>Hinweise</summary><div>' + wpEsc(slot.notes).replace(/\n/g, '<br>') + '</div></details>' : '') +
     (action ? '<div class="wp-ord-action">' + action + '</div>' : '') +

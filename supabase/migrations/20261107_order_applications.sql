@@ -26,17 +26,21 @@ create policy rls_order_applications_delete on public.order_applications for del
 
 grant select, insert, update, delete on public.order_applications to authenticated;
 
--- Who decided and when is set by the server, not the client
+-- Server-set bookkeeping: an application starts undecided at now(); who decided and when comes from the server
 create function public.order_applications_decided() returns trigger
 language plpgsql set search_path = public as $$
 begin
-  if new.status is distinct from old.status then
+  if tg_op = 'INSERT' then
+    new.created_at := now();
+    new.decided_by := null;
+    new.decided_at := null;
+  elsif new.status is distinct from old.status then
     new.decided_by := auth.uid();
     new.decided_at := now();
   end if;
   return new;
 end $$;
-create trigger order_applications_decided before update on public.order_applications
+create trigger order_applications_decided before insert or update on public.order_applications
   for each row execute function public.order_applications_decided();
 
 create table public.order_plan_links (
@@ -66,7 +70,7 @@ grant select, insert, update, delete on public.order_plan_links to authenticated
 -- Open phases from today on: job from the newest parsed file per job number, needed > 0 in order_staffing
 create function public.order_slots()
 returns table (job_no text, phase text, name text, title text, room text, start_at text, end_at text,
-  materials jsonb, notes text, needed int, accepted int, my_status text, link_date date, link_key text, link_set boolean)
+  materials jsonb, notes text, needed int, accepted int, accepted_ids uuid[], my_status text, link_date date, link_key text, link_set boolean)
 language sql stable security definer set search_path = public as $$
   with jobs as (
     select distinct on (j->>'jobNo') j->>'jobNo' as jno, j as job, p.result->>'title' as ttl
@@ -86,11 +90,13 @@ language sql stable security definer set search_path = public as $$
   select ph.jno, ph.ph, ph.job->>'name', ph.ttl, ph.job->>'room', ph.st, ph.en,
     coalesce(ph.job->'materials', '[]'::jsonb), ph.job->>'notes', ph.nd::int,
     (select count(*)::int from public.order_applications a where a.job_no = ph.jno and a.phase = ph.ph and a.status = 'angenommen'),
+    (select coalesce(array_agg(a.user_id), '{}') from public.order_applications a where a.job_no = ph.jno and a.phase = ph.ph and a.status = 'angenommen'),
     (select a.status from public.order_applications a where a.job_no = ph.jno and a.phase = ph.ph and a.user_id = auth.uid()),
     l.plan_date, l.plan_key, l.job_no is not null
   from ph
   left join public.order_plan_links l on l.job_no = ph.jno and l.phase = ph.ph
-  where ph.nd > 0 and ph.st ~ '^\d{4}-\d{2}-\d{2}' and left(ph.st, 10)::date >= current_date
+  -- ISO text compares like a date; no cast, so one malformed parse can't break the RPC for everyone
+  where ph.nd > 0 and ph.st ~ '^\d{4}-\d{2}-\d{2}' and left(ph.st, 10) >= to_char(current_date, 'YYYY-MM-DD')
   order by ph.st, ph.jno, ph.ph;
 $$;
 revoke all on function public.order_slots() from public, anon;

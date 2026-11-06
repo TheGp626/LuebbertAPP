@@ -48,6 +48,8 @@ function ordAttachSlots(slots, planShifts) {
     var p = null;
     if (s.link_set) {
       if (s.link_date) p = (planShifts || []).find(function(x) { return x.date === s.link_date && x.key === s.link_key; }) || null;
+      // Daniel's re-import renumbers equal keys (k, k#2): a link that now points at the other phase is dropped
+      if (p && !ordPhaseFits(s.phase, p.wann)) p = null;
     } else p = ordMatchSlot(s, planShifts);
     if (p) (bySid[p.id] = bySid[p.id] || []).push(s); else unlinked.push(s);
   });
@@ -67,9 +69,12 @@ function ordTaken(slot, planShift, applications) {
   return ids;
 }
 
-// MA view (no application list): Daniel's count + accepted count; overlap is not visible there
+// MA view: Daniel's people ∪ accepted ids from order_slots() (the PL copies accepted names into Daniel's plan)
 function ordTakenCount(slot, planShift) {
-  return ordAssignedIds(planShift).length + (slot.accepted || 0);
+  var ids = ordAssignedIds(planShift);
+  if (!Array.isArray(slot.accepted_ids)) return ids.length + (slot.accepted || 0);
+  slot.accepted_ids.forEach(function(id) { if (ids.indexOf(id) === -1) ids.push(id); });
+  return ids.length;
 }
 
 function ordCanApply(slot, me, today, role, planShift) {

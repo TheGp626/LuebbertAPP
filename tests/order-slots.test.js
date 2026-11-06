@@ -61,12 +61,13 @@ test('ordMatchSlot: wrong phase → null; other venue → null; no shared word �
 
 test('ordAttachSlots: manual link wins; manual unlink → unlinked; link to missing key → unlinked', () => {
   const auto = slot('26-0447.01', 'setup', '2026-11-11T09:00', BOA, 'Business of Apps');
-  const manual = slot('26-0447.01', 'teardown', '2026-11-12T19:15', BOA, 'Business of Apps', { link_set: true, link_date: '2026-11-12', link_key: 'k-ver-deko' });
+  // manual link to a setup entry of that day
+  const manual = slot('26-0500.01', 'setup', '2026-11-11T10:00', '261111_Estrel_Betriebsräteversammlung', 'Foyer', { link_set: true, link_date: '2026-11-11', link_key: 'k-post' });
   const unlink = slot('26-0415.01', 'setup', '2026-11-09T10:00', VER, 'Neuköllnspeicher', { link_set: true });
   const gone = slot('26-0415.01', 'teardown', '2026-11-13T10:00', VER, 'Neuköllnspeicher', { link_set: true, link_date: '2026-11-13', link_key: 'k-weg' });
   const r = ctx.ordAttachSlots([auto, manual, unlink, gone], PLAN);
-  assert.deepEqual(Object.keys(r.bySid).sort(), ['boa-auf', 'ver-deko']);
-  assert.equal(r.bySid['ver-deko'][0], manual);
+  assert.deepEqual(JSON.parse(JSON.stringify(Object.keys(r.bySid).sort())), ['boa-auf', 'post']);
+  assert.equal(r.bySid['post'][0], manual);
   assert.deepEqual(JSON.parse(JSON.stringify(r.unlinked.map(s => s.job_no + s.phase))), ['26-0415.01setup', '26-0415.01teardown']);
 });
 
@@ -91,4 +92,17 @@ test('ordCanApply: past, already assigned by Daniel, Gast, already applied → f
   assert.equal(ctx.ordCanApply(s, 'u9', '2026-11-06', 'Gast', null), false);
   assert.equal(ctx.ordCanApply(Object.assign({}, s, { my_status: 'offen' }), 'u9', '2026-11-06', 'MA', null), false);
   assert.equal(ctx.ordCanApply(s, null, '2026-11-06', 'MA', null), false);
+});
+
+test('ordTakenCount: accepted ids from the RPC are not counted twice when Daniel copied them into his plan', () => {
+  const p = { id: 'p', plan_assignments: [{ user_id: 'u1' }, { user_id: 'u2' }] };
+  assert.equal(ctx.ordTakenCount({ accepted: 2, accepted_ids: ['u1', 'u3'] }, p), 3);
+  assert.equal(ctx.ordTakenCount({ accepted: 2 }, p), 4); // old shape without ids: plain sum
+});
+
+test('ordAttachSlots: a manual link to an entry of the other phase (keys shifted by a re-import) → unlinked', () => {
+  const s = slot('26-0415.01', 'setup', '2026-11-13T10:00', VER, 'Neuköllnspeicher', { link_set: true, link_date: '2026-11-13', link_key: 'k-ver-ab' });
+  const r = ctx.ordAttachSlots([s], PLAN);
+  assert.equal(Object.keys(r.bySid).length, 0);
+  assert.equal(r.unlinked.length, 1);
 });

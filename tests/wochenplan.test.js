@@ -335,3 +335,9 @@ test('wpOrderApply: withdraw deletes only the own open row', async () => {
   assert.deepEqual(plain(sb.calls[0].filters), [['job_no', '26-0415.01'], ['phase', 'setup'], ['user_id', 'me'], ['status', 'offen']]);
   assert.equal(vm.runInContext('_wpSlots[0].my_status', ctx), null);
 });
+
+test('wpOrderBlock: material quantity is escaped (order_parsed is free jsonb)', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  const html = ctx.wpOrderBlock(oslot({ materials: [{ group: 'G', items: [{ qty: '<img src=x onerror=alert(1)>', name: 'n' }] }] }), null);
+  assert.doesNotMatch(html, /<img/);
+});

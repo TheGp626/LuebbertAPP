@@ -105,7 +105,7 @@ function ordCardHtml(x) {
     (count ? '<details class="ord-more"><summary>Material (' + count + ' Position' + (count === 1 ? '' : 'en') + ')</summary>' +
       mats.map(function(g) {
         return '<div class="ord-group">' + ordEsc(g.group) + '</div><ul class="ord-items">' +
-          g.items.map(function(it) { return '<li><b>' + it.qty + '×</b> ' + ordEsc(it.name) + '</li>'; }).join('') + '</ul>';
+          g.items.map(function(it) { return '<li><b>' + ordEsc(it.qty) + '×</b> ' + ordEsc(it.name) + '</li>'; }).join('') + '</ul>';
       }).join('') + '</details>' : '') +
     (j.notes ? '<details class="ord-more"><summary>Hinweise</summary><div>' + ordEsc(j.notes).replace(/\n/g, '<br>') + '</div></details>' : '') +
     '<div class="ord-foot">' + num('staff_setup', 'MA Aufbau') + num('staff_teardown', 'MA Abbau') +
@@ -126,12 +126,13 @@ function ordCardSlot(x, phase) {
 // One phase with an MA number: link to Daniel's plan, who is on it, applicants with hints, accept / reject
 function ordSlotHtml(x, phase) {
   var needed = (_ordSaved[x.job.jobNo] || {})['staff_' + phase];
-  if (!needed || !x.job[phase]) return '';
+  if (!x.job[phase]) return '';
+  var apps = _ordCtx.apps.filter(function(a) { return a.job_no === x.job.jobNo && a.phase === phase; });
+  if (!needed && !apps.length) return ''; // number taken back to 0: applications stay visible
   var slot = ordCardSlot(x, phase), date = ordSlotDate(slot);
   var att = ordAttachSlots([slot], _ordCtx.plan), ps = null;
   Object.keys(att.bySid).forEach(function(id) { ps = _ordCtx.plan.find(function(p) { return p.id === id; }); });
   var taken = ordTaken(slot, ps, _ordCtx.apps), daniel = ordAssignedIds(ps);
-  var apps = _ordCtx.apps.filter(function(a) { return a.job_no === slot.job_no && a.phase === phase; });
   var extra = apps.filter(function(a) { return a.status === 'angenommen' && daniel.indexOf(a.user_id) === -1; });
   var dayOptions = _ordCtx.plan.filter(function(p) { return p.date === date; }).map(function(p) {
     var v = p.date + '|' + p.key;
@@ -149,10 +150,11 @@ function ordSlotHtml(x, phase) {
     return '<button type="button" class="ui-btn dash-small-btn' + (primary ? ' ui-btn-primary' : '') + '" onclick="ordDecide(\'' + jsAttrArg(slot.job_no) + '\', \'' + phase +
       '\', \'' + jsAttrArg(a.user_id) + '\', \'' + status + '\')">' + label + '</button>';
   };
-  var full = taken.length >= needed;
+  var full = needed && taken.length >= needed;
+  var pill = !needed ? '<span class="ui-pill">nicht mehr ausgeschrieben</span>'
+    : '<span class="ui-pill ' + (full ? 'ui-pill-ok' : 'ui-pill-warn') + '">' + taken.length + ' / ' + needed + ' besetzt' + (taken.length > needed ? ' · zu viele' : full ? ' · voll' : '') + '</span>';
   return '<div class="ord-slot">' +
-    '<div class="ord-slot-head"><b>' + ORD_PHASE[phase] + '</b> · ' + ordEsc(ordRange(x.job[phase])) +
-      ' <span class="ui-pill ' + (full ? 'ui-pill-ok' : 'ui-pill-warn') + '">' + taken.length + ' / ' + needed + ' besetzt' + (taken.length > needed ? ' · zu viele' : full ? ' · voll' : '') + '</span></div>' +
+    '<div class="ord-slot-head"><b>' + ORD_PHASE[phase] + '</b> · ' + ordEsc(ordRange(x.job[phase])) + ' ' + pill + '</div>' +
     '<div class="ord-slot-link">' + (ps ? 'Daniels Plan: ' + ordEsc(ordDay(ps.date) + ' · ' + (ps.title || ps.venue || '')) : 'Nicht in Daniels Plan') +
       '<label class="ord-slot-pick"><span class="sr-only">Verknüpfung ändern</span><select data-job="' + ordEsc(slot.job_no) + '" data-phase="' + phase + '" onchange="ordSetLink(this)">' +
         '<option value="">Ändern …</option><option value="auto">Automatisch</option><option value="none">Nicht verknüpfen</option>' + dayOptions + '</select></label></div>' +

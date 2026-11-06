@@ -275,7 +275,7 @@ button.dash-shift-main:focus-visible { outline: 2px solid var(--accent); outline
 .ord-times dt { color: var(--text2); }
 .ord-times dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .ord-more { margin-top: 10px; font-size: 13px; }
-.ord-more summary { cursor: pointer; color: var(--text2); min-height: 32px; display: flex; align-items: center; }
+.ord-more summary { cursor: pointer; color: var(--text2); min-height: 44px; display: flex; align-items: center; }
 .ord-more > div { margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; }
 .ord-group { margin-top: 8px; font-weight: 600; font-size: 13px; }
 .ord-items { margin: 4px 0 0; padding-left: 18px; line-height: 1.5; }
@@ -291,7 +291,7 @@ button.dash-shift-main:focus-visible { outline: 2px solid var(--accent); outline
 .wp-ord-block { margin-top: 10px; padding: 10px 12px; border-radius: var(--r-control); background: var(--bg); border: 0.5px solid var(--border2); font-size: 13px; cursor: default; }
 .wp-ord-line { line-height: 1.4; overflow-wrap: anywhere; }
 .wp-ord-more { margin-top: 6px; }
-.wp-ord-more summary { cursor: pointer; color: var(--text2); min-height: 32px; display: flex; align-items: center; }
+.wp-ord-more summary { cursor: pointer; color: var(--text2); min-height: 44px; display: flex; align-items: center; }
 .wp-ord-more > div, .wp-ord-more ul { margin: 4px 0 0; line-height: 1.45; overflow-wrap: anywhere; }
 .wp-ord-more ul { padding-left: 18px; }
 .wp-ord-group { margin-top: 6px; font-weight: 600; }
@@ -305,11 +305,11 @@ button.dash-shift-main:focus-visible { outline: 2px solid var(--accent); outline
 .ord-slot-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 14px; }
 .ord-slot-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; color: var(--text2); overflow-wrap: anywhere; }
 .ord-slot-pick { position: relative; }
-.ord-slot-pick select { min-height: 36px; max-width: 100%; font-size: 13px; padding: 4px 8px; border-radius: var(--r-control); border: 0.5px solid var(--border2); background: var(--bg); color: var(--text); }
+.ord-slot-pick select { min-height: 44px; max-width: 100%; font-size: 14px; padding: 4px 8px; border-radius: var(--r-control); border: 0.5px solid var(--border2); background: var(--bg); color: var(--text); }
 .ord-slot-sub { margin-top: 6px; color: var(--text2); overflow-wrap: anywhere; }
 .ord-apps { list-style: none; margin: 8px 0 0; padding: 0; }
 .ord-apps li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 0; border-top: 0.5px solid var(--border); }
 .ord-app-name { min-width: 0; overflow-wrap: anywhere; }
 .ord-app-acts { display: flex; gap: 6px; }
-.ord-app-acts .ui-btn { min-height: 40px; }
+.ord-app-acts .ui-btn { min-height: 44px; }
 
