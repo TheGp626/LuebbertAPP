@@ -836,7 +836,7 @@ async function wpRenderOrders() {
       if (!url) throw new Error('kein Link');
       var resp = await fetch(url);
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      var p = orderParse(orderLines(await readPlanPdf(await resp.arrayBuffer())));
+      var p = orderParse(orderLines(await readPlanPdf(await resp.arrayBuffer(), { textOnly: true })));
       if (p.warnings.length) console.warn('Auftrag ' + f.name + ':', p.warnings);
       if (p.jobs.length) parsed[f.id] = p; else failed.push(f);
     } catch (err) {
@@ -859,6 +859,7 @@ async function wpOrderSaveStaff(input) {
   var job = input.dataset.job, field = input.dataset.field, raw = String(input.value).trim();
   var saved = _wpOrderSaved[job] || (_wpOrderSaved[job] = {});
   var back = function() { input.value = saved[field] == null ? '' : String(saved[field]); };
+  if (input.validity && input.validity.badInput) { back(); return; } // "5-" reads as '' and must not clear the number
   var v = raw === '' ? null : Number(raw);
   if (v !== null && !(Number.isInteger(v) && v >= 0 && v <= 99)) { showToast('Bitte eine Zahl von 0 bis 99 eintragen.', 'danger'); back(); return; }
   var row = { job_no: job, updated_at: new Date().toISOString(), updated_by: wpMe() };
@@ -874,10 +875,16 @@ async function wpOrderSaveStaff(input) {
   }
 }
 
+var _wpOrderOpening = false; // double tap while signing must not open two viewers
+// In-app viewer like the Projektordner: window.open after an await is blocked on iOS
 async function wpOpenOrderPdf(fileId) {
   var f = _wpOrderFiles.find(function(x) { return x.id === fileId; });
-  var url = f && await signedProjectFileUrl(f.file_url);
-  if (url) window.open(url, '_blank'); else showToast('PDF konnte nicht geöffnet werden.', 'danger');
+  if (!f || _wpOrderOpening) return;
+  _wpOrderOpening = true;
+  try {
+    var url = await signedProjectFileUrl(f.file_url);
+    if (url) openFileViewer(url, f.name, f.file_type || 'application/pdf'); else showToast('PDF konnte nicht geöffnet werden.', 'danger');
+  } finally { _wpOrderOpening = false; }
 }
 
 // ── IMPORT ──

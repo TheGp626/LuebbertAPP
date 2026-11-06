@@ -161,3 +161,21 @@ test('orderIsAb: by file name', () => {
   assert.equal(ctx.orderIsAb('Auftragsbestätigung 26-0394.pdf'), true);
   assert.equal(ctx.orderIsAb('Packliste.pdf'), false);
 });
+
+test('orderParse: phones with brackets and dots stripped, also in name and room', () => {
+  const lines = DATE_ONLY.map(l => l.startsWith('Info:') ? 'Info: Hausmeister (0521) 123456 oder 0521.96677-0, +49 (0) 171 1234567' : l)
+    .map(l => l === 'Speicherhalle' ? 'Speicherhalle Tel. 030 1234567' : l)
+    .map(l => l === '26-0415.01 / Speicher' ? '26-0415.01 / Speicher Kontakt 0176 1112223' : l);
+  const j = plain(ctx.orderParse(lines)).jobs[0];
+  assert.doesNotMatch(JSON.stringify([j.notes, j.room, j.name]), /\d{3}/);
+  assert.match(j.notes, /^Info: Hausmeister/);
+  assert.equal(j.room, 'Speicherhalle');
+  assert.equal(j.name, 'Speicher Kontakt');
+});
+
+test('orderParse: start without time is kept as a date', () => {
+  const lines = DATE_ONLY.map(l => l.startsWith('Aufbau:') ? 'Aufbau: 09.11.2026 - 10.11.2026 12:00' : l);
+  const r = plain(ctx.orderParse(lines));
+  assert.deepEqual(r.jobs[0].setup, { start: '2026-11-09', end: '2026-11-10T12:00' });
+  assert.deepEqual(r.warnings, []);
+});

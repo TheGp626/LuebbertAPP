@@ -333,3 +333,22 @@ test('wpOrderSaveStaff: empty input saves null, 100 rejected without request', a
   assert.equal(sb.calls.length, 1);
   assert.equal(inp.value, '');
 });
+
+test('wpOpenOrderPdf: opens the in-app viewer (window.open after await is blocked on iOS)', async () => {
+  let shown = null; ctx.openFileViewer = (u, n, t) => { shown = [u, n, t]; };
+  ctx.signedProjectFileUrl = async u => 'https://signed/' + u;
+  ctx.showToast = () => {};
+  vm.runInContext('_wpOrderFiles = [{ id: "f1", name: "AB.pdf", file_url: "x/AB.pdf", file_type: "application/pdf" }]', ctx);
+  await ctx.wpOpenOrderPdf('f1');
+  assert.deepEqual(shown, ['https://signed/x/AB.pdf', 'AB.pdf', 'application/pdf']);
+});
+
+test('wpOrderSaveStaff: unparseable typing (badInput) keeps the saved value, no request', async () => {
+  ctx.showToast = () => {};
+  vm.runInContext('_wpOrderSaved = { "26-0447.01": { staff_setup: 4 } }', ctx);
+  const sb = staffClient(false); ctx.supabaseClient = sb;
+  const inp = Object.assign(staffInput(''), { validity: { badInput: true } });
+  await ctx.wpOrderSaveStaff(inp);
+  assert.equal(sb.calls.length, 0);
+  assert.equal(inp.value, '4');
+});

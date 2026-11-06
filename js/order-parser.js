@@ -29,21 +29,23 @@ var ORDER_JOB_RE = /^(\d{2}-\d{4}\.\d{2}) \/ (.+)$/;
 var ORDER_LABEL_RE = /^([A-ZÄÖÜ][A-Za-zÄÖÜäöüß&.\- ]{0,40}):\s*(.*)$/;
 var ORDER_CONTACT_RE = /Projektleitung|Koordination|Ansprechpartner|Ihr Zeichen|Telefon|E-Mail/i;
 
-// Digit runs that look like phone numbers (7+ digits, with spaces, /, -, +) go; dates and "16 - 19 Uhr" stay
+// Digit runs that look like phone numbers (7+ digits, with spaces / ( ) . - +) go; dates, times and "16 - 19 Uhr" stay
 function orderStripPhones(s) {
-  return s.replace(/\+?\d[\d \/-]*\d/g, function(m) { return m.replace(/\D/g, '').length >= 7 ? '' : m; })
-    .replace(/\s*(Tel\.?|Mobil|Handy)\s*:?\s*(?=$|\/\/)/gi, '').replace(/\s*\/\/\s*$/, '').replace(/\s{2,}/g, ' ').trim();
+  var keep = [];
+  var masked = s.replace(/(?<!\d)\d{1,2}\.\d{1,2}\.(\d{4}|\d{2}(?!\d))?|\d{1,2}:\d{2}/g, function(m) { keep.push(m); return '\u0000' + (keep.length - 1) + '\u0000'; });
+  return masked.replace(/\+?\(?\d[\d \/().-]*\d\)?/g, function(m) { return m.replace(/\D/g, '').length >= 7 ? '' : m; })
+    .replace(/\u0000(\d+)\u0000/g, function(_, i) { return keep[+i]; })
+    .replace(/\s+([,;])/g, '$1').replace(/\s*(Tel\.?|Mobil|Handy)\s*:?\s*(?=$|\/\/)/gi, '').replace(/\s*\/\/\s*$/, '').replace(/\s{2,}/g, ' ').trim();
 }
 
-// "11.11.2026 09:00 - 16:00" | "02.11.2026 08:00 - 05.11.2026 01:00" | "12.11.2026 18:00 - 13.11.2026" → {start, end}
+// "11.11.2026 09:00 - 16:00" | "02.11.2026 08:00 - 05.11.2026 01:00" | "12.11.2026 18:00 - 13.11.2026" | "09.11.2026 - 10.11.2026 12:00"
+// → {start, end}; a part without time stays a plain date
 function orderRange(s) {
-  var d = '(\\d{2})\\.(\\d{2})\\.(\\d{4})', t = '(\\d{2}):(\\d{2})';
-  var m = new RegExp('^' + d + ' ' + t + '(?: - (?:' + d + '(?: ' + t + ')?|' + t + '))?$').exec((s || '').trim());
+  var D = '(\\d{2}\\.\\d{2}\\.\\d{4})', T = '(\\d{2}:\\d{2})';
+  var m = new RegExp('^' + D + '(?: ' + T + ')?(?: - (?:' + D + '(?: ' + T + ')?|' + T + '))?$').exec((s || '').trim());
   if (!m) return null;
-  var day = m[3] + '-' + m[2] + '-' + m[1], start = day + 'T' + m[4] + ':' + m[5], end = null;
-  if (m[8]) end = m[8] + '-' + m[7] + '-' + m[6] + (m[9] ? 'T' + m[9] + ':' + m[10] : '');
-  else if (m[11]) end = day + 'T' + m[11] + ':' + m[12];
-  return { start: start, end: end };
+  var iso = function(d, t) { var p = d.split('.'); return p[2] + '-' + p[1] + '-' + p[0] + (t ? 'T' + t : ''); };
+  return { start: iso(m[1], m[2]), end: m[3] ? iso(m[3], m[4]) : m[5] ? iso(m[1], m[5]) : null };
 }
 
 function orderParse(lines) {
@@ -62,7 +64,7 @@ function orderParse(lines) {
       close();
       if (/\.{4,}|€/.test(l) || seen[m[1]]) { prev = ''; return; } // summary list at the end repeats every job
       seen[m[1]] = true;
-      job = { jobNo: m[1], name: m[2].trim(), address: '', room: '', setup: null, event: null, teardown: null, lead: '', notes: '' };
+      job = { jobNo: m[1], name: orderStripPhones(m[2]), address: '', room: '', setup: null, event: null, teardown: null, lead: '', notes: '' };
       prev = 'head'; note = lead = false;
       return;
     }
@@ -70,7 +72,7 @@ function orderParse(lines) {
     if (/^Job(\.|\s|$)/.test(l)) { close(); return; }
     var lab = ORDER_LABEL_RE.exec(l);
     if (!lab) {
-      if (prev === 'address') job.room = l;
+      if (prev === 'address') job.room = orderStripPhones(l);
       else if (lead) { var n = orderStripPhones(l.replace(/\/\/.*$/, '')); if (n) job.lead += (job.lead ? ', ' : '') + n; }
       else if (note) { var c = orderStripPhones(l); if (c) job.notes += '\n' + c; }
       prev = ''; return;
