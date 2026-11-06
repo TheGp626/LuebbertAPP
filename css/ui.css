@@ -226,11 +226,12 @@ input[type=checkbox].ui-switch:checked::before { transform: translateX(18px); }
 .wp-av-notfall .wp-av-dow, .wp-av-nein .wp-av-dow { color: inherit; }
 .wp-av-planner { margin-top: 24px; }
 .wp-av-planner-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-.wp-av-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 0.5px solid var(--border); border-radius: var(--r-card); }
+.wp-av-scroll { position: relative; overflow-x: auto; -webkit-overflow-scrolling: touch; border: 0.5px solid var(--border); border-radius: var(--r-card); }
 .wp-av-grid { border-collapse: collapse; width: 100%; font-size: 13px; }
-.wp-av-grid th, .wp-av-grid td { padding: 8px 4px; text-align: center; border-bottom: 0.5px solid var(--border); min-width: 38px; }
+.wp-av-grid th, .wp-av-grid td { padding: 8px 2px; text-align: center; border-bottom: 0.5px solid var(--border); min-width: 32px; }
 .wp-av-grid thead th { font-size: 11px; font-weight: 600; color: var(--text2); }
 .wp-av-grid th[scope="row"] { position: sticky; left: 0; z-index: 1; background: var(--bg); text-align: left; font-weight: 500; padding-left: 12px; white-space: nowrap; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
 .wp-av-grid tr:last-child > * { border-bottom: 0; }
 .wp-av-grid td.wp-av-notfall, .wp-av-grid td.wp-av-nein { font-weight: 700; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.wp-av-scroll + .wp-av-legend { margin-top: 10px; }
