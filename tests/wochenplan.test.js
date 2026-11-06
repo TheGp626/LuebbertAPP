@@ -363,3 +363,17 @@ test('wpMineOrdersHtml: only accepted Aufträge, no „Offene Aufträge“ list'
   assert.match(html, /Angenommen ✓/);
   assert.doesNotMatch(html, /Offene Aufträge|Gemeldet|Ich kann/);
 });
+
+test('wpOpenPills: Daniel’s „MA fehlt“ is hidden on a shift with an Auftrag (its own status counts)', () => {
+  const s = { open_slots: [{ role: 'MA', count: 1 }] };
+  assert.match(ctx.wpOpenPills(s), /1 MA fehlt/);
+  s._orders = [{ job_no: 'j', phase: 'setup' }];
+  assert.equal(ctx.wpOpenPills(s), '');
+});
+
+test('wpOrderCard: one „Auftrag“ label, venue as written', () => {
+  const html = ctx.wpOrderCard({ job_no: '26-0415.01', phase: 'setup', title: '261109_Neuköllnspeicher_Vernissage', name: 'Vernissage',
+    start_at: '2026-11-09T10:00', needed: 2, accepted_ids: [], materials: [] });
+  assert.equal((html.match(/>Auftrag</g) || []).length, 1);
+  assert.match(html, /Neuköllnspeicher/);
+});

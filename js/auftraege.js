@@ -138,8 +138,7 @@ var ORD_ICON = {
 function ordCardHtml(x) {
   var j = x.job, open = !!_ordOpen[j.jobNo], first = j.setup || j.event || j.teardown;
   var phase = j.setup ? 'Aufbau' : j.event ? 'Veranstaltung' : 'Abbau';
-  var venue = ordSlotVenue(x.title);
-  var sub = [venue ? venue.charAt(0).toUpperCase() + venue.slice(1) : '', j.room, j.jobNo].filter(Boolean).join(' · ');
+  var sub = [ordVenueLabel(x.title), j.room, j.jobNo].filter(Boolean).join(' · ');
   var head = '<button type="button" class="ord-head" aria-expanded="' + open + '" onclick="ordToggle(\'' + jsAttrArg(j.jobNo) + '\')">' +
     '<span class="ord-time"><b>' + ordEsc(first && first.start.length > 10 ? first.start.slice(11, 16) : '—') + '</b><span>' + phase + '</span></span>' +
     '<span class="ord-head-main"><span class="ord-title-row"><b class="ord-title">' + ordEsc(j.name) + '</b>' + ORD_ICON.chevron + '</span>' +
@@ -182,7 +181,7 @@ function ordSlotHtml(x, phase) {
       var pct = Math.min(100, Math.round(taken.length / needed * 100)), d = needed - taken.length;
       var cls = d <= 0 ? 'ok' : taken.length ? 'warn' : 'danger';
       return '<div class="ord-progress"><div class="ord-progress-row"><span><b>' + taken.length + '</b> von ' + needed + ' besetzt</span>' +
-        '<span class="ord-tone-' + cls + '">' + (d > 0 ? d + ' fehlt' : d < 0 ? -d + ' zu viel' : 'voll') + '</span></div>' +
+        '<span class="ord-tone-' + cls + '">' + (d > 0 ? d + (d === 1 ? ' fehlt' : ' fehlen') : d < 0 ? -d + ' zu viel' : 'voll') + '</span></div>' +
         '<div class="ord-bar"><i class="ord-bar-' + cls + '" style="width:' + pct + '%"></i></div></div>';
     })();
   var dayOptions = _ordCtx.plan.filter(function(p) { return p.date === date; }).map(function(p) {
@@ -223,16 +222,39 @@ function ordSlotHtml(x, phase) {
   return '<section class="ord-slot">' + top + progress + link +
     (people ? '<ul class="ord-people">' + people + '</ul>' : '') +
     (requests ? '<div class="ord-label">Meldungen' + (open.length ? ' · ' + open.length + ' neu' : '') + '</div><ul class="ord-reqs">' + requests + '</ul>'
-      : '<div class="ord-slot-sub">Noch keine Meldungen.</div>') +
-    (extra.length ? '<div class="ord-slot-sub">Angenommen über Auftrag: ' + extra.map(function(a) { return ordEsc(ordName(a.user_id)); }).join(', ') + ' – bitte in Daniels Plan übertragen.</div>' : '') +
+      : needed > taken.length ? '<div class="ord-slot-sub">Noch keine Meldungen.</div>' : '') +
+    (extra.length ? '<div class="ord-slot-sub">Angenommen über Auftrag: ' + extra.map(function(a) { return ordEsc(ordName(a.user_id)); }).join(', ') + ' – Daniel Bescheid geben, damit er sie einplant.</div>' : '') +
   '</section>';
 }
 
-// Stepper: one more / one less MA for a phase, 0–99 (an empty number starts at 0)
-async function ordStep(jobNo, field, delta) {
-  var cur = (_ordSaved[jobNo] || {})[field], v = (cur == null ? 0 : cur) + delta;
-  if (v < 0 || v > 99 || (cur == null && delta < 0)) return;
-  await ordSaveStaff({ value: String(v), dataset: { job: jobNo, field: field } });
+// Stepper: one more / one less MA for a phase, 0–99 (an empty number starts at 0).
+// The number changes at once; taps in a row become one save (each tap waiting for the server lost taps).
+var ORD_STEP_DELAY = 600;
+var _ordStepWait = {}; // job|field → { before: last confirmed number, timer }
+function ordStep(jobNo, field, delta) {
+  var saved = _ordSaved[jobNo] || (_ordSaved[jobNo] = {}), k = jobNo + '|' + field;
+  var cur = saved[field], v = (cur == null ? 0 : cur) + delta;
+  if (v < 0 || v > 99 || (cur == null && delta < 0)) return Promise.resolve();
+  var w = _ordStepWait[k] || (_ordStepWait[k] = { before: cur });
+  clearTimeout(w.timer);
+  saved[field] = v;
+  ordRenderList();
+  return new Promise(function(done) {
+    w.timer = setTimeout(async function() {
+      delete _ordStepWait[k];
+      var row = { job_no: jobNo, updated_at: new Date().toISOString() };
+      row[field] = v;
+      try {
+        var r = await supabaseClient.from('order_staffing').upsert(row, { onConflict: 'job_no' }).select('job_no');
+        if (r.error || !r.data || !r.data.length) throw r.error || new Error('nicht gespeichert');
+      } catch (err) {
+        console.error('MA-Bedarf speichern:', err);
+        showToast('Nicht gespeichert. Prüf deine Verbindung.', 'danger');
+        if (saved[field] === v) { saved[field] = w.before; ordRenderList(); } // newer taps keep their own number
+      }
+      done();
+    }, ORD_STEP_DELAY);
+  });
 }
 
 async function ordDecide(jobNo, phase, userId, status) {
@@ -351,28 +373,6 @@ async function initAuftraege() {
   _ordCtx = c;
   _ordView = { jobs: jobs, failed: out.failed };
   ordRenderList();
-}
-
-// Number field changed: empty = not set; 0–99 saved, anything else goes back to the saved value
-async function ordSaveStaff(input) {
-  var job = input.dataset.job, field = input.dataset.field, raw = String(input.value).trim();
-  var saved = _ordSaved[job] || (_ordSaved[job] = {});
-  var back = function() { input.value = saved[field] == null ? '' : String(saved[field]); };
-  if (input.validity && input.validity.badInput) { back(); return; } // "5-" reads as '' and must not clear the number
-  var v = raw === '' ? null : Number(raw);
-  if (v !== null && !(Number.isInteger(v) && v >= 0 && v <= 99)) { showToast('Bitte eine Zahl von 0 bis 99 eintragen.', 'danger'); back(); return; }
-  var row = { job_no: job, updated_at: new Date().toISOString() };
-  row[field] = v;
-  try {
-    var r = await supabaseClient.from('order_staffing').upsert(row, { onConflict: 'job_no' }).select('job_no');
-    if (r.error || !r.data || !r.data.length) throw r.error || new Error('nicht gespeichert');
-    saved[field] = v;
-    ordRenderList();
-  } catch (err) {
-    console.error('MA-Bedarf speichern:', err);
-    showToast('Nicht gespeichert. Prüf deine Verbindung.', 'danger');
-    back();
-  }
 }
 
 var _ordOpening = false; // double tap while signing must not open two viewers

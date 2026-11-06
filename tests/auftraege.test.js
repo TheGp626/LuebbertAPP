@@ -109,35 +109,41 @@ function staffClient(fail) {
 }
 const staffInput = (value) => ({ value, dataset: { job: '26-0447.01', field: 'staff_setup' } });
 
-test('ordSaveStaff: saves, error restores saved value and toasts', async () => {
-  let toast = null; ctx.showToast = (m, t) => { toast = t; };
-  vm.runInContext('_ordSaved = { "26-0447.01": { staff_setup: 3, staff_teardown: null } }', ctx);
-  let sb = staffClient(false); ctx.supabaseClient = sb;
-  await ctx.ordSaveStaff(staffInput('5'));
-  assert.equal(sb.calls[0].row.job_no, '26-0447.01');
-  assert.equal(sb.calls[0].row.staff_setup, 5);
+// Timer the test runs by hand: taps in a row become one save after ORD_STEP_DELAY
+function stepTimer() {
+  const t = { fn: null };
+  ctx.setTimeout = (fn) => { t.fn = fn; return 1; };
+  ctx.clearTimeout = () => { t.fn = null; };
+  return t;
+}
+
+test('ordStep: three quick taps show 3 at once and save 3 once', async () => {
+  ctx.showToast = () => {}; ctx.ordRenderList = () => {};
+  const timer = stepTimer();
+  vm.runInContext('_ordSaved = { "26-0447.01": { staff_setup: null, staff_teardown: 2 } }', ctx);
+  const sb = staffClient(false); ctx.supabaseClient = sb;
+  ctx.ordStep('26-0447.01', 'staff_setup', 1); ctx.ordStep('26-0447.01', 'staff_setup', 1);
+  const done = ctx.ordStep('26-0447.01', 'staff_setup', 1);
+  assert.equal(vm.runInContext('_ordSaved["26-0447.01"].staff_setup', ctx), 3);
+  assert.equal(sb.calls.length, 0);
+  timer.fn(); await done;
+  assert.equal(sb.calls.length, 1);
+  assert.equal(sb.calls[0].row.staff_setup, 3);
   assert.equal(sb.calls[0].row.staff_teardown, undefined); // the other number is left alone
   assert.equal(sb.calls[0].o.onConflict, 'job_no');
-  assert.equal(vm.runInContext('_ordSaved["26-0447.01"].staff_setup', ctx), 5);
-  sb = staffClient(true); ctx.supabaseClient = sb;
-  const inp = staffInput('7');
-  await ctx.ordSaveStaff(inp);
-  assert.equal(inp.value, '5');
-  assert.equal(toast, 'danger');
 });
 
-test('ordSaveStaff: empty input saves null, 100 and badInput rejected without request', async () => {
-  ctx.showToast = () => {};
-  vm.runInContext('_ordSaved = { "26-0447.01": { staff_setup: 2 } }', ctx);
-  const sb = staffClient(false); ctx.supabaseClient = sb;
-  await ctx.ordSaveStaff(staffInput(''));
-  assert.equal(sb.calls[0].row.staff_setup, null);
-  const inp = staffInput('100');
-  await ctx.ordSaveStaff(inp);
-  assert.equal(inp.value, '');
-  const bad = Object.assign(staffInput(''), { validity: { badInput: true } });
-  await ctx.ordSaveStaff(bad);
-  assert.equal(sb.calls.length, 1);
+test('ordStep: a failed save goes back to the confirmed number and toasts', async () => {
+  let toast = null; ctx.showToast = (m, t) => { toast = t; }; ctx.ordRenderList = () => {};
+  const timer = stepTimer();
+  vm.runInContext('_ordSaved = { "26-0447.01": { staff_setup: 3 } }', ctx);
+  ctx.supabaseClient = staffClient(true);
+  ctx.ordStep('26-0447.01', 'staff_setup', 1);
+  const done = ctx.ordStep('26-0447.01', 'staff_setup', 1);
+  assert.equal(vm.runInContext('_ordSaved["26-0447.01"].staff_setup', ctx), 5);
+  timer.fn(); await done;
+  assert.equal(vm.runInContext('_ordSaved["26-0447.01"].staff_setup', ctx), 3);
+  assert.equal(toast, 'danger');
 });
 
 test('ordOpenPdf: opens the in-app viewer (window.open after await is blocked on iOS)', async () => {
@@ -180,6 +186,7 @@ test('ordSlotHtml: besetzt counts Daniel + accepted without duplicates, warns wh
   const html = ctx.ordSlotHtml(vx(), 'setup');
   assert.match(html, /2<\/b> von 2 besetzt/);
   assert.match(html, /voll/);
+  assert.doesNotMatch(html, /Noch keine Meldungen/); // full: nothing to wait for
   assert.match(html, /Daniels Plan: Neuköllnspeicher/);
   assert.match(html, /Angenommen über Auftrag: Ben &lt;b&gt;/);
   const td = ctx.ordSlotHtml(vx(), 'teardown'); // 0 MA: compact block with the stepper, so the number can go up again
@@ -199,6 +206,7 @@ test('ordSlotHtml: applicants with availability hint and „schon eingeplant“,
   assert.match(html, /Annehmen/);
   assert.match(html, /1<\/b> von 2 besetzt/);
   assert.match(html, /1 fehlt/);
+  assert.doesNotMatch(html, /Noch keine Meldungen/);
 });
 
 function decideClient(fail) {
@@ -282,18 +290,16 @@ test('ordListHtml: grouped by day in date order, failed files at the end', () =>
   assert.ok(i !== -1 && k > i && f > k, [i, k, f].join());
 });
 
-test('ordStep: stepper changes the number by one, never below 0 or above 99', async () => {
-  setCtx(); ctx.showToast = () => {}; ctx.ordRenderList = () => {};
-  const calls = [];
-  ctx.supabaseClient = { from: () => { const b = { upsert(row) { calls.push(row); return b; }, select: () => Promise.resolve({ data: [{ job_no: 'j' }], error: null }) }; return b; } };
-  vm.runInContext('_ordSaved["26-0415.01"] = { staff_setup: 3, staff_teardown: null }', ctx);
+test('ordStep: never below 0 or above 99, no minus on an empty number', async () => {
+  ctx.ordRenderList = () => {};
+  const timer = stepTimer();
+  vm.runInContext('_ordSaved = { "26-0415.01": { staff_setup: 0, staff_teardown: 99 } }', ctx);
+  ctx.supabaseClient = staffClient(false);
   await ctx.ordStep('26-0415.01', 'staff_setup', -1);
-  assert.equal(calls[0].staff_setup, 2);
   await ctx.ordStep('26-0415.01', 'staff_teardown', 1);
-  assert.equal(calls[1].staff_teardown, 1);
-  vm.runInContext('_ordSaved["26-0415.01"].staff_setup = 0', ctx);
-  await ctx.ordStep('26-0415.01', 'staff_setup', -1);
-  assert.equal(calls.length, 2);
+  await ctx.ordStep('26-0415.02', 'staff_setup', -1);
+  assert.equal(timer.fn, null);
+  assert.equal(vm.runInContext('_ordSaved["26-0415.01"].staff_setup', ctx), 0);
 });
 
 test('ordSlotHtml: a Fahrer on Daniel’s entry is listed but does not count', () => {
@@ -303,4 +309,18 @@ test('ordSlotHtml: a Fahrer on Daniel’s entry is listed but does not count', (
   assert.match(html, /Hassan · Fahrer/);
   assert.match(html, /zählt nicht/);
   assert.match(html, /1<\/b> von 2 besetzt/);
+});
+
+test('ordSlotHtml: „2 fehlen“, open places without applications say „Noch keine Meldungen“', () => {
+  setCtx({ plan: [] });
+  const html = ctx.ordSlotHtml(vx(), 'setup');
+  assert.match(html, /2 fehlen/);
+  assert.match(html, /Noch keine Meldungen/);
+});
+
+test('ordCardHtml: venue shown as written in the title (umlauts kept)', () => {
+  setCtx();
+  vm.runInContext('_ordOpen = {}', ctx);
+  const x = vx(); x.title = '261109_Neuköllnspeicher_Vernissage';
+  assert.match(ctx.ordCardHtml(x), /Neuköllnspeicher · /);
 });
