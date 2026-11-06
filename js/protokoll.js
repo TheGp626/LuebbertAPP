@@ -1041,16 +1041,21 @@ function protIncompleteNames(personnel) {
 }
 
 // People who end later than the AL's own row (Sonja: the AL must explain why). No AL row or AL time → nobody.
-// An end before the start counts as the next day (over midnight).
+// An end before the start counts as the next day (over midnight); a row starting more than 12 h before the AL's
+// start belongs to the night after it (AL 18:00–02:00, MA 00:30–03:00).
 var PROT_LONGER_THAN_AL = 'Länger als AL';
 function protLongerThanAl(personnel, alId) {
+  var alStart = null;
   var endMin = function(p) {
     var s = timeToMins(p.start), e = timeToMins(p.end);
-    return s === null || e === null || isNaN(s) || isNaN(e) ? null : (e < s ? e + 1440 : e);
+    if (s === null || e === null || isNaN(s) || isNaN(e)) return null;
+    if (e < s) e += 1440;
+    return alStart !== null && s + 720 < alStart ? e + 1440 : e;
   };
   var al = alId ? (personnel || []).find(function(p) { return p.userId === alId; }) : null;
   var alEnd = al ? endMin(al) : null;
   if (alEnd === null) return [];
+  alStart = timeToMins(al.start);
   return personnel.filter(function(p) {
     var e = p !== al ? endMin(p) : null;
     return e !== null && e > alEnd;

@@ -276,6 +276,7 @@ function wpAvailGrid(people, rows, monday) {
 
 var wpAvailRows = {};        // own blocked days: { 'YYYY-MM-DD': 'nein' | 'notfall' }
 var _wpAvailChain = {};      // per day: the last pending write, so writes reach the server in tap order
+var _wpAvailSaved = {};      // per day: last level the server confirmed (load or successful save)
 var wpAvailGridMonday = null; // week shown in the planner grid
 
 function wpAvailMode() {
@@ -317,10 +318,11 @@ function wpAvailSave(day, level) {
                : q.delete().eq('user_id', me).eq('day', day).select('day');
 }
 
-// Tap on a day: next level shown at once, saved in tap order; a failed save puts the previous level back
+// Tap on a day: next level shown at once, saved in tap order; a failed save puts back the last SAVED level
 async function wpToggleAvail(day) {
   if (!wpMe() || day < localDateStr()) return;
   var prev = wpAvailRows[day] || '', next = wpAvailNext(prev);
+  if (!(day in _wpAvailSaved)) _wpAvailSaved[day] = prev;
   if (next) wpAvailRows[day] = next; else delete wpAvailRows[day];
   wpAvailRepaint(day);
   var run = (_wpAvailChain[day] || Promise.resolve()).then(function() { return wpAvailSave(day, next); });
@@ -329,8 +331,14 @@ async function wpToggleAvail(day) {
   try { r = await run; } catch (e) { r = { error: e }; }
   if (r.error || (next && (!r.data || !r.data.length))) {
     console.error('Verfügbarkeit speichern:', r.error);
-    if ((wpAvailRows[day] || '') === next) { if (prev) wpAvailRows[day] = prev; else delete wpAvailRows[day]; wpAvailRepaint(day); }
+    if ((wpAvailRows[day] || '') === next) {
+      var saved = _wpAvailSaved[day];
+      if (saved) wpAvailRows[day] = saved; else delete wpAvailRows[day];
+      wpAvailRepaint(day);
+    }
     showToast('Nicht gespeichert. Prüf deine Verbindung und tipp nochmal.', 'danger');
+  } else {
+    _wpAvailSaved[day] = next;
   }
 }
 
@@ -523,7 +531,7 @@ async function wpRenderAvail() {
       content.innerHTML = '<div class="wp-empty">Deine Verfügbarkeit konnte nicht geladen werden. Prüf deine Verbindung und öffne den Tab erneut.</div>';
       return;
     }
-    wpAvailRows = {};
+    wpAvailRows = {}; _wpAvailSaved = {};
     (r.data || []).forEach(function(x) { wpAvailRows[x.day] = x.level; });
     html += '<section aria-label="Meine Verfügbarkeit">' + wpAvailCalendarHtml(today) + '</section>';
   }

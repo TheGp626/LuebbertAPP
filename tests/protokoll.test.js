@@ -946,3 +946,12 @@ test('updateProtPersonnel: picking another person takes that person\'s type and 
   assert.ok(!p.legacy);
   assert.equal(run("protBasePos(protState.personnel[0], appUsers)"), 'MA Fest');
 });
+
+test('protLongerThanAl: AL over midnight, MA starting after midnight and ending later is flagged', () => {
+  const rows = [
+    { userId: 'al', name: 'Ali', start: '18:00', end: '02:00' },
+    { name: 'Eda', start: '00:30', end: '03:00' },
+    { name: 'Fin', start: '00:30', end: '01:30' },
+  ];
+  assert.deepEqual(plain(run('protLongerThanAl')(rows, 'al')), ['Eda']);
+});

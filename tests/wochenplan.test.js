@@ -257,3 +257,15 @@ function stubToday(iso) {
   const real = ctx.localDateStr;
   ctx.localDateStr = d => (d ? real(d) : iso);
 }
+
+test('wpToggleAvail: two failed taps fall back to the last saved value, not an unsaved one', async () => {
+  const sb = availClient({ manual: true, fail: true }); ctx.supabaseClient = sb; ctx.currentUser = { id: 'me' }; ctx.showToast = () => {};
+  stubToday('2026-11-06');
+  const a = ctx.wpToggleAvail('2026-11-10'), b = ctx.wpToggleAvail('2026-11-10');
+  await new Promise(r => setImmediate(r));
+  sb.pending.shift()();
+  await new Promise(r => setImmediate(r));
+  sb.pending.shift()();
+  await Promise.all([a, b]);
+  assert.equal(vm.runInContext('wpAvailRows["2026-11-10"] || ""', ctx), '');
+});
