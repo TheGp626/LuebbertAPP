@@ -332,10 +332,12 @@ function ordRenderList() {
 // Context for the phase blocks and the inbox: all upcoming entries of Daniel's plan; a failing part only leaves its hints out
 async function ordLoadCtx() {
   var today = localDateStr();
+  // An order stays listed until its Abbau, so its Aufbau can already lie in the past: load Daniel's entries 14 days back
+  var ordPlanFrom = localDateStr(new Date(Date.now() - 14 * 864e5));
   var res = await Promise.all([
     supabaseClient.from('order_applications').select('job_no, phase, user_id, status'),
     supabaseClient.from('order_plan_links').select('job_no, phase, plan_date, plan_key'),
-    supabaseClient.from('plan_shifts').select('id, week_id, date, key, venue, location, title, wann, open_slots, plan_assignments(user_id, name, role)').gte('date', today),
+    supabaseClient.from('plan_shifts').select('id, week_id, date, key, venue, location, title, wann, open_slots, plan_assignments(user_id, name, role)').gte('date', ordPlanFrom),
     supabaseClient.from('availability').select('user_id, day, level').gte('day', today),
     supabaseClient.from('app_users').select('id, full_name, role, is_active, availability_enabled, can_drive'),
     supabaseClient.from('plan_shift_interest').select('week_id, shift_key, user_id, status'),
