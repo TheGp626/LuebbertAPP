@@ -420,16 +420,21 @@ function ordnerMatchAl(lead, users) {
 }
 
 // Einsatz rows from a parsed Bestätigung: Aufbau + Abbau per job, tagged with job_no/phase; have = 'job|phase' already in the form
+// A phase several jobs share (same time) is one row on the first job; also_jobs get 0 MA for it on save
 function ordnerAbRows(parsed, users, have) {
-  var out = [];
-  ((parsed && parsed.jobs) || []).forEach(function(j) {
-    [['setup', 'Aufbau'], ['teardown', 'Abbau']].forEach(function(x) {
-      var r = j[x[0]];
-      if (!r || !r.start || (have || {})[j.jobNo + '|' + x[0]]) return;
-      out.push({ date: r.start.slice(0, 10), action: x[1], al_id: ordnerMatchAl(j.lead, users), job_no: j.jobNo, phase: x[0] });
+  var jobs = (parsed && parsed.jobs) || [], shared = orderSharedPhases(jobs), out = [];
+  jobs.forEach(function(j) {
+    ['setup', 'teardown'].forEach(function(ph) {
+      var r = j[ph];
+      if (!r || !r.start || shared[j.jobNo + '|' + ph] || (have || {})[j.jobNo + '|' + ph]) return;
+      var also = Object.keys(shared).filter(function(k) { return shared[k] === j.jobNo && k.split('|')[1] === ph; })
+        .map(function(k) { return k.split('|')[0]; });
+      var row = { date: r.start.slice(0, 10), action: orderPhaseAction(j, ph), al_id: ordnerMatchAl(j.lead, users), job_no: j.jobNo, phase: ph };
+      if (also.length) row.also_jobs = also;
+      out.push(row);
     });
   });
-  return out;
+  return out.sort(function(a, b) { return a.date.localeCompare(b.date); });
 }
 
 // order_staffing upserts from the MA fields of tagged rows (earliest row per phase); only the phases present are written
@@ -441,6 +446,10 @@ function ordnerStaffRows(rows) {
       if (!by[r.job_no]) { by[r.job_no] = { job_no: r.job_no }; order.push(r.job_no); }
       var col = r.phase === 'setup' ? 'staff_setup' : 'staff_teardown', n = parseInt(r.staff, 10);
       if (!(col in by[r.job_no])) by[r.job_no][col] = isNaN(n) ? null : Math.max(0, Math.min(99, n));
+      (r.also_jobs || []).forEach(function(a) {
+        if (!by[a]) { by[a] = { job_no: a }; order.push(a); }
+        if (!(col in by[a])) by[a][col] = 0;
+      });
     });
   return order.map(function(k) { return by[k]; });
 }
@@ -482,6 +491,7 @@ function addEinsatzRow(e) {
   row.dataset.id = e.id || '';
   row.dataset.job = e.job_no || '';
   row.dataset.phase = e.phase || '';
+  row.dataset.also = (e.also_jobs || []).join(',');
   var staff = e.job_no ? (_ordnerStaff[e.job_no] || {})[e.phase === 'setup' ? 'staff_setup' : 'staff_teardown'] : null;
   row.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px; align-items:center;';
   row.innerHTML =
@@ -493,7 +503,7 @@ function addEinsatzRow(e) {
     (e.job_no ? '<label class="einsatz-staff-wrap" style="font-size:12px; display:flex; align-items:center; gap:4px; white-space:nowrap;">MA gebraucht <input type="number" class="meta-input einsatz-staff" inputmode="numeric" min="0" max="99" style="width:64px; margin:0;" value="' + (staff == null ? '' : staff) + '"></label>' : '') +
     '<label style="font-size:12px; display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" class="einsatz-cancelled"' + (e.cancelled ? ' checked' : '') + '> abgesagt/übernommen</label>' +
     '<button type="button" class="btn" style="width:auto; padding:4px 10px; color:var(--danger);" title="Einsatz entfernen" onclick="this.parentElement.remove(); ordnerSyncDeleteField()">🗑</button>' +
-    (e.job_no ? '<div class="ui-sub" style="flex-basis:100%; order:-1; margin:0; font-weight:600;">Auftrag ' + escOrdner(e.job_no) + ' · ' + (e.phase === 'setup' ? 'Aufbau' : 'Abbau') + ' – Datum und AL hier gelten auch für „Ich kann“</div>' : '');
+    (e.job_no ? '<div class="ui-sub" style="flex-basis:100%; order:-1; margin:0; font-weight:600;">Auftrag ' + escOrdner([e.job_no].concat(e.also_jobs || []).join(', ')) + ' · ' + (e.phase === 'setup' ? 'Aufbau' : 'Abbau') + ' – Datum und AL hier gelten auch für „Ich kann“</div>' : '');
   list.appendChild(row);
 }
 
@@ -523,6 +533,7 @@ function readEinsatzRows() {
     };
     if (row.dataset.id) r.id = row.dataset.id;
     if (row.dataset.job) { r.job_no = row.dataset.job; r.phase = row.dataset.phase; r.staff = row.querySelector('.einsatz-staff').value; }
+    if (row.dataset.also) r.also_jobs = row.dataset.also.split(',');
     return r;
   });
 }

@@ -108,3 +108,25 @@ function orderParse(lines) {
   if (!res.jobs.length && !res.project) res.warnings.push('Keine Auftragsbestätigung erkannt.');
   return res;
 }
+
+// Jobs of one Bestätigung often share a phase (Aufbau, Deko and Umbau jobs all list the same Abbau):
+// 'jobNo|phase' → the earlier job with exactly the same time, so that phase is staffed once
+function orderSharedPhases(jobs) {
+  var first = {}, out = {};
+  (jobs || []).forEach(function(j) {
+    ['setup', 'teardown'].forEach(function(ph) {
+      var r = j[ph];
+      if (!r || !r.start) return;
+      var k = ph + '|' + r.start + '|' + (r.end || '');
+      if (first[k]) out[j.jobNo + '|' + ph] = first[k]; else first[k] = j.jobNo;
+    });
+  });
+  return out;
+}
+
+// Einsatz action for a job phase: Umbau / Teilaufbau / Teilabbau when the job name says so
+function orderPhaseAction(job, phase) {
+  var n = (job && job.name) || '';
+  if (phase === 'teardown') return /teilabbau/i.test(n) ? 'Teilabbau' : 'Abbau';
+  return /umbau/i.test(n) ? 'Umbau' : /teilaufbau/i.test(n) ? 'Teilaufbau' : 'Aufbau';
+}
