@@ -454,3 +454,27 @@ test('wpLoadAcceptedShifts: own accepted rows → their upcoming shifts where I 
   assert.deepEqual(plain(out.map(s => s.id)), ['a']);
   assert.deepEqual(plain(out[0]._interest), [{ user_id: 'me', status: 'angenommen' }]);
 });
+
+// ── Leere Wochen: Auftrag-Slots in KWs ohne Daniels Plan ──
+test('wpVirtualWeeks: one virtual ISO week per future KW with slots and no plan_weeks row', () => {
+  const real = [{ id: 'w1', week_start: '2026-11-09', week_end: '2026-11-15' }];
+  const slots = [
+    { start_at: '2026-11-10T08:00:00+01:00' },               // covered by w1
+    { start_at: '2026-12-14T08:00:00+01:00' },               // KW 51 (Mo)
+    { start_at: '2026-12-20T22:00:00+01:00' },               // KW 51 (So), same week
+    { start_at: '2026-12-28T08:00:00+01:00' },               // KW 53 of 2026
+    { start_at: '2026-11-02T08:00:00+01:00' },               // past → skipped
+    { start_at: null },
+  ];
+  const v = plain(ctx.wpVirtualWeeks(real, slots, '2026-11-09'));
+  assert.deepEqual(v, [
+    { id: 'v-2026-51', year: 2026, kw: 51, week_start: '2026-12-14', week_end: '2026-12-20', _virtual: true },
+    { id: 'v-2026-53', year: 2026, kw: 53, week_start: '2026-12-28', week_end: '2027-01-03', _virtual: true },
+  ]);
+});
+
+test('wpVirtualWeeks: ISO year at the turn of the year, current week counts, null slots → []', () => {
+  const v = plain(ctx.wpVirtualWeeks([], [{ start_at: '2027-01-01T10:00:00+01:00' }, { start_at: '2027-01-04T10:00:00+01:00' }], '2026-12-31'));
+  assert.deepEqual(v.map(w => w.id), ['v-2026-53', 'v-2027-1']);
+  assert.deepEqual(plain(ctx.wpVirtualWeeks([], null, '2026-12-31')), []);
+});

@@ -434,10 +434,11 @@ async function initWochenplan() {
   document.getElementById('wp-upload-btn').style.display = wpCanUpload() ? '' : 'none';
   var content = document.getElementById('wp-content');
   content.innerHTML = '<div class="wp-empty">Lädt…</div>';
-  var [u, a, w] = await Promise.all([
+  var [u, a, w, sl] = await Promise.all([
     supabaseClient.rpc('user_directory'),
     supabaseClient.from('plan_name_aliases').select('alias, user_id'),
-    supabaseClient.from('plan_weeks').select('*').order('week_start', { ascending: false })
+    supabaseClient.from('plan_weeks').select('*').order('week_start', { ascending: false }),
+    wpLoadSlots()
   ]);
   if (u.error || a.error || w.error) {
     console.error('Wochenplan laden:', u.error || a.error || w.error);
@@ -448,7 +449,9 @@ async function initWochenplan() {
   wpAliases = {};
   // Same normalisation as planMatchPerson (older entries were saved with a trailing dot)
   (a.data || []).forEach(function(r) { wpAliases[planAliasKey(r.alias)] = r.user_id; });
-  wpWeeks = w.data || [];
+  // KWs with Auftrag slots but no plan from Daniel yet show as empty weeks, so people can already say "Ich kann"
+  wpWeeks = (w.data || []).concat(wpVirtualWeeks(w.data || [], sl, localDateStr()))
+    .sort(function(x, y) { return x.week_start < y.week_start ? 1 : x.week_start > y.week_start ? -1 : 0; });
   // Default: the week containing today, else the next upcoming one, else the newest
   var today = localDateStr();
   if (!wpWeeks.some(function(x) { return x.id === wpWeekId; })) {
@@ -459,6 +462,23 @@ async function initWochenplan() {
   if (typeof syncPushSubscription === 'function') syncPushSubscription();
   await wpRenderPushHint();
   wpSetView(wpView);
+}
+
+// Future ISO weeks (Mo–So) that have order slots but no plan_weeks row; ascending, ids 'v-<ISO year>-<KW>'
+function wpVirtualWeeks(realWeeks, slots, today) {
+  var day = 864e5, seen = {}, out = [];
+  (slots || []).forEach(function(sl) {
+    var d = ordSlotDate(sl);
+    if (!d) return;
+    var t = Date.parse(d + 'T00:00:00Z'), mon = t - ((new Date(t).getUTCDay() + 6) % 7) * day;
+    var ws = new Date(mon).toISOString().slice(0, 10), we = new Date(mon + 6 * day).toISOString().slice(0, 10);
+    if (we < today || seen[ws] || realWeeks.some(function(w) { return w.week_start <= d && w.week_end >= d; })) return;
+    seen[ws] = true;
+    var thu = new Date(mon + 3 * day), y = thu.getUTCFullYear(); // ISO week belongs to the year of its Thursday
+    var kw = Math.floor((thu - Date.UTC(y, 0, 1)) / day / 7) + 1;
+    out.push({ id: 'v-' + y + '-' + kw, year: y, kw: kw, week_start: ws, week_end: we, _virtual: true });
+  });
+  return out.sort(function(x, y) { return x.week_start < y.week_start ? -1 : 1; });
 }
 
 async function wpRenderPushHint() {
@@ -726,9 +746,10 @@ async function wpRenderWeek() {
   label.innerHTML = 'KW ' + week.kw + ' <span>' + s0.d + '.' + (s0.m !== s1.m ? s0.m + '.' : '') + '–' + s1.d + '.' + s1.m + '.' +
     (week.version > 1 ? ' · Stand ' + week.version : '') + '</span>';
   content.innerHTML = '<div class="wp-empty">Lädt…</div>';
+  var none = Promise.resolve({ data: [], error: null }); // virtual week: nothing from Daniel yet
   var [res, iq, slots] = await Promise.all([
-    supabaseClient.from('plan_shifts').select('*, plan_assignments(*)').eq('week_id', week.id).order('date').order('sort'),
-    supabaseClient.from('plan_shift_interest').select('shift_key, user_id, status').eq('week_id', week.id),
+    week._virtual ? none : supabaseClient.from('plan_shifts').select('*, plan_assignments(*)').eq('week_id', week.id).order('date').order('sort'),
+    week._virtual ? none : supabaseClient.from('plan_shift_interest').select('shift_key, user_id, status').eq('week_id', week.id),
     wpLoadSlots()
   ]);
   var data = res.data, error = res.error;
@@ -750,6 +771,7 @@ async function wpRenderWeek() {
   (data || []).forEach(function(s) { (byDay[s.date] = byDay[s.date] || []).push(s); });
   wpRenderDays(week, byDay);
   var html = slots === null ? '<div class="ui-sub wp-ord-fail">Aufträge konnten nicht geladen werden.</div>' : '';
+  if (week._virtual) html += '<div class="ui-sub wp-virtual-hint">Noch kein Plan von Daniel – hier stehen nur die Aufträge. Melde dich schon mit „Ich kann“.</div>';
   // Entries with kind 'unassigned' only drive the push ("nicht mehr eingeteilt"); that shift still exists
   var gone = (week.removed || []).filter(function(r) { return r.kind !== 'unassigned'; });
   if (gone.length) {
