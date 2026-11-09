@@ -155,6 +155,16 @@ function saveStore(all) {
   if (key) localStorage.setItem(key, JSON.stringify(all));
 }
 
+// Stored department → what the editor's select shows: "MA Minijob" / old "MA frei" → "MA" (the type comes from the person)
+function editorDept(dept) {
+  return typeof splitPosition === 'function' ? (splitPosition(dept).func || dept) : dept;
+}
+
+// Department of an own shift as stored on the server: AL/MA/Fahrer get the user's employment type ("MA Midijob")
+function shiftSyncRole(dept, type) {
+  return positionKey(splitPosition(dept).func, type);
+}
+
 // ── EDITOR STATE ──
 var _editorBaseline = null; // snapshot of the editor right after it was filled/saved → "untouched" check
 var _editorWeek = null;
@@ -164,12 +174,14 @@ function weekToEditorState(w, fallbackDept) {
   var st = { shiftCounts: {}, shiftValues: {}, shiftSigData: {} };
   (w.days || []).forEach(function (dd, i) {
     var shs = dd.shifts || [{ von: dd.von || '', bis: dd.bis || '', pause: dd.pause || '0', ort: dd.ort || '', al: dd.al || '', sig: dd.sig || null }];
+    // Stored per dept part → merged out of time order; show "Schicht 1, 2…" by start time (empty Von last)
+    shs = shs.slice().sort(function (a, b) { return (a.von || '99') < (b.von || '99') ? -1 : (a.von || '99') > (b.von || '99') ? 1 : 0; });
     st.shiftCounts[i] = shs.length;
     st.shiftValues[i] = shs.map(function (sh, s) {
       if (sh.sig) st.shiftSigData[i + '-' + s] = sh.sig;
       var _v = timeToMins(sh.von || ''), _b = timeToMins(sh.bis || '');
       var _p = (_v !== null && _b !== null) ? autoPause(_b < _v ? _b + 1440 - _v : _b - _v) : 0;
-      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: _p.toString(), dept: sh.dept || fallbackDept, protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
+      return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: _p.toString(), dept: editorDept(sh.dept || fallbackDept), protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
     });
   });
   return st;
@@ -488,7 +500,8 @@ function weekIsBlind(all, weekStart) {
 // Adds shifts the server has but the local week lacks (same day + von + bis + dept); keeps everything local
 function mergeUnseenShifts(local, server) {
   var added = 0;
-  var keyOf = function (s, w) { return [s.von, s.bis, s.dept || w.abt].join('|'); };
+  // by function: the editor keeps "MA", a server-built week "MA Minijob" or old "MA frei" — same shift
+  var keyOf = function (s, w) { return [s.von, s.bis, editorDept(s.dept || w.abt)].join('|'); };
   var days = (local.days || []).map(function (dd, i) {
     var have = (dd.shifts || []).filter(function (s) { return s.von || s.bis; });
     var keys = {};
@@ -950,17 +963,23 @@ function weekBillingSplit(w) {
     var d = parseDayDate(dd);
     if (!d) return;
     var shifts = dd.shifts || [dd]; // legacy single-shift day format
-    var hrs = 0;
-    shifts.forEach(function (sh) { hrs += shiftNetHours(sh); });
+    var hrs = 0, eur = 0;
+    shifts.forEach(function (sh) {
+      var h = shiftNetHours(sh);
+      hrs += h;
+      eur += h * (getDeptWage(editorDept(sh.dept || w.abt)) || 0); // pay at the device's wage per department
+    });
     if (hrs <= 0) return;
     var p = getBillingKeyForDate(d, billingCutoff);
-    if (!out[p.key]) out[p.key] = { label: p.label, hours: 0 };
+    if (!out[p.key]) out[p.key] = { label: p.label, hours: 0, eur: 0 };
     out[p.key].hours += hrs;
+    out[p.key].eur += eur;
     hasAny = true;
   });
   if (!hasAny) {
     var m = getMonthKeyFromWeek(w.weekStart, billingCutoff);
-    out[m.key] = { label: m.label, hours: parseFloat((w.total || '0').replace(',', '.')) || 0 };
+    var th = parseFloat((w.total || '0').replace(',', '.')) || 0;
+    out[m.key] = { label: m.label, hours: th, eur: th * (getDeptWage(editorDept(w.abt)) || 0) };
   }
   return out;
 }
@@ -988,9 +1007,10 @@ function renderHistory(skipSync) {
     }
     var periods = weekBillingSplit(w);
     Object.keys(periods).forEach(function (pk) {
-      if (!months[pk]) months[pk] = { label: periods[pk].label, weeks: [], totalHours: 0 };
+      if (!months[pk]) months[pk] = { label: periods[pk].label, weeks: [], totalHours: 0, totalEur: 0 };
       months[pk].weeks.push(w);
       months[pk].totalHours += periods[pk].hours;
+      months[pk].totalEur += periods[pk].eur || 0;
     });
   });
   var html = '';
@@ -999,11 +1019,11 @@ function renderHistory(skipSync) {
     var hrs = m.totalHours % 1 === 0 ? m.totalHours.toFixed(0) : m.totalHours.toFixed(2);
     var bilRange = getBillingPeriodLabel(mKey, billingCutoff);
     html += '<div class="ui-section"><div class="ui-section-head"><div><div class="ui-row-title">' + escapeHtml(m.label) + '</div>' +
-      '<div class="ui-sub">' + bilRange + ' · ' + hrs.replace('.', ',') + ' h</div></div>' +
+      '<div class="ui-sub">' + bilRange + ' · ' + hrs.replace('.', ',') + ' h' + (formatEuros(m.totalEur) ? ' · ' + formatEuros(m.totalEur) : '') + '</div></div>' +
       '<button type="button" class="ui-icon-btn" aria-label="Monat-Aktionen" onclick="historyMonthMenu(\'' + jsAttrArg(mKey) + '\')">' + uiIcon('dots') + '</button></div>';
     html += m.weeks.map(function (w) {
       var hKey = w.histKey || w.weekStart;
-      var earnW = (w.earnParts || [w]).map(function (p) { return formatEarnings(parseFloat(String(p.total || '0').replace(',', '.')), p.abt); }).filter(Boolean).join(' · ');
+      var earnW = formatEuros(weekEarningsTotal(w.earnParts || [w])); // one amount: several per department squeezed the card
       var kw = w.weekStart ? parseInt(String(w.weekStart).split('-W')[1]) : '';
       var range = '';
       if (w.weekStart) {
@@ -1298,7 +1318,7 @@ async function syncWeekNow(data, quiet) {
           start_time:    sh.von,
           end_time:      sh.bis,
           pause_mins:    parseInt(sh.pause) || 0,
-          position_role: sh.dept || data.abt,
+          position_role: shiftSyncRole(sh.dept || data.abt, currentUser.employment_type),
           status:        'offen',
           temp_worker_name: null,
           shift_date:    isoWeekToDate(data.weekStart, dayIdx),
@@ -1354,7 +1374,7 @@ async function syncWeekNow(data, quiet) {
 // Protocol shifts and anything accounting already booked ('eingetragen') are never touched.
 function planWeekDelete(existing, role) {
   return (existing || []).filter(function (r) {
-    return r.status === 'offen' && (role === null || r.position_role === role);
+    return r.status === 'offen' && (role === null || editorDept(r.position_role) === editorDept(role));
   }).map(function (r) { return r.id; });
 }
 
@@ -1451,7 +1471,7 @@ function splitWeekByDepts(w) {
   (w.days || []).forEach(function(dd) {
     (dd.shifts || []).forEach(function(sh) {
       if (sh.von && sh.bis) {
-        var d = sh.dept || w.abt;
+        var d = editorDept(sh.dept || w.abt); // "MA", "MA frei", "MA Minijob" are one department
         if (depts.indexOf(d) === -1) depts.push(d);
       }
     });
@@ -1460,7 +1480,7 @@ function splitWeekByDepts(w) {
   return depts.map(function(dept) {
     var filteredDays = w.days.map(function(dd) {
       return { day: dd.day, date: dd.date, isoDate: dd.isoDate,
-        shifts: (dd.shifts || []).filter(function(sh) { return (sh.dept || w.abt) === dept && sh.von && sh.bis; }) };
+        shifts: (dd.shifts || []).filter(function(sh) { return editorDept(sh.dept || w.abt) === dept && sh.von && sh.bis; }) };
     });
     var deptMins = 0;
     filteredDays.forEach(function(dd) {
@@ -1473,6 +1493,14 @@ function splitWeekByDepts(w) {
     var deptTotal = deptMins / 60;
     return Object.assign({}, w, { abt: dept, days: filteredDays, total: deptTotal % 1 === 0 ? deptTotal.toFixed(0) : deptTotal.toFixed(2) });
   });
+}
+
+// Estimated pay of a week: sum over its department parts ({ abt, total }) at the device's wage per department
+function weekEarningsTotal(parts) {
+  return (parts || []).reduce(function (sum, p) {
+    var h = parseFloat(String(p.total || '0').replace(',', '.')) || 0;
+    return sum + h * (getDeptWage(p.abt) || 0);
+  }, 0);
 }
 
 // ── PDF ──

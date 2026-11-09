@@ -16,7 +16,9 @@ var APP_SETTINGS_DEFAULTS = {
   protocol_mail_enabled: true,
   mail_test_mode: true,
   billing_cutoff: 20,
-  vehicle_rates: (typeof PROT_VEHICLE_RATES !== 'undefined') ? PROT_VEHICLE_RATES : {} // js/formulas.js
+  availability_for_all: false,
+  vehicle_rates: (typeof PROT_VEHICLE_RATES !== 'undefined') ? PROT_VEHICLE_RATES : {}, // js/formulas.js
+  personnel_rates: (typeof PERSONNEL_RATE_DEFAULTS !== 'undefined') ? PERSONNEL_RATE_DEFAULTS : {} // js/formulas.js
 };
 var APP_SETTINGS_CACHE_KEY = 'luebbert_app_settings';
 var _appSettings = Object.assign({}, APP_SETTINGS_DEFAULTS);
@@ -29,7 +31,8 @@ function _settingsMerge(obj) {
   var out = Object.assign({}, APP_SETTINGS_DEFAULTS);
   Object.keys(obj || {}).forEach(function(k) {
     if (k in APP_SETTINGS_DEFAULTS && typeof obj[k] === typeof APP_SETTINGS_DEFAULTS[k]
-        && (k !== 'vehicle_rates' || validVehicleRates(obj[k]))) out[k] = obj[k];
+        && (k !== 'vehicle_rates' || validVehicleRates(obj[k]))
+        && (k !== 'personnel_rates' || validPersonnelRates(obj[k]))) out[k] = obj[k];
   });
   return out;
 }
@@ -64,6 +67,19 @@ function validVehicleRates(v) {
   });
 }
 
+var PERSONNEL_RATE_TYPES = ['Minijob', 'Midijob', 'Rechnung', 'Fest'], PERSONNEL_RATE_FUNCS = ['MA', 'AL', 'Fahrer'];
+var PERSONNEL_TYPE_LABELS = { Minijob: 'Minijob', Midijob: 'Midijob', Rechnung: 'Rechnungsschreiber', Fest: 'Festangestellt' };
+
+// { Minijob|Midijob|Rechnung|Fest: { MA, AL, Fahrer } }, all numbers 0–1000 (mirrors the RPC)
+function validPersonnelRates(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v) || Object.keys(v).length !== 4) return false;
+  return PERSONNEL_RATE_TYPES.every(function(t) {
+    var r = v[t];
+    return !!r && typeof r === 'object' && Object.keys(r).length === 3 &&
+      PERSONNEL_RATE_FUNCS.every(function(f) { return typeof r[f] === 'number' && r[f] >= 0 && r[f] <= 1000; });
+  });
+}
+
 // First invalid key (unknown key, wrong type or out of range) or null; mirrors the RPC's checks
 function validateSettings(changes) {
   var keys = Object.keys(changes || {});
@@ -74,6 +90,7 @@ function validateSettings(changes) {
     if (k === 'evening_push_hour' && (v !== Math.floor(v) || v < 15 || v > 22)) return k;
     if (k === 'billing_cutoff' && (v !== Math.floor(v) || v < 1 || v > 31)) return k;
     if (k === 'vehicle_rates' && !validVehicleRates(v)) return k;
+    if (k === 'personnel_rates' && !validPersonnelRates(v)) return k;
   }
   return null;
 }
@@ -114,6 +131,9 @@ var SETTINGS_SWITCHES = [
   { group: 'Projektordner', items: [
     { key: 'folder_autodelete_enabled', label: 'Alte Projektordner automatisch löschen', hint: '7 Tage nach dem letzten Einsatz, samt Dateien' }
   ] },
+  { group: 'Wochenplan', items: [
+    { key: 'availability_for_all', label: 'Verfügbarkeit für alle', hint: 'Alle Mitarbeiter können Tage blocken, nicht nur freigeschaltete' }
+  ] },
   { group: 'Protokoll-Mails', items: [
     { key: 'protocol_mail_enabled', label: 'Mails an die PL', hint: 'Fertige und geänderte Protokolle gehen als PDF an die PL' },
     { key: 'mail_test_mode', label: 'Testmodus', hint: 'Alle Mails gehen an die Testadresse (Supabase-Secret TEST_RECIPIENT) statt an die PL' }
@@ -144,8 +164,18 @@ async function renderSettingsTab() {
   html += '<div class="set-group"><div class="set-group-title">Fahrzeugsätze (€ pro Einsatz)</div>' +
     '<div class="set-veh-row set-veh-head"><span>Fahrzeug</span><span>Mo–Fr</span><span>Sa</span><span>So</span><span></span></div>' +
     '<div id="set-vehicles">' + Object.keys(rates).sort(function(a, b) { return a.localeCompare(b, 'de'); }).map(function(n) { return vehicleRateRowHtml(n, rates[n]); }).join('') + '</div>' +
-    '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Spedition: Kosten kommen per Rechnung. Neue Sätze gelten für neue Berechnungen, gespeicherte Protokoll-Summen bleiben.</small></span>' +
+    '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Spedition: Kosten werden pro Protokoll eingetragen (laut Rechnung). Neue Sätze gelten für neue Berechnungen, gespeicherte Protokoll-Summen bleiben.</small></span>' +
     '<button type="button" class="btn" style="flex:none; width:auto; padding:8px 18px;" onclick="addVehicleRateRow()">+ Fahrzeug</button></div></div>';
+  var pr = appSetting('personnel_rates');
+  html += '<div class="set-group"><div class="set-group-title">Stundensätze nach Beschäftigungsart (€/h)</div>' +
+    '<div class="set-veh-row set-veh-head"><span>Art</span><span>MA</span><span>AL</span><span>Fahrer</span><span></span></div>' +
+    '<div id="set-personnel">' + PERSONNEL_RATE_TYPES.map(function(t) {
+      return '<div class="set-veh-row"><span class="set-text"><b>' + _settingsEsc(PERSONNEL_TYPE_LABELS[t]) + '</b></span>' +
+        PERSONNEL_RATE_FUNCS.map(function(f) {
+          return '<input type="number" min="0" max="1000" step="0.01" inputmode="decimal" class="meta-input" data-type="' + t + '" data-func="' + f + '" aria-label="' + _settingsEsc(PERSONNEL_TYPE_LABELS[t] + ' ' + f) + '" value="' + _settingsEsc(pr && pr[t] ? pr[t][f] : '') + '">';
+        }).join('') + '<span></span></div>';
+    }).join('') + '</div>' +
+    '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Gilt, wenn bei der Person kein eigener Stundensatz hinterlegt ist. Zenjob/Rockit haben eigene Sätze.</small></span></div></div>';
   html += '<div class="set-group"><div class="set-group-title">Push testen</div>' +
     '<div class="set-row"><span class="set-text"><b>Test-Push an mich</b><small>Schickt eine Testnachricht an alle Geräte, auf denen du Benachrichtigungen erlaubt hast</small></span>' +
     '<button type="button" class="btn" id="set-testpush-btn" style="flex:none; width:auto; padding:8px 18px;" onclick="sendTestPush()">Senden</button></div></div>';
@@ -175,6 +205,12 @@ function _readSettingsForm() {
     var val = function(f) { return row.querySelector('[data-f="' + f + '"]').value; };
     return { name: val('name'), wk: val('wk'), sa: val('sa'), so: val('so') };
   }));
+  var pInputs = Array.from(document.querySelectorAll('#set-personnel input[data-type]'));
+  if (pInputs.length) changes.personnel_rates = {}; // table not rendered → leave the setting out
+  pInputs.forEach(function(inp) {
+    var t = inp.dataset.type;
+    (changes.personnel_rates[t] = changes.personnel_rates[t] || {})[inp.dataset.func] = inp.value === '' ? NaN : Number(inp.value);
+  });
   return changes;
 }
 
@@ -209,7 +245,8 @@ function addVehicleRateRow() {
 }
 
 var SETTINGS_LABELS = { evening_push_hour: 'Uhrzeit Abend-Push', billing_cutoff: 'Abrechnungsstichtag (1–31)',
-  vehicle_rates: 'Fahrzeugsätze (jeder Name einmal, alle Beträge 0–100000 €)' };
+  vehicle_rates: 'Fahrzeugsätze (jeder Name einmal, alle Beträge 0–100000 €)',
+  personnel_rates: 'Stundensätze nach Beschäftigungsart (alle Felder 0–1000 €)' };
 
 async function saveSettingsTab() {
   var err = document.getElementById('set-error'), btn = document.getElementById('set-save-btn');
@@ -289,5 +326,6 @@ async function sendTestPush() {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { APP_SETTINGS_DEFAULTS: APP_SETTINGS_DEFAULTS, appSetting: appSetting, appSettingsFromCache: appSettingsFromCache,
     validateSettings: validateSettings, changedSettings: changedSettings, testPushMessage: testPushMessage,
-    validVehicleRates: validVehicleRates, readVehicleRates: readVehicleRates };
+    validVehicleRates: validVehicleRates, readVehicleRates: readVehicleRates, validPersonnelRates: validPersonnelRates,
+    SETTINGS_SWITCHES: SETTINGS_SWITCHES };
 }

@@ -195,7 +195,7 @@ async function fetchOwnProfile(id) {
   let data = null, error = null;
   try {
     ({ data, error } = await supabaseClient.from('app_users')
-      .select('id, full_name, role, default_dept, hourly_rate_internal, is_active, app_user_private(hourly_rate_conni)')
+      .select('id, full_name, role, role_rates, employment_type, default_dept, hourly_rate_internal, is_active, plan_interest_viewer, can_drive, availability_enabled, app_user_private(hourly_rate_conni)')
       .eq('id', id).maybeSingle());
   } catch (e) { error = e; }
   if (isProfileDenied(error)) return { profile: null, error: false };
@@ -289,8 +289,11 @@ function initAuthNamePicker() {
 // was deactivated, or nothing was shown from the cache yet
 function authSessionChanged(shown, fresh) {
   if (!shown || !fresh) return true;
-  return ['full_name', 'role', 'default_dept', 'hourly_rate_conni', 'hourly_rate_internal']
-    .some(function(k) { return String(shown[k] == null ? '' : shown[k]) !== String(fresh[k] == null ? '' : fresh[k]); });
+  return ['full_name', 'role', 'default_dept', 'hourly_rate_conni', 'hourly_rate_internal', 'employment_type', 'can_drive']
+    .some(function(k) { return String(shown[k] == null ? '' : shown[k]) !== String(fresh[k] == null ? '' : fresh[k]); })
+    || JSON.stringify(shown.role_rates || []) !== JSON.stringify(fresh.role_rates || [])
+    // Wochenplan switches; a cached profile from before a new column existed counts as false
+    || ['plan_interest_viewer', 'availability_enabled'].some(function(k) { return !!shown[k] !== !!fresh[k]; });
 }
 
 async function initAuth() {
@@ -350,8 +353,11 @@ function handleSession(user) {
   if (userChanged) closePinSheet(); // no open PIN sheet or typed PINs across logout/user switch
 
   if (user) {
-    currentUser = { id: user.id, email: '', full_name: user.full_name || '' }; // Mock basic GoTrue object for backwards compatibility (+ name for the start page greeting)
+    currentUser = { id: user.id, email: '', full_name: user.full_name || '', role: user.role,
+      role_rates: Array.isArray(user.role_rates) ? user.role_rates : [], employment_type: user.employment_type || 'Minijob' }; // Mock basic GoTrue object for backwards compatibility (+ name for the start page greeting)
     userRole = user.role;
+    // Costs and rates only for PL/Buchhaltung/Admin: every '.cost-only' element is hidden otherwise (css/ui.css)
+    document.body.classList.toggle('no-costs', !canSeeCosts(currentUser));
     
     // Auto-sync the user's name across the app (Stundenzettel tracking)
     const snInput = document.getElementById('inp-name');
@@ -360,6 +366,9 @@ function handleSession(user) {
       if (typeof syncStundenName === 'function') syncStundenName(); // label above the week (shared device: no stale name)
     }
     localStorage.setItem('stundenzettel_name', user.full_name);
+    window.currentUserSeesInterest = !!user.plan_interest_viewer; // Wochenplan: sees who said "Ich hätte Zeit"
+    window.currentUserCanDrive     = !!user.can_drive;            // Wochenplan: may apply for Fahrer slots
+    window.currentUserAvailability = !!user.availability_enabled; // Wochenplan: may block days (Verfügbarkeit)
     window.currentUserRateConni    = parseFloat(user.hourly_rate_conni)    || 0;
     window.currentUserRateInternal = parseFloat(user.hourly_rate_internal) || 0;
 
@@ -387,6 +396,7 @@ function handleSession(user) {
     if (typeof handleOrdnerDeepLink === 'function') handleOrdnerDeepLink();
     // Wochenplan restored from before the login needs the user to load "Meine Schichten"
     if (!wpDeepLink && typeof activeModule !== 'undefined' && activeModule === 'wochenplan' && typeof initWochenplan === 'function') initWochenplan();
+    if (typeof activeModule !== 'undefined' && activeModule === 'auftraege' && typeof initAuftraege === 'function') initAuftraege();
     // If Projektordner is already rendered, re-render with correct permissions
     if (typeof activeModule !== 'undefined' && activeModule === 'ordner' &&
         typeof renderOrdner === 'function' && typeof alleOrdner !== 'undefined') {
@@ -403,6 +413,8 @@ function handleSession(user) {
   } else {
     currentUser = null;
     userRole = 'MA';
+    window.currentUserSeesInterest = false;
+    window.currentUserCanDrive     = false;
     authSelectedUserId = null;
     if (userChanged && typeof buildDays === 'function') buildDays(true); // no editor content of the logged-out user stays in memory
     const nameInp = document.getElementById('auth-name-input');
@@ -423,6 +435,7 @@ var GAST_MODULES = ['produkte', 'ordner'];
 function moduleAllowedForRole(m, role) {
   if (role === 'Gast') return GAST_MODULES.indexOf(m) !== -1;
   if (m === 'protokoll') return role !== 'MA';
+  if (m === 'auftraege') return role === 'Admin' || role === 'PL' || !!(typeof window !== 'undefined' && window.currentUserSeesInterest);
   if (m === 'dashboard') return ['AL', 'PL', 'Buchhaltung', 'Admin'].indexOf(role) !== -1;
   return true;
 }

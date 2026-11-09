@@ -30,7 +30,7 @@ async function fetchAppUsers() {
   if (typeof supabaseClient === 'undefined') return;
   // MA/Gast may only read their own row (RLS): the pickers and rates are office-only
   if (typeof userRole === 'undefined' || !['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole)) return;
-  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, hourly_rate_internal, is_fest').or('is_active.is.null,is_active.eq.true');
+  var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, hourly_rate_internal, is_fest, employment_type').or('is_active.is.null,is_active.eq.true');
   if (error) console.error("Error fetching app_users:", error);
   if (data) {
     // The guest login never works shifts → keep it out of AL/PL/staff pickers
@@ -56,7 +56,8 @@ function getEffectivePersonnelRate(basePos, userId) {
   var user = appUsers.find(function(u) { return u.id === userId; });
   if (!user) return undefined;
   if (Array.isArray(user.role_rates)) {
-    var match = user.role_rates.find(function(r) { return r.role === basePos; });
+    var match = user.role_rates.find(function(r) { return r.role === basePos; }) ||
+      user.role_rates.find(function(r) { return roleRateMatches(r.role, basePos); });
     if (match && parseFloat(match.rate_internal) > 0) return parseFloat(match.rate_internal);
   }
   if (parseFloat(user.hourly_rate_internal) > 0) return parseFloat(user.hourly_rate_internal);
@@ -72,16 +73,19 @@ function pdfStr(v, fallback) {
 // Billing position incl. fest/frei for AL/MA/Fahrer. The fest flag stored on the row wins
 // (set when the name is resolved, or from the server), so an offline start before the
 // user list has loaded doesn't bill fest staff as frei.
+// Stored position "<Funktion> <Typ>" (e.g. "MA Minijob"): type of the row → the person's employment type →
+// legacy fest flag (old drafts, old cached user lists) → Minijob. Temp/agency workers are Minijob.
 function protBasePos(p, users) {
-  var basePos = p.pos;
-  if (['AL', 'MA', 'Fahrer'].indexOf(p.pos) === -1) return basePos;
-  if (p.isTemp || !p.userId) return basePos + ' frei';
-  var fest = p.fest;
-  if (fest === undefined || fest === null) {
-    var u = (users || []).find(function(x) { return x.id === p.userId; });
-    fest = !!(u && u.is_fest);
+  if (['AL', 'MA', 'Fahrer'].indexOf(p.pos) === -1) return p.pos;
+  if (p.isTemp || !p.userId) return positionKey(p.pos, 'Minijob');
+  if (p.legacy === 'frei' || p.legacy === 'fest') return p.pos + ' ' + p.legacy; // old saved shift: keep how it was priced
+  var u = (users || []).find(function(x) { return x.id === p.userId; });
+  var type = p.type || (u && u.employment_type);
+  if (!type) {
+    var fest = (p.fest === undefined || p.fest === null) ? !!(u && u.is_fest) : p.fest;
+    type = fest ? 'Fest' : 'Minijob';
   }
-  return basePos + (fest ? ' fest' : ' frei');
+  return positionKey(p.pos, type);
 }
 
 // AL/PL id from its <select>: before the user list has loaded the select is empty → keep the known id
@@ -149,8 +153,10 @@ function protRowToEntry(r) {
       userId: s.user_id || null,
       isTemp: !s.user_id,
       tempName: s.user_id ? null : (s.temp_worker_name || null),
-      pos: (s.position_role || '').replace(/ (fest|frei)$/, ''),
+      pos: splitPosition(s.position_role).func,
       fest: / fest$/.test(s.position_role || ''),
+      type: splitPosition(s.position_role).type,
+      legacy: splitPosition(s.position_role).legacy,
       start: (s.start_time || '').substring(0, 5),
       end: (s.end_time || '').substring(0, 5),
       pause: s.pause_mins || 0
@@ -173,7 +179,8 @@ function protRowToEntry(r) {
     transports: (r.protocol_transports || []).map(function(t) {
       // hours stays null for rows saved before driver hours existed → no driver cost on recalc
       return { type: t.vehicle_type, driver: t.driver_name, punctuality: t.punctuality, delay: t.delay_mins,
-        hours: t.driver_hours == null ? null : Number(t.driver_hours), driverUserId: t.driver_user_id || '' };
+        hours: t.driver_hours == null ? null : Number(t.driver_hours), driverUserId: t.driver_user_id || '',
+        cost: t.cost == null ? null : Number(t.cost) };
     }),
     personnel: personnel,
     categories: catMap,
@@ -364,7 +371,8 @@ function protTransportSummary(t) {
   var driver = (t.driver || '').trim() || 'ohne Fahrer';
   var hrs = parseFloat(t.hours);
   var when = t.punctuality === 'verspätet' ? ((t.delay ? t.delay + ' min ' : '') + 'Verspätung') : 'pünktlich';
-  return (t.type || 'Fahrzeug') + ' · ' + driver + (hrs > 0 ? ' · ' + String(hrs).replace('.', ',') + ' h' : '') + ' · ' + when;
+  var eur = t.type === 'Spedition' && parseFloat(t.cost) >= 0 ? ' · ' + parseFloat(t.cost).toFixed(2).replace('.', ',') + ' €' : '';
+  return (t.type || 'Fahrzeug') + eur + ' · ' + driver + (hrs > 0 ? ' · ' + String(hrs).replace('.', ',') + ' h' : '') + ' · ' + when;
 }
 
 // Same driver: by user id when both sides have one, else by name (case-insensitive)
@@ -443,7 +451,7 @@ function renderProtTransport() {
         '</div>' +
         '<label class="ui-field"><span>Fahrerstunden</span><input type="number" step="0.5" min="0" placeholder="0" value="' + escapeHtml(t.hours == null ? '' : t.hours) + '" oninput="updateProtTransport(' + i + ', \'hours\', this.value)"/></label>' +
         '<div class="ui-sub" id="prot-drvhint-' + i + '" style="margin:-6px 2px 10px;"></div>' +
-        (t.type === 'Spedition' ? '<div class="ui-sub" style="margin:-4px 2px 10px;">Kosten separat per Rechnung erfassen</div>' : '') +
+        (t.type === 'Spedition' ? '<label class="ui-field"><span>Kosten Spedition (€)</span><input type="number" step="0.01" min="0" inputmode="decimal" placeholder="laut Rechnung" value="' + escapeHtml(t.cost == null ? '' : t.cost) + '" oninput="updateProtTransport(' + i + ', \'cost\', this.value)"/></label>' : '') +
         '<div class="stunden-grid">' +
           '<label class="ui-field"><span>Pünktlichkeit</span><select onchange="updateProtTransport(' + i + ', \'punctuality\', this.value)">' +
             '<option value="pünktlich" ' + (t.punctuality === 'pünktlich' ? 'selected' : '') + '>Pünktlich</option>' +
@@ -470,7 +478,7 @@ function updateProtTransport(idx, field, val) {
   if (sum) sum.textContent = protTransportSummary(protState.transports[idx]);
   saveProtDraft();
   if (field === 'type') { calcProtCosts(); renderProtTransport(); }
-  if (field === 'hours') calcProtCosts();
+  if (field === 'hours' || field === 'cost') calcProtCosts();
 }
 
 // Transport rows of other protocols on the form's date (read-only), cached per date + edited protocol;
@@ -647,8 +655,9 @@ function onProtPersonnelName(idx, val) {
   if (row.userId === userId && row.name === name) return;
   row.userId = userId;
   row.name = name;
-  if (match) row.fest = !!match.is_fest; // kept on the row for offline saves
-  else delete row.fest;
+  if (match) { row.fest = !!match.is_fest; row.type = match.employment_type || null; } // kept on the row for offline saves
+  else { delete row.fest; row.type = null; }
+  delete row.legacy; // another person: their own type applies
   // Update only this row; renderProtPersonnel() would rebuild all inputs and drop the keyboard
   var title = document.getElementById('prot-pname-' + idx);
   if (title) title.textContent = row.name || row.tempName || 'Ohne Name';
@@ -667,8 +676,13 @@ function updateProtPersonnel(idx, field, val) {
   
   if (field === 'userId') {
     var u = appUsers.find(x => x.id === val);
-    if (u) { protState.personnel[idx].name = u.full_name || u.email; protState.personnel[idx].fest = !!u.is_fest; }
-    else delete protState.personnel[idx].fest;
+    if (u) { protState.personnel[idx].name = u.full_name || u.email; protState.personnel[idx].fest = !!u.is_fest; protState.personnel[idx].type = u.employment_type || null; }
+    else { delete protState.personnel[idx].fest; protState.personnel[idx].type = null; }
+    delete protState.personnel[idx].legacy;
+  }
+  if (field === 'pos') { // another function: the person's current type applies
+    delete protState.personnel[idx].legacy;
+    protState.personnel[idx].type = null;
   }
   if (field === 'tempName') {
     protState.personnel[idx].name = val;
@@ -759,7 +773,7 @@ function protDriverCost(t, users) {
   if (!(hrs > 0) || (!t.driverUserId && !(t.driver || '').trim())) return null;
   var basePos = protBasePos({ pos: 'Fahrer', userId: t.driverUserId || '' }, users);
   var custom = t.driverUserId ? getEffectivePersonnelRate(basePos, t.driverUserId) : undefined;
-  var rate = (typeof custom === 'number' && custom > 0) ? custom : (PROT_PERSONNEL_RATES[basePos] || 0);
+  var rate = (typeof custom === 'number' && custom > 0) ? custom : personnelRate(basePos);
   return { hrs: hrs, rate: rate, amount: hrs * rate };
 }
 
@@ -767,7 +781,7 @@ function protDriverCost(t, users) {
 function protCostLines(state, date, holiday) {
   var lines = [];
   (state.transports || []).forEach(function(t) {
-    lines.push({ label: t.type || 'Fahrzeug', amount: calcTransportCost(t.type, date) });
+    lines.push({ label: t.type || 'Fahrzeug', amount: calcTransportCost(t.type, date, t.cost) });
     var drv = protDriverCost(t, appUsers);
     if (drv) lines.push({ label: 'Fahrer ' + ((t.driver || '').trim() || 'ohne Name'), amount: drv.amount });
   });
@@ -803,6 +817,7 @@ function calcProtCosts() {
 
 // Tapping the cost in the action bar: the breakdown of the current calculation
 function openProtCostSheet() {
+  if (!canSeeCosts(currentUser)) return; // AL/MA: no rates (bar is hidden too)
   calcProtCosts();
   var fmt = function(n) { return n.toFixed(2).replace('.', ',') + ' €'; };
   var m = document.getElementById('prot-cost-modal');
@@ -1025,11 +1040,44 @@ function protIncompleteNames(personnel) {
   }).map(function(p) { return p.name || p.tempName || 'Ohne Name'; });
 }
 
+// People who end later than the AL's own row (Sonja: the AL must explain why). No AL row or AL time → nobody.
+// An end before the start counts as the next day (over midnight); a row starting more than 12 h before the AL's
+// start belongs to the night after it (AL 18:00–02:00, MA 00:30–03:00).
+var PROT_LONGER_THAN_AL = 'Länger als AL';
+function protLongerThanAl(personnel, alId) {
+  var alStart = null;
+  var endMin = function(p) {
+    var s = timeToMins(p.start), e = timeToMins(p.end);
+    if (s === null || e === null || isNaN(s) || isNaN(e)) return null;
+    if (e < s) e += 1440;
+    return alStart !== null && s + 720 < alStart ? e + 1440 : e;
+  };
+  var al = alId ? (personnel || []).find(function(p) { return p.userId === alId; }) : null;
+  var alEnd = al ? endMin(al) : null;
+  if (alEnd === null) return [];
+  alStart = timeToMins(al.start);
+  return personnel.filter(function(p) {
+    var e = p !== al ? endMin(p) : null;
+    return e !== null && e > alEnd;
+  }).map(function(p) { return p.name || p.tempName || 'Ohne Name'; });
+}
+
 // ── PROTOKOLL SAVE (replaces PDF Export) ──
 async function saveProtokoll() {
   var missing = protIncompleteNames(protState.personnel);
   if (missing.length && !confirm('Ohne Start- oder Endzeit: ' + missing.join(', ') + '.\n\n' +
       (missing.length === 1 ? 'Diese Person wird' : 'Diese Personen werden') + ' nicht mitgespeichert und fehlen bei den Stunden. Trotzdem senden?')) return;
+  // Reason goes into "Vorkommnisse" (mail, PDF, dashboard); once there, a resend doesn't ask again
+  var incEl = document.getElementById('prot-incidents');
+  var longer = protLongerThanAl(protState.personnel,
+    protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, appUsers.length > 0));
+  if (longer.length && incEl && (incEl.value || '').indexOf(PROT_LONGER_THAN_AL) === -1) {
+    var why = prompt(longer.join(', ') + (longer.length === 1 ? ' hat' : ' haben') +
+      ' länger gearbeitet als der Aufbauleiter.\n\nBitte kurz begründen (Pflicht):', '');
+    if (!why || !why.trim()) { showToast('Ohne Begründung wird nicht gesendet.', 'danger'); return; }
+    incEl.value = PROT_LONGER_THAN_AL + ' (' + longer.join(', ') + '): ' + why.trim() +
+      (incEl.value.trim() && incEl.value.trim() !== 'nein' ? '\n' + incEl.value.trim() : '');
+  }
   calcProtCosts(); // the shown total may be stale (restored draft, rates loaded late)
   var usersLoaded = appUsers.length > 0;
   var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded);
@@ -1173,7 +1221,7 @@ function protShiftChanges(oldShifts, personnel, users, shiftDate) {
     if (!o) { inserts.push({ person: r.person, row: Object.assign({}, next, { status: 'offen' }) }); return; }
     r.person.shiftId = o.id;
     var patch = {};
-    var oldBase = (o.position_role || '').replace(/ (fest|frei)$/, '');
+    var oldBase = splitPosition(o.position_role).func;
     if ((o.user_id || null) !== next.user_id || (o.temp_worker_name || null) !== next.temp_worker_name) {
       patch.user_id = next.user_id;
       patch.temp_worker_name = next.temp_worker_name;
@@ -1285,7 +1333,8 @@ async function syncProtokollToSupabase(data, targetId, out) {
           punctuality: t.punctuality,
           delay_mins: t.delay ? parseInt(t.delay) : 0,
           driver_hours: (t.hours === null || t.hours === undefined || t.hours === '' || isNaN(parseFloat(t.hours))) ? null : parseFloat(t.hours),
-          driver_user_id: t.driverUserId || null
+          driver_user_id: t.driverUserId || null,
+          cost: t.type === 'Spedition' && parseFloat(t.cost) >= 0 ? parseFloat(t.cost) : null
         };
       });
       var { error: trErr } = await supabaseClient.from('protocol_transports').insert(transInserts);
@@ -1508,7 +1557,7 @@ async function mailProtokoll(supabaseId, entry, isUpdate, notify) {
   if (!supabaseId || typeof supabaseClient === 'undefined') return false;
   var pdfBase64 = null;
   try {
-    pdfBase64 = buildProtPdfDoc(entry).output('datauristring').split(',')[1] || null;
+    pdfBase64 = buildProtPdfDoc(entry, { costs: true }).output('datauristring').split(',')[1] || null;
     // The function rejects >5 MB with 413 forever → send the summary without attachment instead
     if (pdfBase64 && pdfBase64.length > MAIL_MAX_PDF_B64) {
       console.warn('Protokoll-PDF zu groß für Mail, sende ohne Anhang:', pdfBase64.length);
@@ -1632,7 +1681,7 @@ function renderProtHistoryList() {
         '<div class="ui-sub">' + escapeHtml(e.location || '—') + (e.al ? ' · AL ' + escapeHtml(e.al) : '') + '</div>' +
         '<div style="margin-top:4px;">' + pills + '</div>' +
       '</div>' +
-      '<div class="ui-row-end"><b class="stunden-h">' + escapeHtml(e.totalCost || '—') + '</b>' +
+      '<div class="ui-row-end"><b class="stunden-h cost-only">' + escapeHtml(e.totalCost || '—') + '</b>' +
         '<button type="button" class="ui-icon-btn" aria-label="Protokoll-Aktionen" onclick="event.stopPropagation();protHistoryMenu(\'' + id + '\')">' + uiIcon('dots') + '</button></div>' +
     '</div>';
   }).join('');
@@ -1752,7 +1801,7 @@ async function reExportProtPDF(id) {
   if (!entry) { showToast('Nicht gefunden'); return; }
 
   showToast('Generiere PDF...');
-  buildProtPdfDoc(entry).save(protPdfFileName(entry));
+  buildProtPdfDoc(entry, { costs: canSeeCosts(currentUser) }).save(protPdfFileName(entry));
   showToast('PDF wurde gespeichert!');
 }
 
@@ -1761,7 +1810,8 @@ function protPdfFileName(entry) {
 }
 
 // Builds the protocol PDF from an archived history entry (shared by download and mail)
-function buildProtPdfDoc(entry) {
+// opts.costs === false leaves out the cost block (AL/MA downloads); the mailed PDF for the PL keeps it
+function buildProtPdfDoc(entry, opts) {
   // Everything that reaches doc.text is a string (jsPDF throws on numbers/null)
   var data = {
     event: pdfStr(entry.event, '—'), location: pdfStr(entry.location, '—'),
@@ -1869,6 +1919,7 @@ function buildProtPdfDoc(entry) {
   y = pdfWrappedRow(doc, 'Vorkommnisse:', data.incidents, ml, ml+40, cw-40, y, 4.5, 280);
   y = pdfWrappedRow(doc, 'Feedback:', data.feedback, ml, ml+40, cw-40, y, 4.5, 280); y += 6;
 
+  if (!opts || opts.costs !== false) {
   // Costs, itemized with the same rules as calcProtCosts (custom rates, holiday) so the lines add up to the total
   if (y > 250) { doc.addPage(); y = 20; }
   doc.setDrawColor(24,95,165); doc.setLineWidth(0.5); doc.line(ml,y,ml+cw,y); y += 8;
@@ -1877,7 +1928,7 @@ function buildProtPdfDoc(entry) {
   var calcDate = (data.date && data.date !== '—') ? data.date : localDateStr();
   data.transports.forEach(function(t) {
     if (!t.type) return;
-    var r = calcTransportCost(t.type, calcDate);
+    var r = calcTransportCost(t.type, calcDate, t.cost);
     doc.text('- ' + t.type + (t.driver ? ' (' + t.driver + ')' : '') + ': ' + r.toFixed(2) + ' EUR', ml + 5, y); y += 4;
     if (y > 280) { doc.addPage(); y = 20; }
     var drv = protDriverCost(t, appUsers);
@@ -1901,6 +1952,7 @@ function buildProtPdfDoc(entry) {
   y += 2;
   doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.setTextColor(24,95,165);
   doc.text('Gesamtkosten (geschätzt): ' + data.totalCost, ml, y); doc.setTextColor(0); y += 12;
+  }
 
   // Signature
   if (entry.signature) {
