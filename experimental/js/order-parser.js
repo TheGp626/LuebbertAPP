@@ -26,7 +26,7 @@ function orderLines(pages) {
 function orderIsAb(name) { return /auftragsbest/i.test(name || ''); }
 
 // Stored parse results (table order_parsed) older than this are parsed again: bump on every parser change
-var ORDER_PARSER_VERSION = 4;
+var ORDER_PARSER_VERSION = 5;
 
 var ORDER_JOB_RE = /^(\d{2}-\d{4}\.\d{2}) \/ (.+)$/;
 var ORDER_LABEL_RE = /^([A-ZÄÖÜ][A-Za-zÄÖÜäöüß&.\- ]{0,40}):\s*(.*)$/;
@@ -76,14 +76,25 @@ function orderParse(lines) {
       return;
     }
     if (!job) return;
+    // Angebote have no "Job" / "Job.Gruppe" marker rows: a group is the line before its first article, up to "Zwischensumme"
+    var newGroup = function(it) { group = { group: plain, items: [it] }; job.materials.push(group); };
     if (items) {
       if (/^Job\.Gruppe$/.test(l)) { group = { group: plain, items: [] }; job.materials.push(group); }
-      else if ((m = ORDER_ITEM_RE.exec(l)) && group) group.items.push({ qty: +m[1], name: m[2].trim() });
+      else if ((m = ORDER_ITEM_RE.exec(l))) { var it = { qty: +m[1], name: m[2].trim() }; if (group) group.items.push(it); else newGroup(it); }
+      else if (/^Zwischensumme\b/.test(l)) group = null;
       if (!/^(\d+\s+)?Job/.test(l)) plain = l;
       return;
     }
     if (/^Job(\.|\s|$)/.test(l)) { items = true; return; }
+    if ((m = ORDER_ITEM_RE.exec(l))) {
+      items = true;
+      if (plain && job.notes.slice(-plain.length) === plain) job.notes = job.notes.slice(0, -plain.length).replace(/\n$/, ''); // group name is no note
+      newGroup({ qty: +m[1], name: m[2].trim() });
+      return;
+    }
+    if (/^Auf-? und Abbau (via|durch)\b/i.test(l)) job.external = true; // "Auf- und Abbau via Service Estrel." – not our crew
     var lab = ORDER_LABEL_RE.exec(l);
+    plain = lab ? '' : orderStripPhones(l);
     if (!lab) {
       if (prev === 'address') job.room = orderStripPhones(l);
       else if (lead && /^[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß .\-]{0,30}$/.test(orderStripPhones(l.replace(/\/\/.*$/, '')))) {
@@ -131,7 +142,8 @@ function orderParse(lines) {
     if (!j.lead) j.lead = firstLead;
     j.materials = j.materials.filter(function(g) { return g.items.length; });
     delete j._items; delete j._group; delete j._note; delete j.period;
-    if (j.setup || j.teardown) res.jobs.push(j);
+    if ((j.setup || j.teardown) && !j.external) res.jobs.push(j);
+    delete j.external;
   });
   if (!res.jobs.length && !res.project) res.warnings.push('Keine Auftragsbestätigung erkannt.');
   return res;
