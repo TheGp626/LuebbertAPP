@@ -312,8 +312,10 @@ async function runOrdnerUploads(folderId, files) {
   }
 }
 
-async function uploadOrdnerFile(folderId, file) {
-  var safeName = file.name
+// → the new folder_files id, or false; name overrides file.name (shown name)
+async function uploadOrdnerFile(folderId, file, name) {
+  name = name || file.name;
+  var safeName = name
     .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
     .replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue')
     .replace(/ß/g, 'ss')
@@ -333,14 +335,14 @@ async function uploadOrdnerFile(folderId, file) {
   var { data: urlData } = supabaseClient.storage.from('project-files').getPublicUrl(filePath);
   var publicUrl = urlData && urlData.publicUrl ? urlData.publicUrl : null;
 
-  var { error: dbErr } = await supabaseClient.from('folder_files').insert({
+  var { data: row, error: dbErr } = await supabaseClient.from('folder_files').insert({
     folder_id: folderId,
-    name: file.name,
+    name: name,
     file_url: publicUrl,
     file_type: file.type || null,
     file_size_bytes: file.size || null,
     created_by: typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null
-  });
+  }).select('id').single();
 
   if (dbErr) {
     console.error('DB insert error for "' + file.name + '":', dbErr.message || dbErr);
@@ -348,7 +350,7 @@ async function uploadOrdnerFile(folderId, file) {
     await ordnerRemoveFiles([filePath]);
     return false;
   }
-  return true;
+  return row.id;
 }
 
 // storage.remove() reports failures as { error } instead of throwing: true only when the objects are really gone
@@ -397,6 +399,51 @@ var EINSATZ_ACTIONS = ['Aufbau', 'Teilaufbau', 'Umbau', 'Teilabbau', 'Abbau'];
 var _ordnerUsers = null;            // active app_users {id, full_name, role}
 var _editEinsaetzeExisting = [];    // saved jobs of the folder being edited (for diffEinsaetze)
 var _ordnerFormReturnId = null;     // reopen this folder's detail view after saving
+var _ordnerAb = null;               // { file, parsed } Auftragsbestätigung picked in the form, uploaded on save
+var _ordnerStaff = {};              // job_no → order_staffing row, for the MA fields of tagged Einsätze
+
+// Name from the Bestätigung („Auf- & Abbauleitung“) → active AL/Admin: exact name, else the only one with all words
+function ordnerMatchAl(lead, users) {
+  var norm = function(x) { return String(x || '').toLowerCase().replace(/\s+/g, ' ').trim(); };
+  var cands = (users || []).filter(function(u) { return u.is_active !== false && (userHasRole(u, 'AL') || userHasRole(u, 'Admin')); });
+  var parts = String(lead || '').split(/,|\/|&|\bund\b/);
+  for (var i = 0; i < parts.length; i++) {
+    var p = norm(parts[i]);
+    if (!p) continue;
+    var exact = cands.filter(function(u) { return norm(u.full_name) === p; });
+    if (exact.length === 1) return exact[0].id;
+    var words = p.split(' ');
+    var some = cands.filter(function(u) { var n = norm(u.full_name).split(' '); return words.every(function(w) { return n.indexOf(w) !== -1; }); });
+    if (some.length === 1) return some[0].id;
+  }
+  return '';
+}
+
+// Einsatz rows from a parsed Bestätigung: Aufbau + Abbau per job, tagged with job_no/phase; have = 'job|phase' already in the form
+function ordnerAbRows(parsed, users, have) {
+  var out = [];
+  ((parsed && parsed.jobs) || []).forEach(function(j) {
+    [['setup', 'Aufbau'], ['teardown', 'Abbau']].forEach(function(x) {
+      var r = j[x[0]];
+      if (!r || !r.start || (have || {})[j.jobNo + '|' + x[0]]) return;
+      out.push({ date: r.start.slice(0, 10), action: x[1], al_id: ordnerMatchAl(j.lead, users), job_no: j.jobNo, phase: x[0] });
+    });
+  });
+  return out;
+}
+
+// order_staffing upserts from the MA fields of tagged rows (earliest row per phase); only the phases present are written
+function ordnerStaffRows(rows) {
+  var by = {}, order = [];
+  (rows || []).filter(function(r) { return r.job_no && r.phase; })
+    .sort(function(a, b) { return String(a.date).localeCompare(String(b.date)); })
+    .forEach(function(r) {
+      if (!by[r.job_no]) { by[r.job_no] = { job_no: r.job_no }; order.push(r.job_no); }
+      var col = r.phase === 'setup' ? 'staff_setup' : 'staff_teardown', n = parseInt(r.staff, 10);
+      if (!(col in by[r.job_no])) by[r.job_no][col] = isNaN(n) ? null : Math.max(0, Math.min(99, n));
+    });
+  return order.map(function(k) { return by[k]; });
+}
 
 async function loadOrdnerUsers() {
   if (_ordnerUsers) return _ordnerUsers;
@@ -433,6 +480,9 @@ function addEinsatzRow(e) {
   var row = document.createElement('div');
   row.className = 'einsatz-row';
   row.dataset.id = e.id || '';
+  row.dataset.job = e.job_no || '';
+  row.dataset.phase = e.phase || '';
+  var staff = e.job_no ? (_ordnerStaff[e.job_no] || {})[e.phase === 'setup' ? 'staff_setup' : 'staff_teardown'] : null;
   row.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px; align-items:center;';
   row.innerHTML =
     '<input type="date" class="meta-input einsatz-date" style="flex:1 1 130px; margin:0;" value="' + escOrdner(e.date || '') + '">' +
@@ -440,8 +490,10 @@ function addEinsatzRow(e) {
       EINSATZ_ACTIONS.map(function(a) { return '<option' + (a === (e.action || 'Aufbau') ? ' selected' : '') + '>' + a + '</option>'; }).join('') +
     '</select>' +
     '<select class="meta-input einsatz-al" style="flex:2 1 160px; margin:0;">' + ordnerUserOptions(['AL', 'Admin'], e.al_id, '– AL wählen –') + '</select>' +
+    (e.job_no ? '<label class="einsatz-staff-wrap" style="font-size:12px; display:flex; align-items:center; gap:4px; white-space:nowrap;">MA gebraucht <input type="number" class="meta-input einsatz-staff" inputmode="numeric" min="0" max="99" style="width:64px; margin:0;" value="' + (staff == null ? '' : staff) + '"></label>' : '') +
     '<label style="font-size:12px; display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" class="einsatz-cancelled"' + (e.cancelled ? ' checked' : '') + '> abgesagt/übernommen</label>' +
-    '<button type="button" class="btn" style="width:auto; padding:4px 10px; color:var(--danger);" title="Einsatz entfernen" onclick="this.parentElement.remove(); ordnerSyncDeleteField()">🗑</button>';
+    '<button type="button" class="btn" style="width:auto; padding:4px 10px; color:var(--danger);" title="Einsatz entfernen" onclick="this.parentElement.remove(); ordnerSyncDeleteField()">🗑</button>' +
+    (e.job_no ? '<div class="ui-sub" style="flex-basis:100%; order:-1; margin:0; font-weight:600;">Auftrag ' + escOrdner(e.job_no) + ' · ' + (e.phase === 'setup' ? 'Aufbau' : 'Abbau') + ' – Datum und AL hier gelten auch für „Ich kann“</div>' : '');
   list.appendChild(row);
 }
 
@@ -470,6 +522,7 @@ function readEinsatzRows() {
       cancelled: row.querySelector('.einsatz-cancelled').checked
     };
     if (row.dataset.id) r.id = row.dataset.id;
+    if (row.dataset.job) { r.job_no = row.dataset.job; r.phase = row.dataset.phase; r.staff = row.querySelector('.einsatz-staff').value; }
     return r;
   });
 }
@@ -498,6 +551,11 @@ async function openOrdnerForm(id) {
   var endsField = document.getElementById('ordner-ends-field');
   if (endsField) endsField.style.display = o && o.parent_id ? 'none' : '';
   _ordnerAutoValue = '';
+  _ordnerAb = null;
+  _ordnerStaff = {};
+  var abInp = document.getElementById('inp-ordner-ab'), abSt = document.getElementById('ordner-ab-status');
+  if (abInp) abInp.value = '';
+  if (abSt) abSt.textContent = '';
 
   await loadOrdnerUsers();
   var plSel = document.getElementById('inp-ordner-pl');
@@ -506,10 +564,11 @@ async function openOrdnerForm(id) {
   if (rows) rows.innerHTML = '';
   _editEinsaetzeExisting = [];
   if (o) {
-    var { data, error } = await supabaseClient.from('einsaetze').select('id, date, action, al_id, cancelled')
+    var { data, error } = await supabaseClient.from('einsaetze').select('id, date, action, al_id, cancelled, job_no, phase')
       .eq('folder_id', o.id).order('date');
     if (error) { console.error('Einsätze laden:', error); showToast('Einsätze konnten nicht geladen werden.', 'danger'); return; } // saving without them would duplicate jobs
     _editEinsaetzeExisting = data || [];
+    await ordnerLoadStaff(_editEinsaetzeExisting.map(function(e) { return e.job_no; }));
     _editEinsaetzeExisting.forEach(addEinsatzRow);
   }
   // Baseline for the follow rule: what the auto date is for the jobs as loaded
@@ -526,6 +585,44 @@ async function openOrdnerForm(id) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+async function ordnerLoadStaff(jobNos) {
+  jobNos = jobNos.filter(function(j, i) { return j && jobNos.indexOf(j) === i; });
+  if (!jobNos.length) return;
+  var r = await supabaseClient.from('order_staffing').select('job_no, staff_setup, staff_teardown').in('job_no', jobNos);
+  if (r.error) { console.error('MA-Zahlen laden:', r.error); return; } // fields stay empty; saving then writes what is typed
+  (r.data || []).forEach(function(x) { _ordnerStaff[x.job_no] = x; });
+}
+
+// Picked Auftragsbestätigung: read it here, fill name (if empty) and one Aufbau/Abbau row per job; uploaded on save
+async function ordnerReadAb(input) {
+  var file = input.files && input.files[0], st = document.getElementById('ordner-ab-status');
+  _ordnerAb = null;
+  if (!file) { if (st) st.textContent = ''; return; }
+  if (st) st.textContent = 'Wird gelesen…';
+  var parsed;
+  try {
+    await loadPdfJs();
+    parsed = orderParse(orderLines(await readPlanPdf(await file.arrayBuffer(), { textOnly: true })));
+  } catch (err) {
+    console.error('Auftragsbestätigung lesen:', err);
+    if (st) st.textContent = 'Die PDF konnte nicht gelesen werden. Trag die Einsätze bitte von Hand ein.';
+    return;
+  }
+  if (!parsed.jobs.length) { if (st) st.textContent = 'Keine Aufträge in der PDF gefunden. Ist es eine Auftragsbestätigung aus easyjob?'; return; }
+  _ordnerAb = { file: file, parsed: parsed };
+  var nameInp = document.getElementById('inp-ordner-name');
+  if (nameInp && !nameInp.value.trim()) nameInp.value = [parsed.project, parsed.title].filter(Boolean).join(' ');
+  var have = {};
+  readEinsatzRows().forEach(function(r) { if (r.job_no) have[r.job_no + '|' + r.phase] = true; });
+  await ordnerLoadStaff(parsed.jobs.map(function(j) { return j.jobNo; }));
+  var rows = ordnerAbRows(parsed, _ordnerUsers, have);
+  rows.forEach(addEinsatzRow);
+  ordnerSyncDeleteField();
+  var noAl = rows.filter(function(r) { return !r.al_id; }).length;
+  if (st) st.textContent = parsed.jobs.length + (parsed.jobs.length === 1 ? ' Auftrag' : ' Aufträge') + ' erkannt, ' + rows.length + ' Einsätze eingetragen. Bitte Datum, AL und MA prüfen' +
+    (noAl ? ' (' + noAl + '× AL nicht erkannt)' : '') + '. Die PDF wird beim Speichern hochgeladen.';
+}
+
 function closeOrdnerForm() {
   editingOrdnerId = null;
   var fm = document.getElementById('ordner-form-modal');
@@ -536,7 +633,7 @@ function closeOrdnerForm() {
 // After a partly failed save: take the DB state as the new baseline and give form rows that were
 // already inserted their id, so the retry neither re-deletes nor inserts duplicates
 async function resyncEinsatzRows(folderId) {
-  var { data, error } = await supabaseClient.from('einsaetze').select('id, date, action, al_id, cancelled').eq('folder_id', folderId);
+  var { data, error } = await supabaseClient.from('einsaetze').select('id, date, action, al_id, cancelled, job_no, phase').eq('folder_id', folderId);
   if (error) { console.error('Einsätze neu laden:', error); return; }
   _editEinsaetzeExisting = data || [];
   var claimed = {};
@@ -617,6 +714,20 @@ async function saveOrdnerRun() {
     await resyncEinsatzRows(folderId);
     showToast('Fehler beim Speichern der Einsätze', 'danger');
     return;
+  }
+  // MA numbers of tagged Einsätze (the Aufträge tab reads the same table)
+  var staff = ordnerStaffRows(einsaetze);
+  if (staff.length) {
+    var { data: stRows, error: stErr } = await supabaseClient.from('order_staffing').upsert(staff, { onConflict: 'job_no' }).select('job_no');
+    if (stErr || !stRows || stRows.length !== staff.length) { console.error('MA-Zahlen speichern:', stErr); showToast('Einsätze gespeichert, aber die MA-Zahlen nicht. Bitte nochmal speichern.', 'danger'); return; }
+  }
+  // The picked Bestätigung goes into the folder, with its parse result so "Aufträge" and "Ich kann" see it at once
+  if (_ordnerAb) {
+    var ab = _ordnerAb, fileId = await uploadOrdnerFile(folderId, ab.file, orderIsAb(ab.file.name) ? ab.file.name : 'Auftragsbestätigung ' + ab.file.name);
+    if (!fileId) { showToast('Ordner gespeichert, aber die PDF nicht hochgeladen. Bitte nochmal speichern.', 'danger'); return; }
+    _ordnerAb = null; // a retry must not upload it twice
+    var pr = await supabaseClient.from('order_parsed').upsert({ file_id: fileId, parser_version: ORDER_PARSER_VERSION, result: ab.parsed }, { onConflict: 'file_id' });
+    if (pr.error) console.warn('Auftrag nicht zwischengespeichert (wird beim Öffnen von Aufträge gelesen):', pr.error);
   }
   showToast(wasNew ? '✅ Ordner erstellt.' : '✅ Ordner aktualisiert.');
   // Push to ALs not told about this folder yet (the function decides who; a failure must not affect the save)
