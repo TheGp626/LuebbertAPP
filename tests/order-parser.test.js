@@ -257,3 +257,39 @@ test('orderPhaseAction: Umbau / Teilaufbau / Teilabbau from the job name, else A
   assert.equal(ctx.orderPhaseAction({ name: 'Teilabbau Foyer' }, 'teardown'), 'Teilabbau');
   assert.equal(ctx.orderPhaseAction(ESTREL[2], 'teardown'), 'Abbau');
 });
+
+test('orderParse: Angebot, header repeated after a page break, Zeitraum only, lead from first job', () => {
+  const r = plain(ctx.orderParse([
+    'Angebot BER26-0193 / 261014_Estrel_Test',
+    '26-0193.01 / Rotunde',
+    'Zeitraum: 11.10.2026 - 17.10.2026 22:00',
+    'Auf- & Abbauleitung: Max 0170 1234567',
+    'Lena 0171 7654321',
+    'Fr., 09.10. – Speicher geblockt!',
+    'Geschäftsführung Bankverbindung Tel: +49 30 1234567-0',
+    'Projekt: 261014_Estrel_Test',
+    'Datum: 07.10.2026',
+    'Seite: 2 von 49',
+    '26-0193.01 / Rotunde',
+    'Zeitraum: 11.10.2026 - 17.10.2026 22:00',
+    'Hinweis: Rotunde ab 08:00 Uhr',
+    '26-0193.03 / Lounge',
+    'Aufbau: 12.10.2026 14:00 - 13.10.2026 14:00',
+    'Abbau: 16.10.2026 14:00 - 17.10.2026 05:00',
+    'Abbau: bis mittags räumen',
+    '26-0193.16 / Personal- & Transportkosten (Rabatt)',
+    'Zeitraum: 11.10.2026 - 17.10.2026 22:00',
+  ]));
+  assert.equal(r.project, '26-0193');
+  assert.deepEqual(r.jobs.map(j => j.jobNo), ['26-0193.01', '26-0193.03']);
+  const [a, b] = r.jobs;
+  assert.deepEqual(a.setup, { start: '2026-10-11', end: null });
+  assert.deepEqual(a.teardown, { start: '2026-10-17', end: '2026-10-17T22:00' });
+  assert.equal(a.fromPeriod, true);
+  assert.equal(a.notes, 'Fr., 09.10. – Speicher geblockt!\nHinweis: Rotunde ab 08:00 Uhr');
+  assert.equal(a.lead, 'Max, Lena');
+  assert.equal(b.lead, 'Max, Lena');
+  assert.deepEqual(b.teardown, { start: '2026-10-16T14:00', end: '2026-10-17T05:00' });
+  assert.equal(b.notes, 'Abbau: bis mittags räumen');
+  assert.deepEqual(r.warnings, []);
+});
