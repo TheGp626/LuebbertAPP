@@ -507,6 +507,10 @@
       <label class="ui-field"><span>Ordnername *</span><input type="text" id="inp-ordner-name" placeholder="z. B. Projekt Berlin 2024" /></label>
       <label class="ui-field"><span>Beschreibung</span><input type="text" id="inp-ordner-desc" placeholder="Kurze Beschreibung…" /></label>
       <label class="ui-field"><span>Projektleitung (PL)</span><select id="inp-ordner-pl"></select></label>
+      <div class="ui-field"><span>Auftragsbestätigung (PDF) – füllt Einsätze, AL und MA aus</span>
+        <input type="file" id="inp-ordner-ab" accept="application/pdf,.pdf" onchange="ordnerReadAb(this)" style="display:none;" />
+        <button type="button" class="ui-add-row" onclick="document.getElementById('inp-ordner-ab').click()">PDF auswählen</button>
+        <span class="ui-sub" id="ordner-ab-status" role="status" aria-live="polite"></span></div>
       <div class="ui-field"><span>Einsätze / Eventtage (für die Protokoll-Erinnerung an die AL)</span>
         <div id="ordner-einsatz-rows" style="display:flex; flex-direction:column; gap:8px;"></div>
         <button type="button" class="ui-add-row" style="margin-top:8px;" onclick="addEinsatzRow()">+ Einsatz</button>
@@ -857,7 +861,7 @@
   <script src="js/auth.js?v=39"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=16"></script>
-  <script src="js/utils.js?v=21"></script>
+  <script src="js/utils.js?v=22"></script>
   <script src="js/ui.js?v=4"></script>
   <script src="js/changelog.js?v=1"></script>
   <script src="js/settings.js?v=11"></script>
@@ -867,13 +871,13 @@
   <script src="js/plan-pdf.js?v=2"></script>
   <script src="js/plan-parser.js?v=17"></script>
   <script src="js/order-parser.js?v=3"></script>
-  <script src="js/order-slots.js?v=4"></script>
-  <script src="js/auftraege.js?v=7"></script>
+  <script src="js/order-slots.js?v=5"></script>
+  <script src="js/auftraege.js?v=8"></script>
   <script src="js/wochenplan.js?v=29"></script>
   <script src="js/home.js?v=8"></script>
   <script src="js/dashboard.js?v=41"></script>
   <script src="js/produkte.js?v=18"></script>
-  <script src="js/ordner.js?v=26"></script>
+  <script src="js/ordner.js?v=28"></script>
   <script src="js/app.js?v=25"></script>
 </body>
 

@@ -222,3 +222,42 @@ test('renderOrdnerEinsaetze: AL name from directory; protocols queried for offic
     assert.match(box.innerHTML, /AL Anna AL/, role);
   }
 });
+
+// ── Auftragsbestätigung im Ordner-Formular ──
+const ALS = [
+  { id: 'u1', full_name: 'Max Mustermann', role: 'AL', is_active: true },
+  { id: 'u2', full_name: 'Ana Lopez', role: 'MA', role_rates: [{ role: 'AL' }], is_active: true },
+  { id: 'u3', full_name: 'Ben Alt', role: 'AL', is_active: false },
+  { id: 'u4', full_name: 'Max Muster', role: 'MA', is_active: true },
+];
+test('ordnerMatchAl: exact name, all words, AL role (also via role_rates), active only, first fitting part', () => {
+  assert.equal(ctx.ordnerMatchAl('Max Mustermann', ALS), 'u1');
+  assert.equal(ctx.ordnerMatchAl('  ana   LOPEZ ', ALS), 'u2');
+  assert.equal(ctx.ordnerMatchAl('Lopez', ALS), 'u2');
+  assert.equal(ctx.ordnerMatchAl('Herr Krause, Ana Lopez', ALS), 'u2');
+  assert.equal(ctx.ordnerMatchAl('Max Muster', ALS), '');      // u4 is no AL; "Muster" ≠ "Mustermann"
+  assert.equal(ctx.ordnerMatchAl('Ben Alt', ALS), '');         // inactive
+  assert.equal(ctx.ordnerMatchAl('', ALS), '');
+});
+
+test('ordnerAbRows: one Aufbau and one Abbau row per job, skips phases already in the form', () => {
+  const parsed = { jobs: [
+    { jobNo: '26-0447.01', lead: 'Max Mustermann', setup: { start: '2026-11-11T09:00' }, event: { start: '2026-11-12' }, teardown: { start: '2026-11-13T08:00' } },
+    { jobNo: '26-0447.02', lead: '', setup: { start: '2026-11-11' }, teardown: null },
+  ] };
+  const rows = plain(ctx.ordnerAbRows(parsed, ALS, { '26-0447.01|teardown': true }));
+  assert.deepEqual(rows, [
+    { date: '2026-11-11', action: 'Aufbau', al_id: 'u1', job_no: '26-0447.01', phase: 'setup' },
+    { date: '2026-11-11', action: 'Aufbau', al_id: '', job_no: '26-0447.02', phase: 'setup' },
+  ]);
+});
+
+test('ordnerStaffRows: MA numbers per job from tagged rows; untagged ignored, empty = null, earliest row wins', () => {
+  const rows = plain(ctx.ordnerStaffRows([
+    { job_no: '26-0447.01', phase: 'setup', staff: '3', date: '2026-11-11' },
+    { job_no: '26-0447.01', phase: 'teardown', staff: '', date: '2026-11-13' },
+    { job_no: '26-0447.01', phase: 'setup', staff: '5', date: '2026-11-12' },
+    { job_no: null, phase: null, staff: '9', date: '2026-11-01' },
+  ]));
+  assert.deepEqual(rows, [{ job_no: '26-0447.01', staff_setup: 3, staff_teardown: null }]);
+});

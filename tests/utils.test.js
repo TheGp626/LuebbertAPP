@@ -219,3 +219,11 @@ test('canSeeCosts: PL, Buchhaltung, Admin (also as extra role) — not AL/MA/Gas
   assert.equal(f({ role: 'AL', role_rates: [{ role: 'PL' }] }), true);
   assert.equal(f(null), false);
 });
+test('diffEinsaetze: Auftrag tag (job_no/phase) is written on insert and counts as a change', () => {
+  const d = diffEinsaetze(ex, [
+    { id: 'a', date: '2026-10-20', action: 'Aufbau', al_id: 'X', cancelled: false, job_no: '26-0447.01', phase: 'setup' },
+    { date: '2026-10-25', action: 'Abbau', al_id: 'X', cancelled: false, job_no: '26-0447.01', phase: 'teardown' },
+  ]);
+  assert.deepEqual(d.update, [{ id: 'a', date: '2026-10-20', action: 'Aufbau', al_id: 'X', cancelled: false, job_no: '26-0447.01', phase: 'setup' }]);
+  assert.deepEqual(d.insert, [{ date: '2026-10-25', action: 'Abbau', al_id: 'X', cancelled: false, job_no: '26-0447.01', phase: 'teardown' }]);
+});

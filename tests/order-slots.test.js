@@ -6,6 +6,7 @@ const vm = require('vm');
 const fs = require('fs');
 const path = require('path');
 
+const plain = v => JSON.parse(JSON.stringify(v));
 let ctx;
 beforeEach(() => {
   ctx = vm.createContext({ console });
@@ -114,4 +115,35 @@ test('Fahrer: not counted as MA in taken/count, but a Fahrer on the shift cannot
   assert.equal(ctx.ordTakenCount(s, p), 1);
   assert.equal(ctx.ordCanApply(s, 'd1', '2026-11-06', 'Fahrer', p), false);
   assert.deepEqual([...ctx.ordDrivers(p)], ['d1']);
+});
+
+// ── Einsätze im Projektordner überschreiben Termin und AL der Auftragsbestätigung ──
+test('ordShiftRange: new start day keeps times, a later end moves by the same days', () => {
+  assert.deepEqual(plain(ctx.ordShiftRange({ start: '2026-11-11T09:00', end: '2026-11-11T16:00' }, '2026-11-12')), { start: '2026-11-12T09:00', end: '2026-11-12T16:00' });
+  assert.deepEqual(plain(ctx.ordShiftRange({ start: '2026-11-02T08:00', end: '2026-11-05T01:00' }, '2026-10-31')), { start: '2026-10-31T08:00', end: '2026-11-03T01:00' });
+  assert.deepEqual(plain(ctx.ordShiftRange({ start: '2026-11-12', end: null }, '2026-11-13')), { start: '2026-11-13', end: null });
+  const r = { start: '2026-11-11T09:00', end: null };
+  assert.equal(ctx.ordShiftRange(r, null), r);
+  assert.equal(ctx.ordShiftRange(null, '2026-11-12'), null);
+});
+
+test('ordWithEinsaetze: earliest active tagged Einsatz sets the phase day, its ALs replace the lead; input untouched', () => {
+  const parsed = { f1: { project: '26-0447', jobs: [
+    { jobNo: '26-0447.01', lead: 'Max Muster', setup: { start: '2026-11-11T09:00', end: '2026-11-11T16:00' }, teardown: { start: '2026-11-14T08:00', end: null } },
+    { jobNo: '26-0447.02', lead: 'Ana', setup: { start: '2026-11-11T09:00', end: null }, teardown: null },
+  ] } };
+  const rows = [
+    { job_no: '26-0447.01', phase: 'setup', date: '2026-11-13', al_id: 'u2', cancelled: false },
+    { job_no: '26-0447.01', phase: 'setup', date: '2026-11-12', al_id: 'u1', cancelled: false },
+    { job_no: '26-0447.01', phase: 'teardown', date: '2026-11-20', al_id: 'u3', cancelled: true },
+    { job_no: null, phase: null, date: '2026-11-01', al_id: 'u9', cancelled: false },
+  ];
+  const out = plain(ctx.ordWithEinsaetze(parsed, rows, { u1: 'Ina', u2: 'Ben', u3: 'Cem' }));
+  const j1 = out.f1.jobs[0];
+  assert.deepEqual(j1.setup, { start: '2026-11-12T09:00', end: '2026-11-12T16:00' });
+  assert.deepEqual(j1.teardown, { start: '2026-11-14T08:00', end: null }); // cancelled row ignored
+  assert.equal(j1.lead, 'Ina, Ben');
+  assert.equal(out.f1.jobs[1].lead, 'Ana');
+  assert.equal(parsed.f1.jobs[0].setup.start, '2026-11-11T09:00');
+  assert.equal(ctx.ordWithEinsaetze(parsed, [], {}), parsed);
 });

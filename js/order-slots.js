@@ -91,3 +91,39 @@ function ordTakenCount(slot, planShift) {
 function ordCanApply(slot, me, today, role, planShift) {
   return !!(me && role && role !== 'Gast' && ordSlotDate(slot) >= today && !slot.my_status && ordAssignedIds(planShift, true).indexOf(me) === -1);
 }
+
+// ── Einsätze in the project folder (einsaetze.job_no/phase) override day and AL of the Auftragsbestätigung ──
+// {start,end} moved to another start day: times stay, a later end moves by the same number of days
+function ordShiftRange(r, day) {
+  if (!r || !r.start || !day) return r;
+  var dd = 864e5, delta = Math.round((Date.parse(day) - Date.parse(r.start.slice(0, 10))) / dd);
+  var move = function(s) { return s && new Date(Date.parse(s.slice(0, 10)) + delta * dd).toISOString().slice(0, 10) + s.slice(10); };
+  return { start: move(r.start), end: r.end ? move(r.end) : r.end };
+}
+
+// Parsed files (file_id → result) with the earliest active tagged Einsatz per job phase applied; same object without any
+function ordWithEinsaetze(parsed, rows, names) {
+  var ov = {};
+  (rows || []).filter(function(e) { return e.job_no && e.phase && !e.cancelled; })
+    .sort(function(a, b) { return String(a.date).localeCompare(String(b.date)); })
+    .forEach(function(e) {
+      var o = ov[e.job_no + '|' + e.phase] = ov[e.job_no + '|' + e.phase] || { date: e.date, al: [] };
+      if (e.al_id && o.al.indexOf(e.al_id) === -1) o.al.push(e.al_id);
+    });
+  if (!Object.keys(ov).length) return parsed;
+  var out = {};
+  Object.keys(parsed || {}).forEach(function(fid) {
+    var p = parsed[fid];
+    out[fid] = Object.assign({}, p, { jobs: (p.jobs || []).map(function(j) {
+      var s = ov[j.jobNo + '|setup'], t = ov[j.jobNo + '|teardown'];
+      if (!s && !t) return j;
+      var nj = Object.assign({}, j), al = [];
+      if (s) nj.setup = ordShiftRange(j.setup, s.date);
+      if (t) nj.teardown = ordShiftRange(j.teardown, t.date);
+      (s ? s.al : []).concat(t ? t.al : []).forEach(function(id) { if (names[id] && al.indexOf(names[id]) === -1) al.push(names[id]); });
+      if (al.length) nj.lead = al.join(', ');
+      return nj;
+    }) });
+  });
+  return out;
+}
