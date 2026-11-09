@@ -26,7 +26,7 @@ function orderLines(pages) {
 function orderIsAb(name) { return /auftragsbest/i.test(name || ''); }
 
 // Stored parse results (table order_parsed) older than this are parsed again: bump on every parser change
-var ORDER_PARSER_VERSION = 2;
+var ORDER_PARSER_VERSION = 3;
 
 var ORDER_JOB_RE = /^(\d{2}-\d{4}\.\d{2}) \/ (.+)$/;
 var ORDER_LABEL_RE = /^([A-ZÄÖÜ][A-Za-zÄÖÜäöüß&.\- ]{0,40}):\s*(.*)$/;
@@ -54,25 +54,25 @@ function orderRange(s) {
 }
 
 function orderParse(lines) {
-  var res = { project: '', title: '', jobs: [], warnings: [] }, seen = {}, job = null, prev = '', note = false, lead = false;
+  var res = { project: '', title: '', jobs: [], warnings: [] }, all = [], byNo = {}, job = null, prev = '', note = false, lead = false, foot = false;
   var items = false, group = null, plain = ''; // item section after the first "Job" row: groups and article rows
-  var close = function() {
-    if (!job) return;
-    job.materials = job.materials.filter(function(g) { return g.items.length; });
-    if (job.setup || job.teardown) res.jobs.push(job);
-    job = null;
-  };
+  var park = function() { if (job) { job._items = items; job._group = group; } };
   (lines || []).forEach(function(raw) {
     var l = raw.trim(), m;
-    if (!res.project && (m = /^Auftragsbest\S*\s+\D*(\d{2}-\d{4})\s*\/\s*(.+)$/.exec(l))) {
+    if (!res.project && (m = /^(?:Auftragsbest\S*|(?:Zwischenstand\s+)?Angebot)\s+\D*(\d{2}-\d{4})\s*\/\s*(.+)$/.exec(l))) {
       res.project = m[1]; res.title = m[2].trim(); return;
     }
+    // Page footer + header ("Geschäftsführung Bankverbindung" … "Datum:" / "Seite: 2 von 49") is no job text
+    if (/^Geschäftsführung\b/.test(l)) { foot = true; return; }
+    if (foot) { if (/^Datum:/.test(l)) foot = false; return; }
+    if (/^Seite: \d+ von \d+$/.test(l)) return;
     if ((m = ORDER_JOB_RE.exec(l))) {
-      close();
-      if (/\.{4,}|€/.test(l) || seen[m[1]]) { prev = ''; return; } // summary list at the end repeats every job
-      seen[m[1]] = true;
-      job = { jobNo: m[1], name: orderStripPhones(m[2]), address: '', room: '', setup: null, event: null, teardown: null, lead: '', notes: '', materials: [] };
-      prev = 'head'; note = lead = items = false; group = null; plain = '';
+      park();
+      if (/\.{4,}|€/.test(l)) { job = null; prev = ''; return; } // summary list at the end repeats every job
+      prev = 'head'; note = lead = false; plain = '';
+      if (byNo[m[1]]) { job = byNo[m[1]]; items = job._items; group = job._group; return; } // header repeated after a page break
+      job = byNo[m[1]] = { jobNo: m[1], name: orderStripPhones(m[2]), address: '', room: '', setup: null, event: null, teardown: null, lead: '', notes: '', materials: [] };
+      all.push(job); items = false; group = null;
       return;
     }
     if (!job) return;
@@ -86,8 +86,12 @@ function orderParse(lines) {
     var lab = ORDER_LABEL_RE.exec(l);
     if (!lab) {
       if (prev === 'address') job.room = orderStripPhones(l);
-      else if (lead) { var n = orderStripPhones(l.replace(/\/\/.*$/, '')); if (n) job.lead += (job.lead ? ', ' : '') + n; }
-      else if (note) { var c = orderStripPhones(l); if (c) job.notes += '\n' + c; }
+      else if (lead && /^[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß .\-]{0,30}$/.test(orderStripPhones(l.replace(/\/\/.*$/, '')))) {
+        job.lead += (job.lead ? ', ' : '') + orderStripPhones(l.replace(/\/\/.*$/, '')); // another lead: a bare name (+ phone)
+      } else if (lead || note) {
+        lead = false; note = true; // schedule text right under the lead
+        var c = orderStripPhones(l); if (c) job.notes += (job.notes ? '\n' : '') + c;
+      }
       prev = ''; return;
     }
     var key = lab[1].trim(), val = lab[2].trim();
@@ -95,16 +99,33 @@ function orderParse(lines) {
     var field = { 'Aufbau': 'setup', 'Veranstaltung': 'event', 'Abbau': 'teardown' }[key];
     if (key === 'Lieferadresse') { job.address = val; prev = 'address'; }
     else if (field) {
-      job[field] = orderRange(val);
-      if (!job[field]) res.warnings.push(job.jobNo + ': ' + key + ' nicht lesbar („' + val + '“)');
+      var r = orderRange(val);
+      if (r) { if (!job[field]) job[field] = r; }
+      else if (job[field]) { job.notes += (job.notes ? '\n' : '') + orderStripPhones(key + ': ' + val); note = true; } // "Abbau: bis mittags …" under a dated Abbau
+      else res.warnings.push(job.jobNo + ': ' + key + ' nicht lesbar („' + val + '“)');
+    } else if (key === 'Zeitraum') {
+      if (!job.period) job.period = orderRange(val);
     } else if (key === 'Auf- & Abbauleitung') {
       job.lead = val === '???' ? '' : orderStripPhones(val.replace(/\/\/.*$/, '').replace(/\?{2,}/g, '')); lead = true;
-    } else if (!ORDER_CONTACT_RE.test(key) && key !== 'Zeitraum' && key !== 'Pos.') {
+    } else if (!ORDER_CONTACT_RE.test(key) && key !== 'Pos.') {
       var t = orderStripPhones(key + ': ' + val);
       job.notes += (job.notes ? '\n' : '') + t; note = true;
     }
   });
-  close();
+  // The Auf- & Abbauleitung usually stands once, on the first job: it leads the jobs that name none
+  var firstLead = (all.filter(function(j) { return j.lead; })[0] || {}).lead || '';
+  all.forEach(function(j) {
+    // Only "Zeitraum" (whole project window, schedule in free text): Aufbau on its first day, Abbau on its last
+    if (!j.setup && !j.teardown && j.period && !/personal|transport|rabatt/i.test(j.name)) {
+      j.setup = { start: j.period.start.slice(0, 10), end: null };
+      if (j.period.end) j.teardown = { start: j.period.end.slice(0, 10), end: j.period.end };
+      j.fromPeriod = true;
+    }
+    if (!j.lead) j.lead = firstLead;
+    j.materials = j.materials.filter(function(g) { return g.items.length; });
+    delete j._items; delete j._group; delete j.period;
+    if (j.setup || j.teardown) res.jobs.push(j);
+  });
   if (!res.jobs.length && !res.project) res.warnings.push('Keine Auftragsbestätigung erkannt.');
   return res;
 }
