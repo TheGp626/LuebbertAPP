@@ -323,3 +323,32 @@ test('orderParse: day plan in the notes of a Zeitraum job sets Aufbau / Abbau fo
   assert.deepEqual(b.teardown, a.teardown);
   assert.equal(b.days.length, 3);
 });
+
+test('orderParse: Angebot without Job marker rows → material groups up to Zwischensumme; "Auf- und Abbau via" job dropped', () => {
+  const r = plain(ctx.orderParse([
+    'Angebot BER25-0483 / 261209_Test',
+    '25-0483.04 / FR // CH II // Gala',
+    'Lieferadresse: Hotel, Berlin',
+    'Aufbau: 11.12.2026 08:00 - 16:30',
+    'Abbau: 11.12.2026 23:30 - 12.12.2026 07:30',
+    'Pos. Anzahl Bezeichnung Einzelpreis Faktor Gesamt',
+    'Leergutlager: Saal Europa',
+    'CH II // Galadinner',
+    '2 30 Strauß [Estrel] 52,00 1,33 2.074,80',
+    'weiß',
+    '3 310 Strauß 32,00 1,00 9.920,00',
+    'Zwischensumme CH II // Galadinner 11.994,80',
+    'CH II // Deko',
+    '4 208 Kerzenleuchter, silber 52,00 1,00 10.816,00',
+    '25-0483.06 / SA // CH I // ME',
+    'Aufbau: 12.12.2026 08:00 - 11:00',
+    'Auf- und Abbau via Service Hotel.',
+  ]));
+  assert.equal(r.project, '25-0483');
+  assert.deepEqual(r.jobs.map(j => j.jobNo), ['25-0483.04']);
+  assert.equal(r.jobs[0].notes, 'Leergutlager: Saal Europa');
+  assert.deepEqual(r.jobs[0].materials, [
+    { group: 'CH II // Galadinner', items: [{ qty: 30, name: 'Strauß [Estrel]' }, { qty: 310, name: 'Strauß' }] },
+    { group: 'CH II // Deko', items: [{ qty: 208, name: 'Kerzenleuchter, silber' }] },
+  ]);
+});
