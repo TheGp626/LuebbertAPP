@@ -293,3 +293,33 @@ test('orderParse: Angebot, header repeated after a page break, Zeitraum only, le
   assert.equal(b.notes, 'Abbau: bis mittags räumen');
   assert.deepEqual(r.warnings, []);
 });
+
+test('orderDays: day rows + Aufbau / Umbau / Abbau lines, Hinweis lines skipped, year rolls over', () => {
+  const notes = 'Fr., 09.10. – Speicher geblockt!\n⦁ Hinweis: Foyer 4 – Fremdfirma Abbau\nSo., 11.10.\n⦁ Foyer 3: Aufbau ganztägig\n⦁ Raum 5: Aufbau ab 08:00 Uhr\n' +
+    'Di., 13.10.\n⦁ Dekoaufbau: ab mittags\nMi., 14.10.\n⦁ Foyer 3: Umbau (Get Together)\nDo., 15.10.\n⦁ Leergut anliefern\nSo., 18.10.\n⦁ CH I: Abbau bis Sonntag 05 Uhr';
+  assert.deepEqual(plain(ctx.orderDays(notes, '2026-10-11')), [
+    { date: '2026-10-11', action: 'Aufbau' }, { date: '2026-10-13', action: 'Aufbau' },
+    { date: '2026-10-14', action: 'Umbau' }, { date: '2026-10-18', action: 'Abbau' },
+  ]);
+  assert.deepEqual(plain(ctx.orderDays('Sa., 02.01.\n⦁ Abbau', '2026-12-28')), [{ date: '2027-01-02', action: 'Abbau' }]);
+  assert.deepEqual(plain(ctx.orderDays('', '2026-10-11')), []);
+});
+
+test('orderParse: day plan in the notes of a Zeitraum job sets Aufbau / Abbau for every Zeitraum job', () => {
+  const r = plain(ctx.orderParse([
+    '26-0193.01 / Rotunde', 'Lieferadresse: Halle 1', 'Zeitraum: 11.10.2026 - 17.10.2026 22:00', 'Info: Plan',
+    'Mo., 12.10.', '⦁ CH I: Aufbau ab 08:00 Uhr',
+    'Geschäftsführung Bankverbindung', 'Datum: 07.10.2026',
+    '26-0193.01 / Rotunde', 'Lieferadresse: Halle 1', 'Zeitraum: 11.10.2026 - 17.10.2026 22:00',
+    'Pos. Anzahl Bezeichnung Einzelpreis Faktor Gesamt',
+    'Sa., 17.10.', '⦁ CH I: Abbau ganztägig', 'So., 18.10.', '⦁ Raum 5: Abbau bis 05 Uhr',
+    '26-0193.02 / Catering', 'Zeitraum: 11.10.2026 - 17.10.2026 22:00',
+  ]));
+  const [a, b] = r.jobs;
+  assert.equal(a.notes, 'Info: Plan\nMo., 12.10.\n⦁ CH I: Aufbau ab 08:00 Uhr\nSa., 17.10.\n⦁ CH I: Abbau ganztägig\nSo., 18.10.\n⦁ Raum 5: Abbau bis 05 Uhr');
+  assert.deepEqual(a.setup, { start: '2026-10-12', end: null });
+  assert.deepEqual(a.teardown, { start: '2026-10-17', end: '2026-10-18' });
+  assert.deepEqual(b.setup, a.setup);
+  assert.deepEqual(b.teardown, a.teardown);
+  assert.equal(b.days.length, 3);
+});

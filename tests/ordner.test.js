@@ -288,3 +288,27 @@ test('ordnerStaffRows: jobs that share a phase get 0 MA for it, so it shows up o
     { job_no: '26-0394.01', staff_teardown: 4 },
   ]);
 });
+
+test('ordnerAbRows: further days of the day plan are plain rows, once; a job phase on the same day covers them', () => {
+  const days = [
+    { date: '2026-10-11', action: 'Aufbau' }, { date: '2026-10-12', action: 'Aufbau' }, { date: '2026-10-13', action: 'Aufbau' },
+    { date: '2026-10-14', action: 'Umbau' }, { date: '2026-10-16', action: 'Abbau' }, { date: '2026-10-18', action: 'Abbau' },
+  ];
+  const plan = { setup: { start: '2026-10-11', end: null }, teardown: { start: '2026-10-16', end: '2026-10-18' }, days };
+  const parsed = { jobs: [
+    Object.assign({ jobNo: '26-0193.01', name: 'Rotunde', lead: 'Max Mustermann' }, plan),
+    Object.assign({ jobNo: '26-0193.02', name: 'Catering', lead: '' }, plan),
+    { jobNo: '26-0193.03', name: 'Lounge', lead: '', setup: { start: '2026-10-12T14:00' }, teardown: { start: '2026-10-16T14:00' } },
+  ] };
+  const rows = plain(ctx.ordnerAbRows(parsed, ALS, {}));
+  assert.deepEqual(rows.map(r => [r.date, r.action, r.job_no || '-']), [
+    ['2026-10-11', 'Aufbau', '26-0193.01'],
+    ['2026-10-12', 'Aufbau', '26-0193.03'],
+    ['2026-10-13', 'Aufbau', '-'],
+    ['2026-10-14', 'Umbau', '-'],
+    ['2026-10-16', 'Abbau', '26-0193.01'],
+    ['2026-10-16', 'Abbau', '26-0193.03'],
+    ['2026-10-18', 'Abbau', '-'],
+  ]);
+  assert.equal(rows[2].al_id, 'u1');
+});
