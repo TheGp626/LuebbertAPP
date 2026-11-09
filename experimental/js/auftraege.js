@@ -509,7 +509,9 @@ async function initAuftraege() {
   var res = await Promise.all([
     supabaseClient.from('folder_files').select('id, folder_id, name, file_url, file_type, created_at, project_folders(name)').ilike('name', '%auftragsbest%'),
     supabaseClient.from('order_staffing').select('job_no, staff_setup, staff_teardown'),
-    supabaseClient.from('order_parsed').select('file_id, parser_version, result')
+    supabaseClient.from('order_parsed').select('file_id, parser_version, result'),
+    // Einsätze tagged with an Auftrag override its day and AL (folder form)
+    supabaseClient.from('einsaetze').select('job_no, phase, date, al_id, cancelled').not('job_no', 'is', null)
   ]);
   if (seq !== _ordSeq) return;
   var err = res[0].error || res[1].error || res[2].error;
@@ -525,9 +527,10 @@ async function initAuftraege() {
     content.innerHTML = '<div class="wp-empty">Neuer Auftrag wird gelesen (' + i + ' von ' + n + ') …</div>';
   }, function() { return seq !== _ordSeq; });
   if (!out || seq !== _ordSeq) return;
-  var jobs = ordJobs(_ordFiles, out.parsed);
+  if (res[3].error) console.warn('Aufträge: Einsätze fehlen:', res[3].error); // PDF dates and AL then
   var c = await ordLoadCtx();
   if (seq !== _ordSeq) return;
+  var jobs = ordJobs(_ordFiles, ordWithEinsaetze(out.parsed, res[3].error ? [] : res[3].data, c.names));
   _ordCtx = c;
   _ordView = { jobs: jobs, failed: out.failed };
   ordRenderList();

@@ -252,7 +252,8 @@ function flattenPrivate(row) {
 
 function diffEinsaetze(existing, edited) {
   var FIELDS = ['date', 'action', 'al_id', 'cancelled'];
-  var pick = function(r) { var o = {}; FIELDS.forEach(function(f) { o[f] = r[f]; }); return o; };
+  // Auftrag tag (job_no/phase) only on rows that have one, so untagged rows keep their old shape
+  var pick = function(r) { var o = {}; FIELDS.forEach(function(f) { o[f] = r[f]; }); if (r.job_no) { o.job_no = r.job_no; o.phase = r.phase; } return o; };
   var byId = {};
   existing.forEach(function(e) { byId[e.id] = e; });
   var keep = {};
@@ -261,7 +262,7 @@ function diffEinsaetze(existing, edited) {
     if (!r.id || !byId[r.id]) { insert.push(pick(r)); return; }
     keep[r.id] = true;
     var old = byId[r.id];
-    var changed = FIELDS.some(function(f) { return old[f] !== r[f]; });
+    var changed = FIELDS.some(function(f) { return old[f] !== r[f]; }) || (old.job_no || null) !== (r.job_no || null) || (old.phase || null) !== (r.phase || null);
     if (changed) update.push(Object.assign({ id: r.id }, pick(r)));
   });
   var remove = existing.filter(function(e) { return !keep[e.id]; }).map(function(e) { return e.id; });
