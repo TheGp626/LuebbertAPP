@@ -433,7 +433,17 @@ function ordnerAbRows(parsed, users, have) {
       if (also.length) row.also_jobs = also;
       out.push(row);
     });
+    // Further days of the day plan (2nd Aufbau day, Umbau, later Abbau days): plain Einsätze, once (on the primary job)
+    if (j.days && j.setup && !shared[j.jobNo + '|setup'] && !(have || {})[j.jobNo + '|setup']) {
+      j.days.forEach(function(d) {
+        if ((d.action === 'Aufbau' && d.date === j.setup.start.slice(0, 10)) || (d.action === 'Abbau' && j.teardown && d.date === j.teardown.start.slice(0, 10))) return;
+        out.push({ date: d.date, action: d.action, al_id: ordnerMatchAl(j.lead, users) });
+      });
+    }
   });
+  var tagged = {};
+  out.forEach(function(r) { if (r.job_no) tagged[r.date + r.action] = true; });
+  out = out.filter(function(r) { return r.job_no || !tagged[r.date + r.action]; }); // a job's own phase that day covers it
   return out.sort(function(a, b) { return a.date.localeCompare(b.date); });
 }
 

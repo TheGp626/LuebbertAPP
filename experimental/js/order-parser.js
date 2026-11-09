@@ -26,7 +26,7 @@ function orderLines(pages) {
 function orderIsAb(name) { return /auftragsbest/i.test(name || ''); }
 
 // Stored parse results (table order_parsed) older than this are parsed again: bump on every parser change
-var ORDER_PARSER_VERSION = 3;
+var ORDER_PARSER_VERSION = 4;
 
 var ORDER_JOB_RE = /^(\d{2}-\d{4}\.\d{2}) \/ (.+)$/;
 var ORDER_LABEL_RE = /^([A-ZÄÖÜ][A-Za-zÄÖÜäöüß&.\- ]{0,40}):\s*(.*)$/;
@@ -56,7 +56,7 @@ function orderRange(s) {
 function orderParse(lines) {
   var res = { project: '', title: '', jobs: [], warnings: [] }, all = [], byNo = {}, job = null, prev = '', note = false, lead = false, foot = false;
   var items = false, group = null, plain = ''; // item section after the first "Job" row: groups and article rows
-  var park = function() { if (job) { job._items = items; job._group = group; } };
+  var park = function() { if (job) { job._items = items; job._group = group; job._note = note || lead; } };
   (lines || []).forEach(function(raw) {
     var l = raw.trim(), m;
     if (!res.project && (m = /^(?:Auftragsbest\S*|(?:Zwischenstand\s+)?Angebot)\s+\D*(\d{2}-\d{4})\s*\/\s*(.+)$/.exec(l))) {
@@ -65,12 +65,12 @@ function orderParse(lines) {
     // Page footer + header ("Geschäftsführung Bankverbindung" … "Datum:" / "Seite: 2 von 49") is no job text
     if (/^Geschäftsführung\b/.test(l)) { foot = true; return; }
     if (foot) { if (/^Datum:/.test(l)) foot = false; return; }
-    if (/^Seite: \d+ von \d+$/.test(l)) return;
+    if (/^Seite: \d+ von \d+$/.test(l) || /^Pos\. Anzahl Bezeichnung/.test(l)) return;
     if ((m = ORDER_JOB_RE.exec(l))) {
       park();
       if (/\.{4,}|€/.test(l)) { job = null; prev = ''; return; } // summary list at the end repeats every job
       prev = 'head'; note = lead = false; plain = '';
-      if (byNo[m[1]]) { job = byNo[m[1]]; items = job._items; group = job._group; return; } // header repeated after a page break
+      if (byNo[m[1]]) { job = byNo[m[1]]; items = job._items; group = job._group; note = job._note; prev = ''; return; } // header repeated after a page break
       job = byNo[m[1]] = { jobNo: m[1], name: orderStripPhones(m[2]), address: '', room: '', setup: null, event: null, teardown: null, lead: '', notes: '', materials: [] };
       all.push(job); items = false; group = null;
       return;
@@ -95,6 +95,9 @@ function orderParse(lines) {
       prev = ''; return;
     }
     var key = lab[1].trim(), val = lab[2].trim();
+    // Repeated page header lines keep the text that runs on from the previous page
+    if (key === 'Zeitraum') { if (!job.period) job.period = orderRange(val); prev = ''; return; }
+    if (key === 'Lieferadresse' && job.address) { prev = ''; return; }
     prev = ''; note = lead = false;
     var field = { 'Aufbau': 'setup', 'Veranstaltung': 'event', 'Abbau': 'teardown' }[key];
     if (key === 'Lieferadresse') { job.address = val; prev = 'address'; }
@@ -103,8 +106,6 @@ function orderParse(lines) {
       if (r) { if (!job[field]) job[field] = r; }
       else if (job[field]) { job.notes += (job.notes ? '\n' : '') + orderStripPhones(key + ': ' + val); note = true; } // "Abbau: bis mittags …" under a dated Abbau
       else res.warnings.push(job.jobNo + ': ' + key + ' nicht lesbar („' + val + '“)');
-    } else if (key === 'Zeitraum') {
-      if (!job.period) job.period = orderRange(val);
     } else if (key === 'Auf- & Abbauleitung') {
       job.lead = val === '???' ? '' : orderStripPhones(val.replace(/\/\/.*$/, '').replace(/\?{2,}/g, '')); lead = true;
     } else if (!ORDER_CONTACT_RE.test(key) && key !== 'Pos.') {
@@ -114,20 +115,44 @@ function orderParse(lines) {
   });
   // The Auf- & Abbauleitung usually stands once, on the first job: it leads the jobs that name none
   var firstLead = (all.filter(function(j) { return j.lead; })[0] || {}).lead || '';
+  // Day plan in the notes of a "Zeitraum" job ("Di., 13.10." + "⦁ Foyer 2: Aufbau ganztägig"): it is the project's plan
+  var days = [];
+  all.some(function(j) { return j.period && (days = orderDays(j.notes, j.period.start)).length; });
   all.forEach(function(j) {
-    // Only "Zeitraum" (whole project window, schedule in free text): Aufbau on its first day, Abbau on its last
+    // Only "Zeitraum" (whole project window): Aufbau / Abbau from the day plan, else the window's first / last day
     if (!j.setup && !j.teardown && j.period && !/personal|transport|rabatt/i.test(j.name)) {
-      j.setup = { start: j.period.start.slice(0, 10), end: null };
-      if (j.period.end) j.teardown = { start: j.period.end.slice(0, 10), end: j.period.end };
+      var up = days.filter(function(d) { return d.action === 'Aufbau'; }), down = days.filter(function(d) { return d.action === 'Abbau'; });
+      j.setup = { start: up.length ? up[0].date : j.period.start.slice(0, 10), end: null };
+      if (down.length) j.teardown = { start: down[0].date, end: down[down.length - 1].date };
+      else if (j.period.end) j.teardown = { start: j.period.end.slice(0, 10), end: j.period.end };
+      if (days.length) j.days = days;
       j.fromPeriod = true;
     }
     if (!j.lead) j.lead = firstLead;
     j.materials = j.materials.filter(function(g) { return g.items.length; });
-    delete j._items; delete j._group; delete j.period;
+    delete j._items; delete j._group; delete j._note; delete j.period;
     if (j.setup || j.teardown) res.jobs.push(j);
   });
   if (!res.jobs.length && !res.project) res.warnings.push('Keine Auftragsbestätigung erkannt.');
   return res;
+}
+
+// Notes day plan → [{date, action}] in order, one per action and day. Day rows "Mo., 12.10."; lines below with
+// Aufbau / Umbau / Abbau count, "Hinweis" lines (other firms' work) do not. Year from the Zeitraum start.
+function orderDays(notes, periodStart) {
+  var y0 = +periodStart.slice(0, 4), m0 = +periodStart.slice(5, 7), day = null, out = [], seen = {};
+  (notes || '').split('\n').forEach(function(l) {
+    var m = /^(?:Mo|Di|Mi|Do|Fr|Sa|So)\.?,?\s+(\d{1,2})\.(\d{1,2})\./.exec(l);
+    if (m) {
+      var mo = +m[2], y = mo < m0 ? y0 + 1 : y0;
+      day = y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+      return;
+    }
+    if (!day || /^\W*Hinweis/i.test(l)) return;
+    var a = /umbau/i.test(l) ? 'Umbau' : /aufbau/i.test(l) ? 'Aufbau' : /\babbau/i.test(l) ? 'Abbau' : null;
+    if (a && !seen[day + a]) { seen[day + a] = true; out.push({ date: day, action: a }); }
+  });
+  return out;
 }
 
 // Jobs of one Bestätigung often share a phase (Aufbau, Deko and Umbau jobs all list the same Abbau):
