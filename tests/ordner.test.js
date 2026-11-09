@@ -16,7 +16,7 @@ beforeEach(() => {
     setTimeout: () => 0,
   });
   ctx.window = ctx;
-  for (const f of ['utils.js', 'ui.js', 'ordner.js']) {
+  for (const f of ['utils.js', 'ui.js', 'order-parser.js', 'ordner.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../js', f), 'utf8'), ctx, { filename: f });
   }
 });
@@ -260,4 +260,31 @@ test('ordnerStaffRows: MA numbers per job from tagged rows; untagged ignored, em
     { job_no: null, phase: null, staff: '9', date: '2026-11-01' },
   ]));
   assert.deepEqual(rows, [{ job_no: '26-0447.01', staff_setup: 3, staff_teardown: null }]);
+});
+
+test('ordnerAbRows: shared Abbau of several jobs is one row (also_jobs), Umbau from the job name', () => {
+  const T = { start: '2026-11-05T01:00', end: '2026-11-05T06:00' };
+  const parsed = { jobs: [
+    { jobNo: '26-0394.01', name: 'CH II // Aufbau 01.11.', lead: '', setup: { start: '2026-11-01T17:00' }, teardown: T },
+    { jobNo: '26-0394.02', name: 'CH II // Deko für 02.11.', lead: '', setup: { start: '2026-11-02T08:00' }, teardown: T },
+    { jobNo: '26-0394.03', name: 'CH II // 04.11. Umbau AVA', lead: '', setup: { start: '2026-11-04T16:00' }, teardown: T },
+  ] };
+  const rows = plain(ctx.ordnerAbRows(parsed, ALS, {}));
+  assert.deepEqual(rows.map(r => [r.date, r.action, r.job_no, r.phase, (r.also_jobs || []).join()]), [
+    ['2026-11-01', 'Aufbau', '26-0394.01', 'setup', ''],
+    ['2026-11-02', 'Aufbau', '26-0394.02', 'setup', ''],
+    ['2026-11-04', 'Umbau', '26-0394.03', 'setup', ''],
+    ['2026-11-05', 'Abbau', '26-0394.01', 'teardown', '26-0394.02,26-0394.03'],
+  ]);
+});
+
+test('ordnerStaffRows: jobs that share a phase get 0 MA for it, so it shows up once', () => {
+  const rows = plain(ctx.ordnerStaffRows([
+    { job_no: '26-0394.01', phase: 'teardown', staff: '4', date: '2026-11-05', also_jobs: ['26-0394.02'] },
+    { job_no: '26-0394.02', phase: 'setup', staff: '2', date: '2026-11-02' },
+  ]));
+  assert.deepEqual(rows, [
+    { job_no: '26-0394.02', staff_setup: 2, staff_teardown: 0 },
+    { job_no: '26-0394.01', staff_teardown: 4 },
+  ]);
 });

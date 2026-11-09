@@ -15,6 +15,27 @@ var ORD_PHASE = { setup: 'Aufbau', teardown: 'Abbau' };
 
 function ordEsc(s) { return escapeHtml(s == null ? '' : String(s)); }
 
+// Phases a job shares with an earlier job of the same file (orderSharedPhases) are dropped from that job and
+// kept as sharedWith {phase: jobNo}, so the Abbau of an Aufbau + Deko + Umbau Bestätigung is staffed once
+function ordFoldShared(parsed) {
+  var out = {};
+  Object.keys(parsed || {}).forEach(function(fid) {
+    var p = parsed[fid], shared = orderSharedPhases(p.jobs);
+    if (!Object.keys(shared).length) { out[fid] = p; return; }
+    out[fid] = Object.assign({}, p, { jobs: p.jobs.map(function(j) {
+      var nj = null;
+      ['setup', 'teardown'].forEach(function(ph) {
+        var to = shared[j.jobNo + '|' + ph];
+        if (!to) return;
+        nj = nj || Object.assign({}, j, { sharedWith: Object.assign({}, j.sharedWith) });
+        nj[ph] = null; nj.sharedWith[ph] = to;
+      });
+      return nj || j;
+    }) });
+  });
+  return out;
+}
+
 function ordEndDay(j) {
   var r = j.teardown || j.event || j.setup;
   return ((r && (r.end || r.start)) || '').slice(0, 10);
@@ -140,7 +161,7 @@ var ORD_ICON = {
 
 function ordCardHtml(x) {
   var j = x.job, open = !!_ordOpen[j.jobNo], first = j.setup || j.event || j.teardown;
-  var phase = j.setup ? 'Aufbau' : j.event ? 'Veranstaltung' : 'Abbau';
+  var phase = j.setup ? orderPhaseAction(j, 'setup') : j.event ? 'Veranstaltung' : orderPhaseAction(j, 'teardown');
   var sub = [ordVenueLabel(x.title), j.room, j.jobNo].filter(Boolean).join(' · ');
   var head = '<button type="button" class="ord-head" aria-expanded="' + open + '" onclick="ordToggle(\'' + jsAttrArg(j.jobNo) + '\')">' +
     '<span class="ord-time"><b>' + ordEsc(first && first.start.length > 10 ? first.start.slice(11, 16) : '—') + '</b><span>' + phase + '</span></span>' +
@@ -150,6 +171,9 @@ function ordCardHtml(x) {
   var mats = j.materials || [], count = mats.reduce(function(n, g) { return n + g.items.length; }, 0);
   return '<div class="ord-card ord-card-open">' + head + '<div class="ord-body">' +
     ordSlotHtml(x, 'setup') + ordSlotHtml(x, 'teardown') +
+    Object.keys(j.sharedWith || {}).map(function(ph) {
+      return '<div class="ui-sub ord-shared">' + ORD_PHASE[ph] + ' zusammen mit Auftrag ' + ordEsc(j.sharedWith[ph]) + '</div>';
+    }).join('') +
     '<div class="ord-meta">' + (j.event ? '<span>Veranstaltung: ' + ordEsc(ordRange(j.event)) + '</span>' : '') +
       '<span>AL: ' + (j.lead ? ordEsc(j.lead) : 'offen') + (j.room ? ' · Raum: ' + ordEsc(j.room) : '') + '</span>' +
       (x.folderName ? '<span>Ordner: ' + ordEsc(x.folderName) + '</span>' : '') + '</div>' +
@@ -183,7 +207,7 @@ function ordSlotHtml(x, phase) {
     '<button type="button" aria-label="Einen MA weniger"' + (needed ? '' : ' disabled') + ' onclick="ordStep(\'' + jobArg + '\', \'' + field + '\', -1)">' + ORD_ICON.minus + '</button>' +
     '<output>' + (needed == null ? '–' : needed) + '<small>MA</small></output>' +
     '<button type="button" aria-label="Einen MA mehr"' + (needed >= 99 ? ' disabled' : '') + ' onclick="ordStep(\'' + jobArg + '\', \'' + field + '\', 1)">' + ORD_ICON.plus + '</button></div>';
-  var top = '<div class="ord-slot-top"><div class="ord-slot-name"><b>' + ORD_PHASE[phase] + '</b><span>' + ordEsc(ordRange(x.job[phase])) + '</span></div>' + stepper + '</div>';
+  var top = '<div class="ord-slot-top"><div class="ord-slot-name"><b>' + orderPhaseAction(x.job, phase) + '</b><span>' + ordEsc(ordRange(x.job[phase])) + '</span></div>' + stepper + '</div>';
   if (!needed && !apps.length) {
     return '<section class="ord-slot">' + top + '<div class="ord-slot-sub">' + (needed === 0 ? 'Keine MA ausgeschrieben.' : 'Trag ein, wie viele MA ihr braucht.') + '</div></section>';
   }
@@ -530,7 +554,7 @@ async function initAuftraege() {
   if (res[3].error) console.warn('Aufträge: Einsätze fehlen:', res[3].error); // PDF dates and AL then
   var c = await ordLoadCtx();
   if (seq !== _ordSeq) return;
-  var jobs = ordJobs(_ordFiles, ordWithEinsaetze(out.parsed, res[3].error ? [] : res[3].data, c.names));
+  var jobs = ordJobs(_ordFiles, ordWithEinsaetze(ordFoldShared(out.parsed), res[3].error ? [] : res[3].data, c.names));
   _ordCtx = c;
   _ordView = { jobs: jobs, failed: out.failed };
   ordRenderList();

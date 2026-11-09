@@ -552,3 +552,13 @@ test('ordInboxHtml: „Hätten laut Verfügbarkeit Zeit“ with „Annehmen“, 
   assert.match(html, /X &lt;b&gt;/);
   assert.doesNotMatch(ctx.ordInboxHtml({ open: [], accepted: [] }, []), /Hätten laut Verfügbarkeit/);
 });
+
+test('ordFoldShared: a phase shared with an earlier job of the same file is dropped and remembered; input untouched', () => {
+  const T = { start: '2026-11-05T01:00', end: '2026-11-05T06:00' };
+  const parsed = { f1: { jobs: [{ jobNo: 'a.01', setup: { start: '2026-11-01T17:00' }, teardown: T }, { jobNo: 'a.02', setup: { start: '2026-11-02T08:00' }, teardown: T }] } };
+  const out = plain(ctx.ordFoldShared(parsed));
+  assert.deepEqual(out.f1.jobs[0].teardown, T);
+  assert.equal(out.f1.jobs[1].teardown, null);
+  assert.deepEqual(out.f1.jobs[1].sharedWith, { teardown: 'a.01' });
+  assert.deepEqual(parsed.f1.jobs[1].teardown, T);
+});

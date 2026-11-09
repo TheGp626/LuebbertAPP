@@ -238,3 +238,22 @@ test('orderParse: job without item section has empty materials', () => {
 test('ORDER_PARSER_VERSION: positive integer (bump on every parser change)', () => {
   assert.ok(Number.isInteger(ctx.ORDER_PARSER_VERSION) && ctx.ORDER_PARSER_VERSION >= 2);
 });
+
+// ── Several jobs of one Bestätigung (Aufbau / Deko / Umbau) share one Abbau ──
+const ESTREL = [
+  { jobNo: '26-0394.01', name: 'CH II // Aufbau 01.11.', setup: { start: '2026-11-01T17:00', end: '2026-11-01T20:00' }, teardown: { start: '2026-11-05T01:00', end: '2026-11-05T06:00' } },
+  { jobNo: '26-0394.02', name: 'CH II // Deko für 02.11.', setup: { start: '2026-11-02T08:00', end: '2026-11-02T11:00' }, teardown: { start: '2026-11-05T01:00', end: '2026-11-05T06:00' } },
+  { jobNo: '26-0394.03', name: 'CH II // 04.11. Umbau AVA', setup: { start: '2026-11-04T16:00', end: '2026-11-04T19:00' }, teardown: { start: '2026-11-05T01:00', end: '2026-11-05T06:00' } },
+];
+test('orderSharedPhases: a phase with the same time as an earlier job of the file points to that job', () => {
+  assert.deepEqual(plain(ctx.orderSharedPhases(ESTREL)), { '26-0394.02|teardown': '26-0394.01', '26-0394.03|teardown': '26-0394.01' });
+  assert.deepEqual(plain(ctx.orderSharedPhases([ESTREL[0], Object.assign({}, ESTREL[1], { teardown: { start: '2026-11-05T02:00', end: null } })])), {});
+  assert.deepEqual(plain(ctx.orderSharedPhases(null)), {});
+});
+test('orderPhaseAction: Umbau / Teilaufbau / Teilabbau from the job name, else Aufbau / Abbau', () => {
+  assert.equal(ctx.orderPhaseAction(ESTREL[2], 'setup'), 'Umbau');
+  assert.equal(ctx.orderPhaseAction(ESTREL[0], 'setup'), 'Aufbau');
+  assert.equal(ctx.orderPhaseAction({ name: 'Teilaufbau Halle 2' }, 'setup'), 'Teilaufbau');
+  assert.equal(ctx.orderPhaseAction({ name: 'Teilabbau Foyer' }, 'teardown'), 'Teilabbau');
+  assert.equal(ctx.orderPhaseAction(ESTREL[2], 'teardown'), 'Abbau');
+});
