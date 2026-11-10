@@ -16,7 +16,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <link rel="stylesheet" href="css/style.css?v=41">
-  <link rel="stylesheet" href="css/ui.css?v=31">
+  <link rel="stylesheet" href="css/ui.css?v=32">
 </head>
 
 <body>
@@ -673,51 +673,69 @@
     </div>
   </div>
 
-  <!-- ── SETTINGS MODAL ── -->
-  <div class="sig-modal ui-sheet" id="settings-modal" style="--sheet-w:560px">
-    <div class="sig-modal-inner" style="max-height: 90vh; overflow-y: auto;">
-      <div class="sig-modal-head">
-        <div class="sig-modal-title">Einstellungen</div>
-        <button class="icon-btn" onclick="closeSettingsModal()">✕</button>
+  <!-- ── OPTIONEN (personal settings; logic in js/app.js "SETTINGS", styles .opt-* in css/ui.css) ── -->
+  <div class="sig-modal ui-sheet" id="settings-modal" style="--sheet-w:520px">
+    <div class="sig-modal-inner opt-sheet">
+      <div class="ui-sheet-head">
+        <h3 class="ui-title" style="font-size:20px;">Optionen</h3>
+        <button type="button" class="ui-icon-btn" onclick="closeSettingsModal()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
 
-      <div class="field" style="margin-top: 10px;">
-        <label>Stundenlohn (€)</label>
-        <input type="number" id="inp-wage" step="0.50" class="meta-input" placeholder="z. B. 15.00" />
+      <div class="opt-me">
+        <span class="opt-avatar" id="opt-avatar" aria-hidden="true"></span>
+        <div class="opt-me-text"><div class="opt-name" id="opt-name"></div><div class="ui-sub" id="opt-role"></div></div>
       </div>
 
-      <div class="field" style="margin-top: 16px;">
-        <label>Abrechnungsschluss (Tag)</label>
-        <div id="inp-cutoff-info" style="font-size:14px; color:var(--text2); padding:6px 0;"></div>
+      <div class="ui-label">Darstellung</div>
+      <div class="ui-seg" id="opt-theme" role="group" aria-label="Darstellung">
+        <button type="button" data-theme-opt="light" onclick="setTheme('light')">Hell</button>
+        <button type="button" data-theme-opt="dark" onclick="setTheme('dark')">Dunkel</button>
+        <button type="button" data-theme-opt="auto" onclick="setTheme('auto')">Wie das Gerät</button>
       </div>
 
-      <div class="field" style="margin-top: 16px;">
-        <label>Abteilungen verwalten</label>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Stundenl. (€/h) direkt neben jeder Abteilung
-          einstellen</div>
-        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-          <input type="text" id="inp-new-dept" class="meta-input" placeholder="Neue Abteilung" style="flex:1" />
-          <button class="btn primary" style="flex:0 0 auto; width: auto; padding: 0 16px;"
-            onclick="addDepartment()">+</button>
-        </div>
-        <div id="settings-dept-list"
-          style="max-height: 150px; overflow-y: auto; background: var(--bg2); border-radius: var(--radius); padding: 4px 10px;">
-        </div>
+      <div id="opt-sec-push">
+        <div class="ui-label">Benachrichtigungen</div>
+        <div class="opt-group"><div class="opt-row opt-row-static" id="opt-push"></div></div>
       </div>
 
-      <div class="field" style="margin-top: 16px;">
-        <label>Datensicherung</label>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-          <button class="btn" onclick="exportBackup()">Export</button>
-          <button class="btn" onclick="document.getElementById('import-file').click()">Import</button>
-          <input type="file" id="import-file" style="display:none" onchange="importBackup(event)" />
+      <div id="opt-sec-account">
+        <div class="ui-label">Konto</div>
+        <div class="opt-group">
+          <button type="button" class="opt-row" onclick="optGo('openPinChange')"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z"/></svg><span class="opt-row-label">PIN ändern</span><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+          <button type="button" class="opt-row" id="opt-pin-reset" onclick="optGo('openPinReset')"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v5h5"/></svg><span class="opt-row-label">PIN von jemandem zurücksetzen</span><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+          <button type="button" class="opt-row" id="opt-calendar" onclick="optGo('wpCalendarSheet')"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14v14H5zM5 10h14M9 3v4M15 3v4"/></svg><span class="opt-row-label">Schichten im Handy-Kalender</span><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
         </div>
       </div>
 
-      <div class="sig-actions" style="margin-top: 24px;">
-        <button class="btn" onclick="handleLogout()" style="color:var(--danger)">Abmelden</button>
-        <button class="btn primary" onclick="saveSettingsModal()">Schließen</button>
+      <div id="opt-sec-pay">
+        <div class="ui-label">Verdienst im Stundenzettel</div>
+        <div class="opt-group">
+          <label class="opt-row opt-row-static" for="inp-wage"><span class="opt-row-label">Stundenlohn<small>gilt, wenn die Abteilung keinen eigenen hat</small></span>
+            <span class="opt-money"><input type="number" id="inp-wage" step="0.50" min="0" inputmode="decimal" placeholder="0,00" onchange="settingsApply()"><span>€/h</span></span></label>
+          <div class="opt-row opt-row-static"><span class="opt-row-label">Abrechnungsschluss<small>wird zentral eingestellt</small></span><span class="opt-value" id="inp-cutoff-info"></span></div>
+        </div>
+        <div class="ui-sub opt-note">Nur ein Richtwert für dich. Abgerechnet wird von der Buchhaltung.</div>
+
+        <div class="ui-label">Abteilungen</div>
+        <div class="opt-group">
+          <div id="settings-dept-list"></div>
+          <div class="opt-row opt-row-static opt-add">
+            <input type="text" id="inp-new-dept" placeholder="Neue Abteilung" aria-label="Neue Abteilung" autocomplete="off" onkeydown="if (event.key === 'Enter') { event.preventDefault(); addDepartment(); }">
+            <button type="button" class="ui-btn" onclick="addDepartment()">Hinzufügen</button>
+          </div>
+        </div>
       </div>
+
+      <div id="opt-sec-data">
+        <div class="ui-label">Daten auf diesem Gerät</div>
+        <div class="opt-group">
+          <button type="button" class="opt-row" onclick="exportBackup()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span class="opt-row-label">Sicherung speichern<small>als Datei auf dieses Gerät</small></span></button>
+          <button type="button" class="opt-row" onclick="document.getElementById('import-file').click()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg><span class="opt-row-label">Sicherung einspielen<small>ersetzt die Daten auf diesem Gerät</small></span></button>
+        </div>
+        <input type="file" id="import-file" style="display:none" accept="application/json,.json" onchange="importBackup(event)" />
+      </div>
+
+      <button type="button" class="ui-btn ui-btn-block ui-btn-danger opt-logout" onclick="handleLogout()">Abmelden</button>
     </div>
   </div>
 
@@ -886,7 +904,7 @@
   <script src="js/dashboard.js?v=42"></script>
   <script src="js/produkte.js?v=18"></script>
   <script src="js/ordner.js?v=30"></script>
-  <script src="js/app.js?v=25"></script>
+  <script src="js/app.js?v=26"></script>
 </body>
 
 </html>
