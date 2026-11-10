@@ -669,6 +669,21 @@ function onProtPersonnelName(idx, val) {
   calcProtCosts();
 }
 
+// iOS fires `input` on every wheel tick; rebuilding the list then destroys the open time picker.
+// While a time field in the list has focus, wait for blur before re-rendering.
+function renderProtPersonnelAfterPicker() {
+  var el = document.activeElement;
+  var list = document.getElementById('prot-personnel-list');
+  if (el && el.type === 'time' && list && list.contains(el)) {
+    if (!el._protRenderPending) {
+      el._protRenderPending = true;
+      el.addEventListener('blur', function() { renderProtPersonnel(); }, { once: true });
+    }
+    return;
+  }
+  renderProtPersonnel();
+}
+
 function updateProtPersonnel(idx, field, val) {
   // Old AL times, tracked separately: an end must never be compared with other rows' start (or vice versa)
   var oldStart = protState.personnel[idx].start, oldEnd = protState.personnel[idx].end;
@@ -696,7 +711,7 @@ function updateProtPersonnel(idx, field, val) {
     var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
     if (v !== null && b !== null && effB > v) {
       protState.personnel[idx].pause = autoPause(effB - v);
-      renderProtPersonnel();
+      renderProtPersonnelAfterPicker();
     }
     
     // Time sync: if AL (index 0) changes, update others if they are empty or matched old AL time
@@ -709,7 +724,7 @@ function updateProtPersonnel(idx, field, val) {
         var effPb = (pb !== null && pv !== null && pb < pv) ? pb + 1440 : pb;
         if (pv !== null && pb !== null && effPb > pv) p.pause = autoPause(effPb - pv);
       });
-      renderProtPersonnel();
+      renderProtPersonnelAfterPicker();
     }
   }
   var sum = document.getElementById('prot-psum-' + idx);
