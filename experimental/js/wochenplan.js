@@ -1079,10 +1079,16 @@ async function wpSaveImport() {
     // New shifts first, old ones deleted afterwards → a failed upload never leaves an empty week
     // What changed is stored when the column exists (migration plan_change_fields); without it the upload works as before
     var hasFields = false;
-    try { hasFields = !(await supabaseClient.from('plan_shifts').select('change_fields').limit(1)).error; } catch (cfErr) { hasFields = false; }
+    try { hasFields = !(await supabaseClient.from('plan_shifts').select('change_fields, added_user_ids').limit(1)).error; } catch (cfErr) { hasFields = false; }
+    // Who joined an existing entry: the push tells them (and only them) that they are newly planned there
+    var added = ex ? planAssigned(p.shifts, diff) : [];
     var rows = p.shifts.map(function(s, i) {
       var r = planShiftRow(s, weekId, diff.status[i]);
-      if (hasFields) r.change_fields = diff.fields && diff.fields[i] && diff.fields[i].length ? diff.fields[i] : null;
+      if (hasFields) {
+        // [] = compared and nothing to name (a renamed row can be 'geändert' with no part); null = not compared (first Stand)
+        r.change_fields = diff.status[i] === 'geändert' ? (diff.fields && diff.fields[i]) || [] : null;
+        r.added_user_ids = added[i] && added[i].length ? added[i] : null;
+      }
       return r;
     });
     var sh = await supabaseClient.from('plan_shifts').insert(rows).select('id, key');
