@@ -313,6 +313,7 @@
               <div class="dash-worker-top">
                 <div class="dash-worker-head" id="dash-worker-head"></div>
                 <button id="edit-worker-btn" type="button" class="ui-btn dash-small-btn" style="display:none;" onclick="openEditWorker()">Bearbeiten</button>
+                <button id="reset-worker-pin-btn" type="button" class="ui-btn dash-small-btn" style="display:none;" onclick="dashResetWorkerPin()">PIN zurücksetzen</button>
               </div>
               <div class="dash-worker-controls">
                 <label class="ui-field dash-month"><span>Abrechnungsmonat</span>
@@ -704,7 +705,6 @@
         <div class="ui-label">Konto</div>
         <div class="opt-group">
           <button type="button" class="opt-row" onclick="optGo('openPinChange')"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z"/></svg><span class="opt-row-label">PIN ändern</span><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
-          <button type="button" class="opt-row" id="opt-pin-reset" onclick="optGo('openPinReset')"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v5h5"/></svg><span class="opt-row-label">PIN von jemandem zurücksetzen</span><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
           <button type="button" class="opt-row" id="opt-calendar" onclick="optGo('wpCalendarSheet')"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14v14H5zM5 10h14M9 3v4M15 3v4"/></svg><span class="opt-row-label">Schichten im Handy-Kalender</span><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
         </div>
       </div>
@@ -726,15 +726,6 @@
             <button type="button" class="ui-btn" onclick="addDepartment()">Hinzufügen</button>
           </div>
         </div>
-      </div>
-
-      <div id="opt-sec-data">
-        <div class="ui-label">Daten auf diesem Gerät</div>
-        <div class="opt-group">
-          <button type="button" class="opt-row" onclick="exportBackup()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span class="opt-row-label">Sicherung speichern<small>als Datei auf dieses Gerät</small></span></button>
-          <button type="button" class="opt-row" onclick="document.getElementById('import-file').click()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg><span class="opt-row-label">Sicherung einspielen<small>ersetzt die Daten auf diesem Gerät</small></span></button>
-        </div>
-        <input type="file" id="import-file" style="display:none" accept="application/json,.json" onchange="importBackup(event)" />
       </div>
 
       <button type="button" class="ui-btn ui-btn-block ui-btn-danger opt-logout" onclick="handleLogout()">Abmelden</button>
@@ -889,7 +880,7 @@
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=16"></script>
   <script src="js/utils.js?v=22"></script>
-  <script src="js/ui.js?v=4"></script>
+  <script src="js/ui.js?v=5"></script>
   <script src="js/changelog.js?v=1"></script>
   <script src="js/settings.js?v=11"></script>
   <script src="js/stundenzettel.js?v=25"></script>
@@ -903,10 +894,10 @@
   <script src="js/auftraege.js?v=11"></script>
   <script src="js/wochenplan.js?v=34"></script>
   <script src="js/home.js?v=8"></script>
-  <script src="js/dashboard.js?v=42"></script>
+  <script src="js/dashboard.js?v=43"></script>
   <script src="js/produkte.js?v=18"></script>
   <script src="js/ordner.js?v=30"></script>
-  <script src="js/app.js?v=26"></script>
+  <script src="js/app.js?v=27"></script>
 </body>
 
 </html>
