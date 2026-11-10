@@ -194,8 +194,8 @@ test('plCandidates: applicants first, then free people, blocked ones last; nobod
   const otherDay = row({ id: 'r3', date: '2026-11-12', people: [{ user_id: 'u-mil', name: 'Milan', role: 'MA' }] });
   const c = plain(ctx.plCandidates(r, [r, other, otherDay], USERS, { 'u-fe1|2026-11-11': 'nein', 'u-mil|2026-11-12': 'nein' }, { 'u-pl': 'offen' }));
   assert.deepEqual(c.map(x => x.id), ['u-pl', 'u-mil', 'u-fe2', 'u-fe1']);
-  assert.deepEqual(c[0], { id: 'u-pl', name: 'Sabine', applied: 'offen', level: null, busy: false });
-  assert.deepEqual(c[1], { id: 'u-mil', name: 'Milan', applied: null, level: null, busy: false });
+  assert.deepEqual(c[0], { id: 'u-pl', name: 'Sabine', applied: 'offen', level: null, busy: false, free: false });
+  assert.deepEqual(c[1], { id: 'u-mil', name: 'Milan', applied: null, level: null, busy: false, free: false });
   assert.equal(c[2].busy, true);
   assert.equal(c[3].level, 'nein');
 });
@@ -298,4 +298,40 @@ test('plLastChange / plHasUnpublished: edits after publishing are noticed, whate
   assert.equal(ctx.plHasUnpublished(rows, '2026-11-10T12:29:59.999Z'), true);
   assert.equal(ctx.plHasUnpublished(rows, '2026-11-10T11:00:00Z'), true);
   assert.equal(ctx.plHasUnpublished(rows, null), false);
+});
+
+test('plCandidates: people who keep their Verfügbarkeit and have not blocked the day come before everyone unknown', () => {
+  const r = row({ id: 'r1' }), other = row({ id: 'r2', people: [{ user_id: 'u-fe2', name: 'Feli S.', role: 'MA' }] });
+  const tracked = { 'u-pl': true, 'u-fe1': true, 'u-fe2': true, 'u-kac': true };
+  const c = plain(ctx.plCandidates(r, [r, other], USERS, { 'u-fe1|2026-11-11': 'notfall' }, { 'u-mil': 'offen' }, tracked));
+  // Meldung, hat Zeit (Kacper, Sabine), unknown (nobody left), nur im Notfall, schon eingeplant
+  assert.deepEqual(c.map(x => x.id), ['u-mil', 'u-kac', 'u-pl', 'u-fe1', 'u-fe2']);
+  assert.deepEqual(c.map(x => x.free), [false, true, true, false, false]);
+  // someone unknown sits between "hat Zeit" and "nur im Notfall"
+  const c2 = plain(ctx.plCandidates(r, [r], USERS, { 'u-fe1|2026-11-11': 'notfall' }, {}, { 'u-pl': true, 'u-fe1': true }));
+  assert.deepEqual(c2.map(x => x.id), ['u-pl', 'u-fe2', 'u-kac', 'u-mil', 'u-fe1']);
+});
+
+test('plSearchMatch: word beginnings of the short or the full name, without case and accents', () => {
+  const m = (q, n, f) => ctx.plSearchMatch(q, n, f);
+  assert.equal(m('', 'Patryk', 'Patryk Stańczyk'), true);
+  assert.equal(m('pat', 'Patryk', 'Patryk Stańczyk'), true);
+  assert.equal(m('STAN', 'Patryk', 'Patryk Stańczyk'), true);
+  assert.equal(m('pat st', 'Patryk', 'Patryk Stańczyk'), true);
+  assert.equal(m('ryk', 'Patryk', 'Patryk Stańczyk'), false);     // not in the middle of a word
+  assert.equal(m('pat x', 'Patryk', 'Patryk Stańczyk'), false);
+  assert.equal(m('jorg', 'Jörg', 'Jörg Müller'), true);
+  assert.equal(m('mül', 'Jörg', 'Jörg Müller'), true);
+  assert.equal(m('k.', 'Feli K.', 'Feli Kraus'), true);
+  assert.equal(m('lukasz', 'Łukasz', ''), true);
+});
+
+test('plPlaceRole: the picked role, but an app user is never booked as an agency worker', () => {
+  assert.equal(ctx.plPlaceRole('AL', true), 'AL');
+  assert.equal(ctx.plPlaceRole('Fahrer', true), 'Fahrer');
+  assert.equal(ctx.plPlaceRole('Zenjob', true), 'MA');
+  assert.equal(ctx.plPlaceRole('Zenjob', false), 'Zenjob');
+  assert.equal(ctx.plPlaceRole('ROCKiT', false), 'ROCKiT');
+  assert.equal(ctx.plPlaceRole(undefined, true), 'MA');
+  assert.equal(ctx.plPlaceRole('Chef', false), 'MA');
 });

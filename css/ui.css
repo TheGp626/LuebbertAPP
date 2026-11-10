@@ -386,11 +386,14 @@ button.dash-shift-main:focus-visible { outline: 2px solid var(--accent); outline
 .pl-add { margin-top: 4px; }
 .pl-picker { margin-top: 10px; padding-top: 10px; border-top: 0.5px solid var(--border); }
 .pl-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.pl-cands { display: flex; flex-direction: column; gap: 4px; max-height: 264px; overflow-y: auto; -webkit-overflow-scrolling: touch; margin: 6px 0 10px; }
+.pl-cands { display: flex; flex-direction: column; gap: 4px; max-height: 264px; overflow-y: auto; -webkit-overflow-scrolling: touch; margin: 8px 0 10px; }
 .pl-cand { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 44px; padding: 4px 10px; border-radius: var(--r-control); background: var(--bg); font-size: 14px; }
 .pl-cand:active { background: var(--bg3); }
 .pl-cand > span:first-child { flex: 1; min-width: 96px; font-weight: 500; }
-.pl-free { display: flex; gap: 8px; }
-.pl-free input { flex: 1; min-width: 0; }
-.pl-free select { flex: 0 0 96px; }
-.pl-free .ui-btn { flex: 0 0 auto; }
+.pl-find { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.pl-find input { flex: 1; min-width: 0; min-height: 44px; }
+.pl-role { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; font-size: 13px; color: var(--text2); }
+.pl-role select { width: 96px; min-height: 44px; }
+.pl-cand[hidden], #pl-free-btn[hidden], #pl-nohit[hidden] { display: none; }
+#pl-nohit { margin: 0 0 10px; }
+#pl-free-btn { white-space: normal; text-align: left; }

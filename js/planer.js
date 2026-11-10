@@ -185,9 +185,11 @@ function plToParsed(week, rows, users) {
   return { year: week.year, kw: week.kw, weekStart: week.weekStart, weekEnd: week.weekEnd, shifts: shifts, warnings: [] };
 }
 
-// Who could still go on a row. avail: 'userId|day' → 'nein' | 'notfall'; applied: userId → status of a Meldung for this row.
-// Order: people who said "Ich kann", free people, "nur im Notfall", already planned that day, "geht nicht".
-function plCandidates(row, rows, users, avail, applied) {
+// Who could still go on a row. avail: 'userId|day' → 'nein' | 'notfall'; applied: userId → status of a Meldung for this row;
+// tracked: userId → true for people who keep their Verfügbarkeit (availability_people()), so a day without a block means "hat Zeit".
+// Order: people who said "Ich kann", people who have time according to their Verfügbarkeit, everyone we know nothing about,
+// "nur im Notfall", already planned that day, "geht nicht".
+function plCandidates(row, rows, users, avail, applied, tracked) {
   var on = {}, busy = {};
   ((row && row.people) || []).forEach(function(p) { if (p.user_id) on[p.user_id] = true; });
   (rows || []).forEach(function(r) {
@@ -198,14 +200,31 @@ function plCandidates(row, rows, users, avail, applied) {
     return u.is_active !== false && PL_NO_CANDIDATE.indexOf(u.role) === -1 && !on[u.id];
   }).map(function(u) {
     var st = applied && applied[u.id];
+    var level = (avail && avail[u.id + '|' + row.date]) || null;
     return { id: u.id, name: plShortName(u, users), applied: st === 'offen' || st === 'angenommen' ? st : null,
-      level: (avail && avail[u.id + '|' + row.date]) || null, busy: !!busy[u.id] };
+      level: level, busy: !!busy[u.id], free: !!(tracked && tracked[u.id]) && !level && !busy[u.id] };
   });
-  var rank = function(c) { return c.applied ? 0 : c.level === 'nein' ? 4 : c.busy ? 3 : c.level === 'notfall' ? 2 : 1; };
+  var rank = function(c) { return c.applied ? 0 : c.level === 'nein' ? 5 : c.busy ? 4 : c.level === 'notfall' ? 3 : c.free ? 1 : 2; };
   return list.sort(function(a, b) {
     return rank(a) - rank(b) || (a.applied === b.applied ? 0 : a.applied === 'angenommen' ? -1 : b.applied === 'angenommen' ? 1 : 0) ||
       a.name.localeCompare(b.name, 'de');
   });
+}
+
+// Search in the picker: every typed word must start a word of the short or full name ("pat st" finds Patryk Stańczyk);
+// case and accents do not matter. An empty search matches everyone.
+function plNorm(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').replace(/ß/g, 'ss'); }
+function plSearchMatch(query, name, fullName) {
+  var words = plNorm(name + ' ' + (fullName || '')).split(/[^a-z0-9]+/).filter(Boolean);
+  return plNorm(query).split(/[^a-z0-9]+/).filter(Boolean).every(function(q) {
+    return words.some(function(w) { return w.indexOf(q) === 0; });
+  });
+}
+
+// Role a person gets when placed: the one picked in the list; an app user is never booked as Zenjob/ROCKiT
+function plPlaceRole(chosen, isAppUser) {
+  if (PL_ROLES.indexOf(chosen) === -1) return 'MA';
+  return isAppUser && PL_AGENCY.indexOf(chosen) !== -1 ? 'MA' : chosen;
 }
 
 // who = { id, role, plans } (plans = "Plant den Wochenplan"); same rules as the RLS on plan_draft_shifts
@@ -359,7 +378,8 @@ async function plRender() {
       supabaseClient.from('plan_weeks').select('id, version, file_name').eq('year', week.year).eq('kw', week.kw).maybeSingle(),
       wpLoadSlots(),
       supabaseClient.from('availability').select('user_id, day, level').gte('day', week.weekStart).lte('day', week.weekEnd),
-      supabaseClient.from('order_applications').select('job_no, phase, user_id, status')
+      supabaseClient.from('order_applications').select('job_no, phase, user_id, status'),
+      supabaseClient.rpc('availability_people')
     ]);
   } catch (e) { res = [{ error: e }]; }
   if (seq !== plSeq || wpView !== 'plan') return;
@@ -368,14 +388,16 @@ async function plRender() {
     box.innerHTML = nav + '<div class="wp-empty">Der Planer konnte nicht geladen werden. Prüf deine Verbindung.</div>';
     return;
   }
-  var avail = {}, apps = {};
-  // Both are extras: without the right to read them the board still works, just without the hints
+  var avail = {}, apps = {}, tracked = {};
+  // All three are extras: without the right to read them the board still works, just without the hints
   ((res[4] && !res[4].error && res[4].data) || []).forEach(function(r) { avail[r.user_id + '|' + r.day] = r.level; });
   ((res[5] && !res[5].error && res[5].data) || []).forEach(function(a) {
     var k = a.job_no + '|' + a.phase;
     (apps[k] = apps[k] || {})[a.user_id] = a.status;
   });
-  plState = { week: week, draft: res[0].data || null, rows: res[1].data || [], planWeek: res[2].data || null, slots: res[3], avail: avail, apps: apps, stale: [] };
+  ((res[6] && !res[6].error && res[6].data) || []).forEach(function(p) { tracked[p.id] = true; });
+  plState = { week: week, draft: res[0].data || null, rows: res[1].data || [], planWeek: res[2].data || null, slots: res[3], avail: avail, apps: apps,
+    tracked: tracked, stale: [] };
   if (plState.draft && await plSyncSlots(seq)) return; // rows were added or moved: plSyncSlots rendered the fresh state
   if (seq !== plSeq || wpView !== 'plan') return;
   plPaint();
@@ -456,7 +478,7 @@ function plRowHtml(r, who) {
   var chips = (r.people || []).map(function(p, i) {
     var role = '<b>' + plE(p.role || 'MA') + '</b>';
     return '<span class="pl-chip' + (PL_AGENCY.indexOf(p.role) !== -1 ? ' pl-chip-agency' : '') + '">' +
-      (can ? '<button type="button" class="pl-chip-role" title="Rolle wechseln" onclick="plCycleRole(' + id + ', ' + i + ')">' + role + '</button>' : role) +
+      (can ? '<button type="button" class="pl-chip-role" aria-label="Rolle von ' + plE(p.name) + ' ändern, jetzt ' + plE(p.role || 'MA') + '" onclick="plRoleMenu(' + id + ', ' + i + ')">' + role + '</button>' : role) +
       '<span>' + plE(p.name) + (p.note ? ' <small>' + plE(p.note) + '</small>' : '') + '</span>' +
       (can ? '<button type="button" class="pl-chip-x" aria-label="' + plE(p.name) + ' entfernen" onclick="plRemove(' + id + ', ' + i + ')">×</button>' : '') +
     '</span>';
@@ -469,7 +491,7 @@ function plRowHtml(r, who) {
         '<div class="pl-row-title">' + plE(r.venue || '—') + (r.title ? ' · ' + plE(r.title) : '') + '</div>' +
         (loc.length ? '<div class="ui-sub">' + loc.map(plE).join(' · ') + '</div>' : '') +
         '<div class="pl-row-meta">' + (r.job_no ? '<span class="wp-ord-tag">Auftrag</span>' : '') + count +
-          (r.ap ? '<span class="ui-sub">AP ' + plE(r.ap) + '</span>' : '') +
+          (r.ap ? '<span class="ui-sub">PL ' + plE(r.ap) + '</span>' : '') +
           (plState.stale.indexOf(r.id) !== -1 ? '<span class="ui-pill ui-pill-danger">Auftrag nicht mehr in dieser Woche</span>' : '') + '</div>' +
       '</div>' +
       (can ? '<button type="button" class="ui-icon-btn" aria-label="Eintrag bearbeiten" onclick="plEditRow(' + id + ')">' +
@@ -484,23 +506,55 @@ function plRowHtml(r, who) {
 function plPickerHtml(r) {
   var st = plState, id = "'" + jsAttrArg(r.id) + "'";
   var applied = r.job_no ? (st.apps[r.job_no + '|' + r.phase] || {}) : {};
-  var list = plCandidates(r, st.rows, wpUsers, st.avail, applied).map(function(c) {
+  var list = plCandidates(r, st.rows, wpUsers, st.avail, applied, st.tracked).map(function(c) {
+    var u = wpUsers.find(function(x) { return x.id === c.id; });
     var tag = c.applied === 'angenommen' ? '<span class="ord-pill ord-pill-ok">angenommen</span>'
       : c.applied === 'offen' ? '<span class="ord-pill ord-pill-new">hat sich gemeldet</span>' : '';
+    if (c.free) tag += '<span class="ord-pill ord-pill-ok">hat Zeit</span>';
     if (c.level === 'nein') tag += '<span class="ord-pill ord-pill-danger">geht nicht</span>';
     else if (c.level === 'notfall') tag += '<span class="ord-pill ord-pill-warn">nur im Notfall</span>';
     if (c.busy) tag += '<span class="ord-pill ord-pill-danger">schon eingeplant</span>';
-    return '<button type="button" class="pl-cand" onclick="plPlace(' + id + ', \'' + jsAttrArg(c.id) + '\')"><span>' + plE(c.name) + '</span>' + tag + '</button>';
+    return '<button type="button" class="pl-cand" data-name="' + plE(c.name) + '" data-full="' + plE((u && u.full_name) || '') + '" onclick="plPlace(' + id + ', \'' + jsAttrArg(c.id) + '\')">' +
+      '<span>' + plE((u && u.full_name) || c.name) + '</span>' + tag + '</button>';
   }).join('');
   return '<div class="pl-picker">' +
     '<div class="pl-picker-head"><span class="ui-label" style="margin:0;">Person hinzufügen</span>' +
       '<button type="button" class="ord-textbtn" onclick="plTogglePicker(' + id + ')">Schließen</button></div>' +
-    '<div class="pl-cands">' + (list || '<div class="ui-sub">Niemand mehr frei.</div>') + '</div>' +
-    '<div class="pl-free"><input type="text" class="meta-input" id="pl-free-name" placeholder="Name frei eintragen" autocomplete="off">' +
-      '<select class="meta-input" id="pl-free-role">' + PL_ROLES.map(function(x) { return '<option' + (x === 'Zenjob' ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select>' +
-      '<button type="button" class="ui-btn" onclick="plPlaceFree(' + id + ')">Dazu</button></div>' +
+    '<div class="pl-find">' +
+      '<input type="search" class="meta-input" id="pl-search" placeholder="Name suchen" aria-label="Name suchen" autocomplete="off" autocapitalize="words" ' +
+        'oninput="plFilter()" onkeydown="if (event.key === \'Enter\') { event.preventDefault(); plSearchEnter(' + id + '); }">' +
+      '<label class="pl-role"><span>als</span><select class="meta-input" id="pl-role" aria-label="Rolle">' +
+        PL_ROLES.map(function(x) { return '<option>' + x + '</option>'; }).join('') + '</select></label>' +
+    '</div>' +
+    '<div class="pl-cands" id="pl-cands">' + (list || '<div class="ui-sub">Niemand mehr frei.</div>') + '</div>' +
+    '<div class="ui-sub" id="pl-nohit" hidden>Niemand mit diesem Namen in der App.</div>' +
+    '<button type="button" class="ui-btn ui-btn-block" id="pl-free-btn" hidden onclick="plPlaceFree(' + id + ')"></button>' +
   '</div>';
 }
+
+// Filters the list while typing (no repaint, the field keeps its focus) and offers the typed name as a free entry
+function plFilter() {
+  var inp = document.getElementById('pl-search'), q = inp ? inp.value.trim() : '', hits = 0;
+  document.querySelectorAll('#pl-cands .pl-cand').forEach(function(b) {
+    var ok = plSearchMatch(q, b.dataset.name, b.dataset.full);
+    b.hidden = !ok;
+    if (ok) hits++;
+  });
+  var none = document.getElementById('pl-nohit'), free = document.getElementById('pl-free-btn');
+  if (none) none.hidden = !q || hits > 0;
+  if (free) {
+    free.hidden = !q;
+    free.textContent = '„' + q + '“ ohne App-Konto eintragen (z.B. Zenjob)';
+  }
+}
+
+// Enter in the search field: exactly one hit left → that person goes on the row
+function plSearchEnter(id) {
+  var left = [].filter.call(document.querySelectorAll('#pl-cands .pl-cand'), function(b) { return !b.hidden; });
+  if (left.length === 1) left[0].click();
+}
+
+function plPickedRole() { var sel = document.getElementById('pl-role'); return sel ? sel.value : 'MA'; }
 
 function plTogglePicker(id) {
   plOpenRow = plOpenRow === id ? null : id;
@@ -534,16 +588,14 @@ async function plSave(row, changes) {
 async function plPlace(id, userId) {
   var row = plRowById(id), u = wpUsers.find(function(x) { return x.id === userId; });
   if (!row || !u) return;
-  // The first AL of the team leads the shift unless someone already does
-  var lead = u.role === 'AL' && !(row.people || []).some(function(p) { return p.role === 'AL'; });
-  var people = plAddPerson(row, { user_id: u.id, name: plShortName(u, wpUsers), role: lead ? 'AL' : 'MA' });
+  var people = plAddPerson(row, { user_id: u.id, name: plShortName(u, wpUsers), role: plPlaceRole(plPickedRole(), true) });
   if (people) await plSave(row, { people: people });
 }
 
 async function plPlaceFree(id) {
-  var row = plRowById(id), name = document.getElementById('pl-free-name'), role = document.getElementById('pl-free-role');
+  var row = plRowById(id), name = document.getElementById('pl-search');
   if (!row || !name) return;
-  var people = plAddPerson(row, { user_id: null, name: planStripPhones(name.value), role: role ? role.value : 'MA' });
+  var people = plAddPerson(row, { user_id: null, name: planStripPhones(name.value), role: plPlaceRole(plPickedRole(), false) });
   if (!people) { showToast(plText(name.value) ? 'Steht schon auf dem Eintrag.' : 'Bitte einen Namen eintragen.', 'danger'); return; }
   await plSave(row, { people: people });
 }
@@ -553,14 +605,20 @@ async function plRemove(id, index) {
   if (row) await plSave(row, { people: plRemovePerson(row, index) });
 }
 
-// Role of a placed person: app users cycle MA → AL → Fahrer → Deko, free names also through the agencies
-async function plCycleRole(id, index) {
+// Tap on the role of a placed person: pick it from a menu (app users are never Zenjob/ROCKiT)
+function plRoleMenu(id, index) {
   var row = plRowById(id), p = row && (row.people || [])[index];
   if (!p) return;
-  var roles = p.user_id ? ['MA', 'AL', 'Fahrer', 'Deko'] : PL_ROLES;
-  var people = row.people.map(function(x, i) {
-    return i === index ? Object.assign({}, x, { role: roles[(roles.indexOf(x.role) + 1) % roles.length] }) : x;
-  });
+  var labels = { MA: 'MA', AL: 'AL (leitet den Einsatz)', Fahrer: 'Fahrer', Deko: 'Deko', Zenjob: 'Zenjob', ROCKiT: 'ROCKiT' };
+  openUiMenu(PL_ROLES.filter(function(x) { return !p.user_id || PL_AGENCY.indexOf(x) === -1; }).map(function(x) {
+    return { label: (x === (p.role || 'MA') ? '✓ ' : '') + p.name + ' als ' + labels[x], action: 'plSetRole', args: [id, index, x] };
+  }));
+}
+
+async function plSetRole(id, index, role) {
+  var row = plRowById(id), p = row && (row.people || [])[index];
+  if (!p || p.role === role) return;
+  var people = row.people.map(function(x, i) { return i === index ? Object.assign({}, x, { role: plPlaceRole(role, !!x.user_id) }) : x; });
   await plSave(row, { people: people });
 }
 
@@ -632,7 +690,7 @@ function plEditRow(id) {
     field('Was', inp('title', 'z.B. 4 Loungesofa weiß')) +
     field('Details', area('details', 'Material, eine Zeile pro Position', 3)) +
     field('Wann', area('wann', 'z.B. Aufbau: 9 Uhr')) +
-    (planner ? field('AP', '<select id="pl-f-ap">' + apOpts + '</select>') : '') +
+    (planner ? field('PL (Projektleitung)', '<select id="pl-f-ap">' + apOpts + '</select>') : '') +
     (job ? '' : field('MA gebraucht', '<input type="number" id="pl-f-need" min="0" max="99" inputmode="numeric" value="' + (v.need || 0) + '">')) +
     field('Notizen', area('notes', 'z.B. Fahrzeug, Hinweise')) +
     '<div class="ui-sheet-actions">' +
@@ -733,7 +791,7 @@ async function plAfterPublish(week, parsed, weekId, lastChange) {
   plState = null;
 }
 
-/* ── PDF in Daniel's layout: Datum | Was | Wann | Wer | AP ── */
+/* ── PDF in Daniel's layout: Datum | Was | Wann | Wer | PL (his column "AP" names the Projektleitung) ── */
 
 function plExportPdf() {
   var st = plState;
@@ -741,7 +799,7 @@ function plExportPdf() {
   if (!window.jspdf || !window.jspdf.jsPDF) { showToast('PDF-Bibliothek nicht geladen. Prüf deine Verbindung.', 'danger'); return; }
   var doc = new jspdf.jsPDF({ orientation: 'l', unit: 'mm', format: 'a4' });
   var ml = 10, top = 12, bottom = 198, lh = 4.2, pad = 1.6;
-  var widths = [48, 74, 44, 76, 35], heads = ['Datum', 'Was', 'Wann', 'Wer', 'AP'];
+  var widths = [48, 74, 44, 76, 35], heads = ['Datum', 'Was', 'Wann', 'Wer', 'PL'];
   var xs = widths.map(function(_, i) { return ml + widths.slice(0, i).reduce(function(a, b) { return a + b; }, 0); });
   var total = widths.reduce(function(a, b) { return a + b; }, 0), y = top;
   var line = function(yy) { doc.setDrawColor(120); doc.setLineWidth(0.2); doc.line(ml, yy, ml + total, yy); };
@@ -782,6 +840,6 @@ function plExportPdf() {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { plMonday: plMonday, plWeekOf: plWeekOf, plShortName: plShortName, plWannText: plWannText, plRowFromSlot: plRowFromSlot,
     plMergeSlots: plMergeSlots, plRowsFromPlan: plRowsFromPlan, plSeed: plSeed, plFilled: plFilled, plOpenSlots: plOpenSlots, plToParsed: plToParsed,
-    plCandidates: plCandidates, plCanEdit: plCanEdit, plCanPublish: plCanPublish, plCanOpen: plCanOpen, plPublishProblems: plPublishProblems,
+    plCandidates: plCandidates, plSearchMatch: plSearchMatch, plPlaceRole: plPlaceRole, plCanEdit: plCanEdit, plCanPublish: plCanPublish, plCanOpen: plCanOpen, plPublishProblems: plPublishProblems,
     plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };
 }
