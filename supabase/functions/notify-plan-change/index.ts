@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
   if (!input.dry_run && week.notified_version >= week.version) return json({ skipped: 'already_notified' });
 
   const { data: shifts, error: sErr } = await db.from('plan_shifts')
-    .select('date, venue, change_status, plan_assignments(user_id)').eq('week_id', week.id);
+    .select('date, venue, change_status, change_fields, added_user_ids, plan_assignments(user_id)').eq('week_id', week.id);
   if (sErr) { console.error('notify-plan-change: load shifts failed', sErr); return json({ error: 'db_error' }, 500); }
   const pushes = buildPlanPushes(week, shifts || [], berlinToday());
   if (input.dry_run) return json({ dry_run: true, enabled: settings.plan_change_push_enabled, pushes });

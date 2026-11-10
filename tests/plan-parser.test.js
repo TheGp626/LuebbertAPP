@@ -660,3 +660,12 @@ test('planDiff: entries without a room line are not paired just because the same
   const d2 = P.planDiff(old, [full({ key: '2026-11-14|lager|inventur halle 2', venue: 'Lager', title: 'Inventur Halle', location: [] })]);
   assert.deepEqual(d2.status, ['geändert']);
 });
+
+test('planAssigned: who joined an existing entry (not the people on a brand-new one)', () => {
+  const old = [full({ people: [{ name: 'Hassan', role: 'Fahrer', userId: 'u-h' }, { name: 'Jana', role: 'MA', userId: 'u-j' }] })];
+  const neu = [full({ people: [{ name: 'Hassan', role: 'Fahrer', userId: 'u-h' }, { name: 'Edib', role: 'MA', userId: 'u-e' }, { name: 'Tom', role: 'Zenjob', userId: null }] }),
+    full({ key: 'x', date: '2026-11-16', title: 'Neu', people: [{ name: 'Edib', role: 'MA', userId: 'u-e' }] })];
+  const d = P.planDiff(old, neu);
+  assert.deepEqual(P.planAssigned(neu, d), [['u-e'], []]);
+  assert.deepEqual(P.planUnassigned(neu, d).map(x => x.user_ids), [['u-j']]);
+});

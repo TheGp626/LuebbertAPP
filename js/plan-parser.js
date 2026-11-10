@@ -456,6 +456,18 @@ function planUnassigned(newShifts, diff) {
   return out;
 }
 
+// Users who are on a matched shift now but were not on its old version → "neu eingeplant" (per new shift, [] otherwise).
+// A brand-new shift ('neu') needs no list: everyone on it gained it.
+function planAssigned(newShifts, diff) {
+  return newShifts.map(function(s, i) {
+    var o = diff.matched && diff.matched[i];
+    if (!o) return [];
+    var before = (o.people || []).map(function(p) { return p.userId; }).filter(Boolean);
+    return (s.people || []).map(function(p) { return p.userId; })
+      .filter(function(id, j, a) { return id && before.indexOf(id) === -1 && a.indexOf(id) === j; });
+  });
+}
+
 var PLAN_WHEN_LABELS = ['Teilaufbau', 'Teilabbau', 'Aufbau', 'Abbau', 'Umbau', 'Umstellen', 'Anlieferung', 'Abholung', 'Lieferung'];
 
 // "Aufbau: 8 - 9 Uhr" → { time: '08:00', end: '09:00', prefix: null, label: 'Aufbau' } for the time column.
@@ -717,7 +729,7 @@ function planIcs(shifts, userId, stamp) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
-    planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planChangedFields: planChangedFields, planShiftKey: planShiftKey,
+    planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planChangedFields: planChangedFields, planAssigned: planAssigned, planShiftKey: planShiftKey,
     planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek, planCellLines: planCellLines,
     planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName,
     planShiftOrder: planShiftOrder, nextOwnShift: nextOwnShift, planShiftHeading: planShiftHeading, planMaterialLines: planMaterialLines, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb, planIcs: planIcs,
