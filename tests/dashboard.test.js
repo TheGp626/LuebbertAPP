@@ -695,3 +695,13 @@ test('dashBees: top 3 by net hours in the billing month', () => {
   assert.deepEqual(top.map(t => t.name), ['Ben', 'Anna', 'Xaver']);
   assert.equal(top[0].mins, 720);
 });
+
+test('dashPlansWeekChange: only a switch an Admin was shown and changed is saved', () => {
+  assert.equal(run('dashPlansWeekChange(null, true)'), null);      // not shown: no Admin, or the column does not exist yet
+  assert.equal(run('dashPlansWeekChange(undefined, true)'), null);
+  assert.equal(run('dashPlansWeekChange(false, false)'), null);
+  assert.equal(run('dashPlansWeekChange(true, true)'), null);
+  assert.equal(run('dashPlansWeekChange(false, true)'), true);
+  assert.equal(run('dashPlansWeekChange(true, false)'), false);
+  assert.equal(run('dashPlansWeekChange(true, undefined)'), false);
+});

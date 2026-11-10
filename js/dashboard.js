@@ -296,6 +296,27 @@ function updateEditWorkerBtn() {
 }
 
 var _editWorkerRoleRates = [];
+var _editWorkerPlansWeek = null; // "Plant den Wochenplan" as loaded; null = not shown (no Admin, or the column does not exist yet)
+
+// What to save for the switch: true/false when an Admin changed it, null when there is nothing to save
+function dashPlansWeekChange(loaded, checked) {
+  return loaded === null || loaded === undefined || !!loaded === !!checked ? null : !!checked;
+}
+
+// Own query instead of a column in the worker list: the list keeps loading before the migration is applied
+async function loadEditWorkerPlansWeek(workerId) {
+  var field = document.getElementById('edit-worker-plans-week-field'), box = document.getElementById('edit-worker-plans-week');
+  _editWorkerPlansWeek = null;
+  if (!field || !box) return;
+  field.style.display = 'none';
+  if (typeof userRole === 'undefined' || userRole !== 'Admin') return;
+  var r;
+  try { r = await supabaseClient.from('app_users').select('plans_week').eq('id', workerId).maybeSingle(); } catch (e) { r = { error: e }; }
+  if (r.error || !r.data || !dashboardCurrentWorker || dashboardCurrentWorker.id !== workerId) return;
+  _editWorkerPlansWeek = !!r.data.plans_week;
+  box.checked = _editWorkerPlansWeek;
+  field.style.display = '';
+}
 
 function openEditWorker() {
   const worker = dashboardCurrentWorker;
@@ -317,6 +338,7 @@ function openEditWorker() {
   document.getElementById('edit-worker-sees-interest').checked = !!worker.plan_interest_viewer;
   document.getElementById('edit-worker-can-drive').checked = !!worker.can_drive;
   document.getElementById('edit-worker-avail').checked = !!worker.availability_enabled;
+  loadEditWorkerPlansWeek(worker.id);
   document.getElementById('edit-worker-modal').classList.add('open');
 }
 
@@ -432,6 +454,13 @@ async function saveEditWorker() {
       income_limit:      parseFloat(document.getElementById('edit-worker-income-limit').value) || null,
       email:             email || null,
     });
+    var plansBox = document.getElementById('edit-worker-plans-week');
+    var plans = dashPlansWeekChange(_editWorkerPlansWeek, plansBox && plansBox.checked);
+    if (plans !== null) {
+      var pw = await supabaseClient.from('app_users').update({ plans_week: plans }).eq('id', worker.id).select('id');
+      if (pw.error) throw pw.error;
+      if (!pw.data || !pw.data.length) throw new Error('„Plant den Wochenplan“ nicht gespeichert – keine Berechtigung');
+    }
     showToast('Mitarbeiter gespeichert!');
     closeEditWorker();
     await loadDashboardWorkers();

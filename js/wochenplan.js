@@ -438,7 +438,8 @@ async function initWochenplan() {
     supabaseClient.rpc('user_directory'),
     supabaseClient.from('plan_name_aliases').select('alias, user_id'),
     supabaseClient.from('plan_weeks').select('*').order('week_start', { ascending: false }),
-    wpLoadSlots()
+    wpLoadSlots(),
+    typeof plLoadFlag === 'function' ? plLoadFlag() : null // Besetzungsplaner: "Plant den Wochenplan" (never throws)
   ]);
   if (u.error || a.error || w.error) {
     console.error('Wochenplan laden:', u.error || a.error || w.error);
@@ -504,8 +505,12 @@ function wpSetView(v) {
   var mode = wpAvailMode(), availTab = document.getElementById('wp-tab-avail');
   if (availTab) availTab.hidden = !(mode.own || mode.grid);
   if (v === 'avail' && !(mode.own || mode.grid)) v = 'mine';
+  // Besetzungsplaner (planer.js): planners and PLs only, and only once its tables exist
+  var planOk = typeof plTabVisible === 'function' && plTabVisible(), planTab = document.getElementById('wp-tab-plan');
+  if (planTab) planTab.hidden = !planOk;
+  if (v === 'plan' && !planOk) v = 'mine';
   wpView = v;
-  ['mine', 'all', 'avail'].forEach(function(t) {
+  ['mine', 'all', 'avail', 'plan'].forEach(function(t) {
     var b = document.getElementById('wp-tab-' + t);
     if (!b) return;
     b.classList.toggle('active', v === t);
@@ -513,7 +518,7 @@ function wpSetView(v) {
   });
   document.getElementById('wp-week-nav').style.display = v === 'all' ? 'flex' : 'none';
   document.getElementById('wp-days').style.display = v === 'all' ? 'flex' : 'none';
-  if (v === 'mine') wpRenderMine(); else if (v === 'avail') wpRenderAvail(); else wpRenderWeek();
+  if (v === 'mine') wpRenderMine(); else if (v === 'avail') wpRenderAvail(); else if (v === 'plan') plRender(); else wpRenderWeek();
 }
 
 // Verfügbarkeit tab: own calendar (unlocked people) and/or the planner grid
@@ -935,6 +940,14 @@ async function wpFileChosen(input) {
       }
     }
   });
+  // A week built in the Besetzungsplaner: say so before the PDF replaces it (table missing or no right to read it → no hint)
+  if (ex) {
+    try {
+      var dw = await supabaseClient.from('plan_draft_weeks').select('published_version').eq('year', ex.year).eq('kw', ex.kw).maybeSingle();
+      if (!dw.error && dw.data && dw.data.published_version != null && dw.data.published_version === ex.version)
+        parsed.warnings.push('Diese Woche wurde im Besetzungsplaner gebaut. Mit „Übernehmen“ ersetzt die PDF den veröffentlichten Plan; der Entwurf unter „Planen“ passt danach nicht mehr dazu.');
+    } catch (dwErr) { /* hint only */ }
+  }
   wpImport = { parsed: parsed, fileName: file.name, existing: ex || null, unresolved: unresolved };
   wpRenderImport();
 }
@@ -1093,6 +1106,11 @@ async function wpSaveImport() {
     supabaseClient.functions.invoke('notify-plan-change', { body: { week_id: weekId } })
       .then(function(r) { if (r.error) console.error('Plan-Push:', r.error); })
       .catch(function(e) { console.error('Plan-Push:', e); });
+
+    // Besetzungsplaner: a published draft remembers its Stand (the plan itself is saved at this point, so a failure here never undoes it)
+    if (wpImport.afterSave) {
+      try { await wpImport.afterSave(weekId); } catch (hookErr) { console.error('Nach dem Speichern:', hookErr); }
+    }
 
     showToast('Wochenplan KW ' + p.kw + ' gespeichert');
     if (oldNotDeleted) showToast('Die alten Einsätze der Woche konnten nicht gelöscht werden – Einsätze erscheinen doppelt. Bitte beim Admin melden.', 'danger');

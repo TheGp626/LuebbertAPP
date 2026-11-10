@@ -363,3 +363,34 @@ button.dash-shift-main:focus-visible { outline: 2px solid var(--accent); outline
 .ord-group { margin-top: 8px; font-weight: 600; }
 .ord-items { margin: 4px 0 0; padding-left: 18px; }
 .ord-failed { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding: 4px 14px; border-radius: var(--r-card); border: 1px dashed var(--border2); font-size: 13px; color: var(--text2); overflow-wrap: anywhere; }
+
+/* ── Besetzungsplaner (planer.js): draft board inside the Wochenplan ── */
+.pl-head .ui-pill { white-space: normal; }
+.pl-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.pl-actions .ui-btn { flex: 1 1 auto; }
+.pl-none { font-size: 13px; color: var(--text3); padding: 2px 2px 6px; }
+.pl-row { padding: 12px; }
+.pl-row-top { display: flex; gap: 12px; align-items: flex-start; }
+.pl-row-main { flex: 1; min-width: 0; }
+.pl-row-title { font-size: 15px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.pl-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 6px; }
+.pl-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.pl-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 4px 0 0; background: var(--bg3); border-radius: 99px; font-size: 13px; max-width: 100%; }
+.pl-chip > span { overflow-wrap: anywhere; padding-right: 8px; }
+.pl-chip small { color: var(--text2); }
+.pl-chip b { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 26px; padding: 0 7px; margin-left: 5px; border-radius: 99px; background: var(--bg); font-size: 11px; font-weight: 700; color: var(--text2); }
+.pl-chip-agency b { color: var(--warn); }
+.pl-chip-role, .pl-chip-x { all: unset; cursor: pointer; display: inline-flex; align-items: center; min-height: 36px; }
+.pl-chip-x { justify-content: center; width: 32px; margin-left: -8px; font-size: 18px; color: var(--text2); }
+.pl-chip-role:focus-visible, .pl-chip-x:focus-visible, .pl-cand:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 99px; }
+.pl-add { margin-top: 4px; }
+.pl-picker { margin-top: 10px; padding-top: 10px; border-top: 0.5px solid var(--border); }
+.pl-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pl-cands { display: flex; flex-direction: column; gap: 4px; max-height: 264px; overflow-y: auto; -webkit-overflow-scrolling: touch; margin: 6px 0 10px; }
+.pl-cand { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 44px; padding: 4px 10px; border-radius: var(--r-control); background: var(--bg); font-size: 14px; }
+.pl-cand:active { background: var(--bg3); }
+.pl-cand > span:first-child { flex: 1; min-width: 96px; font-weight: 500; }
+.pl-free { display: flex; gap: 8px; }
+.pl-free input { flex: 1; min-width: 0; }
+.pl-free select { flex: 0 0 96px; }
+.pl-free .ui-btn { flex: 0 0 auto; }

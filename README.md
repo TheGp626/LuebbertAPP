@@ -44,6 +44,15 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - kalender-abo (iPhone, google kalender) oder .ics zum runterladen
 - push wenn sich dein plan ändert, optional abends eine erinnerung für morgen
 
+### 🧩 Besetzungsplaner (testversion)
+- reiter "Planen" im wochenplan: die woche wird in der app besetzt statt in excel
+- aufträge der woche stehen als zeilen drin, angenommene meldungen sind schon eingetragen, alles andere als freier eintrag
+- vorschläge pro zeile: wer sich gemeldet hat zuerst, mit hinweis "geht nicht", "nur im notfall", "schon eingeplant"
+- PLs besetzen ihre aufträge, veröffentlichen kann nur wer den schalter "Plant den Wochenplan" hat (admin vergibt ihn)
+- veröffentlichen läuft über dieselbe vorschau wie der PDF-upload, danach verhält sich die woche wie jede andere
+- pro woche gilt entweder app oder PDF, eine PDF auf eine app-woche warnt vorher
+- PDF-export im gewohnten spaltenlayout
+
 ### 📦 Produktdatenbank
 - alle produkte mit fotos, PDFs, videos und aufbau-dateien
 - AL / PL / Admin können pflegen, alle anderen schauen
