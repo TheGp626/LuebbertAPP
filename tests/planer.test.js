@@ -389,3 +389,45 @@ test('plMeldungTargets: which records change when someone is placed or taken off
   assert.deepEqual(plain(ctx.plMeldungTargets(job, 'k1', 'w1', apps, interest, 'u-pl', 'offen')), []);       // never reported
   assert.deepEqual(plain(ctx.plMeldungTargets(row(), 'k1', null, apps, interest, 'u-fe1', 'offen')), []);    // week not published
 });
+
+test('plKindOfColor: Daniel\'s row colours → Art', () => {
+  const k = c => ctx.plKindOfColor(c);
+  assert.equal(k(null), 'auftrag'); assert.equal(k(''), 'auftrag'); assert.equal(k('#ffffff'), 'auftrag'); assert.equal(k('#d9d9d9'), 'auftrag');
+  assert.equal(k('#8db4e2'), 'angebot'); assert.equal(k('#9dc3e6'), 'angebot'); assert.equal(k('#00b0f0'), 'angebot'); assert.equal(k('#0070c0'), 'angebot');
+  assert.equal(k('#00b050'), 'bus'); assert.equal(k('#92d050'), 'bus');
+  assert.equal(k('#ffff00'), 'intern'); assert.equal(k('#fcd5b4'), 'intern'); assert.equal(k('#ccc0da'), 'intern');
+  assert.equal(k('kein hex'), 'auftrag');
+});
+
+test('plKind: unset follows the origin; without the column nothing is assumed', () => {
+  assert.equal(ctx.plKind(row()), null);                                            // column not there yet
+  assert.equal(ctx.plKind(row({ kind: null })), 'intern');                          // free entry
+  assert.equal(ctx.plKind(row({ kind: null, job_no: '26-0447.01', phase: 'setup' })), 'auftrag');
+  assert.equal(ctx.plKind(row({ kind: 'angebot', job_no: '26-0447.01', phase: 'setup' })), 'angebot');
+  assert.equal(ctx.plKind(row({ kind: 'unsinn' })), 'intern');
+});
+
+test('Art: seeded from Auftrag and from the uploaded plan, published as the row colour', () => {
+  assert.equal(ctx.plRowFromSlot(slot(), WEEK, USERS).kind, 'auftrag');
+  const seeded = plain(ctx.plRowsFromPlan([{ id: 's1', date: '2026-11-11', venue: 'A', title: 'weiß', color: null, plan_assignments: [] },
+    { id: 's2', date: '2026-11-11', venue: 'B', title: 'gelb', color: '#ffff00', plan_assignments: [] },
+    { id: 's3', date: '2026-11-11', venue: 'C', title: 'grün', color: '#00b050', plan_assignments: [] }], WEEK));
+  assert.deepEqual(seeded.map(r => r.kind), ['auftrag', 'intern', 'bus']);
+  const p = plain(ctx.plToParsed(WEEK, [row({ id: 'a', title: 'A', kind: 'auftrag' }), row({ id: 'b', title: 'B', kind: 'angebot' }),
+    row({ id: 'c', title: 'C', kind: 'intern' }), row({ id: 'd', title: 'D', kind: 'bus' }), row({ id: 'e', title: 'E', kind: null }), row({ id: 'f', title: 'F' })], USERS));
+  assert.deepEqual(p.shifts.map(s => s.color), [null, '#8db4e2', '#ffff00', '#00b050', '#ffff00', null]);
+  // what gets published reads back as the same Art
+  assert.deepEqual(p.shifts.slice(0, 4).map(s => ctx.plKindOfColor(s.color)), ['auftrag', 'angebot', 'intern', 'bus']);
+});
+
+test('plWithoutKind: rows for a database that has no Art column yet', () => {
+  const rows = [row({ kind: 'angebot' }), row({ id: 'r2' })];
+  const out = plain(ctx.plWithoutKind(rows));
+  assert.equal('kind' in out[0], false); assert.equal(out[0].title, 'Stand 06');
+  assert.equal(rows[0].kind, 'angebot'); // the originals stay
+});
+
+test('plPdfTable: an Angebot is named in the Datum cell', () => {
+  const t = plain(ctx.plPdfTable(WEEK, [row({ kind: 'angebot', location: 'Halle 1' })]));
+  assert.deepEqual(t[1].cells[0], ['Estrel', 'Halle 1', 'ANGEBOT']);
+});

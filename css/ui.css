@@ -374,6 +374,9 @@ button.dash-shift-main:focus-visible { outline: 2px solid var(--accent); outline
 .pl-delweek { display: block; margin: 12px 0 0 auto; color: var(--danger); }
 .pl-was { list-style: none; margin: 6px 0 0; padding: 0; font-size: 13px; color: var(--text2); line-height: 1.45; }
 .pl-was li { overflow-wrap: anywhere; }
+.pl-kind { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--text2); }
+.pl-kind i { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; border: 0.5px solid var(--border); }
+.wp-angebot { margin-left: 6px; vertical-align: middle; }
 .pl-none { font-size: 13px; color: var(--text3); padding: 2px 2px 6px; }
 .pl-row { padding: 12px; }
 .pl-row-top { display: flex; gap: 12px; align-items: flex-start; }

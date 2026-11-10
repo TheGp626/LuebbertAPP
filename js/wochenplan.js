@@ -385,7 +385,9 @@ function wpRow(s, opts) {
   return '<div class="ui-row' + (mine ? ' ui-row-me' : '') + '" data-sid="' + s.id + '" onclick="wpToggle(this)" role="button" tabindex="0" aria-expanded="false">' +
     '<div class="wp-time' + (tc.fuzzy ? ' wp-time-fuzzy' : '') + '"><b>' + wpEsc(tc.big) + '</b><span>' + wpEsc(tc.small) + '</span></div>' +
     '<div class="wp-main">' +
-      '<div class="wp-head"><div class="wp-venue">' + (s.color ? '<span class="wp-dot" style="background:' + wpEsc(s.color) + '"></span>' : '') + wpEsc(s.venue || '—') + '</div>' +
+      '<div class="wp-head"><div class="wp-venue">' + (s.color ? '<span class="wp-dot" style="background:' + wpEsc(s.color) + '"></span>' : '') + wpEsc(s.venue || '—') +
+        // A blue row is an Angebot (planer.js, Daniel's colours): say so, a dot alone does not tell people it may still fall away
+        (s.color && typeof plKindOfColor === 'function' && plKindOfColor(s.color) === 'angebot' ? ' <span class="ui-pill ui-pill-info wp-angebot">Angebot</span>' : '') + '</div>' +
         '<div class="wp-badges">' + wpStatusPill(s) + (mine ? '<span class="ui-pill ui-pill-info">Du' + (mine.role && mine.role !== 'MA' ? ' · ' + wpEsc(mine.role) : '') + '</span>' : '') + WP_ICON.chevron + '</div></div>' +
       (opts.showDate ? '<div class="wp-sub">' + wpDayLabel(s.date) + (sub ? ' · ' + wpEsc(sub) : '') + '</div>' : (sub ? '<div class="wp-sub">' + wpEsc(sub) + '</div>' : '')) +
       wpTeamLine(s) +
