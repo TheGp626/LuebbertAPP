@@ -491,7 +491,7 @@ function optInitials(name) {
 // Which blocks of the menu a role sees: a guest only looks, so nothing personal to set
 function optSections(role) {
   var member = !!role && role !== 'Gast';
-  return { push: member, account: member, pinReset: ['Admin', 'PL', 'AL'].indexOf(role) !== -1, pay: member, data: member };
+  return { push: member, account: member, pay: member };
 }
 
 function openSettingsModal() {
@@ -503,9 +503,9 @@ function openSettingsModal() {
   set('opt-name', name || 'Nicht angemeldet');
   set('opt-role', OPT_ROLE_NAMES[role] || role || '');
   var sec = optSections(role), show = function(id, on) { var el = document.getElementById(id); if (el) el.hidden = !on; };
-  show('opt-sec-push', sec.push); show('opt-sec-account', sec.account); show('opt-pin-reset', sec.pinReset);
+  show('opt-sec-push', sec.push); show('opt-sec-account', sec.account);
   show('opt-calendar', sec.account && typeof wpCalendarSheet === 'function');
-  show('opt-sec-pay', sec.pay); show('opt-sec-data', sec.data);
+  show('opt-sec-pay', sec.pay);
   optPaintTheme();
   if (sec.push) optPaintPush();
   if (w) w.value = hourlyWage > 0 ? hourlyWage : '';
@@ -617,31 +617,6 @@ function deleteDepartment(i) {
   // The default for new shifts must stay one from the list
   if (removed === selectedAbt) selectedAbt = departments.indexOf('MA') !== -1 ? 'MA' : departments[0];
   renderSettingsDepts();
-}
-
-// ── BACKUP ──
-function exportBackup() {
-  var b = { meta: { date: new Date().toISOString(), version: '1.2' }, data: {} };
-  for (var i = 0; i < localStorage.length; i++) { 
-    var k = localStorage.key(i); 
-    if (k.startsWith('stundenzettel') || k.startsWith('luebbert')) b.data[k] = localStorage.getItem(k); 
-  }
-  var blob = new Blob([JSON.stringify(b, null, 2)], { type: 'application/json' }), url = URL.createObjectURL(blob), a = document.createElement('a');
-  a.href = url; a.download = 'luebbert_app_backup_' + localDateStr() + '.json'; a.click();  
-  showToast('Backup exportiert!');
-}
-
-function importBackup(e) {
-  var f = e.target.files[0]; if (!f) return;
-  var r = new FileReader(); r.onload = function(evt) {
-    try {
-      var b = JSON.parse(evt.target.result); if (!b.data) throw new Error();
-      if (confirm('Daten überschreiben?')) { 
-        Object.keys(b.data).forEach(function(k){ localStorage.setItem(k,b.data[k]); }); 
-        window.location.reload(); 
-      }
-    } catch(err){ showToast('Fehler beim Import'); }
-  }; r.readAsText(f);
 }
 
 // Global Event Binding

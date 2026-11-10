@@ -293,6 +293,28 @@ function updateEditWorkerBtn() {
   if (!btn) return;
   const selected = document.getElementById('dash-worker-select').value;
   btn.style.display = selected ? 'inline-flex' : 'none';
+  // PIN reset sits with the person it is for; shown only where the reset rules allow it (auth.js, same matrix as the server)
+  const reset = document.getElementById('reset-worker-pin-btn'), w = dashSelectedWorker();
+  if (reset) reset.style.display = selected && dashMayResetPin(typeof userRole !== 'undefined' ? userRole : null, currentUser && currentUser.id, w) ? 'inline-flex' : 'none';
+}
+
+// Admin resets everyone, PL resets AL and MA, AL resets MA; never one's own, never a deactivated account
+function dashMayResetPin(callerRole, callerId, worker) {
+  return !!worker && !!worker.id && worker.id !== callerId && worker.is_active !== false &&
+    typeof mayResetPinClient === 'function' && mayResetPinClient(callerRole, worker.role);
+}
+
+// The person picked in the list (the hidden select is the source, see selectDashWorker)
+function dashSelectedWorker() {
+  const sel = document.getElementById('dash-worker-select'), id = sel ? sel.value : '';
+  return (id && (dashboardWorkers || []).find(function(w) { return w.id === id; })) || null;
+}
+
+function dashResetWorkerPin() {
+  const w = dashSelectedWorker();
+  if (!dashMayResetPin(userRole, currentUser && currentUser.id, w)) return;
+  pinResetUsers = [{ id: w.id, full_name: w.full_name, role: w.role }]; // confirmPinReset looks the person up here
+  confirmPinReset(w.id);
 }
 
 var _editWorkerRoleRates = [];

@@ -705,3 +705,18 @@ test('dashPlansWeekChange: only a switch an Admin was shown and changed is saved
   assert.equal(run('dashPlansWeekChange(true, false)'), false);
   assert.equal(run('dashPlansWeekChange(true, undefined)'), false);
 });
+
+test('dashMayResetPin: follows the reset rules, never oneself or a deactivated account', () => {
+  run("var mayResetPinClient = function(c, t) { var m = { Admin: ['Admin','PL','AL','MA','Buchhaltung'], PL: ['AL','MA'], AL: ['MA'] }; return !!m[c] && m[c].indexOf(t) !== -1; }");
+  const ok = (role, me, w) => run('dashMayResetPin(' + JSON.stringify(role) + ', ' + JSON.stringify(me) + ', ' + JSON.stringify(w) + ')');
+  assert.equal(ok('AL', 'me', { id: 'a', role: 'MA' }), true);
+  assert.equal(ok('AL', 'me', { id: 'a', role: 'AL' }), false);
+  assert.equal(ok('PL', 'me', { id: 'a', role: 'AL' }), true);
+  assert.equal(ok('PL', 'me', { id: 'a', role: 'Buchhaltung' }), false);
+  assert.equal(ok('Buchhaltung', 'me', { id: 'a', role: 'MA' }), false);
+  assert.equal(ok('Admin', 'me', { id: 'a', role: 'Buchhaltung' }), true);
+  assert.equal(ok('Admin', 'me', { id: 'me', role: 'Admin' }), false);
+  assert.equal(ok('Admin', 'me', { id: 'a', role: 'MA', is_active: false }), false);
+  assert.equal(ok('Admin', 'me', { id: 'a', role: 'Gast' }), false);
+  assert.equal(ok('Admin', 'me', null), false);
+});
