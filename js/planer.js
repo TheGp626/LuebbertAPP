@@ -35,10 +35,10 @@ function plKindOfColor(hex) {
 }
 
 // Art of a draft row. Rows loaded before the column exists carry no `kind` key at all: null, nothing is coloured.
-// With the column an unset Art follows the origin: from an Auftragsbestätigung = Auftrag, a free entry = intern.
+// With the column an unset Art is an Auftrag (white, the normal case); everything else is chosen on purpose.
 function plKind(row) {
   if (!row || !('kind' in row)) return null;
-  return PL_KINDS[row.kind] ? row.kind : (row.job_no ? 'auftrag' : 'intern');
+  return PL_KINDS[row.kind] ? row.kind : 'auftrag';
 }
 
 function plUtc(iso) { var p = String(iso).slice(0, 10).split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2])); }
@@ -872,7 +872,7 @@ function plEditRow(id) {
     (job ? '<div class="ui-sub" style="margin-bottom:12px;">Tag und MA-Zahl kommen aus dem Auftrag ' + plE(row.job_no) + ' und werden dort geändert.</div>'
       : field('Tag', '<select id="pl-f-date">' + days + '</select>')) +
     (st.hasKind ? field('Art', '<select id="pl-f-kind">' + PL_KIND_ORDER.map(function(k) {
-      return '<option value="' + k + '"' + (k === (plKind(v) || (job ? 'auftrag' : 'intern')) ? ' selected' : '') + '>' + PL_KINDS[k].long + '</option>';
+      return '<option value="' + k + '"' + (k === (plKind(v) || 'auftrag') ? ' selected' : '') + '>' + PL_KINDS[k].long + '</option>';
     }).join('') + '</select>') : '') +
     field('Ort', inp('venue', 'z.B. Estrel')) +
     field('Raum / Veranstaltung', area('location', 'eine Zeile pro Angabe')) +
