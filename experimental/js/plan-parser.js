@@ -354,13 +354,33 @@ function planPickExistingWeek(weeks, parsed) {
   return bestDays >= 4 ? best : null;
 }
 
-function planDiff(oldShifts, newShifts) {
-  // Field by field, never whole objects: jsonb hands back open slots with its own key order
-  var fp = function(s) {
-    return JSON.stringify([s.wann, (s.people || []).map(function(p) { return p.name + '/' + p.role + '/' + (p.note || ''); }).sort(),
-      (s.open || []).map(function(o) { return o.count + '/' + o.role + '/' + (o.note || ''); }), s.ap || null, s.details,
-      s.location || [], s.notes || []]);
+// The parts of an entry that count as a change, in the words people see ("geändert: Wann, Wer").
+// "Wer" is who is on it and in which role; a note beside a name (vehicle number, "ab 14 Uhr") and the Notizen are "Hinweis",
+// so a filled-in "BAR PL XXX" → "BAR PL 550" does not read as a new team.
+function planDiffParts(s) {
+  var j = function(v) { return JSON.stringify(v == null ? null : v); };
+  return {
+    'Wann': j(s.wann || []),
+    'Wer': j((s.people || []).map(function(p) { return p.name + '/' + p.role; }).sort()),
+    'Offene Plätze': j((s.open || []).map(function(o) { return o.count + '/' + o.role + '/' + (o.note || ''); })),
+    'PL': j(s.ap || null),
+    'Was': j([s.title || '', s.details || []]),
+    'Ort': j(s.location || []),
+    'Hinweis': j([(s.people || []).filter(function(p) { return p.note; }).map(function(p) { return p.name + '/' + p.note; }).sort(), s.notes || []])
   };
+}
+var PLAN_DIFF_ORDER = ['Wann', 'Wer', 'Offene Plätze', 'PL', 'Was', 'Ort', 'Hinweis'];
+
+// Changed parts between an old and a new version of the same entry, [] when nothing differs
+function planChangedFields(o, s) {
+  var a = planDiffParts(o), b = planDiffParts(s);
+  return PLAN_DIFF_ORDER.filter(function(k) { return a[k] !== b[k]; });
+}
+
+// Old (stored) shifts against a new parse. status[i]: null | 'neu' | 'geändert'; fields[i]: what changed;
+// matched[i]: the old shift a new one continues; removed: old shifts nothing continues.
+function planDiff(oldShifts, newShifts) {
+  var same = function(o, s) { return planChangedFields(o, s).length === 0; };
   var base = function(k) { return String(k).replace(/#\d+$/, ''); };
   var groups = {};
   oldShifts.forEach(function(s) { (groups[base(s.key)] = groups[base(s.key)] || []).push(s); });
@@ -379,8 +399,8 @@ function planDiff(oldShifts, newShifts) {
     var names = (a.people || []).map(function(p) { return p.name.toLowerCase(); });
     return (b.people || []).filter(function(p) { return names.indexOf(p.name.toLowerCase()) !== -1; }).length;
   };
-  pass(function(o, s) { return o.key === s.key && fp(o) === fp(s); });
-  pass(function(o, s) { return fp(o) === fp(s); });
+  pass(function(o, s) { return o.key === s.key && same(o, s); });
+  pass(function(o, s) { return same(o, s); });
   pass(function(o, s) { return firstWann(o) && firstWann(o) === firstWann(s); });
   newShifts.forEach(function(s, i) {
     if (matched[i]) return;
@@ -393,11 +413,32 @@ function planDiff(oldShifts, newShifts) {
   });
   pass(function(o, s) { return o.key === s.key; });
   pass(function() { return true; });
-  var status = newShifts.map(function(s, i) {
-    if (!matched[i]) return 'neu';
-    return fp(matched[i]) === fp(s) ? null : 'geändert';
+  // Renamed: the first line of "Was" is part of the key, so "54 Tischdeko" → "56 Tischdeko" matched nothing above and would
+  // show as one entry entfallen and one neu. Pair what is left when day, place and room agree and something else ties the two
+  // together (words of the title, the time, or people); the best such pair first.
+  var words = function(t) { return String(t || '').toLowerCase().split(/[^a-z0-9äöüß]+/).filter(function(w) { return w.length > 1; }); };
+  var tie = function(o, s) {
+    if (!o.date || o.date !== s.date || String(o.venue || '').toLowerCase() !== String(s.venue || '').toLowerCase()) return 0;
+    if (JSON.stringify(o.location || []) !== JSON.stringify(s.location || [])) return 0;
+    var wo = words(o.title), ws = words(s.title);
+    var common = ws.filter(function(w) { return wo.indexOf(w) !== -1; }).length;
+    var title = wo.length && ws.length ? common / Math.max(wo.length, ws.length) : 0;
+    // Without a room line two entries at the same venue are only the same when their titles say so
+    var room = (o.location || []).length > 0;
+    return (title >= 0.5 ? 2 : 0) + (room && firstWann(o) && firstWann(o) === firstWann(s) ? 1 : 0) + (room ? Math.min(shared(o, s), 2) : 0);
+  };
+  var pairs = [];
+  newShifts.forEach(function(s, i) {
+    if (matched[i]) return;
+    oldShifts.forEach(function(o) { var n = free(o) ? tie(o, s) : 0; if (n > 0) pairs.push({ i: i, o: o, n: n }); });
   });
-  return { status: status, matched: matched, removed: oldShifts.filter(free) };
+  pairs.sort(function(a, b) { return b.n - a.n; }).forEach(function(x) {
+    if (matched[x.i] || !free(x.o)) return;
+    matched[x.i] = x.o; taken.push(x.o);
+  });
+  var fields = newShifts.map(function(s, i) { return matched[i] ? planChangedFields(matched[i], s) : []; });
+  var status = newShifts.map(function(s, i) { return !matched[i] ? 'neu' : fields[i].length ? 'geändert' : null; });
+  return { status: status, matched: matched, removed: oldShifts.filter(free), fields: fields };
 }
 
 // Users that were on a matched old shift but are missing on its new version → "nicht mehr eingeteilt".
@@ -676,7 +717,7 @@ function planIcs(shifts, userId, stamp) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
-    planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planShiftKey: planShiftKey,
+    planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planChangedFields: planChangedFields, planShiftKey: planShiftKey,
     planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek, planCellLines: planCellLines,
     planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName,
     planShiftOrder: planShiftOrder, nextOwnShift: nextOwnShift, planShiftHeading: planShiftHeading, planMaterialLines: planMaterialLines, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb, planIcs: planIcs,

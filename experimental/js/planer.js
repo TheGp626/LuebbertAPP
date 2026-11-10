@@ -136,9 +136,31 @@ function plFilled(row) {
   return ((row && row.people) || []).filter(function(p) { return !plIsDriver(p); }).length;
 }
 
+// Open places of a row as the plan stores them: MA places still missing, then the open places of other kinds
+// (open_other: a missing driver, "2 x Zenjob" taken over from an uploaded plan)
 function plOpenSlots(row) {
   var left = (row && row.need ? row.need : 0) - plFilled(row);
-  return left > 0 ? [{ role: 'MA', count: left, note: null }] : [];
+  return (left > 0 ? [{ role: 'MA', count: left, note: null }] : []).concat(plOpenOther(row));
+}
+
+function plOpenOther(row) {
+  return (Array.isArray(row && row.open_other) ? row.open_other : []).filter(function(o) { return o && o.role && parseInt(o.count, 10) > 0; })
+    .map(function(o) { return { role: o.role, count: parseInt(o.count, 10), note: o.note || null }; });
+}
+
+// open_other after someone was placed in `role`: one place of that kind is taken (null = nothing to change)
+function plTakeOpen(row, role) {
+  var list = plOpenOther(row), i = list.findIndex(function(o) { return o.role === role; });
+  if (i === -1) return null;
+  list[i] = Object.assign({}, list[i], { count: list[i].count - 1 });
+  return list.filter(function(o) { return o.count > 0; });
+}
+
+// open_other with the number of missing drivers set to n (the sheet's "Fahrer gebraucht")
+function plSetOpen(row, role, n) {
+  var list = plOpenOther(row).filter(function(o) { return o.role !== role; });
+  n = Math.max(0, Math.min(9, parseInt(n, 10) || 0));
+  return n ? list.concat([{ role: role, count: n, note: null }]) : list;
 }
 
 // Published plan rows (plan_shifts with plan_assignments) → draft rows. Open places count into the need.
@@ -147,13 +169,16 @@ function plRowsFromPlan(planShifts, week) {
     var people = (s.plan_assignments || []).map(function(a) {
       return { user_id: a.user_id || null, name: a.name, role: a.role || 'MA', note: a.note || null };
     });
-    var open = (s.open_slots || []).filter(function(o) { return o && o.role !== 'Fahrer'; })
-      .reduce(function(n, o) { return n + (parseInt(o.count, 10) || 0); }, 0);
+    // MA places count into the need; every other open place (driver, agency) is kept as it is
+    var slots = (s.open_slots || []).filter(function(o) { return o && parseInt(o.count, 10) > 0; });
+    var open = slots.filter(function(o) { return (o.role || 'MA') === 'MA'; }).reduce(function(n, o) { return n + parseInt(o.count, 10); }, 0);
+    var other = slots.filter(function(o) { return (o.role || 'MA') !== 'MA'; })
+      .map(function(o) { return { role: o.role, count: parseInt(o.count, 10), note: o.note || null }; });
     return {
       year: week.year, kw: week.kw, date: s.date, sort: s.sort || 0, job_no: null, phase: null,
       venue: plText(s.venue), location: plText(s.location), title: plText(s.title), details: plText(s.details), wann: plText(s.wann),
       ap: plText(s.ap), ap_user_id: s.ap_user_id || null, notes: plText(s.notes),
-      need: people.filter(function(p) { return !plIsDriver(p); }).length + open, people: people, kind: plKindOfColor(s.color)
+      need: people.filter(function(p) { return !plIsDriver(p); }).length + open, people: people, kind: plKindOfColor(s.color), open_other: other
     };
   });
 }
@@ -320,9 +345,10 @@ function plIsAppWeek(draft, planWeek) {
   return !!draft && !!planWeek && draft.published_version != null && draft.published_version === planWeek.version;
 }
 
-// Rows as they can be inserted while the `kind` column does not exist yet (migration besetzungsplaner_art not applied)
-function plWithoutKind(rows) {
-  return (rows || []).map(function(r) { var c = Object.assign({}, r); delete c.kind; return c; });
+// Rows as they can be inserted while a newer column does not exist yet (migrations besetzungsplaner_art, plan_change_fields)
+function plWithoutKind(rows) { return plWithout(rows, ['kind']); }
+function plWithout(rows, keys) {
+  return (rows || []).map(function(r) { var c = Object.assign({}, r); (keys || []).forEach(function(k) { delete c[k]; }); return c; });
 }
 
 // New people array with the person added; null when the name is empty or the person is already on the row
@@ -464,7 +490,8 @@ async function plRender() {
       supabaseClient.from('availability').select('user_id, day, level').gte('day', week.weekStart).lte('day', week.weekEnd),
       supabaseClient.from('order_applications').select('job_no, phase, user_id, status'),
       supabaseClient.rpc('availability_people'),
-      supabaseClient.from('plan_draft_shifts').select('kind').limit(1)
+      supabaseClient.from('plan_draft_shifts').select('kind').limit(1),
+      supabaseClient.from('plan_draft_shifts').select('open_other').limit(1)
     ]);
   } catch (e) { res = [{ error: e }]; }
   if (seq !== plSeq || wpView !== 'plan') return;
@@ -482,7 +509,7 @@ async function plRender() {
   });
   ((res[6] && !res[6].error && res[6].data) || []).forEach(function(p) { tracked[p.id] = true; });
   plState = { week: week, draft: res[0].data || null, rows: res[1].data || [], planWeek: res[2].data || null, slots: res[3], avail: avail, apps: apps,
-    tracked: tracked, interest: {}, keys: {}, stale: [], hasKind: !!(res[7] && !res[7].error) };
+    tracked: tracked, interest: {}, keys: {}, stale: [], hasKind: !!(res[7] && !res[7].error), hasOpen: !!(res[8] && !res[8].error) };
   if (plState.planWeek) {
     // "Ich kann" on entries of the published plan (free entries with open places); an extra like the hints above
     var pi;
@@ -500,7 +527,7 @@ async function plSyncSlots(seq) {
   var st = plState, m = plMergeSlots(st.rows, st.slots, st.week, wpUsers), wrote = false;
   st.stale = m.stale;
   if (m.add.length) {
-    var ins = await supabaseClient.from('plan_draft_shifts').insert(st.hasKind ? m.add : plWithoutKind(m.add)).select('id');
+    var ins = await supabaseClient.from('plan_draft_shifts').insert(plForInsert(m.add)).select('id');
     if (ins.error) console.error('Aufträge in den Entwurf:', ins.error); else wrote = true;
   }
   for (var i = 0; i < m.patch.length; i++) {
@@ -570,6 +597,12 @@ function plKindTag(r) {
   return '<span class="pl-kind"><i style="background:' + PL_KINDS[k].color + '"></i>' + PL_KINDS[k].label + '</span>';
 }
 
+// Leaves out the columns this database does not have yet
+function plForInsert(rows) {
+  var st = plState || {};
+  return plWithout(rows, (st.hasKind ? [] : ['kind']).concat(st.hasOpen ? [] : ['open_other']));
+}
+
 function plApplied(r) { return plAppliedFor(r, plState.keys[r.id], plState.apps, plState.interest); }
 
 function plRowById(id) { return plState ? plState.rows.find(function(r) { return r.id === id; }) : null; }
@@ -596,6 +629,7 @@ function plRowHtml(r, who) {
         (loc.length ? '<div class="ui-sub">' + loc.map(plE).join(' · ') + '</div>' : '') +
         (det.length ? '<ul class="pl-was">' + det.map(function(t) { return '<li>' + plE(t) + '</li>'; }).join('') + '</ul>' : '') +
         '<div class="pl-row-meta">' + (r.job_no ? '<span class="wp-ord-tag">Auftrag</span>' : '') + plKindTag(r) + count +
+          plOpenOther(r).map(function(o) { return '<span class="ui-pill ui-pill-warn">' + o.count + ' ' + plE(o.role) + (o.count === 1 ? ' fehlt' : ' fehlen') + '</span>'; }).join('') +
           (waiting ? '<span class="ui-pill ui-pill-info">' + waiting + (waiting === 1 ? ' Meldung' : ' Meldungen') + '</span>' : '') +
           (r.ap ? '<span class="ui-sub">PL ' + plE(r.ap) + '</span>' : '') +
           (plState.stale.indexOf(r.id) !== -1 ? '<span class="ui-pill ui-pill-danger">Auftrag nicht mehr in dieser Woche</span>' : '') + '</div>' +
@@ -694,16 +728,18 @@ async function plSave(row, changes) {
 async function plPlace(id, userId) {
   var row = plRowById(id), u = wpUsers.find(function(x) { return x.id === userId; });
   if (!row || !u) return;
-  var people = plAddPerson(row, { user_id: u.id, name: plShortName(u, wpUsers), role: plPlaceRole(plPickedRole(), true) });
-  if (people && await plSave(row, { people: people })) await plMeldungSet(id, u.id, 'offen', 'angenommen');
+  var role = plPlaceRole(plPickedRole(), true);
+  var people = plAddPerson(row, { user_id: u.id, name: plShortName(u, wpUsers), role: role });
+  if (people && await plSave(row, plWithOpen(row, role, { people: people }))) await plMeldungSet(id, u.id, 'offen', 'angenommen');
 }
 
 async function plPlaceFree(id) {
   var row = plRowById(id), name = document.getElementById('pl-search');
   if (!row || !name) return;
-  var people = plAddPerson(row, { user_id: null, name: planStripPhones(name.value), role: plPlaceRole(plPickedRole(), false) });
+  var freeRole = plPlaceRole(plPickedRole(), false);
+  var people = plAddPerson(row, { user_id: null, name: planStripPhones(name.value), role: freeRole });
   if (!people) { showToast(plText(name.value) ? 'Steht schon auf dem Eintrag.' : 'Bitte einen Namen eintragen.', 'danger'); return; }
-  await plSave(row, { people: people });
+  await plSave(row, plWithOpen(row, freeRole, { people: people }));
 }
 
 async function plRemove(id, index) {
@@ -764,6 +800,12 @@ async function plDraftSync(kind, a, b, userId, on, users) {
   } catch (e) { console.error('Entwurf nachziehen:', e); return false; }
 }
 
+// A person placed as driver (or agency worker) takes the open place of that kind, when the row has one
+function plWithOpen(row, role, changes) {
+  var open = plState && plState.hasOpen && role !== 'MA' ? plTakeOpen(row, role) : null;
+  return open ? Object.assign({}, changes, { open_other: open }) : changes;
+}
+
 // Tap on the role of a placed person: pick it from a menu (app users are never Zenjob/ROCKiT)
 function plRoleMenu(id, index) {
   var row = plRowById(id), p = row && (row.people || [])[index];
@@ -778,7 +820,7 @@ async function plSetRole(id, index, role) {
   var row = plRowById(id), p = row && (row.people || [])[index];
   if (!p || p.role === role) return;
   var people = row.people.map(function(x, i) { return i === index ? Object.assign({}, x, { role: plPlaceRole(role, !!x.user_id) }) : x; });
-  await plSave(row, { people: people });
+  await plSave(row, plWithOpen(row, plPlaceRole(role, !!p.user_id), { people: people }));
 }
 
 // First draft of the week (plSeed). Free rows need the planner right, so a PL can only start a week without a plan.
@@ -801,7 +843,7 @@ async function plStart() {
   }
   var rows = plSeed(shifts, st.slots, w, wpUsers);
   if (rows.length) {
-    var r = await supabaseClient.from('plan_draft_shifts').insert(st.hasKind ? rows : plWithoutKind(rows)).select('id');
+    var r = await supabaseClient.from('plan_draft_shifts').insert(plForInsert(rows)).select('id');
     if (r.error) { console.error('Entwurf füllen:', r.error); showToast('Die Einträge konnten nicht übernommen werden.', 'danger'); }
   }
   await plRender();
@@ -880,6 +922,8 @@ function plEditRow(id) {
     field('Wann', area('wann', 'z.B. Aufbau: 9 Uhr')) +
     (planner ? field('PL (Projektleitung)', '<select id="pl-f-ap">' + apOpts + '</select>') : '') +
     (job ? '' : field('MA gebraucht', '<input type="number" id="pl-f-need" min="0" max="99" inputmode="numeric" value="' + (v.need || 0) + '">')) +
+    (st.hasOpen ? field('Fahrer fehlt noch (0 = keiner)', '<input type="number" id="pl-f-drivers" min="0" max="9" inputmode="numeric" value="' +
+      plOpenOther(v).filter(function(o) { return o.role === 'Fahrer'; }).reduce(function(n, o) { return n + o.count; }, 0) + '">') : '') +
     field('Notizen', area('notes', 'z.B. Fahrzeug, Hinweise')) +
     '<div class="ui-sheet-actions">' +
       (row && planner ? '<button type="button" class="ui-btn ui-btn-danger" onclick="plDeleteRow(\'' + jsAttrArg(row.id) + '\')">Löschen</button>' : '') +
@@ -900,6 +944,7 @@ async function plSaveSheet(id) {
     wann: clean(val('wann')), notes: clean(val('notes')) };
   if (val('date') !== undefined) ch.date = val('date');
   if (val('kind') !== undefined && PL_KINDS[val('kind')]) ch.kind = val('kind');
+  if (val('drivers') !== undefined) ch.open_other = plSetOpen(row || {}, 'Fahrer', val('drivers'));
   if (val('need') !== undefined) ch.need = Math.max(0, Math.min(99, parseInt(val('need'), 10) || 0));
   var ap = val('ap');
   if (ap !== undefined && ap !== '_keep') {
@@ -1031,5 +1076,5 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { plMonday: plMonday, plWeekOf: plWeekOf, plShortName: plShortName, plWannText: plWannText, plRowFromSlot: plRowFromSlot,
     plMergeSlots: plMergeSlots, plRowsFromPlan: plRowsFromPlan, plSeed: plSeed, plFilled: plFilled, plOpenSlots: plOpenSlots, plToParsed: plToParsed,
     plCandidates: plCandidates, plSearchMatch: plSearchMatch, plPlaceRole: plPlaceRole, plCanEdit: plCanEdit, plCanPublish: plCanPublish, plCanOpen: plCanOpen, plPublishProblems: plPublishProblems,
-    plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plKindOfColor: plKindOfColor, plKind: plKind, plWithoutKind: plWithoutKind, plRowKeys: plRowKeys, plAppliedFor: plAppliedFor, plOpenMeldungen: plOpenMeldungen, plMeldungTargets: plMeldungTargets, plWasText: plWasText, plWasSplit: plWasSplit, plIsAppWeek: plIsAppWeek, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };
+    plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plKindOfColor: plKindOfColor, plKind: plKind, plWithoutKind: plWithoutKind, plWithout: plWithout, plOpenOther: plOpenOther, plTakeOpen: plTakeOpen, plSetOpen: plSetOpen, plRowKeys: plRowKeys, plAppliedFor: plAppliedFor, plOpenMeldungen: plOpenMeldungen, plMeldungTargets: plMeldungTargets, plWasText: plWasText, plWasSplit: plWasSplit, plIsAppWeek: plIsAppWeek, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };
 }
