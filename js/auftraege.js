@@ -288,6 +288,13 @@ function ordStep(jobNo, field, delta) {
   });
 }
 
+// Besetzungsplaner (planer.js): an accepted person goes on the draft row of that phase or entry, anyone else comes off it.
+// Runs beside the decision and never blocks or undoes it; without a draft (or the right to edit it) nothing happens.
+function ordDraftSync(kind, a, b, userId, status) {
+  if (typeof plDraftSync !== 'function') return;
+  plDraftSync(kind, a, b, userId, status === 'angenommen', _ordCtx.users).catch(function(e) { console.error('Entwurf nachziehen:', e); });
+}
+
 async function ordDecide(jobNo, phase, userId, status) {
   var a = _ordCtx.apps.find(function(x) { return x.job_no === jobNo && x.phase === phase && x.user_id === userId; });
   if (!a) return;
@@ -301,6 +308,7 @@ async function ordDecide(jobNo, phase, userId, status) {
     showToast('Nicht gespeichert. Prüf deine Verbindung.', 'danger');
     return;
   }
+  ordDraftSync('order', jobNo, phase, userId, status);
   ordRenderList();
 }
 
@@ -506,6 +514,7 @@ async function ordAcceptAvailable(kind, a, b, userId) {
     return;
   }
   if (kind === 'shift') _ordCtx.interest.push(row); else _ordCtx.apps.push(row);
+  ordDraftSync(kind, a, b, userId, 'angenommen');
   ordRenderList();
 }
 
@@ -523,6 +532,7 @@ async function ordDecideShift(weekId, key, userId, status) {
     showToast('Nicht gespeichert. Prüf deine Verbindung.', 'danger');
     return;
   }
+  ordDraftSync('shift', weekId, key, userId, status);
   ordRenderList();
 }
 

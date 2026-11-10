@@ -355,3 +355,37 @@ test('plIsAppWeek: only while the published Stand of the draft is the current pl
   assert.equal(ctx.plIsAppWeek({ published_version: 1 }, null), false);
   assert.equal(ctx.plIsAppWeek(null, { version: 1 }), false);
 });
+
+test('plRowKeys: every draft row knows the key of its published entry', () => {
+  const k = plain(ctx.plRowKeys(WEEK, [row({ id: 'a', wann: 'Aufbau: 8 Uhr' }), row({ id: 'b', wann: 'Abbau: 20 Uhr' }), row({ id: 'c', title: 'Anderes' })], USERS));
+  assert.deepEqual(k, { a: '2026-11-11|estrel|stand 06', b: '2026-11-11|estrel|stand 06#2', c: '2026-11-11|estrel|anderes' });
+});
+
+test('plAppliedFor: Auftrag Meldungen and Meldungen on the published entry in one map', () => {
+  const job = row({ job_no: '26-0447.01', phase: 'setup' });
+  const apps = { '26-0447.01|setup': { 'u-mil': 'offen', 'u-kac': 'abgelehnt' }, '26-0447.01|teardown': { 'u-pl': 'offen' } };
+  const interest = { 'k1': { 'u-fe1': 'offen', 'u-kac': 'angenommen', 'u-mil': 'abgelehnt' } };
+  assert.deepEqual(plain(ctx.plAppliedFor(job, 'k1', apps, interest)), { 'u-mil': 'offen', 'u-kac': 'angenommen', 'u-fe1': 'offen' });
+  assert.deepEqual(plain(ctx.plAppliedFor(row(), 'k1', apps, interest)), { 'u-fe1': 'offen', 'u-kac': 'angenommen', 'u-mil': 'abgelehnt' });
+  assert.deepEqual(plain(ctx.plAppliedFor(row(), undefined, apps, interest)), {});
+  assert.deepEqual(plain(ctx.plAppliedFor(job, 'nope', null, null)), {});
+});
+
+test('plOpenMeldungen: only open ones of people who are not on the row yet', () => {
+  const r = row({ people: [{ user_id: 'u-kac', name: 'Kacper', role: 'MA' }] });
+  assert.equal(ctx.plOpenMeldungen(r, { 'u-kac': 'offen', 'u-mil': 'offen', 'u-fe1': 'angenommen', 'u-fe2': 'abgelehnt' }), 1);
+  assert.equal(ctx.plOpenMeldungen(r, {}), 0);
+  assert.equal(ctx.plOpenMeldungen(row(), { 'u-kac': 'offen', 'u-mil': 'offen' }), 2);
+});
+
+test('plMeldungTargets: which records change when someone is placed or taken off', () => {
+  const job = row({ job_no: '26-0447.01', phase: 'setup' });
+  const apps = { '26-0447.01|setup': { 'u-mil': 'offen', 'u-kac': 'angenommen' } }, interest = { k1: { 'u-mil': 'offen', 'u-fe1': 'offen' } };
+  assert.deepEqual(plain(ctx.plMeldungTargets(job, 'k1', 'w1', apps, interest, 'u-mil', 'offen')), [
+    { kind: 'order', job_no: '26-0447.01', phase: 'setup', user_id: 'u-mil' }, { kind: 'shift', week_id: 'w1', shift_key: 'k1', user_id: 'u-mil' }]);
+  assert.deepEqual(plain(ctx.plMeldungTargets(row(), 'k1', 'w1', apps, interest, 'u-fe1', 'offen')), [{ kind: 'shift', week_id: 'w1', shift_key: 'k1', user_id: 'u-fe1' }]);
+  assert.deepEqual(plain(ctx.plMeldungTargets(job, 'k1', 'w1', apps, interest, 'u-kac', 'angenommen')), [{ kind: 'order', job_no: '26-0447.01', phase: 'setup', user_id: 'u-kac' }]);
+  assert.deepEqual(plain(ctx.plMeldungTargets(job, 'k1', 'w1', apps, interest, 'u-kac', 'offen')), []);      // already answered
+  assert.deepEqual(plain(ctx.plMeldungTargets(job, 'k1', 'w1', apps, interest, 'u-pl', 'offen')), []);       // never reported
+  assert.deepEqual(plain(ctx.plMeldungTargets(row(), 'k1', null, apps, interest, 'u-fe1', 'offen')), []);    // week not published
+});
