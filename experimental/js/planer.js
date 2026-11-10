@@ -12,6 +12,34 @@ var PL_ROLES = ['MA', 'AL', 'Fahrer', 'Deko', 'Zenjob', 'ROCKiT'];
 var PL_AGENCY = ['Zenjob', 'ROCKiT'];
 var PL_NO_CANDIDATE = ['Gast', 'Buchhaltung']; // never offered for a shift
 var PL_WEEKS_AHEAD = 5;
+// Art eines Einsatzes, mit der Zeilenfarbe aus Daniels Plänen (Jenni): weiß = Auftragsbestätigung, blau = Angebot (kann noch
+// wegfallen), gelb = intern und alles weitere, grün = Busfahrt. `color` is what gets published as plan_shifts.color.
+var PL_KINDS = {
+  auftrag: { label: 'Auftrag', long: 'Auftrag (bestätigt)', color: null },
+  angebot: { label: 'Angebot', long: 'Angebot (kann noch wegfallen)', color: '#8db4e2' },
+  intern: { label: 'Intern', long: 'Intern oder Sonstiges', color: '#ffff00' },
+  bus: { label: 'Busfahrt', long: 'Busfahrt', color: '#00b050' }
+};
+var PL_KIND_ORDER = ['auftrag', 'angebot', 'intern', 'bus'];
+
+// Row colour of a plan entry → Art. Works on the hue, so Daniel's shades of blue and green are recognised as well;
+// no colour (white, grey header) = Auftrag, any other colour (yellow, pink, lilac) = intern.
+function plKindOfColor(hex) {
+  var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || '').trim());
+  if (!m) return 'auftrag';
+  var r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+  if (Math.max(r, g, b) - Math.min(r, g, b) < 20) return 'auftrag'; // white and greys
+  if (b > r + 30 && b >= g - 10) return 'angebot';
+  if (g > r + 30 && g > b + 30) return 'bus';
+  return 'intern';
+}
+
+// Art of a draft row. Rows loaded before the column exists carry no `kind` key at all: null, nothing is coloured.
+// With the column an unset Art follows the origin: from an Auftragsbestätigung = Auftrag, a free entry = intern.
+function plKind(row) {
+  if (!row || !('kind' in row)) return null;
+  return PL_KINDS[row.kind] ? row.kind : (row.job_no ? 'auftrag' : 'intern');
+}
 
 function plUtc(iso) { var p = String(iso).slice(0, 10).split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2])); }
 function plIso(d) { return d.toISOString().slice(0, 10); }
@@ -69,7 +97,7 @@ function plRowFromSlot(slot, week, users) {
     year: week.year, kw: week.kw, date: ordSlotDate(slot), sort: 0, job_no: slot.job_no, phase: slot.phase,
     venue: ordVenueLabel(title) || plText(title), location: plText([event, slot.room].filter(Boolean).join('\n')),
     title: plText(slot.name), details: null, wann: plText(plWannText(slot.phase, slot.start_at, slot.end_at)),
-    ap: null, ap_user_id: null, notes: null, need: slot.needed == null ? 0 : slot.needed, people: people
+    ap: null, ap_user_id: null, notes: null, need: slot.needed == null ? 0 : slot.needed, people: people, kind: 'auftrag'
   };
 }
 
@@ -125,7 +153,7 @@ function plRowsFromPlan(planShifts, week) {
       year: week.year, kw: week.kw, date: s.date, sort: s.sort || 0, job_no: null, phase: null,
       venue: plText(s.venue), location: plText(s.location), title: plText(s.title), details: plText(s.details), wann: plText(s.wann),
       ap: plText(s.ap), ap_user_id: s.ap_user_id || null, notes: plText(s.notes),
-      need: people.filter(function(p) { return !plIsDriver(p); }).length + open, people: people
+      need: people.filter(function(p) { return !plIsDriver(p); }).length + open, people: people, kind: plKindOfColor(s.color)
     };
   });
 }
@@ -171,7 +199,7 @@ function plToParsed(week, rows, users) {
     var s = {
       date: r.date, venue: r.venue || '', location: plLines(r.location), title: r.title || '', details: plLines(r.details),
       wann: plLines(r.wann), ap: plText(r.ap), apUserId: r.ap_user_id && active[r.ap_user_id] ? r.ap_user_id : null,
-      notes: plLines(r.notes), color: null, open: plOpenSlots(r), sort: i,
+      notes: plLines(r.notes), color: plKind(r) ? PL_KINDS[plKind(r)].color : null, open: plOpenSlots(r), sort: i,
       people: (r.people || []).filter(function(p) { return p && plText(p.name); }).map(function(p) {
         return { name: String(p.name).trim(), role: p.role || 'MA', note: p.note || null, userId: p.user_id && active[p.user_id] ? p.user_id : null };
       }),
@@ -292,6 +320,11 @@ function plIsAppWeek(draft, planWeek) {
   return !!draft && !!planWeek && draft.published_version != null && draft.published_version === planWeek.version;
 }
 
+// Rows as they can be inserted while the `kind` column does not exist yet (migration besetzungsplaner_art not applied)
+function plWithoutKind(rows) {
+  return (rows || []).map(function(r) { var c = Object.assign({}, r); delete c.kind; return c; });
+}
+
 // New people array with the person added; null when the name is empty or the person is already on the row
 function plAddPerson(row, person) {
   var name = plText(person && person.name), people = (row.people || []).slice();
@@ -356,7 +389,7 @@ function plPdfTable(week, rows) {
       last = r.date;
     }
     out.push({ cells: [
-      [r.venue || ''].concat(plLines(r.location)).filter(Boolean),
+      [r.venue || ''].concat(plLines(r.location)).concat(plKind(r) === 'angebot' ? ['ANGEBOT'] : []).filter(Boolean),
       [r.title || ''].concat(plLines(r.details)).filter(Boolean),
       plLines(r.wann),
       plWerLines(r).concat(plLines(r.notes)),
@@ -430,7 +463,8 @@ async function plRender() {
       wpLoadSlots(),
       supabaseClient.from('availability').select('user_id, day, level').gte('day', week.weekStart).lte('day', week.weekEnd),
       supabaseClient.from('order_applications').select('job_no, phase, user_id, status'),
-      supabaseClient.rpc('availability_people')
+      supabaseClient.rpc('availability_people'),
+      supabaseClient.from('plan_draft_shifts').select('kind').limit(1)
     ]);
   } catch (e) { res = [{ error: e }]; }
   if (seq !== plSeq || wpView !== 'plan') return;
@@ -448,7 +482,7 @@ async function plRender() {
   });
   ((res[6] && !res[6].error && res[6].data) || []).forEach(function(p) { tracked[p.id] = true; });
   plState = { week: week, draft: res[0].data || null, rows: res[1].data || [], planWeek: res[2].data || null, slots: res[3], avail: avail, apps: apps,
-    tracked: tracked, interest: {}, keys: {}, stale: [] };
+    tracked: tracked, interest: {}, keys: {}, stale: [], hasKind: !!(res[7] && !res[7].error) };
   if (plState.planWeek) {
     // "Ich kann" on entries of the published plan (free entries with open places); an extra like the hints above
     var pi;
@@ -466,7 +500,7 @@ async function plSyncSlots(seq) {
   var st = plState, m = plMergeSlots(st.rows, st.slots, st.week, wpUsers), wrote = false;
   st.stale = m.stale;
   if (m.add.length) {
-    var ins = await supabaseClient.from('plan_draft_shifts').insert(m.add).select('id');
+    var ins = await supabaseClient.from('plan_draft_shifts').insert(st.hasKind ? m.add : plWithoutKind(m.add)).select('id');
     if (ins.error) console.error('Aufträge in den Entwurf:', ins.error); else wrote = true;
   }
   for (var i = 0; i < m.patch.length; i++) {
@@ -528,6 +562,14 @@ function plPaint() {
   box.innerHTML = nav + head + days;
 }
 
+// Tag for the Art of a row; a confirmed Auftrag is the normal case and gets none
+function plKindTag(r) {
+  var k = plKind(r);
+  if (!k || k === 'auftrag') return '';
+  if (k === 'angebot') return '<span class="ui-pill ui-pill-info pl-kind"><i style="background:' + PL_KINDS[k].color + '"></i>Angebot</span>';
+  return '<span class="pl-kind"><i style="background:' + PL_KINDS[k].color + '"></i>' + PL_KINDS[k].label + '</span>';
+}
+
 function plApplied(r) { return plAppliedFor(r, plState.keys[r.id], plState.apps, plState.interest); }
 
 function plRowById(id) { return plState ? plState.rows.find(function(r) { return r.id === id; }) : null; }
@@ -553,7 +595,7 @@ function plRowHtml(r, who) {
         '<div class="pl-row-title">' + plE(r.venue || '—') + (r.title ? ' · ' + plE(r.title) : '') + '</div>' +
         (loc.length ? '<div class="ui-sub">' + loc.map(plE).join(' · ') + '</div>' : '') +
         (det.length ? '<ul class="pl-was">' + det.map(function(t) { return '<li>' + plE(t) + '</li>'; }).join('') + '</ul>' : '') +
-        '<div class="pl-row-meta">' + (r.job_no ? '<span class="wp-ord-tag">Auftrag</span>' : '') + count +
+        '<div class="pl-row-meta">' + (r.job_no ? '<span class="wp-ord-tag">Auftrag</span>' : '') + plKindTag(r) + count +
           (waiting ? '<span class="ui-pill ui-pill-info">' + waiting + (waiting === 1 ? ' Meldung' : ' Meldungen') + '</span>' : '') +
           (r.ap ? '<span class="ui-sub">PL ' + plE(r.ap) + '</span>' : '') +
           (plState.stale.indexOf(r.id) !== -1 ? '<span class="ui-pill ui-pill-danger">Auftrag nicht mehr in dieser Woche</span>' : '') + '</div>' +
@@ -759,7 +801,7 @@ async function plStart() {
   }
   var rows = plSeed(shifts, st.slots, w, wpUsers);
   if (rows.length) {
-    var r = await supabaseClient.from('plan_draft_shifts').insert(rows).select('id');
+    var r = await supabaseClient.from('plan_draft_shifts').insert(st.hasKind ? rows : plWithoutKind(rows)).select('id');
     if (r.error) { console.error('Entwurf füllen:', r.error); showToast('Die Einträge konnten nicht übernommen werden.', 'danger'); }
   }
   await plRender();
@@ -829,6 +871,9 @@ function plEditRow(id) {
   m.innerHTML = '<div class="sig-modal-inner"><div class="ui-sheet-head"><h3 class="ui-title" style="font-size:18px;">' + (row ? 'Eintrag bearbeiten' : 'Freier Eintrag') + '</h3></div>' +
     (job ? '<div class="ui-sub" style="margin-bottom:12px;">Tag und MA-Zahl kommen aus dem Auftrag ' + plE(row.job_no) + ' und werden dort geändert.</div>'
       : field('Tag', '<select id="pl-f-date">' + days + '</select>')) +
+    (st.hasKind ? field('Art', '<select id="pl-f-kind">' + PL_KIND_ORDER.map(function(k) {
+      return '<option value="' + k + '"' + (k === (plKind(v) || (job ? 'auftrag' : 'intern')) ? ' selected' : '') + '>' + PL_KINDS[k].long + '</option>';
+    }).join('') + '</select>') : '') +
     field('Ort', inp('venue', 'z.B. Estrel')) +
     field('Raum / Veranstaltung', area('location', 'eine Zeile pro Angabe')) +
     field('Was (Material, eine Zeile pro Position)', '<textarea id="pl-f-was" rows="5" placeholder="4 Loungesofa weiß&#10;2 Stehtische&#10;1 Teppich 3 x 4 m">' + plE(plWasText(v)) + '</textarea>') +
@@ -854,6 +899,7 @@ async function plSaveSheet(id) {
   var ch = { venue: clean(val('venue')), location: clean(val('location')), title: was.title, details: was.details,
     wann: clean(val('wann')), notes: clean(val('notes')) };
   if (val('date') !== undefined) ch.date = val('date');
+  if (val('kind') !== undefined && PL_KINDS[val('kind')]) ch.kind = val('kind');
   if (val('need') !== undefined) ch.need = Math.max(0, Math.min(99, parseInt(val('need'), 10) || 0));
   var ap = val('ap');
   if (ap !== undefined && ap !== '_keep') {
@@ -985,5 +1031,5 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { plMonday: plMonday, plWeekOf: plWeekOf, plShortName: plShortName, plWannText: plWannText, plRowFromSlot: plRowFromSlot,
     plMergeSlots: plMergeSlots, plRowsFromPlan: plRowsFromPlan, plSeed: plSeed, plFilled: plFilled, plOpenSlots: plOpenSlots, plToParsed: plToParsed,
     plCandidates: plCandidates, plSearchMatch: plSearchMatch, plPlaceRole: plPlaceRole, plCanEdit: plCanEdit, plCanPublish: plCanPublish, plCanOpen: plCanOpen, plPublishProblems: plPublishProblems,
-    plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plRowKeys: plRowKeys, plAppliedFor: plAppliedFor, plOpenMeldungen: plOpenMeldungen, plMeldungTargets: plMeldungTargets, plWasText: plWasText, plWasSplit: plWasSplit, plIsAppWeek: plIsAppWeek, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };
+    plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plKindOfColor: plKindOfColor, plKind: plKind, plWithoutKind: plWithoutKind, plRowKeys: plRowKeys, plAppliedFor: plAppliedFor, plOpenMeldungen: plOpenMeldungen, plMeldungTargets: plMeldungTargets, plWasText: plWasText, plWasSplit: plWasSplit, plIsAppWeek: plIsAppWeek, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };
 }
