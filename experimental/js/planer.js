@@ -175,7 +175,7 @@ function plToParsed(week, rows, users) {
       people: (r.people || []).filter(function(p) { return p && plText(p.name); }).map(function(p) {
         return { name: String(p.name).trim(), role: p.role || 'MA', note: p.note || null, userId: p.user_id && active[p.user_id] ? p.user_id : null };
       }),
-      jobNo: r.job_no || null, phase: r.phase || null
+      jobNo: r.job_no || null, phase: r.phase || null, rowId: r.id || null
     };
     var key = planShiftKey(s);
     seen[key] = (seen[key] || 0) + 1;
@@ -209,6 +209,44 @@ function plCandidates(row, rows, users, avail, applied, tracked) {
     return rank(a) - rank(b) || (a.applied === b.applied ? 0 : a.applied === 'angenommen' ? -1 : b.applied === 'angenommen' ? 1 : 0) ||
       a.name.localeCompare(b.name, 'de');
   });
+}
+
+/* ── Meldungen ("Ich kann") ↔ draft rows ──
+ * Two sources: order_applications (Auftrag phase, keyed job_no|phase) and plan_shift_interest (an entry of the published
+ * plan with open places, keyed by plan week + shift key). A draft row finds its published entry by the key plToParsed gives it. */
+
+// Draft row id → the key its entry has (or will have) in the published plan
+function plRowKeys(week, rows, users) {
+  var out = {};
+  plToParsed(week, rows, users).shifts.forEach(function(s) { if (s.rowId) out[s.rowId] = s.key; });
+  return out;
+}
+
+// userId → status of that person's Meldung for a row. apps: 'job_no|phase' → {userId: status}; interest: shift key → {userId: status}.
+// With one in each source the stronger answer counts: angenommen, then offen, then abgelehnt.
+function plAppliedFor(row, key, apps, interest) {
+  var out = {}, rank = { abgelehnt: 1, offen: 2, angenommen: 3 };
+  [row && row.job_no ? (apps || {})[row.job_no + '|' + row.phase] : null, key ? (interest || {})[key] : null].forEach(function(m) {
+    Object.keys(m || {}).forEach(function(uid) { if (!out[uid] || rank[m[uid]] > rank[out[uid]]) out[uid] = m[uid]; });
+  });
+  return out;
+}
+
+// People waiting for an answer on a row: an open Meldung and not placed yet
+function plOpenMeldungen(row, applied) {
+  var on = {};
+  ((row && row.people) || []).forEach(function(p) { if (p.user_id) on[p.user_id] = true; });
+  return Object.keys(applied || {}).filter(function(uid) { return applied[uid] === 'offen' && !on[uid]; }).length;
+}
+
+// The Meldung records of one person for a row that currently have status `from` (usually one, both sources when both exist)
+function plMeldungTargets(row, key, planWeekId, apps, interest, userId, from) {
+  var out = [];
+  if (row && row.job_no && ((apps || {})[row.job_no + '|' + row.phase] || {})[userId] === from)
+    out.push({ kind: 'order', job_no: row.job_no, phase: row.phase, user_id: userId });
+  if (key && planWeekId && ((interest || {})[key] || {})[userId] === from)
+    out.push({ kind: 'shift', week_id: planWeekId, shift_key: key, user_id: userId });
+  return out;
 }
 
 // Search in the picker: every typed word must start a word of the short or full name ("pat st" finds Patryk Stańczyk);
@@ -410,7 +448,14 @@ async function plRender() {
   });
   ((res[6] && !res[6].error && res[6].data) || []).forEach(function(p) { tracked[p.id] = true; });
   plState = { week: week, draft: res[0].data || null, rows: res[1].data || [], planWeek: res[2].data || null, slots: res[3], avail: avail, apps: apps,
-    tracked: tracked, stale: [] };
+    tracked: tracked, interest: {}, keys: {}, stale: [] };
+  if (plState.planWeek) {
+    // "Ich kann" on entries of the published plan (free entries with open places); an extra like the hints above
+    var pi;
+    try { pi = await supabaseClient.from('plan_shift_interest').select('shift_key, user_id, status').eq('week_id', plState.planWeek.id); } catch (e) { pi = { error: e }; }
+    if (seq !== plSeq || wpView !== 'plan') return;
+    ((pi && !pi.error && pi.data) || []).forEach(function(r) { (plState.interest[r.shift_key] = plState.interest[r.shift_key] || {})[r.user_id] = r.status || 'offen'; });
+  }
   if (plState.draft && await plSyncSlots(seq)) return; // rows were added or moved: plSyncSlots rendered the fresh state
   if (seq !== plSeq || wpView !== 'plan') return;
   plPaint();
@@ -452,6 +497,7 @@ function plPaint() {
   var box = plBox(), st = plState;
   if (!box || !st) return;
   var who = plWho(), b = plBounds(), nav = plNavHtml(st.week, b), planner = plCanPublish(who);
+  st.keys = plRowKeys(st.week, st.rows, wpUsers);
   if (!st.draft) {
     var text, btn = '<button type="button" class="ui-btn ui-btn-primary wp-empty-btn" onclick="plStart()">Entwurf anlegen</button>';
     if (st.planWeek && !planner) { text = 'Diese Woche hat schon einen Plan. Einen Entwurf daraus kann nur anlegen, wer den Wochenplan plant.'; btn = ''; }
@@ -482,6 +528,8 @@ function plPaint() {
   box.innerHTML = nav + head + days;
 }
 
+function plApplied(r) { return plAppliedFor(r, plState.keys[r.id], plState.apps, plState.interest); }
+
 function plRowById(id) { return plState ? plState.rows.find(function(r) { return r.id === id; }) : null; }
 
 function plRowHtml(r, who) {
@@ -497,7 +545,7 @@ function plRowHtml(r, who) {
       (can ? '<button type="button" class="pl-chip-x" aria-label="' + plE(p.name) + ' entfernen" onclick="plRemove(' + id + ', ' + i + ')">×</button>' : '') +
     '</span>';
   }).join('');
-  var loc = plLines(r.location), det = plLines(r.details);
+  var loc = plLines(r.location), det = plLines(r.details), waiting = plOpenMeldungen(r, plApplied(r));
   return '<div class="ui-card pl-row" id="pl-row-' + plE(r.id) + '">' +
     '<div class="pl-row-top">' +
       '<div class="wp-time"><b>' + plE(w.time || '—') + '</b><span>' + plE(w.label || '') + '</span></div>' +
@@ -506,6 +554,7 @@ function plRowHtml(r, who) {
         (loc.length ? '<div class="ui-sub">' + loc.map(plE).join(' · ') + '</div>' : '') +
         (det.length ? '<ul class="pl-was">' + det.map(function(t) { return '<li>' + plE(t) + '</li>'; }).join('') + '</ul>' : '') +
         '<div class="pl-row-meta">' + (r.job_no ? '<span class="wp-ord-tag">Auftrag</span>' : '') + count +
+          (waiting ? '<span class="ui-pill ui-pill-info">' + waiting + (waiting === 1 ? ' Meldung' : ' Meldungen') + '</span>' : '') +
           (r.ap ? '<span class="ui-sub">PL ' + plE(r.ap) + '</span>' : '') +
           (plState.stale.indexOf(r.id) !== -1 ? '<span class="ui-pill ui-pill-danger">Auftrag nicht mehr in dieser Woche</span>' : '') + '</div>' +
       '</div>' +
@@ -520,7 +569,7 @@ function plRowHtml(r, who) {
 
 function plPickerHtml(r) {
   var st = plState, id = "'" + jsAttrArg(r.id) + "'";
-  var applied = r.job_no ? (st.apps[r.job_no + '|' + r.phase] || {}) : {};
+  var applied = plApplied(r);
   var list = plCandidates(r, st.rows, wpUsers, st.avail, applied, st.tracked).map(function(c) {
     var u = wpUsers.find(function(x) { return x.id === c.id; });
     var tag = c.applied === 'angenommen' ? '<span class="ord-pill ord-pill-ok">angenommen</span>'
@@ -604,7 +653,7 @@ async function plPlace(id, userId) {
   var row = plRowById(id), u = wpUsers.find(function(x) { return x.id === userId; });
   if (!row || !u) return;
   var people = plAddPerson(row, { user_id: u.id, name: plShortName(u, wpUsers), role: plPlaceRole(plPickedRole(), true) });
-  if (people) await plSave(row, { people: people });
+  if (people && await plSave(row, { people: people })) await plMeldungSet(id, u.id, 'offen', 'angenommen');
 }
 
 async function plPlaceFree(id) {
@@ -616,8 +665,61 @@ async function plPlaceFree(id) {
 }
 
 async function plRemove(id, index) {
-  var row = plRowById(id);
-  if (row) await plSave(row, { people: plRemovePerson(row, index) });
+  var row = plRowById(id), p = row && (row.people || [])[index];
+  if (row && await plSave(row, { people: plRemovePerson(row, index) }) && p && p.user_id) await plMeldungSet(id, p.user_id, 'angenommen', 'offen');
+}
+
+// Placing someone who said "Ich kann" answers their Meldung (offen → angenommen); taking them off again reopens it.
+// Deciding needs "Sieht Bewerbungen" (RLS): without it nothing changes here and the Meldung waits in the Aufträge inbox as before.
+async function plMeldungSet(rowId, userId, from, to) {
+  var st = plState, row = plRowById(rowId);
+  if (!st || !row) return;
+  var targets = plMeldungTargets(row, st.keys[row.id], st.planWeek && st.planWeek.id, st.apps, st.interest, userId, from), changed = false;
+  for (var i = 0; i < targets.length; i++) {
+    var t = targets[i], r;
+    try {
+      r = t.kind === 'order'
+        ? await supabaseClient.from('order_applications').update({ status: to }).eq('job_no', t.job_no).eq('phase', t.phase).eq('user_id', userId).eq('status', from).select('user_id')
+        : await supabaseClient.from('plan_shift_interest').update({ status: to }).eq('week_id', t.week_id).eq('shift_key', t.shift_key).eq('user_id', userId).eq('status', from).select('user_id');
+    } catch (e) { r = { error: e }; }
+    if (r.error) { console.error('Meldung beantworten:', r.error); continue; }
+    if (!r.data || !r.data.length) continue; // no right to decide, or someone else answered it meanwhile
+    if (t.kind === 'order') st.apps[t.job_no + '|' + t.phase][userId] = to; else st.interest[t.shift_key][userId] = to;
+    changed = true;
+  }
+  if (changed && plState === st) plPaint();
+}
+
+// Called by the Aufträge inbox after a decision there (auftraege.js): an accepted person goes on the draft row of that
+// Auftrag phase or plan entry, a taken-back or declined one comes off it. No draft, or no right to edit it: nothing happens.
+// kind 'order': a = job_no, b = phase; kind 'shift': a = plan week id, b = shift key. Never throws.
+async function plDraftSync(kind, a, b, userId, on, users) {
+  try {
+    var rows = [];
+    if (kind === 'order') {
+      var q = await supabaseClient.from('plan_draft_shifts').select('*').eq('job_no', a).eq('phase', b);
+      if (q.error) return false;
+      rows = q.data || [];
+    } else {
+      var w = await supabaseClient.from('plan_weeks').select('year, kw, week_start, week_end').eq('id', a).maybeSingle();
+      if (w.error || !w.data) return false;
+      var d = await supabaseClient.from('plan_draft_shifts').select('*').eq('year', w.data.year).eq('kw', w.data.kw);
+      if (d.error) return false;
+      var keys = plRowKeys({ year: w.data.year, kw: w.data.kw, weekStart: w.data.week_start, weekEnd: w.data.week_end }, d.data || [], users);
+      rows = (d.data || []).filter(function(r) { return keys[r.id] === b; });
+    }
+    var done = false;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i], people, u = (users || []).find(function(x) { return x.id === userId; });
+      if (on) people = u ? plAddPerson(row, { user_id: userId, name: plShortName(u, users), role: 'MA' }) : null;
+      else people = (row.people || []).some(function(p) { return p.user_id === userId; }) ? row.people.filter(function(p) { return p.user_id !== userId; }) : null;
+      if (!people) continue;
+      var up = await supabaseClient.from('plan_draft_shifts').update({ people: people }).eq('id', row.id).eq('updated_at', row.updated_at).select('id');
+      if (!up.error && up.data && up.data.length) done = true;
+    }
+    if (done) plState = null; // the board reloads on its next visit
+    return done;
+  } catch (e) { console.error('Entwurf nachziehen:', e); return false; }
 }
 
 // Tap on the role of a placed person: pick it from a menu (app users are never Zenjob/ROCKiT)
@@ -883,5 +985,5 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { plMonday: plMonday, plWeekOf: plWeekOf, plShortName: plShortName, plWannText: plWannText, plRowFromSlot: plRowFromSlot,
     plMergeSlots: plMergeSlots, plRowsFromPlan: plRowsFromPlan, plSeed: plSeed, plFilled: plFilled, plOpenSlots: plOpenSlots, plToParsed: plToParsed,
     plCandidates: plCandidates, plSearchMatch: plSearchMatch, plPlaceRole: plPlaceRole, plCanEdit: plCanEdit, plCanPublish: plCanPublish, plCanOpen: plCanOpen, plPublishProblems: plPublishProblems,
-    plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plWasText: plWasText, plWasSplit: plWasSplit, plIsAppWeek: plIsAppWeek, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };
+    plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plRowKeys: plRowKeys, plAppliedFor: plAppliedFor, plOpenMeldungen: plOpenMeldungen, plMeldungTargets: plMeldungTargets, plWasText: plWasText, plWasSplit: plWasSplit, plIsAppWeek: plIsAppWeek, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };
 }
