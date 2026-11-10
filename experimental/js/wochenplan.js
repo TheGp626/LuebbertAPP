@@ -268,19 +268,19 @@ function wpAvailMode() {
 function wpAvailDayHtml(day, today) {
   var lv = wpAvailRows[day] || '', meta = WP_AVAIL_LEVELS[lv], p = wpParts(day), past = day < today;
   var label = WP_WEEKDAYS_LONG[p.dow] + ', ' + p.d + '.' + p.m + '.: ' + (meta ? meta.label : 'verfügbar') + (past ? ' (vorbei)' : '');
-  return '<button type="button" class="wp-av-day' + (lv ? ' wp-av-' + lv : '') + (day === today ? ' wp-av-today' : '') + '" data-day="' + day + '"' +
+  return '<button type="button" class="wp-av-day' + (lv ? ' wp-av-' + lv : past ? '' : ' wp-av-frei') + (day === today ? ' wp-av-today' : '') + '" data-day="' + day + '"' +
     (past ? ' disabled' : ' onclick="wpToggleAvail(\'' + day + '\')"') + ' aria-label="' + wpEsc(label) + '">' +
     '<span class="wp-av-dow">' + WP_WEEKDAYS[p.dow] + '</span><span class="wp-av-num">' + p.d + '</span>' +
-    '<span class="wp-av-mark" aria-hidden="true">' + (meta ? meta.mark : '') + '</span></button>';
+    '<span class="wp-av-mark" aria-hidden="true">' + (meta ? meta.mark : past ? '' : '✓') + '</span></button>';
 }
 
 function wpAvailLegendHtml() {
-  return '<div class="wp-av-legend" aria-hidden="true"><span><i class="wp-av-sw"></i>verfügbar</span>' +
+  return '<div class="wp-av-legend" aria-hidden="true"><span><i class="wp-av-sw wp-av-frei">✓</i>verfügbar</span>' +
     '<span><i class="wp-av-sw wp-av-notfall">!</i>nur im Notfall</span><span><i class="wp-av-sw wp-av-nein">✕</i>geht nicht</span></div>';
 }
 
 function wpAvailCalendarHtml(today) {
-  return '<div class="wp-hint">Trag bitte mindestens 2 Wochen vorher ein, wann du nicht kannst. Nicht markierte Tage = verfügbar. ' +
+  return '<div class="wp-hint">Trag bitte mindestens 2 Wochen vorher ein, wann du nicht kannst. Grüne Tage = verfügbar, das ist die Voreinstellung. ' +
     'Tippen wechselt: verfügbar → nur im Notfall → geht nicht.</div>' + wpAvailLegendHtml() +
     '<div class="wp-av-cal">' + wpAvailWeeks(today, WP_AVAIL_WEEKS).map(function(w) {
       return '<div class="wp-av-week"><div class="wp-av-kw">KW ' + w.kw + ' · ' + wpDayLabel(w.days[0]).slice(3) + ' – ' + wpDayLabel(w.days[6]).slice(3) + '</div>' +
@@ -364,7 +364,7 @@ async function wpRenderAvailGrid(monday) {
       return '<tr><th scope="row">' + wpEsc(row.name) + '</th>' + row.cells.map(function(lv) {
         var meta = WP_AVAIL_LEVELS[lv];
         return meta ? '<td class="wp-av-' + lv + '" title="' + meta.label + '"><span aria-hidden="true">' + meta.mark + '</span><span class="sr-only">' + meta.label + '</span></td>'
-                    : '<td><span class="sr-only">verfügbar</span></td>';
+                    : '<td class="wp-av-frei" title="verfügbar"><span aria-hidden="true">✓</span><span class="sr-only">verfügbar</span></td>';
       }).join('') + '</tr>';
     }).join('') + '</tbody></table></div>' + wpAvailLegendHtml();
 }
