@@ -37,7 +37,8 @@ var ORDER_ITEM_RE = /^\d+ (\d+) (.+?) -?[\d.]+,\d{2} [\d.,]+ -?[\d.]+,\d{2}$/;
 // Digit runs that look like phone numbers (7+ digits, with spaces / ( ) . - +) go; dates, times and "16 - 19 Uhr" stay
 function orderStripPhones(s) {
   var keep = [];
-  var masked = s.replace(/(?<!\d)\d{1,2}\.\d{1,2}\.(\d{4}|\d{2}(?!\d))?|\d{1,2}:\d{2}/g, function(m) { keep.push(m); return '\u0000' + (keep.length - 1) + '\u0000'; });
+  var mark = function(m) { keep.push(m); return '\u0000' + (keep.length - 1) + '\u0000'; };
+  var masked = s.replace(/(^|\D)(\d{1,2}\.\d{1,2}\.(?:\d{4}|\d{2}(?!\d))?)|\d{1,2}:\d{2}/g, function(m, pre, date) { return date ? pre + mark(date) : mark(m); });
   return masked.replace(/\+?\(?\d[\d \/().-]*\d\)?/g, function(m) { return m.replace(/\D/g, '').length >= 7 ? '' : m; })
     .replace(/\u0000(\d+)\u0000/g, function(_, i) { return keep[+i]; })
     .replace(/\s+([,;])/g, '$1').replace(/\s*(Tel\.?|Mobil|Handy)\s*:?\s*(?=$|\/\/)/gi, '').replace(/\s*\/\/\s*$/, '').replace(/\s{2,}/g, ' ').trim();
