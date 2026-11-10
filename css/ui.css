@@ -221,9 +221,11 @@ input[type=checkbox].ui-switch:checked::before { transform: translateX(18px); }
 .wp-av-day:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .wp-av-today { box-shadow: inset 0 0 0 1.5px var(--accent); }
 .wp-av-day:disabled { opacity: .4; cursor: default; }
+/* verfügbar is shown, not left blank: an empty cell read as "not answered yet" */
+.wp-av-frei { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
 .wp-av-notfall { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
 .wp-av-nein { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
-.wp-av-notfall .wp-av-dow, .wp-av-nein .wp-av-dow { color: inherit; }
+.wp-av-frei .wp-av-dow, .wp-av-notfall .wp-av-dow, .wp-av-nein .wp-av-dow { color: inherit; }
 .wp-av-planner { margin-top: 24px; }
 .wp-av-planner-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .wp-av-scroll { position: relative; overflow-x: auto; -webkit-overflow-scrolling: touch; border: 0.5px solid var(--border); border-radius: var(--r-card); }
@@ -233,6 +235,7 @@ input[type=checkbox].ui-switch:checked::before { transform: translateX(18px); }
 .wp-av-grid th[scope="row"] { position: sticky; left: 0; z-index: 1; background: var(--bg); text-align: left; font-weight: 500; padding-left: 12px; white-space: nowrap; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
 .wp-av-grid tr:last-child > * { border-bottom: 0; }
 .wp-av-grid td.wp-av-notfall, .wp-av-grid td.wp-av-nein { font-weight: 700; }
+.wp-av-grid td.wp-av-frei { font-size: 11px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .wp-av-scroll + .wp-av-legend { margin-top: 10px; }
 
