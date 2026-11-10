@@ -236,9 +236,22 @@ function plCanEdit(row, who) {
 }
 
 function plPublishProblems(rows) {
-  if (!rows || !rows.length) return ['Der Entwurf ist leer.'];
+  if (!rows || !rows.length) return ['Der Entwurf ist leer. Soll die Woche weg, nimm „Woche löschen“.'];
   return rows.filter(function(r) { return !plText(r.venue) && !plText(r.title); })
     .map(function(r) { return 'Ein Eintrag am ' + plDayShort(r.date) + ' hat weder Ort noch Titel.'; });
+}
+
+// The "Was" cell as Daniel writes it: one line per item. The first line is the heading of the entry (plan_shifts.title),
+// the rest are its details; the sheet shows and edits them as one field.
+function plWasText(row) { return [plText(row && row.title)].concat(plLines(row && row.details)).filter(Boolean).join('\n'); }
+function plWasSplit(text) {
+  var lines = plLines(text);
+  return { title: lines[0] || null, details: lines.length > 1 ? lines.slice(1).join('\n') : null };
+}
+
+// A week counts as built in the app while the draft's published Stand is the plan's current one (a PDF upload bumps it)
+function plIsAppWeek(draft, planWeek) {
+  return !!draft && !!planWeek && draft.published_version != null && draft.published_version === planWeek.version;
 }
 
 // New people array with the person added; null when the name is empty or the person is already on the row
@@ -456,6 +469,7 @@ function plPaint() {
       '<button type="button" class="ui-btn" onclick="plExportPdf()">PDF</button>' +
       (planner ? '<button type="button" class="ui-btn ui-btn-primary" onclick="plPublish()">Veröffentlichen</button>' : '') +
     '</div>' +
+    (planner ? '<button type="button" class="ord-textbtn pl-delweek" onclick="plDeleteWeek()">Woche löschen</button>' : '') +
     (planner ? '' : '<div class="ui-sub" style="margin-top:8px;">Du kannst deine Aufträge besetzen. Veröffentlicht wird der Plan von der Planung.</div>') +
   '</div>';
   var rows = plSorted(st.rows), days = '';
@@ -483,13 +497,14 @@ function plRowHtml(r, who) {
       (can ? '<button type="button" class="pl-chip-x" aria-label="' + plE(p.name) + ' entfernen" onclick="plRemove(' + id + ', ' + i + ')">×</button>' : '') +
     '</span>';
   }).join('');
-  var loc = plLines(r.location);
+  var loc = plLines(r.location), det = plLines(r.details);
   return '<div class="ui-card pl-row" id="pl-row-' + plE(r.id) + '">' +
     '<div class="pl-row-top">' +
       '<div class="wp-time"><b>' + plE(w.time || '—') + '</b><span>' + plE(w.label || '') + '</span></div>' +
       '<div class="pl-row-main">' +
         '<div class="pl-row-title">' + plE(r.venue || '—') + (r.title ? ' · ' + plE(r.title) : '') + '</div>' +
         (loc.length ? '<div class="ui-sub">' + loc.map(plE).join(' · ') + '</div>' : '') +
+        (det.length ? '<ul class="pl-was">' + det.map(function(t) { return '<li>' + plE(t) + '</li>'; }).join('') + '</ul>' : '') +
         '<div class="pl-row-meta">' + (r.job_no ? '<span class="wp-ord-tag">Auftrag</span>' : '') + count +
           (r.ap ? '<span class="ui-sub">PL ' + plE(r.ap) + '</span>' : '') +
           (plState.stale.indexOf(r.id) !== -1 ? '<span class="ui-pill ui-pill-danger">Auftrag nicht mehr in dieser Woche</span>' : '') + '</div>' +
@@ -658,6 +673,33 @@ async function plRestart() {
   await plStart();
 }
 
+// Removes the week: the draft always; the published plan too when it was built here (a week uploaded as PDF stays, only its draft goes).
+// Nobody is notified, so this is for test weeks and mistakes; to take single entries off a real plan, delete them and publish again.
+async function plDeleteWeek() {
+  var st = plState;
+  if (!st || !st.draft || !plCanPublish(plWho())) return;
+  var app = plIsAppWeek(st.draft, st.planWeek), kw = st.week.kw;
+  var msg = app
+    ? 'KW ' + kw + ' komplett löschen?\n\nDer Entwurf und der veröffentlichte Plan dieser Woche verschwinden für alle. Wer eingeplant war, bekommt keine Nachricht. Das lässt sich nicht rückgängig machen.'
+    : st.planWeek
+      ? 'Entwurf für KW ' + kw + ' löschen?\n\nDer hochgeladene Plan dieser Woche bleibt, wie er ist. Der Entwurf lässt sich nicht zurückholen.'
+      : 'Entwurf für KW ' + kw + ' löschen?\n\nEr wurde noch nicht veröffentlicht und lässt sich nicht zurückholen.';
+  if (!confirm(msg)) return;
+  if (app) {
+    var pw = await supabaseClient.from('plan_weeks').delete().eq('id', st.planWeek.id).eq('version', st.planWeek.version).select('id');
+    if (pw.error || !pw.data || !pw.data.length) {
+      console.error('Plan der Woche löschen:', pw.error);
+      showToast(pw.error ? 'Der Plan konnte nicht gelöscht werden.' : 'Der Plan wurde inzwischen geändert. Bitte neu laden.', 'danger');
+      return plRender();
+    }
+  }
+  var d = await supabaseClient.from('plan_draft_weeks').delete().eq('year', st.week.year).eq('kw', st.week.kw).select('year');
+  if (d.error || !d.data || !d.data.length) { console.error('Entwurf löschen:', d.error); showToast('Der Entwurf konnte nicht gelöscht werden.', 'danger'); return plRender(); }
+  showToast(app ? 'KW ' + kw + ' gelöscht' : 'Entwurf für KW ' + kw + ' gelöscht');
+  plState = null;
+  if (app) await initWochenplan(); else await plRender(); // the week list of the other tabs still held the deleted plan
+}
+
 /* ── Edit sheet ── */
 
 function plCloseSheet() { var m = document.getElementById('pl-sheet'); if (m) m.remove(); }
@@ -687,8 +729,7 @@ function plEditRow(id) {
       : field('Tag', '<select id="pl-f-date">' + days + '</select>')) +
     field('Ort', inp('venue', 'z.B. Estrel')) +
     field('Raum / Veranstaltung', area('location', 'eine Zeile pro Angabe')) +
-    field('Was', inp('title', 'z.B. 4 Loungesofa weiß')) +
-    field('Details', area('details', 'Material, eine Zeile pro Position', 3)) +
+    field('Was (Material, eine Zeile pro Position)', '<textarea id="pl-f-was" rows="5" placeholder="4 Loungesofa weiß&#10;2 Stehtische&#10;1 Teppich 3 x 4 m">' + plE(plWasText(v)) + '</textarea>') +
     field('Wann', area('wann', 'z.B. Aufbau: 9 Uhr')) +
     (planner ? field('PL (Projektleitung)', '<select id="pl-f-ap">' + apOpts + '</select>') : '') +
     (job ? '' : field('MA gebraucht', '<input type="number" id="pl-f-need" min="0" max="99" inputmode="numeric" value="' + (v.need || 0) + '">')) +
@@ -707,7 +748,8 @@ async function plSaveSheet(id) {
   if (!st || (id && !row)) return plCloseSheet();
   // Phone numbers of agency workers never go into the plan (same rule as the PDF import)
   var clean = function(t) { return plText(plLines(t).map(planStripPhones).filter(Boolean).join('\n')); };
-  var ch = { venue: clean(val('venue')), location: clean(val('location')), title: clean(val('title')), details: clean(val('details')),
+  var was = plWasSplit(clean(val('was')));
+  var ch = { venue: clean(val('venue')), location: clean(val('location')), title: was.title, details: was.details,
     wann: clean(val('wann')), notes: clean(val('notes')) };
   if (val('date') !== undefined) ch.date = val('date');
   if (val('need') !== undefined) ch.need = Math.max(0, Math.min(99, parseInt(val('need'), 10) || 0));
@@ -841,5 +883,5 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { plMonday: plMonday, plWeekOf: plWeekOf, plShortName: plShortName, plWannText: plWannText, plRowFromSlot: plRowFromSlot,
     plMergeSlots: plMergeSlots, plRowsFromPlan: plRowsFromPlan, plSeed: plSeed, plFilled: plFilled, plOpenSlots: plOpenSlots, plToParsed: plToParsed,
     plCandidates: plCandidates, plSearchMatch: plSearchMatch, plPlaceRole: plPlaceRole, plCanEdit: plCanEdit, plCanPublish: plCanPublish, plCanOpen: plCanOpen, plPublishProblems: plPublishProblems,
-    plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };
+    plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plWasText: plWasText, plWasSplit: plWasSplit, plIsAppWeek: plIsAppWeek, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };
 }

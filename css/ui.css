@@ -368,6 +368,9 @@ button.dash-shift-main:focus-visible { outline: 2px solid var(--accent); outline
 .pl-head .ui-pill { white-space: normal; }
 .pl-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .pl-actions .ui-btn { flex: 1 1 auto; }
+.pl-delweek { display: block; margin: 12px 0 0 auto; color: var(--danger); }
+.pl-was { list-style: none; margin: 6px 0 0; padding: 0; font-size: 13px; color: var(--text2); line-height: 1.45; }
+.pl-was li { overflow-wrap: anywhere; }
 .pl-none { font-size: 13px; color: var(--text3); padding: 2px 2px 6px; }
 .pl-row { padding: 12px; }
 .pl-row-top { display: flex; gap: 12px; align-items: flex-start; }

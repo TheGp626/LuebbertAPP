@@ -227,7 +227,7 @@ test('plCanEdit / plCanPublish / plCanOpen', () => {
 });
 
 test('plPublishProblems: an empty draft and a row without place and title are refused', () => {
-  assert.deepEqual(plain(ctx.plPublishProblems([])), ['Der Entwurf ist leer.']);
+  assert.deepEqual(plain(ctx.plPublishProblems([])), ['Der Entwurf ist leer. Soll die Woche weg, nimm „Woche löschen“.']);
   assert.deepEqual(plain(ctx.plPublishProblems([row()])), []);
   assert.deepEqual(plain(ctx.plPublishProblems([row({ venue: ' ', title: null })])), ['Ein Eintrag am Mi 11.11. hat weder Ort noch Titel.']);
 });
@@ -334,4 +334,24 @@ test('plPlaceRole: the picked role, but an app user is never booked as an agency
   assert.equal(ctx.plPlaceRole('ROCKiT', false), 'ROCKiT');
   assert.equal(ctx.plPlaceRole(undefined, true), 'MA');
   assert.equal(ctx.plPlaceRole('Chef', false), 'MA');
+});
+
+test('plWasText / plWasSplit: "Was" is one field with a line per item, first line = heading', () => {
+  assert.equal(ctx.plWasText(row({ title: '4 Loungesofa weiß', details: '2 Stehtische\n1 Teppich' })), '4 Loungesofa weiß\n2 Stehtische\n1 Teppich');
+  assert.equal(ctx.plWasText(row({ title: null, details: null })), '');
+  assert.equal(ctx.plWasText(row({ title: null, details: '2 Stehtische' })), '2 Stehtische');
+  assert.deepEqual(plain(ctx.plWasSplit(' 4 Loungesofa weiß \n\n2 Stehtische\n 1 Teppich ')), { title: '4 Loungesofa weiß', details: '2 Stehtische\n1 Teppich' });
+  assert.deepEqual(plain(ctx.plWasSplit('Nur eine Zeile')), { title: 'Nur eine Zeile', details: null });
+  assert.deepEqual(plain(ctx.plWasSplit('')), { title: null, details: null });
+  assert.deepEqual(plain(ctx.plWasSplit(null)), { title: null, details: null });
+  const r = row({ title: 'A', details: 'B\nC' });
+  assert.deepEqual(plain(ctx.plWasSplit(ctx.plWasText(r))), { title: 'A', details: 'B\nC' });
+});
+
+test('plIsAppWeek: only while the published Stand of the draft is the current plan', () => {
+  assert.equal(ctx.plIsAppWeek({ published_version: 2 }, { version: 2 }), true);
+  assert.equal(ctx.plIsAppWeek({ published_version: 2 }, { version: 3 }), false);
+  assert.equal(ctx.plIsAppWeek({ published_version: null }, { version: 1 }), false);
+  assert.equal(ctx.plIsAppWeek({ published_version: 1 }, null), false);
+  assert.equal(ctx.plIsAppWeek(null, { version: 1 }), false);
 });
