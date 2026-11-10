@@ -432,3 +432,34 @@ test('plPdfTable: an Angebot is named in the Datum cell', () => {
   const t = plain(ctx.plPdfTable(WEEK, [row({ kind: 'angebot', location: 'Halle 1' })]));
   assert.deepEqual(t[1].cells[0], ['Estrel', 'Halle 1', 'ANGEBOT']);
 });
+
+test('open places that are not MA places survive a draft (a missing driver, agency staff)', () => {
+  const rows = plain(ctx.plRowsFromPlan([{ id: 's1', date: '2026-11-21', venue: 'Erlebnis Plus', title: 'Stadtrundfahrt', color: '#00b050', wann: '10:30 - 13:30 Uhr',
+    open_slots: [{ role: 'Fahrer', count: 1, note: 'Spreesegler' }, { role: 'MA', count: 2, note: null }, { role: 'Zenjob', count: 3, note: null }], plan_assignments: [] }], WEEK));
+  assert.equal(rows[0].need, 2);
+  assert.deepEqual(rows[0].open_other, [{ role: 'Fahrer', count: 1, note: 'Spreesegler' }, { role: 'Zenjob', count: 3, note: null }]);
+  assert.deepEqual(plain(ctx.plOpenSlots(rows[0])), [{ role: 'MA', count: 2, note: null }, { role: 'Fahrer', count: 1, note: 'Spreesegler' }, { role: 'Zenjob', count: 3, note: null }]);
+  // publishing an untouched draft of an uploaded week changes nothing
+  const stored = ctx.planShiftFromDb({ id: 's1', key: '2026-11-21|erlebnis plus|stadtrundfahrt', date: '2026-11-21', venue: 'Erlebnis Plus', title: 'Stadtrundfahrt',
+    wann: '10:30 - 13:30 Uhr', open_slots: [{ note: 'Spreesegler', role: 'Fahrer', count: 1 }], plan_assignments: [] });
+  const again = ctx.plToParsed(WEEK, ctx.plRowsFromPlan([{ id: 's1', date: '2026-11-21', venue: 'Erlebnis Plus', title: 'Stadtrundfahrt', wann: '10:30 - 13:30 Uhr',
+    open_slots: [{ note: 'Spreesegler', role: 'Fahrer', count: 1 }], plan_assignments: [] }], WEEK).map((r, i) => Object.assign({ id: 'r' + i }, r)), USERS);
+  assert.deepEqual(plain(ctx.planDiff([stored], again.shifts).status), [null]);
+});
+
+test('plTakeOpen / plSetOpen: placing a driver fills the open driver place', () => {
+  const r = row({ open_other: [{ role: 'Fahrer', count: 1, note: 'Spreesegler' }, { role: 'Zenjob', count: 2, note: null }] });
+  assert.deepEqual(plain(ctx.plTakeOpen(r, 'Fahrer')), [{ role: 'Zenjob', count: 2, note: null }]);
+  assert.deepEqual(plain(ctx.plTakeOpen(r, 'Zenjob')), [{ role: 'Fahrer', count: 1, note: 'Spreesegler' }, { role: 'Zenjob', count: 1, note: null }]);
+  assert.equal(ctx.plTakeOpen(r, 'Deko'), null);
+  assert.equal(ctx.plTakeOpen(row(), 'Fahrer'), null);
+  assert.deepEqual(plain(ctx.plSetOpen(r, 'Fahrer', 2)), [{ role: 'Zenjob', count: 2, note: null }, { role: 'Fahrer', count: 2, note: null }]);
+  assert.deepEqual(plain(ctx.plSetOpen(r, 'Fahrer', 0)), [{ role: 'Zenjob', count: 2, note: null }]);
+  assert.deepEqual(plain(ctx.plSetOpen(row(), 'Fahrer', '1')), [{ role: 'Fahrer', count: 1, note: null }]);
+  assert.deepEqual(plain(ctx.plOpenOther(row({ open_other: [{ role: 'Fahrer', count: 0 }, null, { count: 2 }] }))), []);
+});
+
+test('plWithout: leaves out columns the database does not have yet', () => {
+  const out = plain(ctx.plWithout([row({ kind: 'bus', open_other: [] })], ['kind', 'open_other']));
+  assert.equal('kind' in out[0], false); assert.equal('open_other' in out[0], false); assert.equal(out[0].venue, 'Estrel');
+});

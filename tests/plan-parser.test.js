@@ -597,3 +597,66 @@ test('planShiftOrder: the 2 h rule uses the last time of the day (Aufbau 8 Uhr +
   assert.deepEqual(P.planShiftOrder([merged], new Date(2026, 9, 29, 22, 30)), [], 'more than 2 h past the last time (20:00)');
   assert.deepEqual(P.planShiftOrder([{ date: '2026-10-29', wann: ['Aufbau: 8 Uhr', 'Abbau: 20 Uhr'], sort: 0 }], now).length, 1, 'array shape too');
 });
+
+// ── What changed, and renamed entries (KW 46 Stand 3 → 4: "54 Tischdeko" became "56 Tischdeko") ──
+const full = o => Object.assign({ key: '2026-11-14|estrel|54 tischdeko', date: '2026-11-14', venue: 'Estrel', title: '54 Tischdeko',
+  location: ['Sonnenallee 225', 'CH I AB', 'HWR Bachelorball'], details: [], wann: ['Aufbau: 13:30 - 15 Uhr'], ap: 'Maike', notes: ['BAR PL XXX'],
+  open: [], people: [{ name: 'Hassan', role: 'Fahrer', note: 'BAR PL XXX', userId: 'u-h' }] }, o || {});
+
+test('planDiff: a changed first line of "Was" is a change, not "entfallen" plus "neu"', () => {
+  const old = [full()];
+  const neu = [full({ key: '2026-11-14|estrel|56 tischdeko', title: '56 Tischdeko' })];
+  const d = P.planDiff(old, neu);
+  assert.deepEqual(d.status, ['geändert']);
+  assert.deepEqual(d.removed, []);
+  assert.deepEqual(d.fields, [['Was']]);
+  assert.equal(d.matched[0], old[0]);
+});
+
+test('planDiff: a renamed entry is only paired with one at the same place and day', () => {
+  const old = [full()];
+  // other room: really a different entry
+  let d = P.planDiff(old, [full({ key: '2026-11-14|estrel|56 tischdeko', title: '56 Tischdeko', location: ['Sonnenallee 225', 'Saal A', 'Andere VA'] })]);
+  assert.deepEqual(d.status, ['neu']); assert.equal(d.removed.length, 1);
+  // other day
+  d = P.planDiff(old, [full({ key: '2026-11-15|estrel|56 tischdeko', date: '2026-11-15', title: '56 Tischdeko' })]);
+  assert.deepEqual(d.status, ['neu']); assert.equal(d.removed.length, 1);
+  // same room and day but nothing else in common (other material, other time, other people)
+  d = P.planDiff(old, [full({ key: '2026-11-14|estrel|3 loungetisch acryl', title: '3 Loungetisch Acryl', wann: ['Abbau: 22 Uhr'], people: [{ name: 'Edib', role: 'MA' }] })]);
+  assert.deepEqual(d.status, ['neu']); assert.equal(d.removed.length, 1);
+});
+
+test('planDiff: says which part of an entry changed', () => {
+  const f = (a, b) => P.planDiff([full(a)], [full(b)]).fields[0];
+  assert.deepEqual(f({}, {}), []);
+  assert.deepEqual(f({}, { wann: ['Aufbau: 14 Uhr'] }), ['Wann']);
+  assert.deepEqual(f({}, { people: [{ name: 'Hassan', role: 'Fahrer', note: 'BAR PL XXX' }, { name: 'Jana', role: 'MA' }] }), ['Wer']);
+  assert.deepEqual(f({}, { people: [{ name: 'Hassan', role: 'AL', note: 'BAR PL XXX' }] }), ['Wer']);
+  // only the vehicle number was filled in: a note, the team is the same
+  assert.deepEqual(f({}, { notes: ['BAR PL 550'], people: [{ name: 'Hassan', role: 'Fahrer', note: 'BAR PL 550' }] }), ['Hinweis']);
+  assert.deepEqual(f({}, { open: [{ role: 'MA', count: 2, note: null }] }), ['Offene Plätze']);
+  assert.deepEqual(f({}, { ap: 'Jenni' }), ['PL']);
+  assert.deepEqual(f({}, { details: ['5 Kerzen'] }), ['Was']);
+  assert.deepEqual(f({}, { location: ['Sonnenallee 225', 'CH I AB', 'HWR Ball'] }), ['Ort']);
+  assert.deepEqual(f({}, { wann: ['Abbau'], ap: 'Jenni' }), ['Wann', 'PL']);
+  // unchanged and new entries carry no list
+  const d = P.planDiff([full()], [full(), full({ key: 'x', date: '2026-11-16', title: 'Neu' })]);
+  assert.deepEqual(d.fields, [[], []]);
+});
+
+test('planDiff: old shapes without the newer fields still compare (stored rows, tests)', () => {
+  const mk = (key, wann) => ({ key, wann, people: [], open: [], ap: 'X', details: [] });
+  const d = P.planDiff([mk('a', ['8 Uhr'])], [mk('a', ['9 Uhr'])]);
+  assert.deepEqual(d.status, ['geändert']);
+  assert.deepEqual(d.fields, [['Wann']]);
+});
+
+test('planDiff: entries without a room line are not paired just because the same person is on both', () => {
+  const old = [full({ key: '2026-11-14|lager|inventur', venue: 'Lager', title: 'Inventur', location: [] })];
+  const neu = [full({ key: '2026-11-14|lager|rücklauf sortieren', venue: 'Lager', title: 'Rücklauf sortieren', location: [] })];
+  const d = P.planDiff(old, neu);
+  assert.deepEqual(d.status, ['neu']); assert.equal(d.removed.length, 1);
+  // with matching words in the title they are
+  const d2 = P.planDiff(old, [full({ key: '2026-11-14|lager|inventur halle 2', venue: 'Lager', title: 'Inventur Halle', location: [] })]);
+  assert.deepEqual(d2.status, ['geändert']);
+});

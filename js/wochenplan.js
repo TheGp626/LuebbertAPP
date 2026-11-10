@@ -100,9 +100,18 @@ function wpOpenPills(s) {
   }).join('');
 }
 
+// "geändert: Wann, Wer": what changed since the last Stand (plan_shifts.change_fields; older rows have none). More than three
+// parts would crowd the row, the full list is in the title either way.
+function wpStatusLabel(s) {
+  var f = s.change_status === 'geändert' && Array.isArray(s.change_fields) ? s.change_fields : [];
+  return s.change_status + (f.length && f.length <= 3 ? ': ' + f.join(', ') : '');
+}
+
 function wpStatusPill(s) {
   if (!s.change_status) return '';
-  return '<span class="ui-pill ' + (s.change_status === 'neu' ? 'ui-pill-ok' : 'ui-pill-warn') + '">' + s.change_status + '</span>';
+  var f = Array.isArray(s.change_fields) ? s.change_fields : [];
+  return '<span class="ui-pill ' + (s.change_status === 'neu' ? 'ui-pill-ok' : 'ui-pill-warn') + '"' +
+    (f.length ? ' title="Geändert: ' + wpEsc(f.join(', ')) + '"' : '') + '>' + wpEsc(wpStatusLabel(s)) + '</span>';
 }
 
 function wpAvatars(people, max) {
@@ -963,10 +972,10 @@ function wpPreviewShift(s, i, status) {
 function wpRenderImport() {
   var p = wpImport.parsed, ex = wpImport.existing;
   var active = wpUsers.filter(function(u) { return u.is_active !== false && u.role !== 'Gast'; });
-  var status = p.shifts.map(function() { return null; }), diffInfo = '';
+  var status = p.shifts.map(function() { return null; }), fields = [], diffInfo = '';
   if (ex) {
     var d = planDiff((ex.plan_shifts || []).map(planShiftFromDb), p.shifts);
-    status = d.status;
+    status = d.status; fields = d.fields || [];
     var cnt = function(st) { return d.status.filter(function(x) { return x === st; }).length; };
     diffInfo = '<div class="wp-stats">' +
       '<div><b>' + cnt('geändert') + '</b><span>geändert</span></div>' +
@@ -995,6 +1004,7 @@ function wpRenderImport() {
   var byDay = {};
   p.shifts.forEach(function(s, i) {
     var row = wpPreviewShift(s, i, status[i]);
+    row.change_fields = fields[i] && fields[i].length ? fields[i] : null;
     _wpShiftCache[row.id] = row;
     (byDay[s.date] = byDay[s.date] || []).push(row);
   });
@@ -1067,7 +1077,14 @@ async function wpSaveImport() {
     }
 
     // New shifts first, old ones deleted afterwards → a failed upload never leaves an empty week
-    var rows = p.shifts.map(function(s, i) { return planShiftRow(s, weekId, diff.status[i]); });
+    // What changed is stored when the column exists (migration plan_change_fields); without it the upload works as before
+    var hasFields = false;
+    try { hasFields = !(await supabaseClient.from('plan_shifts').select('change_fields').limit(1)).error; } catch (cfErr) { hasFields = false; }
+    var rows = p.shifts.map(function(s, i) {
+      var r = planShiftRow(s, weekId, diff.status[i]);
+      if (hasFields) r.change_fields = diff.fields && diff.fields[i] && diff.fields[i].length ? diff.fields[i] : null;
+      return r;
+    });
     var sh = await supabaseClient.from('plan_shifts').insert(rows).select('id, key');
     if (sh.data) insertedIds = sh.data.map(function(r) { return r.id; });
     if (sh.error || !sh.data || sh.data.length !== rows.length) throw sh.error || new Error('Einsätze nicht gespeichert');

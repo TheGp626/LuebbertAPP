@@ -478,3 +478,13 @@ test('wpVirtualWeeks: ISO year at the turn of the year, current week counts, nul
   assert.deepEqual(v.map(w => w.id), ['v-2026-53', 'v-2027-1']);
   assert.deepEqual(plain(ctx.wpVirtualWeeks([], null, '2026-12-31')), []);
 });
+
+test('wpStatusLabel: says what changed when the plan knows it', () => {
+  assert.equal(ctx.wpStatusLabel({ change_status: 'neu' }), 'neu');
+  assert.equal(ctx.wpStatusLabel({ change_status: 'geändert' }), 'geändert');                       // rows from before the column
+  assert.equal(ctx.wpStatusLabel({ change_status: 'geändert', change_fields: null }), 'geändert');
+  assert.equal(ctx.wpStatusLabel({ change_status: 'geändert', change_fields: ['Wann'] }), 'geändert: Wann');
+  assert.equal(ctx.wpStatusLabel({ change_status: 'geändert', change_fields: ['Wann', 'Wer', 'Hinweis'] }), 'geändert: Wann, Wer, Hinweis');
+  assert.equal(ctx.wpStatusLabel({ change_status: 'geändert', change_fields: ['Wann', 'Wer', 'PL', 'Was'] }), 'geändert');
+  assert.equal(ctx.wpStatusLabel({ change_status: 'neu', change_fields: ['Wann'] }), 'neu');
+});
