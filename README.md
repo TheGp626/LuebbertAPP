@@ -42,12 +42,20 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - PL lädt den wochenplan als PDF hoch, die app liest ihn selbst aus
 - "meine schichten" + die ganze woche für alle
 - kalender-abo (iPhone, google kalender) oder .ics zum runterladen
-- push wenn sich dein plan ändert, optional abends eine erinnerung für morgen
+- push nur wenn es dich wirklich betrifft: neue schicht, andere zeit, schicht weg oder entfallen. pro planstand maximal eine push, auch wenn sich zehn schichten ändern
+- bei "geändert" steht dabei was sich geändert hat (wann, wer, PL, was, ort, hinweis), ein umbenannter eintrag gilt nicht mehr als entfallen + neu
+- verfügbarkeit: grün = verfügbar, das ist die voreinstellung
+- optional abends eine erinnerung für morgen
 
 ### 🧩 Besetzungsplaner (testversion)
 - reiter "Planen" im wochenplan: die woche wird in der app besetzt statt in excel
 - aufträge der woche stehen als zeilen drin, angenommene meldungen sind schon eingetragen, alles andere als freier eintrag
 - vorschläge pro zeile: wer sich gemeldet hat zuerst, mit hinweis "geht nicht", "nur im notfall", "schon eingeplant"
+- namenssuche, verfügbare leute stehen oben, wer AL ist wird pro schicht ausgewählt
+- meldungen der MAs landen direkt an der zeile und werden dort angenommen oder abgelehnt
+- vier arten mit den farben aus dem alten plan: auftrag (weiß, standard), angebot (blau), intern (gelb), busfahrt (grün)
+- "was" ist ein feld mit mehreren zeilen fürs material
+- eine ganze woche lässt sich wieder löschen
 - PLs besetzen ihre aufträge, veröffentlichen kann nur wer den schalter "Plant den Wochenplan" hat (admin vergibt ihn)
 - veröffentlichen läuft über dieselbe vorschau wie der PDF-upload, danach verhält sich die woche wie jede andere
 - pro woche gilt entweder app oder PDF, eine PDF auf eine app-woche warnt vorher
@@ -67,11 +75,18 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - fehlt nach einem einsatz das protokoll: tag 1–5 push an die AL, ab tag 6 eine mail an die PL
 - banner in der app, solange noch was offen ist
 
+### ⚙️ Optionen
+- eigenes menü über "…": hell / dunkel / automatisch, pushes an diesem gerät, PIN ändern, kalender-abo, stundenlohn und abteilungen, abmelden
+- stundenlohn, abteilungen und hell / dunkel liegen nur auf dem gerät, auf einem neuen handy einmal neu eintragen
+- sicherung speichern / einspielen gibt es nicht mehr, schichten und protokolle liegen in der datenbank
+
 ### 📊 Dashboard (AL, PL, Buchhaltung, Admin)
 - **protokolle:** alles auf einen blick mit suche, kosten pro monat, bearbeiten
 - **mitarbeiter:** alle schichten eines MAs nach tatsächlichem arbeitsdatum, ausstehendes wird rot, monat als PDF
 - schichten als "eingetragen" verbuchen — nur buchhaltung / admin
 - mitarbeiter anlegen, bearbeiten, deaktivieren — PL, buchhaltung, admin
+- PIN zurücksetzen direkt beim mitarbeiter, button neben "bearbeiten" (admin → alle, PL → AL/MA, AL → MA)
+- schalter "Plant den Wochenplan" und "Sieht Bewerbungen" pro person, vergibt nur der admin
 - **einstellungen (admin):** erinnerungen, pushes, protokoll-mail, stichtag, fahrzeugsätze an/aus bzw. einstellen
 
 ---
@@ -86,7 +101,7 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - beim ersten login denkst du dir deine PIN selbst aus (AL / PL / buchhaltung / admin brauchen dafür ein letztes mal das alte passwort)
 - pro gerät 30 tage eingeloggt, danach fragt die app nochmal
 - PIN ändern: oben rechts **„…" → „PIN ändern"**
-- PIN vergessen: AL oder PL bescheid sagen → **„…" → „PIN zurücksetzen"** (AL → MA, PL → AL/MA, admin → alle)
+- PIN vergessen: AL oder PL bescheid sagen → **dashboard → mitarbeiter → „PIN zurücksetzen"**, oder über **„…" → „PIN zurücksetzen"** (AL → MA, PL → AL/MA, admin → alle)
 - nach 5 falschen versuchen 15 minuten pause
 
 ---
@@ -126,6 +141,9 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - tests: `node --test tests/*.test.js supabase/functions/**/*.test.mjs`
 - datenbank-änderungen: `supabase/migrations/`, dazu immer rollback (`supabase/rollback/`) und prüfskript (`supabase/tests/`, nur in einer transaktion mit rollback ausführen)
 - edge functions (mails, pushes, PIN-login, kalender-feed, ordner-aufräumen): `supabase/functions/`
+- der besetzungsplaner liegt in `js/planer.js`: oben reine funktionen (getestet in `tests/planer.test.js`), unten alles was die seite anfasst. veröffentlichen baut den entwurf in das format um, das der PDF-parser liefert, und nimmt denselben weg wie der upload
+- was sich zwischen zwei planständen geändert hat rechnet `planDiff` in `js/plan-parser.js` aus, wer eine push bekommt entscheidet `supabase/functions/notify-plan-change/notify.mjs`
+- code der eine neue spalte braucht muss auch ohne sie laufen, bis die migration eingespielt ist
 - branch `experimental` = testversion, gebaut in den ordner `experimental/` auf `main`
 
 ---
