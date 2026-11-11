@@ -17,7 +17,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <link rel="stylesheet" href="css/style.css?v=41">
-  <link rel="stylesheet" href="css/ui.css?v=35">
+  <link rel="stylesheet" href="css/ui.css?v=36">
 </head>
 
 <body>
@@ -295,6 +295,17 @@
                 <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
                 <input type="search" id="dash-worker-search" placeholder="Mitarbeiter suchen" oninput="renderDashWorkerList()">
               </div>
+              <details id="dash-close-panel" class="dash-close" hidden open>
+                <summary class="ui-label" style="cursor:pointer;">Monatsabschluss</summary>
+                <div class="dash-close-body">
+                  <label class="ui-field"><span>Abrechnungsmonat</span><select id="dash-close-month"></select></label>
+                  <div class="dash-close-btns">
+                    <button type="button" class="ui-btn dash-small-btn" onclick="exportDashMonthClose('pdf')">PDF mit allen Stundenzetteln</button>
+                    <button type="button" class="ui-btn dash-small-btn" onclick="exportDashMonthClose('csv')">CSV für Excel</button>
+                  </div>
+                  <div class="ui-sub">PDF: vorne die Übersicht aller mit App-Konto, dahinter für jede Person ihr Stundenzettel mit Zeiten, Ort, AL und Unterschriften. CSV: nur die Übersicht. Zenjob und Rockit stehen nicht drin.</div>
+                </div>
+              </details>
               <div id="dash-bees"></div>
               <details id="dash-inactive-panel">
                 <summary class="ui-label" style="cursor:pointer;" id="dash-inactive-title">Seit 4 Wochen kein Einsatz</summary>
@@ -303,17 +314,6 @@
               <details id="dash-night-panel">
                 <summary class="ui-label" style="cursor:pointer;" id="dash-night-title">Nachtschichten · Kalenderjahr</summary>
                 <div id="dash-night-ranking" class="ui-list"></div>
-              </details>
-              <details id="dash-close-panel" class="dash-close" hidden>
-                <summary class="ui-label" style="cursor:pointer;">Monatsabschluss</summary>
-                <div class="dash-close-body">
-                  <label class="ui-field"><span>Abrechnungsmonat</span><select id="dash-close-month"></select></label>
-                  <div class="dash-close-btns">
-                    <button type="button" class="ui-btn dash-small-btn" onclick="exportDashMonthClose('pdf')">PDF</button>
-                    <button type="button" class="ui-btn dash-small-btn" onclick="exportDashMonthClose('csv')">CSV für Excel</button>
-                  </div>
-                  <div class="ui-sub">PDF: vorne die Übersicht aller mit App-Konto, dahinter für jede Person ihr Stundenzettel mit Zeiten, Ort, AL und Unterschriften. CSV: nur die Übersicht. Zenjob und Rockit stehen nicht drin.</div>
-                </div>
               </details>
               <div class="ui-label">Alle Mitarbeiter</div>
               <div id="dash-worker-list" class="ui-list"></div>
@@ -332,7 +332,7 @@
               <div class="dash-worker-controls">
                 <label class="ui-field dash-month"><span>Abrechnungsmonat</span>
                   <select id="dash-month-filter" style="display: none;" onchange="dashRenderWorkerMonth()"></select></label>
-                <button id="dash-export-month-btn" type="button" class="ui-btn dash-small-btn" style="display: none;" onclick="exportDashboardMonthlyPDF()">PDF</button>
+                <button id="dash-export-month-btn" type="button" class="ui-btn dash-small-btn" style="display: none;" onclick="exportDashboardMonthlyPDF()">Stundenzettel als PDF</button>
               </div>
               <div id="worker-shifts-container"></div>
             </section>
@@ -910,7 +910,7 @@
   <script src="js/auftraege.js?v=13"></script>
   <script src="js/wochenplan.js?v=36"></script>
   <script src="js/home.js?v=9"></script>
-  <script src="js/dashboard.js?v=49"></script>
+  <script src="js/dashboard.js?v=50"></script>
   <script src="js/produkte.js?v=18"></script>
   <script src="js/ordner.js?v=30"></script>
   <script src="js/app.js?v=27"></script>

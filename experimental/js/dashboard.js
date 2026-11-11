@@ -1169,11 +1169,14 @@ async function exportDashMonthClose(kind) {
   if (typeof LOGO_BASE64 !== 'undefined') {
     try { var lw = 30, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100; doc.addImage(LOGO_BASE64, 'PNG', 253, 10, lw, lh); } catch (e) { /* no logo */ }
   }
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text('Monatsabschluss ' + data.label, ml, y);
+  var people = data.sum.rows.filter(function(r) { return data.months[r.id] && data.months[r.id].monthW.length; }).length;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text('Monatsabschluss ' + data.label + ' · Übersicht', ml, y);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(110);
   doc.text('Abrechnungszeitraum ' + day(data.range.from) + ' bis ' + day(data.range.to) + ' · erstellt am ' + new Date().toLocaleDateString('de-DE') +
     ' · Stunden wie in den Stundenzetteln dahinter (mit Mindeststunden)', ml, y + 7);
-  doc.setTextColor(0);
+  doc.setTextColor(0); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+  doc.text('Ab Seite 2: ' + people + ' Stundenzettel mit Zeiten, Ort, AL und Unterschriften', ml, y + 14);
+  doc.setFont('helvetica', 'normal'); y += 6;
   var cols = [['Name', 70], ['Rolle', 28], ['Schichten', 22], ['offen', 18], ['Stunden', 24], ['€/h', 22], ['Lohn', 30], ['Grenze', 26], ['Anteil', 20]];
   var x0 = ml, rowH = 7;
   y += 18;
@@ -1215,7 +1218,7 @@ async function exportDashMonthClose(kind) {
     dashDrawMonth(doc, m, data.key, r.name, r.rate || 0, false);
   }
   doc.save(file + '.pdf');
-  showToast('Monatsabschluss gespeichert.', 'success');
+  showToast('Gespeichert: Übersicht und ' + people + ' Stundenzettel (' + doc.getNumberOfPages() + ' Seiten).', 'success');
 }
 
 // "Do 5.11." for the shift rows
