@@ -58,3 +58,16 @@ test('erPickShift: the plan shift that shares words with the folder name, else t
   assert.equal(ctx.erPickShift([messe, estrel], 'Ganz anderer Name'), null);
   assert.equal(ctx.erPickShift([], 'Estrel'), null);
 });
+
+test('erPickJob: the Auftrag linked to the plan entry; the action decides between Aufbau and Abbau', () => {
+  ctx.protPhaseOfAction = a => (a === 'Aufbau' ? 'setup' : a === 'Abbau' ? 'teardown' : null);
+  const links = [
+    { job_no: '26-0447.01', phase: 'setup', plan_key: 'k1' }, { job_no: '26-0447.02', phase: 'teardown', plan_key: 'k1' },
+    { job_no: '26-0500.01', phase: 'setup', plan_key: 'k2' }, { job_no: '26-0600.01', phase: 'setup', plan_key: null }];
+  assert.equal(ctx.erPickJob(links, ['k1'], 'Aufbau'), '26-0447.01');
+  assert.equal(ctx.erPickJob(links, ['k1'], 'Abbau'), '26-0447.02');
+  assert.equal(ctx.erPickJob(links, ['k1'], 'Umbau'), '26-0447.01');
+  assert.equal(ctx.erPickJob(links, ['k9', 'k2'], 'Abbau'), '26-0500.01');
+  assert.equal(ctx.erPickJob(links, ['k9'], 'Aufbau'), '');
+  assert.equal(ctx.erPickJob(null, [], 'Aufbau'), '');
+});

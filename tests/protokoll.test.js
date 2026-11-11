@@ -1003,3 +1003,35 @@ test('protPlanPl: linked account first, else a name only one active PL goes by',
   assert.equal(pl({ ap: '' }, staff), null);
   assert.equal(pl({ ap: 'Jenni' }, staff.concat([{ id: 'u-pl3', full_name: 'Jenni Zwei', role: 'PL' }])), null);
 });
+
+// ── Auftragsnummer on a protocol ──
+test('protJobNo / protJobNoValid / protPhaseOfAction', () => {
+  assert.equal(run('protJobNo')(' 26-0447.01 '), '26-0447.01');
+  assert.equal(run('protJobNo')(null), '');
+  assert.deepEqual(['', '26-0447.01', ' 26-0447.01', '26-447.01', '0447.01', 'abc', '26-0447.011'].map(v => run('protJobNoValid')(v)), [true, true, true, false, false, false, false]);
+  assert.deepEqual(['Aufbau', 'Teilaufbau', 'Umbau', 'Teilabbau', 'Abbau', '', null].map(a => run('protPhaseOfAction')(a)), ['setup', 'setup', null, 'teardown', 'teardown', null, null]);
+});
+
+test('sync: the Auftragsnummer is saved; an entry from before the field leaves the stored one alone', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  ctx.__data = protData({ jobNo: ' 26-0447.01' });
+  await run('syncProtokollToSupabase(__data, null)');
+  assert.equal(plain(sb.calls.find(c => c.table === 'protocols' && c.op === 'insert').payload).job_no, '26-0447.01');
+  sb.calls.length = 0;
+  ctx.__data = protData({ jobNo: '' });
+  await run('syncProtokollToSupabase(__data, null)');
+  assert.equal(plain(sb.calls.find(c => c.table === 'protocols' && c.op === 'insert').payload).job_no, null);
+  sb.calls.length = 0;
+  ctx.__data = protData({});
+  await run('syncProtokollToSupabase(__data, null)');
+  assert.equal('job_no' in plain(sb.calls.find(c => c.table === 'protocols' && c.op === 'insert').payload), false);
+  sb.calls.length = 0;
+  ctx.__data = protData({ jobNo: 'kaputt' }); // never reaches the server as a broken number
+  await run('syncProtokollToSupabase(__data, null)');
+  assert.equal(plain(sb.calls.find(c => c.table === 'protocols' && c.op === 'insert').payload).job_no, null);
+});
+
+test('protRowToEntry carries the Auftragsnummer', () => {
+  assert.equal(ctx.protRowToEntry({ id: 'x', job_no: '26-0447.01' }).jobNo, '26-0447.01');
+  assert.equal(ctx.protRowToEntry({ id: 'y' }).jobNo, '');
+});

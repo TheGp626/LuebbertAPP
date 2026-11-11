@@ -175,6 +175,7 @@ function protRowToEntry(r) {
     alId: r.al_id || null,
     plId: r.pl_id || null,
     createdBy: r.created_by || null,
+    jobNo: r.job_no || '',
     totalCost: (Number(r.total_cost) || 0).toFixed(2).replace('.', ',') + ' €',
     transports: (r.protocol_transports || []).map(function(t) {
       // hours stays null for rows saved before driver hours existed → no driver cost on recalc
@@ -556,6 +557,17 @@ function protPlanPersonnel(shift, users) {
     return row;
   });
   return rows.filter(function(r) { return r.pos === 'AL'; }).concat(rows.filter(function(r) { return r.pos !== 'AL'; }));
+}
+
+// Auftragsnummer of the Auftragsbestätigung ("26-0447.01"): optional on a protocol, links it to its Auftrag (Nachkalkulation)
+var PROT_JOB_RE = /^\d{2}-\d{4}\.\d{2}$/;
+function protJobNo(v) { return String(v == null ? '' : v).replace(/\s+/g, ''); }
+function protJobNoValid(v) { var j = protJobNo(v); return !j || PROT_JOB_RE.test(j); }
+// Which phase of an Auftrag a protocol covers follows from its action; Umbau and anything else → null
+function protPhaseOfAction(action) {
+  if (action === 'Aufbau' || action === 'Teilaufbau') return 'setup';
+  if (action === 'Abbau' || action === 'Teilabbau') return 'teardown';
+  return null;
 }
 
 // "BAR PL 550" / "LeihLkw" / "Sprinter 2" → one of the vehicle types of the form; no hit → Hängerzug (the form's default)
@@ -1005,6 +1017,7 @@ function saveProtDraft() {
     ownerId: protDraftOwner(),
     event: (document.getElementById('prot-event') || {}).value || '',
     location: (document.getElementById('prot-location') || {}).value || '',
+    jobNo: (document.getElementById('prot-job') || {}).value || '',
     date: (document.getElementById('prot-date') || {}).value || '',
     holiday: (document.getElementById('prot-isholiday') || {}).checked || false,
     action: (document.getElementById('prot-action') || {}).value || 'Aufbau',
@@ -1042,7 +1055,7 @@ function protDraftOwner() {
 function resetProtFormState() {
   protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null, editingId: null, editingLocalId: null, signature: null };
   protOpenRows = {};
-  ['prot-event', 'prot-location', 'prot-date', 'prot-damages', 'prot-incidents', 'prot-feedback', 'prot-al', 'prot-pl'].forEach(function(id) {
+  ['prot-event', 'prot-location', 'prot-job', 'prot-date', 'prot-damages', 'prot-incidents', 'prot-feedback', 'prot-al', 'prot-pl'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -1066,6 +1079,7 @@ function loadProtDraft() {
     }
     if (document.getElementById('prot-event')) document.getElementById('prot-event').value = data.event || '';
     if (document.getElementById('prot-location')) document.getElementById('prot-location').value = data.location || '';
+    if (document.getElementById('prot-job')) document.getElementById('prot-job').value = data.jobNo || '';
     if (document.getElementById('prot-date')) document.getElementById('prot-date').value = data.date || '';
     if (document.getElementById('prot-isholiday')) document.getElementById('prot-isholiday').checked = data.holiday || false;
     if (document.getElementById('prot-action')) document.getElementById('prot-action').value = data.action || 'Aufbau';
@@ -1097,6 +1111,7 @@ function clearProtForm(skipConfirm) {
   // Re-hydrate UI without reloading if possible
   document.getElementById('prot-event').value = '';
   document.getElementById('prot-location').value = '';
+  if (document.getElementById('prot-job')) document.getElementById('prot-job').value = '';
   document.getElementById('prot-date').value = '';
   if (document.getElementById('prot-isholiday')) document.getElementById('prot-isholiday').checked = false;
   document.getElementById('prot-action').value = 'Aufbau';
@@ -1162,6 +1177,8 @@ async function saveProtokoll() {
     incEl.value = PROT_LONGER_THAN_AL + ' (' + longer.join(', ') + '): ' + why.trim() +
       (incEl.value.trim() && incEl.value.trim() !== 'nein' ? '\n' + incEl.value.trim() : '');
   }
+  var jobNo = protJobNo((document.getElementById('prot-job') || {}).value);
+  if (!protJobNoValid(jobNo)) { showToast('Die Auftragsnummer sieht so aus: 26-0447.01. Bitte korrigieren oder leer lassen.', 'danger'); return; }
   calcProtCosts(); // the shown total may be stale (restored draft, rates loaded late)
   var usersLoaded = appUsers.length > 0;
   var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded);
@@ -1179,6 +1196,7 @@ async function saveProtokoll() {
   var data = {
     event: (document.getElementById('prot-event') || {}).value || '—',
     location: (document.getElementById('prot-location') || {}).value || '—',
+    jobNo: jobNo,
     date: (document.getElementById('prot-date') || {}).value || '—',
     action: (document.getElementById('prot-action') || {}).value || '—',
     holiday: !!(document.getElementById('prot-isholiday') || {}).checked,
@@ -1220,6 +1238,7 @@ async function saveProtokoll() {
     pl: data.pl,
     alId: data.alId || null,
     plId: data.plId || null,
+    jobNo: data.jobNo || '',
     // Author stays as first saved; an edit by someone else does not take it over
     createdBy: (protState.editingLocalId && (archive.find(x => x.id === protState.editingLocalId) || {}).createdBy) ||
       (!isUpdate && typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null),
@@ -1371,6 +1390,8 @@ async function syncProtokollToSupabase(data, targetId, out) {
       notes_incidents: data.incidents === 'nein' ? null : data.incidents,
       notes_feedback: data.feedback === '—' ? null : data.feedback
     };
+    // Only when the caller knows the number (a retry of an entry saved before the field existed must not clear it)
+    if (data.jobNo !== undefined) protPayload.job_no = (protJobNoValid(data.jobNo) && protJobNo(data.jobNo)) || null;
 
     // Server signatures are not kept in localStorage (see mergeProtHistory): an edit loaded without one
     // must not overwrite the stored signature with null
@@ -1873,6 +1894,7 @@ function loadProtFromHistory(id) {
   
   protState.editingLocalId = id;
   protState.editingId = entry.supabaseId || null;
+  if (document.getElementById('prot-job')) document.getElementById('prot-job').value = entry.jobNo || '';
 
   saveProtDraft();
   showToast('✏️ Protokoll geladen – Änderungen werden beim Senden gespeichert.');
@@ -1919,7 +1941,8 @@ function buildProtPdfDoc(entry, opts) {
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120); doc.text('Lübbert Event Interiors', ml, 26); doc.setTextColor(0);
   var y = 38;
 
-  doc.setDrawColor(230); doc.setFillColor(248,248,246); doc.rect(ml, y, cw, 32, 'F');
+  var pdfJob = data.jobNo && protJobNoValid(data.jobNo) ? protJobNo(data.jobNo) : '';
+  doc.setDrawColor(230); doc.setFillColor(248,248,246); doc.rect(ml, y, cw, pdfJob ? 38 : 32, 'F');
   doc.setFontSize(9); doc.setFont('helvetica','bold');
   doc.text('Projekt:', ml+4, y+6); doc.setFont('helvetica','normal'); doc.text(data.event, ml+25, y+6);
   doc.setFont('helvetica','bold'); doc.text('Ort:', ml+4, y+12); doc.setFont('helvetica','normal'); doc.text(data.location, ml+25, y+12);
@@ -1927,7 +1950,8 @@ function buildProtPdfDoc(entry, opts) {
   doc.setFont('helvetica','bold'); doc.text('Aktion:', ml+80, y+18); doc.setFont('helvetica','normal'); doc.text(data.action, ml+100, y+18);
   doc.setFont('helvetica','bold'); doc.text('AL:', ml+4, y+24); doc.setFont('helvetica','normal'); doc.text(data.al, ml+25, y+24);
   doc.setFont('helvetica','bold'); doc.text('PL:', ml+80, y+24); doc.setFont('helvetica','normal'); doc.text(data.pl, ml+100, y+24);
-  y += 40;
+  if (pdfJob) { doc.setFont('helvetica','bold'); doc.text('Auftrag:', ml+4, y+30); doc.setFont('helvetica','normal'); doc.text(pdfJob, ml+25, y+30); }
+  y += pdfJob ? 46 : 40;
 
   // Transports
   doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Logistik & Transport', ml, y); y += 6;

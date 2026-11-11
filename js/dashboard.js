@@ -606,7 +606,7 @@ async function refreshDashboardOnce() {
   try {
     await ensureRateUsers();
     const protSelect = (withCreator) => `
-        id, date, action, is_holiday, total_cost, al_id, pl_id,${withCreator ? ' created_by,' : ''}
+        id, date, action, is_holiday, total_cost, al_id, pl_id, job_no,${withCreator ? ' created_by,' : ''}
         notes_damages, notes_incidents, notes_feedback,
         al_name_fallback, pl_name_fallback, created_at, mailed_at,
         projects(name, location),
@@ -625,6 +625,12 @@ async function refreshDashboardOnce() {
     if (protError) throw protError;
 
     dashboardProtocols = protocols;
+    // MA geplant per Auftrag for the Nachkalkulation; only Admin/PL may read it, for everyone else it just stays empty
+    try {
+      const st = await supabaseClient.from('order_staffing').select('job_no, staff_setup, staff_teardown');
+      _dashStaffing = {};
+      (st.data || []).forEach(function(r) { _dashStaffing[r.job_no] = r; });
+    } catch (stErr) { _dashStaffing = {}; }
     renderDashboardTable();
     loadDashMissing();
   } catch (err) {
@@ -718,7 +724,7 @@ function dashMergePlanPeople(shifts, main) {
 function dashProtMatches(p, term) {
   const iso = (p.date || '').toLowerCase();
   const shown = iso.length === 10 ? iso.slice(8) + '.' + iso.slice(5, 7) + '.' + iso.slice(0, 4) : '';
-  return [(p.projects?.name || ''), (p.al?.full_name || p.al_name_fallback || ''), (p.location || p.projects?.location || '')]
+  return [(p.projects?.name || ''), (p.al?.full_name || p.al_name_fallback || ''), (p.location || p.projects?.location || ''), (p.job_no || '')]
     .some(s => s.toLowerCase().includes(term)) || iso.includes(term) || shown.includes(term);
 }
 
@@ -731,6 +737,7 @@ function renderDashboardTable() {
 
   // "Meine" by default; the search works within the current scope
   const scoped = dashScopedProtocols();
+  renderDashNachkalk();
   const scopeBox = document.getElementById('dash-scope');
   if (scopeBox) scopeBox.innerHTML = protScopeSegHtml(protScopeGet(DASH_SCOPE_KEY), 'setDashProtScope');
 
@@ -776,6 +783,92 @@ function dashScopedProtocols() {
 function setDashProtScope(scope) {
   protScopeSet(DASH_SCOPE_KEY, scope);
   renderDashboardTable();
+}
+
+// ── Nachkalkulation: what the protocols of one Auftrag add up to, against the MA the PL planned ──
+var _dashStaffing = {}; // job_no → order_staffing row
+var DASH_NK_PHASES = [['setup', 'Aufbau'], ['teardown', 'Abbau'], ['other', 'Sonstiges']];
+
+// protocols = dashboard rows (with shifts and protocol_transports), staffing = { job_no: { staff_setup, staff_teardown } },
+// transportCost(p) = € of the protocol's vehicles and drivers. → one entry per Auftrag, newest first:
+// { jobNo, name, from, to, phases: { setup|teardown|other: agg }, total: agg, protocols: [{ id, date, action }] }
+// agg = { count, people, mins, cost, transport, planned }; people are counted once per phase and once in the total
+function dashNachkalk(protocols, staffing, transportCost) {
+  var jobs = {};
+  var blank = function() { return { count: 0, people: 0, mins: 0, cost: 0, transport: 0, planned: null, _who: {} }; };
+  (protocols || []).forEach(function(p) {
+    if (!p.job_no) return;
+    var j = jobs[p.job_no] = jobs[p.job_no] || { jobNo: p.job_no, name: '', from: p.date, to: p.date,
+      phases: { setup: blank(), teardown: blank(), other: blank() }, total: blank(), protocols: [] };
+    if (!j.name && p.projects && p.projects.name) j.name = p.projects.name;
+    if (p.date < j.from) j.from = p.date;
+    if (p.date > j.to) j.to = p.date;
+    j.protocols.push({ id: p.id, date: p.date, action: p.action || '' });
+    var ph = j.phases[protPhaseOfAction(p.action) || 'other'];
+    var cost = Number(p.total_cost) || 0, tr = Math.min(cost, Math.max(0, Number(transportCost ? transportCost(p) : 0) || 0));
+    [ph, j.total].forEach(function(a) {
+      a.count++; a.cost += cost; a.transport += tr;
+      (p.shifts || []).forEach(function(s) {
+        a.mins += dashShiftNetMins(s);
+        var who = s.user_id || ('n:' + String(s.temp_worker_name || '').trim().toLowerCase());
+        if (who !== 'n:' && !a._who[who]) { a._who[who] = true; a.people++; }
+      });
+    });
+  });
+  return Object.keys(jobs).map(function(k) {
+    var j = jobs[k], st = (staffing || {})[k] || {};
+    j.phases.setup.planned = st.staff_setup == null ? null : Number(st.staff_setup);
+    j.phases.teardown.planned = st.staff_teardown == null ? null : Number(st.staff_teardown);
+    [j.phases.setup, j.phases.teardown, j.phases.other, j.total].forEach(function(a) { delete a._who; });
+    j.protocols.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    return j;
+  }).sort(function(a, b) { return a.to < b.to ? 1 : a.to > b.to ? -1 : a.jobNo.localeCompare(b.jobNo); });
+}
+
+function dashNkTransportCost(p) {
+  return calcDashProtTotal(p.date, !!p.is_holiday, dashTransportsFromRows(p.protocol_transports), []);
+}
+
+function dashNkEuro(n) { return (Number(n) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
+function dashNkHours(mins) { return (Math.round((mins || 0) / 6) / 10).toLocaleString('de-DE') + ' h'; }
+
+// One phase as a labelled grid (a table would collapse into unlabelled cards on a phone)
+function dashNkRowHtml(label, a, strong) {
+  var over = a.planned != null && a.people > a.planned;
+  var people = a.people + (a.planned != null ? ' <span class="' + (over ? 'dash-nk-over' : 'ui-sub') + '">/ ' + a.planned + ' geplant</span>' : '');
+  var cell = function(name, value, cost) { return '<div' + (cost ? ' class="cost-only"' : '') + '><dt>' + name + '</dt><dd>' + value + '</dd></div>'; };
+  return '<div class="dash-nk-ph' + (strong ? ' dash-nk-sum' : '') + '"><div class="dash-nk-ph-title">' + label + '</div><dl class="dash-nk-grid">' +
+    cell('Protokolle', a.count) + cell('Leute', people) + cell('Stunden', dashNkHours(a.mins)) +
+    cell('Personal', dashNkEuro(a.cost - a.transport), true) + cell('Transport', dashNkEuro(a.transport), true) +
+    cell('Gesamt', '<b>' + dashNkEuro(a.cost) + '</b>', true) + '</dl></div>';
+}
+
+function dashNkJobHtml(j) {
+  var day = function(iso) { return iso.slice(8) + '.' + iso.slice(5, 7) + '.'; };
+  var range = j.from === j.to ? day(j.from) : day(j.from) + ' – ' + day(j.to);
+  return '<details class="dash-nk-job"><summary><span><b>' + escapeHtml(j.jobNo) + '</b> · ' + escapeHtml(j.name || 'Ohne Projekt') + '</span>' +
+    '<span class="ui-sub">' + range + ' · ' + j.total.people + (j.total.people === 1 ? ' Person' : ' Personen') + ' · ' + dashNkHours(j.total.mins) +
+    '<span class="cost-only"> · ' + dashNkEuro(j.total.cost) + '</span></span></summary>' +
+    DASH_NK_PHASES.filter(function(ph) { return ph[0] !== 'other' || j.phases.other.count; })
+      .map(function(ph) { return dashNkRowHtml(ph[1], j.phases[ph[0]], false); }).join('') +
+    dashNkRowHtml('Gesamt', j.total, true) +
+    '<div class="dash-nk-prots">' + j.protocols.map(function(p) {
+      return '<button type="button" class="ui-btn dash-small-btn" onclick="openDashDetail(\'' + jsAttrArg(p.id) + '\')">' + day(p.date) + ' ' + escapeHtml(p.action || 'Protokoll') + '</button>';
+    }).join('') + '</div></details>';
+}
+
+function renderDashNachkalk() {
+  var box = document.getElementById('dash-nachkalk');
+  if (!box) return;
+  var wasOpen = !!(box.querySelector('details.dash-nk') || {}).open, openJobs = {};
+  box.querySelectorAll('details.dash-nk-job[open] summary b').forEach(function(b) { openJobs[b.textContent] = true; });
+  var jobs = dashNachkalk(dashboardProtocols, _dashStaffing, dashNkTransportCost);
+  box.innerHTML = '<details class="dash-nk"' + (wasOpen ? ' open' : '') + '><summary>Nachkalkulation pro Auftrag<span class="ui-sub"> · ' +
+    jobs.length + (jobs.length === 1 ? ' Auftrag' : ' Aufträge') + '</span></summary>' +
+    (jobs.length ? jobs.map(dashNkJobHtml).join('')
+      : '<p class="ui-sub dash-nk-empty">Noch kein Protokoll mit Auftragsnummer. Die Nummer kommt von selbst mit, wenn ein Protokoll aus dem Wochenplan oder der Erinnerung gestartet wird, oder du trägst sie beim Bearbeiten ein.</p>') +
+    '</details>';
+  box.querySelectorAll('details.dash-nk-job').forEach(function(d) { if (openJobs[(d.querySelector('summary b') || {}).textContent]) d.open = true; });
 }
 
 // Protocols and costs of the calendar month of `now`
@@ -1425,7 +1518,11 @@ function openDashDetail(id) {
     <div>
       <div class="stat-label">Projektleiter (PL)</div>
       <div style="font-weight:600;">${escapeHtml(plName)}</div>
-    </div>
+    </div>${p.job_no ? `
+    <div>
+      <div class="stat-label">Auftrag</div>
+      <div style="font-weight:600;">${escapeHtml(p.job_no)}</div>
+    </div>` : ''}
     <div class="cost-only">
       <div class="stat-label">Gesamtkosten (Schätzung)</div>
       <div style="font-weight:600; color:var(--accent);">${escapeHtml((p.total_cost || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 }))} €</div>
@@ -1674,6 +1771,7 @@ function openDashProtEdit() {
   // AL/PL: picking a name from the list resolves to the user id on save (dashResolvePerson); free text stays a name
   document.getElementById('pe-al-wrap').innerHTML = uiComboHtml('pe-al', p.al ? p.al.full_name : (p.al_name_fallback || ''), 'Name wählen oder eingeben', '', '');
   document.getElementById('pe-pl-wrap').innerHTML = uiComboHtml('pe-pl', p.pl ? p.pl.full_name : (p.pl_name_fallback || ''), 'Name wählen oder eingeben', '', '');
+  if (document.getElementById('pe-job')) document.getElementById('pe-job').value = p.job_no || '';
   document.getElementById('pe-damages').value  = p.notes_damages || '';
   document.getElementById('pe-incidents').value = p.notes_incidents || '';
   document.getElementById('pe-feedback').value  = p.notes_feedback || '';
@@ -1942,6 +2040,11 @@ async function saveDashProtEdit() {
     notes_incidents: document.getElementById('pe-incidents').value.trim() || null,
     notes_feedback:  document.getElementById('pe-feedback').value.trim()  || null,
   };
+  const jobEl = document.getElementById('pe-job');
+  if (jobEl) {
+    if (!protJobNoValid(jobEl.value)) { showToast('Die Auftragsnummer sieht so aus: 26-0447.01. Bitte korrigieren oder leer lassen.', 'danger'); return; }
+    protPayload.job_no = protJobNo(jobEl.value) || null;
+  }
   // Same formula as the app, from the edited transports and the edited personnel (not the stored ones)
   if (costChanged) protPayload.total_cost = calcDashProtTotal(newDate, isHoliday, _editProtTransports,
     _editProtShifts.map(function(r) { return dashShiftRowToDb(r, rateUsers); }));

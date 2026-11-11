@@ -166,7 +166,7 @@ async function enablePushReminders() {
 async function erPlanShifts(userId, date) {
   try {
     var { data, error } = await supabaseClient.from('plan_assignments')
-      .select('shift:plan_shifts!inner(id, date, sort, venue, title, wann, location, details, notes, ap, ap_user_id, open_slots, plan_assignments(name, role, note, user_id))')
+      .select('shift:plan_shifts!inner(id, key, date, sort, venue, title, wann, location, details, notes, ap, ap_user_id, open_slots, plan_assignments(name, role, note, user_id))')
       .eq('user_id', userId).eq('role', 'AL').eq('shift.date', date);
     if (error) throw error;
     return (data || []).map(function(r) { return r.shift; }).sort(function(a, b) { return a.sort - b.sort; }).map(planShiftFromDb);
@@ -198,7 +198,31 @@ function erWithGroupPeople(shift, shifts) {
   group.forEach(function(s) { open = open.concat(s.open || []); });
   var notes = [];
   group.forEach(function(s) { (s.notes || []).forEach(function(n) { if (notes.indexOf(n) === -1) notes.push(n); }); });
-  return Object.assign({}, shift, { people: dashMergePlanPeople(group, shift), open: open, notes: notes });
+  return Object.assign({}, shift, { people: dashMergePlanPeople(group, shift), open: open, notes: notes,
+    keys: group.map(function(s) { return s.key; }).filter(Boolean) });
+}
+
+// Which Auftrag does a plan entry belong to? links = order_plan_links rows of that day, keys = the entry's plan key(s).
+// Aufbau and Abbau of one Auftrag can sit on the same entry: then the protocol's action decides.
+function erPickJob(links, keys, action) {
+  var hits = (links || []).filter(function(l) { return l.job_no && l.plan_key && (keys || []).indexOf(l.plan_key) !== -1; });
+  if (!hits.length) return '';
+  var phase = typeof protPhaseOfAction === 'function' ? protPhaseOfAction(action) : null;
+  var same = hits.filter(function(l) { return l.phase === phase; });
+  return (same[0] || hits[0]).job_no;
+}
+
+async function erJobForShift(p) {
+  var keys = (p.shift.keys && p.shift.keys.length) ? p.shift.keys : [p.shift.key].filter(Boolean);
+  if (!keys.length || !p.date) return '';
+  try {
+    var r = await supabaseClient.from('order_plan_links').select('job_no, phase, plan_date, plan_key').eq('plan_date', p.date);
+    if (r.error) throw r.error;
+    return erPickJob(r.data, keys, p.action);
+  } catch (err) {
+    console.error('Auftrag zum Plan-Eintrag laden:', err); // the field just stays empty
+    return '';
+  }
 }
 
 function erPlanLocation(p) { return [p.venue].concat((p.location || []).slice(0, 1)).filter(Boolean).join(', '); }
@@ -207,17 +231,17 @@ function erPlanLocation(p) { return [p.venue].concat((p.location || []).slice(0,
 // Title, date, action, AL and PL come from the project folder; people, drivers and the place from the AL's plan shift of that day.
 async function openProtokollForEinsatz(einsatzId) {
   var { data: e, error } = await supabaseClient.from('einsaetze')
-    .select('id, date, action, al_id, folder:project_folders(name, pl_id)').eq('id', einsatzId).maybeSingle();
+    .select('id, date, action, al_id, job_no, folder:project_folders(name, pl_id)').eq('id', einsatzId).maybeSingle();
   if (error || !e) { showToast('Einsatz nicht gefunden.', 'danger'); return; }
   var name = (e.folder && e.folder.name) || '';
   var shifts = e.al_id ? await erPlanShifts(e.al_id, e.date) : [];
   var p = erPickShift(shifts, name);
   if (p) p = erWithGroupPeople(p, shifts);
-  await openProtokollPrefilled({ event: name, date: e.date, action: e.action, alId: e.al_id, plId: (e.folder && e.folder.pl_id) || null,
+  await openProtokollPrefilled({ event: name, date: e.date, action: e.action, alId: e.al_id, plId: (e.folder && e.folder.pl_id) || null, jobNo: e.job_no || '',
     location: p ? erPlanLocation(p) : '', shift: p || undefined });
 }
 
-// Fresh protocol form pre-filled with { event, date, action, alId, plId, location, shift } (reminder banner, Wochenplan);
+// Fresh protocol form pre-filled with { event, date, action, alId, plId, jobNo, location, shift } (reminder banner, Wochenplan);
 // shift (planShiftFromDb shape) also fills the personnel list, the drivers under Transport and the PL from what the plan names
 async function openProtokollPrefilled(p) {
   var val = function(id) { return ((document.getElementById(id) || {}).value || '').trim(); };
@@ -228,6 +252,11 @@ async function openProtokollPrefilled(p) {
     protState.plId = plId;
     if (typeof populateAlPlSelects === 'function') populateAlPlSelects(); // the PL may not be in the list yet
     document.getElementById('prot-pl').value = plId;
+  };
+  var jobNo = p.jobNo || (p.shift ? await erJobForShift(p) : '');
+  var setJob = function() {
+    var el = document.getElementById('prot-job');
+    if (el && jobNo && !el.value.trim()) el.value = jobNo;
   };
   var fillFromPlan = function() {
     if (!p.shift) return;
@@ -240,6 +269,7 @@ async function openProtokollPrefilled(p) {
     if (!val('prot-al') && p.alId) { document.getElementById('prot-al').value = p.alId; protState.alId = p.alId; }
     if (!val('prot-location') && p.location) document.getElementById('prot-location').value = p.location;
     setPl();
+    setJob();
     saveProtDraft();
     fillFromPlan();
     selectMode('protokoll');
@@ -256,6 +286,7 @@ async function openProtokollPrefilled(p) {
   if (p.location) document.getElementById('prot-location').value = p.location;
   if (p.alId) { document.getElementById('prot-al').value = p.alId; protState.alId = p.alId; }
   setPl();
+  setJob();
   saveProtDraft();
   fillFromPlan();
   if (typeof calcProtCosts === 'function') calcProtCosts();

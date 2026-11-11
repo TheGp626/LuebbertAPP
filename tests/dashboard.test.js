@@ -739,3 +739,36 @@ test('dashboard shows only what the role can do: staff edits and booking', () =>
   assert.match(row(false, 'offen'), /ui-pill">offen/);
   assert.match(row(false, 'eingetragen'), /ui-pill ui-pill-ok">verbucht/);
 });
+
+test('dashNachkalk: protocols of one Auftrag add up per phase, people count once, newest Auftrag first', () => {
+  const sh = (user, start, end, pause) => ({ user_id: user, temp_worker_name: null, start_time: start, end_time: end, pause_mins: pause || 0 });
+  ctx.__prots = [
+    { id: 'p1', job_no: '26-0447.01', date: '2026-11-11', action: 'Aufbau', total_cost: 500, projects: { name: 'Business of Apps' },
+      shifts: [sh('a', '08:00:00', '16:00:00', 30), sh('b', '08:00:00', '12:00:00'), { user_id: null, temp_worker_name: 'Tom ', start_time: '08:00:00', end_time: '12:00:00', pause_mins: 0 }] },
+    { id: 'p2', job_no: '26-0447.01', date: '2026-11-12', action: 'Teilaufbau', total_cost: 100, projects: { name: 'Business of Apps' }, shifts: [sh('a', '08:00:00', '12:00:00')] },
+    { id: 'p3', job_no: '26-0447.01', date: '2026-11-13', action: 'Abbau', total_cost: 200, shifts: [sh('a', '20:00:00', '01:00:00'), sh('c', '20:00:00', '01:00:00')] },
+    { id: 'p4', job_no: '26-0447.01', date: '2026-11-12', action: 'Umbau', total_cost: 50, shifts: [] },
+    { id: 'p5', job_no: '26-0900.02', date: '2026-12-01', action: 'Aufbau', total_cost: 80, projects: { name: 'Gala' }, shifts: [{ user_id: null, temp_worker_name: 'tom', start_time: '08:00:00', end_time: '12:00:00' }] },
+    { id: 'p6', job_no: null, date: '2026-12-02', action: 'Aufbau', total_cost: 999, shifts: [sh('z', '08:00:00', '10:00:00')] },
+  ];
+  ctx.__staff = { '26-0447.01': { staff_setup: 2, staff_teardown: null } };
+  const out = JSON.parse(run("JSON.stringify(dashNachkalk(__prots, __staff, function(p) { return p.id === 'p1' ? 120 : p.id === 'p4' ? 999 : 0; }))"));
+  assert.deepEqual(out.map(j => j.jobNo), ['26-0900.02', '26-0447.01']);
+  const j = out[1];
+  assert.deepEqual([j.name, j.from, j.to], ['Business of Apps', '2026-11-11', '2026-11-13']);
+  assert.deepEqual(j.phases.setup, { count: 2, people: 3, mins: 450 + 240 + 240 + 240, cost: 600, transport: 120, planned: 2 });
+  assert.deepEqual(j.phases.teardown, { count: 1, people: 2, mins: 600, cost: 200, transport: 0, planned: null });
+  assert.deepEqual(j.phases.other, { count: 1, people: 0, mins: 0, cost: 50, transport: 50, planned: null }); // transport never above the stored total
+  assert.deepEqual(j.total, { count: 4, people: 4, mins: 1770, cost: 850, transport: 170, planned: null });
+  assert.deepEqual(j.protocols.map(p => p.id), ['p1', 'p2', 'p4', 'p3']);
+  assert.equal(out[0].total.people, 1);
+  assert.deepEqual(JSON.parse(run('JSON.stringify(dashNachkalk([], {}, null))')), []);
+});
+
+test('dashNkRowHtml: more people than planned is marked, costs carry cost-only', () => {
+  const html = run("dashNkRowHtml('Aufbau', { count: 2, people: 3, mins: 630, cost: 600, transport: 120, planned: 2 }, false)");
+  assert.match(html, /dash-nk-over">\/ 2 geplant/);
+  assert.match(html, /10,5 h/);
+  assert.match(html, /class="cost-only"><dt>Personal<\/dt><dd>480,00 €/);
+  assert.doesNotMatch(run("dashNkRowHtml('Abbau', { count: 1, people: 2, mins: 60, cost: 0, transport: 0, planned: null }, false)"), /geplant/);
+});
