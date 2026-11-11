@@ -27,6 +27,7 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - alles wird in supabase gesichert — trägst du eine schicht von vor zwei wochen ein, steht im dashboard trotzdem das richtige datum
 
 ### 📋 Protokoll
+- startest du das protokoll aus der erinnerung oder dem wochenplan, ist es vorausgefüllt: titel, ort, AL, PL, leute mit startzeit und die fahrer unter transport. was du schon selbst eingetragen hast bleibt stehen
 - aufbauprotokolle direkt aufs handy, kein papier mehr
 - dein name wird automatisch als AL eingetragen, personal kann aus dem wochenplan vorbefüllt werden
 - transport: fahrzeuge mit fahrer, fahrerstunden, pünktlichkeit, verspätungsminuten
