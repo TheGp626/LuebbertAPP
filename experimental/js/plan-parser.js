@@ -140,6 +140,17 @@ function planRoleFromTag(tag) {
 }
 
 // "Kacper (AL)" / "Milan (ab 14 Uhr)" / "Feli bis 13 Uhr" → { name, role, note }
+// Name particles that are written in lowercase inside a real name ("Mauro Reyero de Diego", "Anna von Berg")
+var PLAN_NAME_PARTICLES = /^(de|da|di|del|della|do|dos|das|du|van|von|vom|zu|zum|zur|der|den|ter|la|le|y|e|al|el|bin|ibn)$/;
+// "Abholung durch Kacper", "Service baut ab", "steht vor Ort": several words, one of them lowercase and no name
+// particle → a remark, not a person. A single lowercase word ("milan") still counts as a name.
+function planIsSentence(text) {
+  var s = String(text || '').replace(/\([^)]*\)/g, ' ').replace(/[?!.,;:]+/g, ' ').trim();
+  var words = s.split(/\s+/).filter(Boolean);
+  if (words.length < 2) return false;
+  return words.some(function(w) { return /^[a-zäöüß]/.test(w) && !PLAN_NAME_PARTICLES.test(w); });
+}
+
 function planPerson(text, defaultRole) {
   var s = planStripPhones(text), role = defaultRole, notes = [];
   s = s.replace(/\(([^)]*)\)/g, function(_, inner) {
@@ -149,6 +160,8 @@ function planPerson(text, defaultRole) {
   });
   var m = /\s+((?:ab|bis)\s+\d.*)$/i.exec(s);
   if (m) { notes.push(m[1].trim()); s = s.slice(0, m.index); }
+  // "Patryk ?" = not sure yet: the name without it, the question mark kept as note
+  if (/\?\s*$/.test(s)) { s = s.replace(/\s*\?+\s*$/, ''); notes.unshift('?'); }
   s = s.replace(/[,;]+$/, '').replace(/\s+/g, ' ').trim();
   if (!s) return null;
   return { name: s, role: role, note: notes.join(', ') || null };
@@ -156,7 +169,7 @@ function planPerson(text, defaultRole) {
 
 // One shift's "Wer" cell → assigned people, open slots and plain notes
 function planParseWer(lines) {
-  var people = [], open = [], notes = [], group = null, sameAsAbove = false;
+  var people = [], open = [], notes = [], group = null, sameAsAbove = false, headRole = null;
   function addPerson(p) {
     if (!p) return;
     var key = p.name.toLowerCase();
@@ -167,6 +180,7 @@ function planParseWer(lines) {
   function closeGroup() {
     if (group && group.left > 0) open.push({ role: group.role, count: group.left, note: group.note });
     group = null;
+    headRole = null;
   }
   lines.forEach(function(raw) {
     var line = planStripPhones(raw).trim();
@@ -193,6 +207,7 @@ function planParseWer(lines) {
       var parts = line.split('|'), vehicle = parts[0].trim(), who = parts.slice(1).join('|').trim();
       notes.push(vehicle);
       if (!who || /^fahrer$/i.test(who)) open.push({ role: 'Fahrer', count: 1, note: vehicle });
+      else if (planIsSentence(who)) notes[notes.length - 1] = line; // "BAR PL 102 | steht vor Ort": no driver needed
       else {
         var drv = planPerson(who, 'Fahrer');
         if (drv) { drv.note = [vehicle, drv.note].filter(Boolean).join(', '); addPerson(drv); }
@@ -207,7 +222,12 @@ function planParseWer(lines) {
       d[2].split(/\s*(?:&|,|\bund\b)\s*/).forEach(function(n) { addPerson(planPerson(n, role)); });
       return;
     }
+    // "Deko:" / "Stoffe & Deko:" alone on a line: a heading. A known role carries over to the names below it.
+    var h = /^(.+?):$/.exec(line);
+    if (h) { closeGroup(); headRole = planRoleFromTag(h[1]); if (!headRole) notes.push(line); return; }
     if (PLAN_NOTE_ONLY.test(line)) { closeGroup(); notes.push(line); return; }
+    // A remark never takes a slot of the agency group around it
+    if (planIsSentence(line)) { notes.push(line); return; }
     if (group && group.left > 0) {
       var ap = planPerson(line, group.role);
       if (ap) { if (!ap.note && group.note) ap.note = group.note; addPerson(ap); }
@@ -215,8 +235,10 @@ function planParseWer(lines) {
       if (group.left === 0) group = null;
       return;
     }
+    var keepRole = headRole;
     closeGroup();
-    addPerson(planPerson(line, 'MA'));
+    headRole = keepRole;
+    addPerson(planPerson(line, headRole || 'MA'));
   });
   closeGroup();
   return { people: people, open: open, notes: notes, sameAsAbove: sameAsAbove };
@@ -735,7 +757,7 @@ function planIcs(shifts, userId, stamp) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { planFindColumns: planFindColumns, planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
+  module.exports = { planIsSentence: planIsSentence, planFindColumns: planFindColumns, planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
     planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planChangedFields: planChangedFields, planAssigned: planAssigned, planShiftKey: planShiftKey,
     planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek, planCellLines: planCellLines,
     planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName,
