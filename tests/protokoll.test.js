@@ -1008,7 +1008,9 @@ test('protPlanPl: linked account first, else a name only one active PL goes by',
 test('protJobNo / protJobNoValid / protPhaseOfAction', () => {
   assert.equal(run('protJobNo')(' 26-0447.01 '), '26-0447.01');
   assert.equal(run('protJobNo')(null), '');
-  assert.deepEqual(['', '26-0447.01', ' 26-0447.01', '26-447.01', '0447.01', 'abc', '26-0447.011'].map(v => run('protJobNoValid')(v)), [true, true, true, false, false, false, false]);
+  assert.deepEqual(['', '26-0447.01', ' 26-0447.01', '26-0447', '26-447.01', '0447.01', 'abc', '26-0447.011', '26-0447.1', '26-04470'].map(v => run('protJobNoValid')(v)),
+    [true, true, true, true, false, false, false, false, false, false]);
+  assert.deepEqual(['26-0447.01', ' 26-0447 ', 'abc', '', null].map(v => run('protProjectNo')(v)), ['26-0447', '26-0447', '', '', '']);
   assert.deepEqual(['Aufbau', 'Teilaufbau', 'Umbau', 'Teilabbau', 'Abbau', '', null].map(a => run('protPhaseOfAction')(a)), ['setup', 'setup', null, 'teardown', 'teardown', null, null]);
 });
 

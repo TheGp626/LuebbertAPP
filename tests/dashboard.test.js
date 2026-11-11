@@ -745,18 +745,18 @@ test('dashNachkalk: protocols of one Auftrag add up per phase, people count once
   ctx.__prots = [
     { id: 'p1', job_no: '26-0447.01', date: '2026-11-11', action: 'Aufbau', total_cost: 500, projects: { name: 'Business of Apps' },
       shifts: [sh('a', '08:00:00', '16:00:00', 30), sh('b', '08:00:00', '12:00:00'), { user_id: null, temp_worker_name: 'Tom ', start_time: '08:00:00', end_time: '12:00:00', pause_mins: 0 }] },
-    { id: 'p2', job_no: '26-0447.01', date: '2026-11-12', action: 'Teilaufbau', total_cost: 100, projects: { name: 'Business of Apps' }, shifts: [sh('a', '08:00:00', '12:00:00')] },
-    { id: 'p3', job_no: '26-0447.01', date: '2026-11-13', action: 'Abbau', total_cost: 200, shifts: [sh('a', '20:00:00', '01:00:00'), sh('c', '20:00:00', '01:00:00')] },
+    { id: 'p2', job_no: '26-0447.02', date: '2026-11-12', action: 'Teilaufbau', total_cost: 100, projects: { name: 'Business of Apps' }, shifts: [sh('a', '08:00:00', '12:00:00')] },
+    { id: 'p3', job_no: '26-0447', date: '2026-11-13', action: 'Abbau', total_cost: 200, shifts: [sh('a', '20:00:00', '01:00:00'), sh('c', '20:00:00', '01:00:00')] },
     { id: 'p4', job_no: '26-0447.01', date: '2026-11-12', action: 'Umbau', total_cost: 50, shifts: [] },
     { id: 'p5', job_no: '26-0900.02', date: '2026-12-01', action: 'Aufbau', total_cost: 80, projects: { name: 'Gala' }, shifts: [{ user_id: null, temp_worker_name: 'tom', start_time: '08:00:00', end_time: '12:00:00' }] },
     { id: 'p6', job_no: null, date: '2026-12-02', action: 'Aufbau', total_cost: 999, shifts: [sh('z', '08:00:00', '10:00:00')] },
   ];
-  ctx.__staff = { '26-0447.01': { staff_setup: 2, staff_teardown: null } };
+  ctx.__staff = { '26-0447.01': { staff_setup: 2, staff_teardown: null }, '26-0447.02': { staff_setup: 3, staff_teardown: null }, '26-0448.01': { staff_setup: 9, staff_teardown: 9 } };
   const out = JSON.parse(run("JSON.stringify(dashNachkalk(__prots, __staff, function(p) { return p.id === 'p1' ? 120 : p.id === 'p4' ? 999 : 0; }))"));
-  assert.deepEqual(out.map(j => j.jobNo), ['26-0900.02', '26-0447.01']);
+  assert.deepEqual(out.map(j => j.jobNo), ['26-0900', '26-0447']); // per Projektnummer: jobs .01, .02 and the bare number together
   const j = out[1];
   assert.deepEqual([j.name, j.from, j.to], ['Business of Apps', '2026-11-11', '2026-11-13']);
-  assert.deepEqual(j.phases.setup, { count: 2, people: 3, mins: 450 + 240 + 240 + 240, cost: 600, transport: 120, planned: 2 });
+  assert.deepEqual(j.phases.setup, { count: 2, people: 3, mins: 450 + 240 + 240 + 240, cost: 600, transport: 120, planned: 5 });
   assert.deepEqual(j.phases.teardown, { count: 1, people: 2, mins: 600, cost: 200, transport: 0, planned: null });
   assert.deepEqual(j.phases.other, { count: 1, people: 0, mins: 0, cost: 50, transport: 50, planned: null }); // transport never above the stored total
   assert.deepEqual(j.total, { count: 4, people: 4, mins: 1770, cost: 850, transport: 170, planned: null });

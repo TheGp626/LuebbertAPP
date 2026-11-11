@@ -27,7 +27,7 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - alles wird in supabase gesichert — trägst du eine schicht von vor zwei wochen ein, steht im dashboard trotzdem das richtige datum
 
 ### 📋 Protokoll
-- jedes protokoll kann eine auftragsnummer tragen (26-0447.01). sie kommt von selbst mit, wenn du aus der erinnerung oder dem wochenplan startest, sonst trägst du sie ein oder lässt sie leer
+- jedes protokoll kann die projektnummer aus der auftragsbestätigung tragen (26-0447, gern auch mit auftrag: 26-0447.01). sie kommt von selbst mit, wenn du aus der erinnerung oder dem wochenplan startest, sonst trägst du sie ein oder lässt sie leer
 - startest du das protokoll aus der erinnerung oder dem wochenplan, ist es vorausgefüllt: titel, ort, AL, PL, leute mit startzeit und die fahrer unter transport. was du schon selbst eingetragen hast bleibt stehen
 - aufbauprotokolle direkt aufs handy, kein papier mehr
 - dein name wird automatisch als AL eingetragen, personal kann aus dem wochenplan vorbefüllt werden
@@ -83,7 +83,7 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - sicherung speichern / einspielen gibt es nicht mehr, schichten und protokolle liegen in der datenbank
 
 ### 📊 Dashboard (AL, PL, Buchhaltung, Admin)
-- nachkalkulation pro auftrag: alle protokolle mit derselben auftragsnummer zusammengezählt, aufbau und abbau getrennt. leute gegen die geplanten MA, stunden, personal, transport, gesamt. admin und PL sehen sie im reiter aufträge, buchhaltung und AL hier
+- nachkalkulation pro projekt: alle protokolle mit derselben projektnummer zusammengezählt, aufbau und abbau getrennt. leute gegen die geplanten MA, stunden, personal, transport, gesamt. admin und PL sehen sie im reiter aufträge, buchhaltung und AL hier
 - **protokolle:** alles auf einen blick mit suche, kosten pro monat, bearbeiten
 - **mitarbeiter:** alle schichten eines MAs nach tatsächlichem arbeitsdatum, ausstehendes wird rot, monat als PDF
 - schichten als "eingetragen" verbuchen — nur buchhaltung / admin
