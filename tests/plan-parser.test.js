@@ -681,3 +681,36 @@ test('planFindColumns: last column may be headed PL, but only on the header line
   // AP wins when both stand there
   assert.equal(P.planFindColumns(head('AP', [{ s: 'PL', x: 760, y: 50, h: 8 }])).x[4], 698);
 });
+
+test('planParseWer: sentences in the Wer column are notes, not people (KW 47, 17.11.)', () => {
+  const w = P.planParseWer(['Patryk (AL)', 'Abholung durch Kacper', 'Service baut ab', 'BAR PL 102 | steht vor Ort', 'Milan']);
+  assert.deepEqual(w.people.map(p => p.name), ['Patryk', 'Milan']);
+  assert.ok(w.notes.includes('Abholung durch Kacper'));
+  assert.ok(w.notes.includes('Service baut ab'));
+  assert.ok(w.notes.includes('BAR PL 102 | steht vor Ort'));
+  assert.deepEqual(w.open, [], 'a vehicle that stands on site needs no driver');
+});
+
+test('planParseWer: real names with particles and agency triple names stay people', () => {
+  const w = P.planParseWer(['3 x ROCKiT (16 - 20 Uhr)', 'Mauro Reyero de Diego', 'Prince Jr. Fasso Ngounou', 'Arvo Ishan Roth', 'Anna von Berg', 'milan']);
+  assert.deepEqual(w.people.map(p => [p.name, p.role]), [
+    ['Mauro Reyero de Diego', 'ROCKiT'], ['Prince Jr. Fasso Ngounou', 'ROCKiT'], ['Arvo Ishan Roth', 'ROCKiT'], ['Anna von Berg', 'MA'], ['milan', 'MA']]);
+});
+
+test('planParseWer: a sentence inside an agency group does not use up a slot', () => {
+  const w = P.planParseWer(['2 x Zenjob (8 - 16 Uhr)', 'Carla Muster', 'kommt später', 'Dino Beispiel']);
+  assert.deepEqual(w.people.map(p => [p.name, p.role]), [['Carla Muster', 'Zenjob'], ['Dino Beispiel', 'Zenjob']]);
+  assert.ok(w.notes.includes('kommt später'));
+  assert.deepEqual(w.open, []);
+});
+
+test('planParseWer: a heading line "Stoffe & Deko:" is no person; "Deko:" alone gives the role to the names below', () => {
+  const w = P.planParseWer(['Stoffe & Deko:', 'Hanna', 'Deko:', 'Ida', 'Jan', '3 MA', 'Kai']);
+  assert.deepEqual(w.people.map(p => [p.name, p.role]), [['Hanna', 'MA'], ['Ida', 'Deko'], ['Jan', 'Deko'], ['Kai', 'MA']]);
+  assert.ok(w.notes.includes('Stoffe & Deko:'));
+});
+
+test('planParseWer: "Patryk ?" is Patryk with a question mark as note', () => {
+  const w = P.planParseWer(['Patryk ? (AL)', 'Bert?']);
+  assert.deepEqual(w.people.map(p => [p.name, p.role, p.note]), [['Patryk', 'AL', '?'], ['Bert', 'MA', '?']]);
+});
