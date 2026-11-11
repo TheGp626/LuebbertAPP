@@ -46,6 +46,26 @@ function readNextShiftCache(raw, userId) {
   } catch (e) { return null; }
 }
 
+// The card turns into the full "Heute" card when the shift is today, or last night's shift is still running
+function homeIsToday(date, today) {
+  var t = String(today).split('-').map(Number), d = new Date(Date.UTC(t[0], t[1] - 1, t[2] - 1));
+  return date === today || date === d.toISOString().slice(0, 10);
+}
+// "Saal Europa, Sonnenallee 225": first location line plus the street; the postcode line stays out of the text
+function homeAddress(s) {
+  var loc = s && s.location ? String(s.location).split('\n').map(function(l) { return l.trim(); }).filter(Boolean) : [];
+  var street = loc.find(function(l) { return /\d/.test(l) && !/^\d{5}\b/.test(l); });
+  return [loc[0], street].filter(function(x, i, a) { return x && a.indexOf(x) === i; }).join(', ');
+}
+// Route link for maps: venue, street and the postcode line; a room name alone would only confuse the search
+function homeMapsUrl(s) {
+  var loc = s && s.location ? String(s.location).split('\n').map(function(l) { return l.trim(); }).filter(Boolean) : [];
+  var street = loc.find(function(l) { return /\d/.test(l) && !/^\d{5}\b/.test(l); });
+  var town = loc.find(function(l) { return /^\d{5}\b/.test(l); });
+  var q = [s && s.venue, street, town].filter(Boolean).join(', ').trim();
+  return q ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q) : null;
+}
+
 /* ── DOM part (browser only) ── */
 
 // "heute" / "morgen" / "am Freitag" within the next 6 days, else "am 07.11."
@@ -59,7 +79,25 @@ function homeWhen(date) {
   return 'am ' + ('0' + p.d).slice(-2) + '.' + ('0' + p.m).slice(-2) + '.';
 }
 
+// Today: everything for the day on one card, opened. Address with a route link, PL, team with roles and times,
+// vehicles and notes, material (wpDetails), and "Protokoll starten" for the AL. No phone numbers: the app stores none.
+function homeTodayHtml(s) {
+  var tc = wpTimeCol(s), head = planShiftHeading(s), addr = homeAddress(s), maps = homeMapsUrl(s);
+  return '<div class="ui-hero home-today wp-open">' +
+    '<div class="ui-hero-when">Heute' + (s.date !== localDateStr() ? ' Nacht' : '') + '</div>' +
+    '<div class="ui-num">' + escapeHtml(tc.big) + (tc.small ? ' <span>' + escapeHtml(tc.small) + '</span>' : '') + '</div>' +
+    '<div class="ui-hero-place">' + escapeHtml(s.venue || '—') + (head && head !== s.venue ? ' · ' + escapeHtml(head) : '') + '</div>' +
+    (addr || maps ? '<div class="home-today-addr">' + (addr ? '<span>' + WP_ICON.pin + ' ' + escapeHtml(addr) + '</span>' : '') +
+      (maps ? '<a class="ui-btn dash-small-btn" href="' + escapeHtml(maps) + '" target="_blank" rel="noopener">Route</a>' : '') + '</div>' : '') +
+    (s.ap ? '<div class="ui-sub">PL ' + escapeHtml(s.ap) + '</div>' : '') +
+    wpDetails(s) +
+    '<div class="home-today-actions">' + wpProtButton(s, 'primary') +
+      '<button type="button" class="ord-textbtn" onclick="selectMode(\'wochenplan\')">Im Wochenplan öffnen</button></div>' +
+  '</div>';
+}
+
 function homeNextHtml(s) {
+  if (homeIsToday(s.date, localDateStr())) return homeTodayHtml(s);
   var tc = wpTimeCol(s), head = planShiftHeading(s);
   var team = (s.plan_assignments || [])
     .filter(function(a) { return a.user_id !== (currentUser && currentUser.id) && WP_AGENCY.indexOf(a.role) === -1; })
@@ -79,6 +117,7 @@ function homeShowNext(shift) {
   if (!box) return;
   // A cached shift can be outdated by now: run it through the same filter as the live list
   var s = shift && homeNextAllowed(userRole, moduleAllowedForRole) ? nextOwnShift([shift], new Date()) : null;
+  if (s && typeof _wpShiftCache !== 'undefined') _wpShiftCache[s.id] = s; // "Protokoll starten" on the card reads it from there
   box.innerHTML = s ? homeNextHtml(s) : '';
 }
 
@@ -129,5 +168,5 @@ function renderHome() {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { HOME_TILES: HOME_TILES, firstName: firstName, homeTiles: homeTiles, homeNextAllowed: homeNextAllowed, dashViewFromStored: dashViewFromStored,
-    nextShiftCacheValue: nextShiftCacheValue, readNextShiftCache: readNextShiftCache };
+    nextShiftCacheValue: nextShiftCacheValue, readNextShiftCache: readNextShiftCache, homeIsToday: homeIsToday, homeAddress: homeAddress, homeMapsUrl: homeMapsUrl };
 }

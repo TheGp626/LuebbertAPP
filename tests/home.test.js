@@ -57,3 +57,19 @@ test('homeNextAllowed: the "Nächster Einsatz" card only for roles that may open
   assert.equal(H.homeNextAllowed('AL', allowed), true);
   assert.equal(H.homeNextAllowed('Gast', allowed), false);
 });
+
+test('homeIsToday: today, and last night\'s shift that is still running', () => {
+  assert.equal(H.homeIsToday('2026-11-11', '2026-11-11'), true);
+  assert.equal(H.homeIsToday('2026-11-10', '2026-11-11'), true);
+  assert.equal(H.homeIsToday('2026-11-12', '2026-11-11'), false);
+  assert.equal(H.homeIsToday('2026-10-31', '2026-11-01'), true);
+});
+
+test('homeAddress / homeMapsUrl: room, street and town from the location lines', () => {
+  const s = { venue: 'Estrel', location: 'Saal Europa\nSonnenallee 225\n12057 Berlin' };
+  assert.equal(H.homeAddress(s), 'Saal Europa, Sonnenallee 225');
+  assert.equal(H.homeMapsUrl(s), 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent('Estrel, Sonnenallee 225, 12057 Berlin'));
+  assert.equal(H.homeMapsUrl({ venue: 'Tempodrom', location: 'Arena' }), 'https://www.google.com/maps/search/?api=1&query=Tempodrom');
+  assert.equal(H.homeMapsUrl({ venue: '', location: '' }), null);
+  assert.equal(H.homeAddress({ venue: 'X', location: null }), '');
+});

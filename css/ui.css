@@ -470,3 +470,10 @@ button.opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .pl-cancel-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 .pl-head .pl-cancel { margin-top: 10px; }
 .wp-cancel-btn { color: var(--danger); }
+
+/* Home: Heute card */
+.home-today { cursor: default; }
+.home-today-addr { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0 2px; font-size: 14px; }
+.home-today-addr span { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.home-today .wp-details { font-size: 14px; }
+.home-today-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
