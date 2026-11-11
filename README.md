@@ -42,7 +42,7 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - nachträgliche protokolle funktionieren, datum ist frei wählbar
 
 ### 📅 Wochenplan
-- absagen: bei der eigenen schicht "ich kann doch nicht", ohne grund. die planung sieht es im planer an der zeile und trägt mit einem tipp ersatz ein. ist der einsatz heute oder morgen, zusätzlich die PL anrufen
+- absagen: bei der eigenen schicht "ich kann doch nicht", ohne grund. die planung sieht es im planer an der zeile und trägt mit einem tipp ersatz ein. die app bittet, die AL der schicht anzurufen oder ihr zu schreiben (ist man selbst AL: die PL)
 - vor dem speichern prüft die vorschau den plan: unter 11 stunden ruhe zwischen zwei arbeitstagen, jemand gleichzeitig an zwei orten, ein kennzeichen doppelt, ein auftrag mit 3+ leuten ohne AL, eingeplant trotz "geht nicht". nur hinweise, speichern geht trotzdem
 - PL lädt den wochenplan als PDF hoch, die app liest ihn selbst aus
 - "meine schichten" + die ganze woche für alle

@@ -218,11 +218,23 @@ function wpCanCancel(s, me, today) {
   return !!(me && s && s.week_id && s.key && s.date >= today && (s.plan_assignments || []).some(function(a) { return a.user_id === me; }));
 }
 function wpCancelSoon(date, today) { return date <= wpAddDays(today, 1); }
+// Who hears about an Absage first: the AL of the shift (they run the site); the PL when you are the AL or none is named
+function wpCancelContact(s, me) {
+  var al = ((s && s.plan_assignments) || []).find(function(a) { return a.role === 'AL' && a.user_id !== me && a.name; });
+  if (al) return { role: 'AL', name: al.name };
+  return s && s.ap ? { role: 'PL', name: s.ap } : null;
+}
+function wpCancelText(c) {
+  return c ? 'Ruf bitte ' + c.name + ' (' + c.role + ') an oder schreib eine Nachricht, damit vor Ort alle Bescheid wissen.'
+    : 'Sag bitte deiner AL Bescheid, per Anruf oder Nachricht.';
+}
 function wpCancelBlock(s) {
   if (!_wpCancels || !s || !s.week_id) return '';
   var st = _wpCancels[s.week_id + '|' + s.key], call = function(fn) { return 'event.stopPropagation(); ' + fn + '(this, \'' + s.id + '\')'; };
+  var who = wpCancelContact(s, wpMe());
   if (st === 'offen')
     return '<div class="wp-ord-action wp-cancel-action" onclick="event.stopPropagation()"><span class="ord-pill ord-pill-danger">Abgesagt · wartet auf Ersatz</span>' +
+      (who ? '<span class="ui-sub">' + wpEsc(who.name) + ' (' + who.role + ') Bescheid geben</span>' : '') +
       '<button type="button" class="ord-textbtn" onclick="' + call('wpWithdrawCancel') + '">Zurückziehen</button></div>';
   if (st === 'erledigt') return '<div class="wp-ord-action wp-cancel-action"><span class="ord-pill ord-pill-muted">Abgesagt · erledigt</span></div>';
   if (!wpCanCancel(s, wpMe(), localDateStr())) return '';
@@ -231,9 +243,9 @@ function wpCancelBlock(s) {
 async function wpCancelShift(btn, shiftId) {
   var s = _wpShiftCache[shiftId], me = wpMe();
   if (!s || !me) return;
-  var soon = wpCancelSoon(s.date, localDateStr());
-  if (!confirm('Für ' + wpDayLabel(s.date) + ' (' + (s.venue || 'Einsatz') + ') absagen?\n\nDie Planung sieht das und trägt Ersatz ein. Einen Grund musst du nicht angeben.' +
-      (soon ? '\n\nDer Einsatz ist schon heute oder morgen: sag bitte zusätzlich direkt deiner PL Bescheid.' : ''))) return;
+  var soon = wpCancelSoon(s.date, localDateStr()), contact = wpCancelContact(s, me);
+  if (!confirm('Für ' + wpDayLabel(s.date) + ' (' + (s.venue || 'Einsatz') + ') absagen?\n\nDie Planung sieht das und trägt Ersatz ein. Einen Grund musst du nicht angeben.\n\n' +
+      (soon ? 'Der Einsatz ist schon ' + (s.date <= localDateStr() ? 'heute' : 'morgen') + '. ' : '') + wpCancelText(contact))) return;
   btn.disabled = true;
   var r;
   try { r = await supabaseClient.from('plan_cancellations').insert({ week_id: s.week_id, shift_key: s.key, user_id: me }).select('user_id'); } catch (e) { r = { error: e }; }
@@ -244,7 +256,7 @@ async function wpCancelShift(btn, shiftId) {
     return;
   }
   if (_wpCancels) _wpCancels[s.week_id + '|' + s.key] = 'offen';
-  showToast(soon ? 'Abgesagt. Ruf bitte noch deine PL an.' : 'Abgesagt. Die Planung kümmert sich um Ersatz.', 'success');
+  showToast('Abgesagt. ' + (contact ? 'Gib noch ' + contact.name + ' (' + contact.role + ') Bescheid.' : 'Gib noch deiner AL Bescheid.'), 'success');
   wpSetView(wpView);
 }
 async function wpWithdrawCancel(btn, shiftId) {
