@@ -785,7 +785,7 @@ function setDashProtScope(scope) {
   renderDashboardTable();
 }
 
-// ── Nachkalkulation: what the protocols of one Auftrag add up to, against the MA the PL planned ──
+// ── Nachkalkulation: what the protocols of one project (Projektnummer of the Auftragsbestätigung) add up to, against the MA the PL planned ──
 var _dashStaffing = {}; // job_no → order_staffing row
 var DASH_NK_PHASES = [['setup', 'Aufbau'], ['teardown', 'Abbau'], ['other', 'Sonstiges']];
 
@@ -797,8 +797,9 @@ function dashNachkalk(protocols, staffing, transportCost) {
   var jobs = {};
   var blank = function() { return { count: 0, people: 0, mins: 0, cost: 0, transport: 0, planned: null, _who: {} }; };
   (protocols || []).forEach(function(p) {
-    if (!p.job_no) return;
-    var j = jobs[p.job_no] = jobs[p.job_no] || { jobNo: p.job_no, name: '', from: p.date, to: p.date,
+    var no = protProjectNo(p.job_no); // "26-0394.02" counts for project 26-0394
+    if (!no) return;
+    var j = jobs[no] = jobs[no] || { jobNo: no, name: '', from: p.date, to: p.date,
       phases: { setup: blank(), teardown: blank(), other: blank() }, total: blank(), protocols: [] };
     if (!j.name && p.projects && p.projects.name) j.name = p.projects.name;
     if (p.date < j.from) j.from = p.date;
@@ -816,9 +817,16 @@ function dashNachkalk(protocols, staffing, transportCost) {
     });
   });
   return Object.keys(jobs).map(function(k) {
-    var j = jobs[k], st = (staffing || {})[k] || {};
-    j.phases.setup.planned = st.staff_setup == null ? null : Number(st.staff_setup);
-    j.phases.teardown.planned = st.staff_teardown == null ? null : Number(st.staff_teardown);
+    var j = jobs[k];
+    // MA geplant of every job of the project together (null while none of them has a number yet)
+    ['setup', 'teardown'].forEach(function(ph) {
+      var sum = null;
+      Object.keys(staffing || {}).forEach(function(jn) {
+        var n = staffing[jn] && staffing[jn]['staff_' + ph];
+        if (protProjectNo(jn) === k && n != null) sum = (sum || 0) + Number(n);
+      });
+      j.phases[ph].planned = sum;
+    });
     [j.phases.setup, j.phases.teardown, j.phases.other, j.total].forEach(function(a) { delete a._who; });
     j.protocols.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
     return j;
@@ -868,10 +876,10 @@ function renderDashNachkalk() {
   var wasOpen = !!(box.querySelector('details.dash-nk') || {}).open, openJobs = {};
   box.querySelectorAll('details.dash-nk-job[open] summary b').forEach(function(b) { openJobs[b.textContent] = true; });
   var jobs = dashNachkalk(dashboardProtocols, _dashStaffing, dashNkTransportCost);
-  box.innerHTML = '<details class="dash-nk"' + (wasOpen ? ' open' : '') + '><summary>Nachkalkulation pro Auftrag<span class="ui-sub"> · ' +
-    jobs.length + (jobs.length === 1 ? ' Auftrag' : ' Aufträge') + '</span></summary>' +
+  box.innerHTML = '<details class="dash-nk"' + (wasOpen ? ' open' : '') + '><summary>Nachkalkulation pro Projekt<span class="ui-sub"> · ' +
+    jobs.length + (jobs.length === 1 ? ' Projekt' : ' Projekte') + '</span></summary>' +
     (jobs.length ? jobs.map(function(j) { return dashNkJobHtml(j); }).join('')
-      : '<p class="ui-sub dash-nk-empty">Noch kein Protokoll mit Auftragsnummer. Die Nummer kommt von selbst mit, wenn ein Protokoll aus dem Wochenplan oder der Erinnerung gestartet wird, oder du trägst sie beim Bearbeiten ein.</p>') +
+      : '<p class="ui-sub dash-nk-empty">Noch kein Protokoll mit Projektnummer. Die Nummer kommt von selbst mit, wenn ein Protokoll aus dem Wochenplan oder der Erinnerung gestartet wird, oder du trägst sie beim Bearbeiten ein.</p>') +
     '</details>';
   box.querySelectorAll('details.dash-nk-job').forEach(function(d) { if (openJobs[(d.querySelector('summary b') || {}).textContent]) d.open = true; });
 }
@@ -1525,7 +1533,7 @@ function openDashDetail(id) {
       <div style="font-weight:600;">${escapeHtml(plName)}</div>
     </div>${p.job_no ? `
     <div>
-      <div class="stat-label">Auftrag</div>
+      <div class="stat-label">Projektnummer</div>
       <div style="font-weight:600;">${escapeHtml(p.job_no)}</div>
     </div>` : ''}
     <div class="cost-only">
@@ -2047,7 +2055,7 @@ async function saveDashProtEdit() {
   };
   const jobEl = document.getElementById('pe-job');
   if (jobEl) {
-    if (!protJobNoValid(jobEl.value)) { showToast('Die Auftragsnummer sieht so aus: 26-0447.01. Bitte korrigieren oder leer lassen.', 'danger'); return; }
+    if (!protJobNoValid(jobEl.value)) { showToast('Die Projektnummer sieht so aus: 26-0447 (oder mit Auftrag: 26-0447.01). Bitte korrigieren oder leer lassen.', 'danger'); return; }
     protPayload.job_no = protJobNo(jobEl.value) || null;
   }
   // Same formula as the app, from the edited transports and the edited personnel (not the stored ones)

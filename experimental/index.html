@@ -162,8 +162,8 @@
               <input type="text" id="prot-event" placeholder="Name des Projekts" oninput="saveProtDraft()" /></label>
             <label class="ui-field"><span>Einsatzort / Location</span>
               <input type="text" id="prot-location" placeholder="Ort" oninput="saveProtDraft()" /></label>
-            <label class="ui-field"><span>Auftragsnummer (optional)</span>
-              <input type="text" id="prot-job" placeholder="z. B. 26-0447.01" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12" oninput="saveProtDraft()" /></label>
+            <label class="ui-field"><span>Projektnummer (optional)</span>
+              <input type="text" id="prot-job" placeholder="z. B. 26-0447" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12" oninput="saveProtDraft()" /></label>
             <div class="prot-date-row">
               <label class="ui-field"><span>Datum</span>
                 <input type="date" id="prot-date" onchange="saveProtDraft(); calcProtCosts(); protRefreshDriverHints()" /></label>
@@ -622,8 +622,8 @@
           <div class="ui-field"><span>Aufbauleitung (AL)</span><div id="pe-al-wrap"></div></div>
           <div class="ui-field"><span>Projektleitung (PL)</span><div id="pe-pl-wrap"></div></div>
         </div>
-        <label class="ui-field"><span>Auftragsnummer (optional)</span>
-          <input type="text" id="pe-job" placeholder="z. B. 26-0447.01" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12"></label>
+        <label class="ui-field"><span>Projektnummer (optional)</span>
+          <input type="text" id="pe-job" placeholder="z. B. 26-0447" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12"></label>
       </section>
 
       <!-- Transporte -->
@@ -889,17 +889,17 @@
   <script src="js/changelog.js?v=1"></script>
   <script src="js/settings.js?v=11"></script>
   <script src="js/stundenzettel.js?v=26"></script>
-  <script src="js/protokoll.js?v=48"></script>
+  <script src="js/protokoll.js?v=49"></script>
   <script src="js/erinnerung.js?v=12"></script>
   <script src="js/plan-pdf.js?v=2"></script>
   <script src="js/plan-parser.js?v=21"></script>
   <script src="js/order-parser.js?v=8"></script>
   <script src="js/order-slots.js?v=5"></script>
   <script src="js/planer.js?v=8"></script>
-  <script src="js/auftraege.js?v=12"></script>
+  <script src="js/auftraege.js?v=13"></script>
   <script src="js/wochenplan.js?v=34"></script>
   <script src="js/home.js?v=8"></script>
-  <script src="js/dashboard.js?v=46"></script>
+  <script src="js/dashboard.js?v=47"></script>
   <script src="js/produkte.js?v=18"></script>
   <script src="js/ordner.js?v=30"></script>
   <script src="js/app.js?v=27"></script>

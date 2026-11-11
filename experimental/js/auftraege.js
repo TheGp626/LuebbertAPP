@@ -371,9 +371,9 @@ var _ordNk = null; // null = not loaded (or not allowed) → no section
 function ordNachkalkHtml(jobs, open) {
   if (!jobs) return '';
   return '<details class="dash-nk ord-nk"' + (open ? ' open' : '') + '><summary>Nachkalkulation<span class="ui-sub"> · ' +
-    jobs.length + (jobs.length === 1 ? ' Auftrag' : ' Aufträge') + ' mit Protokoll</span></summary>' +
+    jobs.length + (jobs.length === 1 ? ' Projekt' : ' Projekte') + ' mit Protokoll</span></summary>' +
     (jobs.length ? jobs.map(function(j) { return dashNkJobHtml(j, false); }).join('')
-      : '<p class="ui-sub dash-nk-empty">Noch kein Protokoll mit Auftragsnummer. Die Nummer kommt von selbst mit, wenn ein Protokoll aus dem Wochenplan oder der Erinnerung gestartet wird. Bei älteren Protokollen trägst du sie im Dashboard beim Bearbeiten nach.</p>') +
+      : '<p class="ui-sub dash-nk-empty">Noch kein Protokoll mit Projektnummer. Die Nummer kommt von selbst mit, wenn ein Protokoll aus dem Wochenplan oder der Erinnerung gestartet wird. Bei älteren Protokollen trägst du sie im Dashboard beim Bearbeiten nach.</p>') +
     '</details>';
 }
 

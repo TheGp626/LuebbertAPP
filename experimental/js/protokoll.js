@@ -559,8 +559,10 @@ function protPlanPersonnel(shift, users) {
   return rows.filter(function(r) { return r.pos === 'AL'; }).concat(rows.filter(function(r) { return r.pos !== 'AL'; }));
 }
 
-// Auftragsnummer of the Auftragsbestätigung ("26-0447.01"): optional on a protocol, links it to its Auftrag (Nachkalkulation)
-var PROT_JOB_RE = /^\d{2}-\d{4}\.\d{2}$/;
+// Projektnummer of the Auftragsbestätigung ("26-0447"), optionally with the job in it ("26-0447.01"): optional on a
+// protocol, links it to its project (Nachkalkulation). Prefills carry the full job, a hand-typed project number is enough.
+var PROT_JOB_RE = /^\d{2}-\d{4}(\.\d{2})?$/;
+function protProjectNo(v) { var j = protJobNo(v); return PROT_JOB_RE.test(j) ? j.slice(0, 7) : ''; }
 function protJobNo(v) { return String(v == null ? '' : v).replace(/\s+/g, ''); }
 function protJobNoValid(v) { var j = protJobNo(v); return !j || PROT_JOB_RE.test(j); }
 // Which phase of an Auftrag a protocol covers follows from its action; Umbau and anything else → null
@@ -1178,7 +1180,7 @@ async function saveProtokoll() {
       (incEl.value.trim() && incEl.value.trim() !== 'nein' ? '\n' + incEl.value.trim() : '');
   }
   var jobNo = protJobNo((document.getElementById('prot-job') || {}).value);
-  if (!protJobNoValid(jobNo)) { showToast('Die Auftragsnummer sieht so aus: 26-0447.01. Bitte korrigieren oder leer lassen.', 'danger'); return; }
+  if (!protJobNoValid(jobNo)) { showToast('Die Projektnummer sieht so aus: 26-0447 (oder mit Auftrag: 26-0447.01). Bitte korrigieren oder leer lassen.', 'danger'); return; }
   calcProtCosts(); // the shown total may be stale (restored draft, rates loaded late)
   var usersLoaded = appUsers.length > 0;
   var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded);
@@ -1950,7 +1952,7 @@ function buildProtPdfDoc(entry, opts) {
   doc.setFont('helvetica','bold'); doc.text('Aktion:', ml+80, y+18); doc.setFont('helvetica','normal'); doc.text(data.action, ml+100, y+18);
   doc.setFont('helvetica','bold'); doc.text('AL:', ml+4, y+24); doc.setFont('helvetica','normal'); doc.text(data.al, ml+25, y+24);
   doc.setFont('helvetica','bold'); doc.text('PL:', ml+80, y+24); doc.setFont('helvetica','normal'); doc.text(data.pl, ml+100, y+24);
-  if (pdfJob) { doc.setFont('helvetica','bold'); doc.text('Auftrag:', ml+4, y+30); doc.setFont('helvetica','normal'); doc.text(pdfJob, ml+25, y+30); }
+  if (pdfJob) { doc.setFont('helvetica','bold'); doc.text('Projekt-Nr.:', ml+4, y+30); doc.setFont('helvetica','normal'); doc.text(pdfJob, ml+25, y+30); }
   y += pdfJob ? 46 : 40;
 
   // Transports
