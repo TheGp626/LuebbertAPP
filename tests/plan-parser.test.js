@@ -714,3 +714,71 @@ test('planParseWer: "Patryk ?" is Patryk with a question mark as note', () => {
   const w = P.planParseWer(['Patryk ? (AL)', 'Bert?']);
   assert.deepEqual(w.people.map(p => [p.name, p.role, p.note]), [['Patryk', 'AL', '?'], ['Bert', 'MA', '?']]);
 });
+
+// ── Check before publishing ──
+const chk = (shifts, avail) => P.planChecks(shifts.map(s => Object.assign({ venue: '', title: '', location: [], wann: [], details: [], notes: [], people: [], open: [], color: null }, s)), avail);
+const per = (name, role, extra) => Object.assign({ name, role: role || 'MA', note: null, userId: null }, extra || {});
+
+test('planChecks: too little rest after a night Abbau (11 hours)', () => {
+  const out = chk([
+    { date: '2026-11-17', venue: 'Estrel', title: 'Hussen', wann: ['Abbau 01.30 - 6 Uhr'], people: [per('Kacper', 'AL', { userId: 'k' }), per('Milan')] },
+    { date: '2026-11-18', venue: 'Messe', title: 'Gala', wann: ['Aufbau: 8 Uhr'], people: [per('Kacper', 'MA', { userId: 'k' })] },
+    { date: '2026-11-18', venue: 'Messe', title: 'Gala', wann: ['Aufbau: 17 Uhr'], people: [per('Milan')] },
+  ]);
+  assert.deepEqual(out.map(w => w.kind), ['ruhe']);
+  assert.match(out[0].text, /Kacper/);
+  assert.match(out[0].text, /2 Std\./);
+  assert.match(out[0].text, /18\.11\. um 8:00/);
+});
+
+test('planChecks: overlapping shifts at two places are a double booking; rows of one event are not', () => {
+  const out = chk([
+    { date: '2026-11-17', venue: 'Estrel', title: 'Business of Apps', location: ['Saal A'], wann: ['Aufbau: 8 - 16 Uhr'], people: [per('Anna', 'AL', { userId: 'a' }), per('Bert', 'MA', { userId: 'b' })] },
+    { date: '2026-11-17', venue: 'Estrel', title: 'Business of Apps', location: ['Saal B'], wann: ['Aufbau: 10 Uhr'], people: [per('Bert', 'MA', { userId: 'b' })] },
+    { date: '2026-11-17', venue: 'Messe', title: 'Gala', wann: ['Aufbau: 12 Uhr'], people: [per('Anna', 'MA', { userId: 'a' })] },
+    { date: '2026-11-17', venue: 'Tempodrom', title: 'Konzert', wann: ['Aufbau: 18 Uhr'], people: [per('Anna', 'MA', { userId: 'a' })] },
+  ]);
+  assert.deepEqual(out.map(w => w.kind), ['doppelt']);
+  assert.match(out[0].text, /Anna/);
+  assert.match(out[0].text, /Messe/);
+});
+
+test('planChecks: same start time at two places without an end is a double booking too', () => {
+  const out = chk([
+    { date: '2026-11-19', venue: 'Estrel', title: 'A', wann: ['Aufbau: 9 Uhr'], people: [per('Feli')] },
+    { date: '2026-11-19', venue: 'Messe', title: 'B', wann: ['Aufbau: 9 Uhr'], people: [per('Feli')] },
+    { date: '2026-11-19', venue: 'Tempodrom', title: 'C', wann: [], people: [per('Feli')] },
+  ]);
+  assert.deepEqual(out.map(w => w.kind), ['doppelt']);
+});
+
+test('planChecks: one vehicle at two places at the same time; rental vans without a plate are ignored', () => {
+  const out = chk([
+    { date: '2026-11-17', venue: 'Estrel', title: 'A', wann: ['Aufbau: 8 Uhr'], notes: ['BAR PL 550', 'LeihLkw'], people: [per('Anna', 'AL')] },
+    { date: '2026-11-17', venue: 'Messe', title: 'B', wann: ['Aufbau: 8 Uhr'], notes: ['BAR PL 550', 'LeihLkw'], people: [per('Bert', 'AL')] },
+    { date: '2026-11-17', venue: 'Tempodrom', title: 'C', wann: ['Aufbau: 15 Uhr'], notes: ['BAR PL 550'], people: [per('Carla', 'AL')] },
+  ]);
+  assert.deepEqual(out.map(w => [w.kind, /BAR PL 550/.test(w.text)]), [['fahrzeug', true]]);
+});
+
+test('planChecks: an Auftrag with three or more people and no AL; coloured entries and open AL slots are fine', () => {
+  const out = chk([
+    { date: '2026-11-20', venue: 'Estrel', title: 'Gala', wann: ['Aufbau: 8 Uhr'], people: [per('A'), per('B'), per('C')] },
+    { date: '2026-11-20', venue: 'Messe', title: 'Intern', color: '#ffff00', people: [per('D'), per('E'), per('F')] },
+    { date: '2026-11-20', venue: 'Tempodrom', title: 'Show', people: [per('G'), per('H'), per('I')], open: [{ role: 'AL', count: 1, note: null }] },
+    { date: '2026-11-20', venue: 'Arena', title: 'Messe', people: [per('J'), per('K', 'Fahrer'), per('L', 'Fahrer')] },
+    { date: '2026-11-21', venue: 'Estrel', title: 'Gala', location: ['Saal A'], people: [per('M', 'AL'), per('N')] },
+    { date: '2026-11-21', venue: 'Estrel', title: 'Gala', location: ['Saal B'], people: [per('O'), per('P'), per('Q')] },
+  ]);
+  assert.deepEqual(out.map(w => w.kind), ['al']);
+  assert.match(out[0].text, /20\.11\./);
+});
+
+test('planChecks: planned on a day marked "geht nicht" or "nur im Notfall"', () => {
+  const out = chk([
+    { date: '2026-11-17', venue: 'Estrel', title: 'A', people: [per('Anna', 'AL', { userId: 'a' }), per('Bert', 'MA', { userId: 'b' }), per('Carla', 'MA', { userId: 'c' })] },
+  ], { 'a|2026-11-17': 'nein', 'b|2026-11-17': 'notfall' });
+  assert.deepEqual(out.map(w => w.kind), ['nein', 'notfall']);
+  assert.match(out[0].text, /Anna.*geht nicht/);
+  assert.deepEqual(chk([]), []);
+});

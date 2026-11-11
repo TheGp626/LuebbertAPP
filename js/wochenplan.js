@@ -969,8 +969,32 @@ function wpPreviewShift(s, i, status) {
     plan_assignments: s.people.map(function(p) { return { name: p.name, role: p.role, note: p.note, user_id: p.userId || null }; }) });
 }
 
+// Availability of the week for the check in the preview ('userId|day' → level); loaded once per import, then the preview redraws
+async function wpLoadImportAvail(imp) {
+  var avail = {};
+  try {
+    var r = await supabaseClient.from('availability').select('user_id, day, level').gte('day', imp.parsed.weekStart).lte('day', imp.parsed.weekEnd);
+    if (!r.error) (r.data || []).forEach(function(a) { avail[a.user_id + '|' + a.day] = a.level; });
+  } catch (err) { /* the check runs without it */ }
+  imp.avail = avail;
+  if (wpImport === imp) wpRenderImport();
+}
+
+var WP_CHECK_LABEL = { ruhe: 'Ruhezeit', doppelt: 'Doppelt eingeplant', fahrzeug: 'Fahrzeug doppelt', al: 'Keine AL', nein: 'Geht nicht', notfall: 'Nur im Notfall' };
+function wpChecksHtml(checks) {
+  if (!checks.length) return '<div class="ui-card wp-check wp-check-ok"><div class="wp-card-title">Prüfung</div><div class="wp-sub">Keine Ruhezeit unter 11 Stunden, niemand doppelt, kein Fahrzeug doppelt.</div></div>';
+  var shown = checks.slice(0, 15);
+  return '<div class="ui-card wp-check"><div class="wp-card-title">Bitte prüfen <span class="wp-sub-inline">' + checks.length + (checks.length === 1 ? ' Hinweis' : ' Hinweise') + '</span></div>' +
+    '<div class="wp-sub" style="margin-bottom:8px;">Nur Hinweise, speichern geht trotzdem. Zeiten liest die App aus „Wann“ und den Notizen an den Namen.</div>' +
+    shown.map(function(c) { return '<div class="wp-check-row"><span class="ui-pill wp-check-' + c.kind + '">' + WP_CHECK_LABEL[c.kind] + '</span> ' + wpEsc(c.text) + '</div>'; }).join('') +
+    (checks.length > shown.length ? '<div class="wp-sub">… und ' + (checks.length - shown.length) + ' weitere.</div>' : '') + '</div>';
+}
+
 function wpRenderImport() {
   var p = wpImport.parsed, ex = wpImport.existing;
+  if (wpImport.avail === undefined) { wpImport.avail = null; wpLoadImportAvail(wpImport); }
+  var checks = [];
+  try { checks = planChecks(p.shifts, wpImport.avail); } catch (chkErr) { console.error('Prüfung:', chkErr); }
   var active = wpUsers.filter(function(u) { return u.is_active !== false && u.role !== 'Gast'; });
   var status = p.shifts.map(function() { return null; }), fields = [], diffInfo = '';
   if (ex) {
@@ -1021,6 +1045,7 @@ function wpRenderImport() {
       diffInfo +
       (p.warnings.length ? '<div class="wp-warn-text">' + p.warnings.map(wpEsc).join('<br>') + '</div>' : '') +
     '</div>' +
+    wpChecksHtml(checks) +
     (names.length ? '<div class="ui-card"><div class="wp-card-title">Namen zuordnen</div>' +
       '<div class="wp-sub" style="margin-bottom:10px;">Die App merkt sich deine Auswahl für die nächsten Pläne.</div>' + nameRows + '</div>' : '') +
     '<div class="ui-label">Vorschau</div>' + preview;

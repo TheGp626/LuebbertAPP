@@ -454,3 +454,10 @@ button.opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .dash-nk-over { color: var(--warn); font-size: 13px; }
 .dash-nk-prots { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px 14px; }
 .ord-nk { margin-top: 18px; }
+
+/* Wochenplan import: check before publishing */
+.wp-check-row { font-size: 14px; line-height: 1.4; padding: 6px 0; border-top: 0.5px solid var(--border); }
+.wp-check-row:first-of-type { border-top: 0; }
+.wp-check .ui-pill { margin-right: 4px; }
+.wp-check-ruhe, .wp-check-doppelt, .wp-check-nein { background: var(--danger-bg, #fbebeb); color: var(--danger, #b42318); }
+.wp-check-fahrzeug, .wp-check-al, .wp-check-notfall { background: var(--warn-bg, #f9eeda); color: var(--warn, #9a6700); }

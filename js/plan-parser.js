@@ -532,6 +532,129 @@ function planGuessAction(wann) {
   return 'Aufbau';
 }
 
+// ── Check before a week goes out (import preview of a PDF and of the Besetzungsplaner). Warnings only, never blocking. ──
+// A shift's time as minutes since 1970-01-01 (UTC days); times before 4:00 belong to the night after the plan day,
+// an end at or before the start runs into the next day. → { start, end } (end null when the plan names none) or null
+function planSpanOf(date, time, end) {
+  var hm = function(t) { var m = /^(\d{2}):(\d{2})$/.exec(t || ''); return m ? +m[1] * 60 + +m[2] : null; };
+  var d = String(date || '').split('-').map(Number), s = hm(time);
+  if (d.length !== 3 || s === null) return null;
+  var base = Date.UTC(d[0], d[1] - 1, d[2]) / 60000;
+  var start = base + s + (s < 240 ? 1440 : 0), e = hm(end), stop = null;
+  if (e !== null) { stop = start - s + e; if (stop <= start) stop += 1440; }
+  return { start: start, end: stop };
+}
+// One person's time on a shift: their own note ("ab 14 Uhr", "9 - 15 Uhr", "bis 12 Uhr") over the shift's Wann
+function planPersonTime(shift, person) {
+  var w = planWhen(shift.wann || []), own = person.note ? planWhen([person.note]) : { time: null };
+  var start = w.prefix === 'bis' ? null : w.time, end = w.prefix === 'bis' ? w.time : w.end;
+  if (own.time && own.prefix === 'bis') end = own.time;
+  else if (own.time) { start = own.time; end = own.end || null; }
+  return { time: start, end: end };
+}
+var PLAN_PLATE_RE = /\b([A-ZÄÖÜ]{1,3})[ -]([A-Z]{1,2})[ -]?(\d{1,4})\b/;
+var PLAN_CHECK_ORDER = ['ruhe', 'doppelt', 'fahrzeug', 'al', 'nein', 'notfall'];
+
+// shifts = parsed / planShiftFromDb shape (people carry userId once matched), avail = { 'userId|YYYY-MM-DD': 'nein' | 'notfall' }.
+// → [{ kind, date, text }]: ruhe (under 11 hours between two working days), doppelt (two places at once),
+// fahrzeug (one plate at two places at once), al (an Auftrag with 3+ people and no AL), nein / notfall (availability)
+function planChecks(shifts, avail) {
+  var out = [], day = function(iso) { return iso ? iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.' : ''; };
+  var clock = function(mins) { var m = ((mins % 1440) + 1440) % 1440; return Math.floor(m / 60) + ':' + ('0' + (m % 60)).slice(-2); };
+  var hours = function(mins) { return String(Math.round(mins / 30) / 2).replace('.', ','); };
+  var place = function(s) { return (s.venue || s.title || 'ohne Ort').trim(); };
+  var eventKey = function(s) { return [s.date, String(s.venue || '').toLowerCase(), String(planEventName(s) || '').toLowerCase()].join('|'); };
+  var overlap = function(a, b) {
+    if (a.start === b.start) return true;
+    var first = a.start < b.start ? a : b, second = first === a ? b : a;
+    return first.end !== null && second.start < first.end;
+  };
+  var list = shifts || [];
+
+  // People: every shift they are on, with their own time
+  var byPerson = {};
+  list.forEach(function(s, i) {
+    (s.people || []).forEach(function(p) {
+      var id = p.userId || ('n:' + planNormName(p.name));
+      if (id === 'n:') return;
+      var t = planPersonTime(s, p), span = planSpanOf(s.date, t.time, t.end);
+      var e = byPerson[id] = byPerson[id] || { name: p.name, items: [] };
+      e.items.push({ i: i, shift: s, span: span });
+      var level = p.userId && avail ? avail[p.userId + '|' + s.date] : null;
+      if (level === 'nein' || level === 'notfall') {
+        var key = level + '|' + id + '|' + s.date;
+        if (!out.some(function(w) { return w.key === key; }))
+          out.push({ key: key, kind: level, date: s.date, text: p.name + ' ist am ' + day(s.date) + ' eingeplant, hat den Tag aber auf ' + (level === 'nein' ? '„geht nicht“' : '„nur im Notfall“') + ' gesetzt.' });
+      }
+    });
+  });
+  Object.keys(byPerson).forEach(function(id) {
+    var e = byPerson[id], timed = e.items.filter(function(x) { return x.span; }).sort(function(a, b) { return a.span.start - b.span.start; });
+    for (var a = 0; a < timed.length; a++) {
+      for (var b = a + 1; b < timed.length; b++) {
+        var x = timed[a], y = timed[b];
+        if (eventKey(x.shift) === eventKey(y.shift)) continue;
+        if (overlap(x.span, y.span)) {
+          out.push({ kind: 'doppelt', date: x.shift.date, text: e.name + ' steht am ' + day(x.shift.date) + ' gleichzeitig bei ' + place(x.shift) + ' (' + clock(x.span.start) + ') und ' + place(y.shift) + ' (' + clock(y.span.start) + ').' });
+        } else if (b === a + 1 && x.span.end !== null && x.shift.date !== y.shift.date) {
+          var gap = y.span.start - x.span.end;
+          if (gap >= 0 && gap < 660)
+            out.push({ kind: 'ruhe', date: y.shift.date, text: e.name + ': nach dem Einsatz am ' + day(x.shift.date) + ' (' + place(x.shift) + ') bis ' + clock(x.span.end) + ' nur ' + hours(gap) + ' Std. Ruhe bis zum ' + day(y.shift.date) + ' um ' + clock(y.span.start) + ' (' + place(y.shift) + '). Vorgeschrieben sind 11 Stunden.' });
+        }
+      }
+    }
+  });
+
+  // Vehicles with a plate: the same one at two places at once
+  var byPlate = {};
+  list.forEach(function(s) {
+    var w = planWhen(s.wann || []), span = planSpanOf(s.date, w.prefix === 'bis' ? null : w.time, w.end);
+    if (!span) return;
+    var seen = {};
+    (s.notes || []).forEach(function(n) {
+      var m = PLAN_PLATE_RE.exec(n || '');
+      if (!m) return;
+      var plate = m[1] + ' ' + m[2] + ' ' + m[3];
+      if (seen[plate]) return;
+      seen[plate] = true;
+      (byPlate[plate] = byPlate[plate] || []).push({ shift: s, span: span });
+    });
+  });
+  Object.keys(byPlate).forEach(function(plate) {
+    var items = byPlate[plate].sort(function(a, b) { return a.span.start - b.span.start; }), done = {};
+    for (var a = 0; a < items.length; a++) for (var b = a + 1; b < items.length; b++) {
+      var x = items[a], y = items[b], k = eventKey(x.shift) + '>' + eventKey(y.shift);
+      if (eventKey(x.shift) === eventKey(y.shift) || done[k] || !overlap(x.span, y.span)) continue;
+      done[k] = true;
+      out.push({ kind: 'fahrzeug', date: x.shift.date, text: 'Fahrzeug ' + plate + ' ist am ' + day(x.shift.date) + ' um ' + clock(y.span.start) + ' bei ' + place(x.shift) + ' und bei ' + place(y.shift) + ' eingeplant.' });
+    }
+  });
+
+  // An Auftrag (white row) of one event and day with three or more people on site and no AL, not even an open AL slot
+  var groups = {}, order = [];
+  list.forEach(function(s) {
+    var c = String(s.color || '').toLowerCase();
+    if (c && PLAN_PLAIN_COLORS.indexOf(c) === -1) return;
+    var k = eventKey(s);
+    if (!groups[k]) { groups[k] = { shift: s, crew: {}, al: false }; order.push(k); }
+    var g = groups[k];
+    (s.people || []).forEach(function(p) {
+      if (p.role === 'AL') g.al = true;
+      else if (p.role !== 'Fahrer') g.crew[p.userId || planNormName(p.name)] = true;
+    });
+    if ((s.open || []).some(function(o) { return o.role === 'AL'; })) g.al = true;
+  });
+  order.forEach(function(k) {
+    var g = groups[k];
+    if (!g.al && Object.keys(g.crew).length >= 3)
+      out.push({ kind: 'al', date: g.shift.date, text: 'Am ' + day(g.shift.date) + ' hat „' + [g.shift.venue, planEventName(g.shift)].filter(function(v, i, a) { return v && a.indexOf(v) === i; }).join(' · ') + '“ keine AL.' });
+  });
+
+  return out.map(function(w) { return { kind: w.kind, date: w.date, text: w.text }; }).sort(function(a, b) {
+    return PLAN_CHECK_ORDER.indexOf(a.kind) - PLAN_CHECK_ORDER.indexOf(b.kind) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  });
+}
+
 // Rooms, halls and booths ("Saal Europa", "CH II", "Stand 20 | …", "Apollo Saal", "2. OG") – never an event name
 var PLAN_ROOM_LINE = /^(?:halle|raum|saal|foyer|stand(?=\s+\d)|auditorium|ch\s+i+|hub\s*\d+|\d+\.\s*og|\S+\s+saal|pl\s+lager)\b/i;
 
@@ -757,7 +880,7 @@ function planIcs(shifts, userId, stamp) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { planIsSentence: planIsSentence, planFindColumns: planFindColumns, planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
+  module.exports = { planChecks: planChecks, planSpanOf: planSpanOf, planIsSentence: planIsSentence, planFindColumns: planFindColumns, planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
     planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planChangedFields: planChangedFields, planAssigned: planAssigned, planShiftKey: planShiftKey,
     planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek, planCellLines: planCellLines,
     planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName,
