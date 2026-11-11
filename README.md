@@ -83,7 +83,7 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - sicherung speichern / einspielen gibt es nicht mehr, schichten und protokolle liegen in der datenbank
 
 ### 📊 Dashboard (AL, PL, Buchhaltung, Admin)
-- nachkalkulation pro auftrag: alle protokolle mit derselben auftragsnummer zusammengezählt, aufbau und abbau getrennt. leute gegen die geplanten MA, stunden, personal, transport, gesamt
+- nachkalkulation pro auftrag: alle protokolle mit derselben auftragsnummer zusammengezählt, aufbau und abbau getrennt. leute gegen die geplanten MA, stunden, personal, transport, gesamt. admin und PL sehen sie im reiter aufträge, buchhaltung und AL hier
 - **protokolle:** alles auf einen blick mit suche, kosten pro monat, bearbeiten
 - **mitarbeiter:** alle schichten eines MAs nach tatsächlichem arbeitsdatum, ausstehendes wird rot, monat als PDF
 - schichten als "eingetragen" verbuchen — nur buchhaltung / admin

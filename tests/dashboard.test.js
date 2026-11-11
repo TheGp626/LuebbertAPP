@@ -772,3 +772,15 @@ test('dashNkRowHtml: more people than planned is marked, costs carry cost-only',
   assert.match(html, /class="cost-only"><dt>Personal<\/dt><dd>480,00 €/);
   assert.doesNotMatch(run("dashNkRowHtml('Abbau', { count: 1, people: 2, mins: 60, cost: 0, transport: 0, planned: null }, false)"), /geplant/);
 });
+
+test('dashNkJobHtml: protocol buttons in the dashboard, plain days in the Aufträge tab', () => {
+  ctx.__job = { jobNo: '26-0447.01', name: 'Business <Apps>', from: '2026-11-11', to: '2026-11-12', protocols: [{ id: 'p1', date: '2026-11-11', action: 'Aufbau' }],
+    phases: { setup: { count: 1, people: 2, mins: 480, cost: 100, transport: 0, planned: 2 }, teardown: { count: 0, people: 0, mins: 0, cost: 0, transport: 0, planned: null }, other: { count: 0, people: 0, mins: 0, cost: 0, transport: 0, planned: null } },
+    total: { count: 1, people: 2, mins: 480, cost: 100, transport: 0, planned: null } };
+  const withLinks = run('dashNkJobHtml(__job)'), plainDays = run('dashNkJobHtml(__job, false)');
+  assert.match(withLinks, /openDashDetail\('p1'\)/);
+  assert.doesNotMatch(plainDays, /openDashDetail/);
+  assert.match(plainDays, /Protokolle: 11\.11\. Aufbau/);
+  assert.match(plainDays, /Business &lt;Apps&gt;/);
+  assert.doesNotMatch(plainDays, /Sonstiges/);
+});
