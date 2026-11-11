@@ -454,3 +454,30 @@ button.opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .dash-nk-over { color: var(--warn); font-size: 13px; }
 .dash-nk-prots { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px 14px; }
 .ord-nk { margin-top: 18px; }
+
+/* Wochenplan import: check before publishing */
+.wp-check-row { font-size: 14px; line-height: 1.4; padding: 6px 0; border-top: 0.5px solid var(--border); }
+.wp-check-row:first-of-type { border-top: 0; }
+.wp-check .ui-pill { margin-right: 4px; }
+.wp-check-ruhe, .wp-check-doppelt, .wp-check-nein { background: var(--danger-bg, #fbebeb); color: var(--danger, #b42318); }
+.wp-check-fahrzeug, .wp-check-al, .wp-check-notfall { background: var(--warn-bg, #f9eeda); color: var(--warn, #9a6700); }
+
+/* Absagen */
+.pl-chip-cancel { border-color: var(--danger); background: var(--danger-bg); }
+.pl-chip-cancel s { text-decoration-color: var(--danger); }
+.pl-chip-cancel small { color: var(--danger); font-weight: 600; }
+.pl-cancel { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--danger-bg); font-size: 14px; }
+.pl-cancel-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.pl-head .pl-cancel { margin-top: 10px; }
+.wp-cancel-btn { color: var(--danger); }
+
+/* Home: Heute card */
+.home-today { cursor: default; }
+.home-today-addr { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0 2px; font-size: 14px; }
+.home-today-addr span { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.home-today .wp-details { font-size: 14px; }
+.home-today-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+
+/* Dashboard: Monatsabschluss */
+.dash-close-body { display: grid; gap: 8px; padding: 4px 0 12px; }
+.dash-close-btns { display: flex; gap: 8px; flex-wrap: wrap; }

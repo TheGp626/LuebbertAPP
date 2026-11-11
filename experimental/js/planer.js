@@ -367,6 +367,33 @@ function plRemovePerson(row, index) {
   return (row.people || []).filter(function(_, i) { return i !== index; });
 }
 
+// ── Absagen (plan_cancellations): cancels = { planKey: [userId] } of the open ones ──
+// → [{ user_id, index, name }] for one row; index = place on the row, -1 when the person is no longer on it
+function plCancelsOnRow(row, key, cancels, users) {
+  if (!key || !cancels || !cancels[key]) return [];
+  return cancels[key].map(function(uid) {
+    var idx = ((row && row.people) || []).findIndex(function(p) { return p.user_id === uid; });
+    var u = (users || []).find(function(x) { return x.id === uid; });
+    return { user_id: uid, index: idx, name: idx !== -1 ? row.people[idx].name : (u ? u.full_name : 'Jemand') };
+  });
+}
+// The replacement takes the place and the role of the person who cancelled; their time note does not carry over
+function plReplacePerson(row, index, person) {
+  var people = (row.people || []).slice(), old = people[index], name = plText(person && person.name);
+  if (!old || !name) return null;
+  if (people.some(function(p, i) { return i !== index && ((person.user_id && p.user_id === person.user_id) || String(p.name || '').trim().toLowerCase() === name.toLowerCase()); })) return null;
+  people[index] = { user_id: person.user_id || null, name: name, role: old.role || 'MA', note: null };
+  return people;
+}
+// Open Absagen whose shift is not a row of the draft (renamed or deleted since): listed in the head
+function plUnmatchedCancels(keysByRow, cancels) {
+  var known = {};
+  Object.keys(keysByRow || {}).forEach(function(r) { known[keysByRow[r]] = true; });
+  var out = [];
+  Object.keys(cancels || {}).forEach(function(k) { if (!known[k]) cancels[k].forEach(function(uid) { out.push({ key: k, user_id: uid }); }); });
+  return out;
+}
+
 // A save only applies to the row as it was loaded (0 rows back = someone else changed it meanwhile)
 function plRowPatch(row, changes) {
   return { match: { id: row.id, updated_at: row.updated_at }, values: changes };
@@ -509,13 +536,21 @@ async function plRender() {
   });
   ((res[6] && !res[6].error && res[6].data) || []).forEach(function(p) { tracked[p.id] = true; });
   plState = { week: week, draft: res[0].data || null, rows: res[1].data || [], planWeek: res[2].data || null, slots: res[3], avail: avail, apps: apps,
-    tracked: tracked, interest: {}, keys: {}, stale: [], hasKind: !!(res[7] && !res[7].error), hasOpen: !!(res[8] && !res[8].error) };
+    tracked: tracked, interest: {}, keys: {}, stale: [], cancels: null, replace: null, hasKind: !!(res[7] && !res[7].error), hasOpen: !!(res[8] && !res[8].error) };
   if (plState.planWeek) {
     // "Ich kann" on entries of the published plan (free entries with open places); an extra like the hints above
     var pi;
     try { pi = await supabaseClient.from('plan_shift_interest').select('shift_key, user_id, status').eq('week_id', plState.planWeek.id); } catch (e) { pi = { error: e }; }
     if (seq !== plSeq || wpView !== 'plan') return;
     ((pi && !pi.error && pi.data) || []).forEach(function(r) { (plState.interest[r.shift_key] = plState.interest[r.shift_key] || {})[r.user_id] = r.status || 'offen'; });
+    // Absagen: without the table (migration absagen not applied yet) or the right to read it, cancels stays null
+    var pc;
+    try { pc = await supabaseClient.from('plan_cancellations').select('shift_key, user_id').eq('week_id', plState.planWeek.id).eq('status', 'offen'); } catch (e) { pc = { error: e }; }
+    if (seq !== plSeq || wpView !== 'plan') return;
+    if (pc && !pc.error) {
+      plState.cancels = {};
+      (pc.data || []).forEach(function(r) { (plState.cancels[r.shift_key] = plState.cancels[r.shift_key] || []).push(r.user_id); });
+    }
   }
   if (plState.draft && await plSyncSlots(seq)) return; // rows were added or moved: plSyncSlots rendered the fresh state
   if (seq !== plSeq || wpView !== 'plan') return;
@@ -564,11 +599,20 @@ function plPaint() {
     if (st.planWeek && !planner) { text = 'Diese Woche hat schon einen Plan. Einen Entwurf daraus kann nur anlegen, wer den Wochenplan plant.'; btn = ''; }
     else if (st.planWeek) text = 'Der Plan dieser Woche wurde als PDF hochgeladen. Der Entwurf übernimmt alle Einträge daraus, du kannst hier weiterplanen.';
     else text = 'Die Aufträge dieser Woche stehen gleich drin, mit allen, die schon angenommen wurden. Den Rest trägst du frei ein.';
+    var nc = plCancelCount(st);
+    if (nc && planner) text += ' Es ' + (nc === 1 ? 'gibt 1 offene Absage' : 'gibt ' + nc + ' offene Absagen') + ': Ersatz trägst du im Entwurf ein.';
     box.innerHTML = nav + uiEmptyHtml('Noch kein Entwurf für KW ' + st.week.kw, text, btn);
     return;
   }
   var stalePlan = st.draft.published_version != null && st.planWeek && st.planWeek.version !== st.draft.published_version;
+  var nCancel = plCancelCount(st), lost = plUnmatchedCancels(st.keys, st.cancels);
   var head = '<div class="ui-card pl-head">' + plStatusHtml(st) +
+    (nCancel ? ' <span class="ui-pill ui-pill-danger">' + nCancel + (nCancel === 1 ? ' Absage offen' : ' Absagen offen') + '</span>' : '') +
+    lost.map(function(c) {
+      var u = wpUsers.find(function(x) { return x.id === c.user_id; });
+      return '<div class="pl-cancel">' + plE(u ? u.full_name : 'Jemand') + ' hat für „' + plE(c.key.split('|').slice(1).join(' · ')) + '“ (' + plDayShort(c.key.slice(0, 10)) +
+        ') abgesagt, der Eintrag steht nicht mehr im Entwurf.' + (planner ? ' <button type="button" class="ord-textbtn" onclick="plCancelDone(\'' + jsAttrArg(c.key) + '\', \'' + jsAttrArg(c.user_id) + '\')">Erledigt</button>' : '') + '</div>';
+    }).join('') +
     (stalePlan && planner ? '<div class="ui-sub" style="margin-top:8px;">Der Entwurf passt nicht mehr zum veröffentlichten Plan. ' +
       '<button type="button" class="ord-textbtn" onclick="plRestart()">Entwurf aus dem aktuellen Plan neu aufbauen</button></div>' : '') +
     '<div class="pl-actions">' +
@@ -605,6 +649,26 @@ function plForInsert(rows) {
 
 function plApplied(r) { return plAppliedFor(r, plState.keys[r.id], plState.apps, plState.interest); }
 
+function plCancelCount(st) {
+  var n = 0;
+  Object.keys((st && st.cancels) || {}).forEach(function(k) { n += st.cancels[k].length; });
+  return n;
+}
+
+// The Absage lines under the people of a row: replace, only take off, or mark done when the person is gone already
+function plCancelHtml(r, can) {
+  var key = plState.keys[r.id], id = "'" + jsAttrArg(r.id) + "'";
+  return plCancelsOnRow(r, key, plState.cancels, wpUsers).map(function(c) {
+    var uid = "'" + jsAttrArg(c.user_id) + "'";
+    if (c.index === -1)
+      return '<div class="pl-cancel"><b>' + plE(c.name) + '</b> hat abgesagt und steht nicht mehr auf dem Eintrag.' +
+        (can ? ' <button type="button" class="ord-textbtn" onclick="plCancelDone(\'' + jsAttrArg(key) + '\', ' + uid + ')">Erledigt</button>' : '') + '</div>';
+    return '<div class="pl-cancel"><b>' + plE(c.name) + '</b> hat abgesagt.' +
+      (can ? '<div class="pl-cancel-actions"><button type="button" class="ui-btn ui-btn-primary dash-small-btn" onclick="plStartReplace(' + id + ', ' + uid + ')">Ersatz suchen</button>' +
+        '<button type="button" class="ord-textbtn" onclick="plCancelDrop(' + id + ', ' + uid + ')">Nur austragen</button></div>' : '') + '</div>';
+  }).join('');
+}
+
 function plRowById(id) { return plState ? plState.rows.find(function(r) { return r.id === id; }) : null; }
 
 function plRowHtml(r, who) {
@@ -612,11 +676,13 @@ function plRowHtml(r, who) {
   var id = "'" + jsAttrArg(r.id) + "'";
   var count = need ? '<span class="ui-pill ' + (filled >= need ? 'ui-pill-ok' : 'ui-pill-warn') + '">' + filled + ' von ' + need + ' besetzt</span>'
     : (filled ? '<span class="ui-pill ui-pill-info">' + filled + ' eingeplant</span>' : '');
+  var gone = {};
+  plCancelsOnRow(r, plState.keys[r.id], plState.cancels, wpUsers).forEach(function(c) { if (c.index !== -1) gone[c.index] = true; });
   var chips = (r.people || []).map(function(p, i) {
     var role = '<b>' + plE(p.role || 'MA') + '</b>';
-    return '<span class="pl-chip' + (PL_AGENCY.indexOf(p.role) !== -1 ? ' pl-chip-agency' : '') + '">' +
+    return '<span class="pl-chip' + (PL_AGENCY.indexOf(p.role) !== -1 ? ' pl-chip-agency' : '') + (gone[i] ? ' pl-chip-cancel' : '') + '">' +
       (can ? '<button type="button" class="pl-chip-role" aria-label="Rolle von ' + plE(p.name) + ' ändern, jetzt ' + plE(p.role || 'MA') + '" onclick="plRoleMenu(' + id + ', ' + i + ')">' + role + '</button>' : role) +
-      '<span>' + plE(p.name) + (p.note ? ' <small>' + plE(p.note) + '</small>' : '') + '</span>' +
+      '<span>' + (gone[i] ? '<s>' + plE(p.name) + '</s>' : plE(p.name)) + (gone[i] ? ' <small>sagt ab</small>' : p.note ? ' <small>' + plE(p.note) + '</small>' : '') + '</span>' +
       (can ? '<button type="button" class="pl-chip-x" aria-label="' + plE(p.name) + ' entfernen" onclick="plRemove(' + id + ', ' + i + ')">×</button>' : '') +
     '</span>';
   }).join('');
@@ -638,6 +704,7 @@ function plRowHtml(r, who) {
         '<svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM13 7l4 4"/></svg></button>' : '') +
     '</div>' +
     (chips ? '<div class="pl-chips">' + chips + '</div>' : '') +
+    plCancelHtml(r, can) +
     (can ? (plOpenRow === r.id ? plPickerHtml(r) :
       '<button type="button" class="ord-textbtn pl-add" onclick="plTogglePicker(' + id + ')">+ Person</button>') : '') +
   '</div>';
@@ -658,7 +725,7 @@ function plPickerHtml(r) {
       '<span>' + plE((u && u.full_name) || c.name) + '</span>' + tag + '</button>';
   }).join('');
   return '<div class="pl-picker">' +
-    '<div class="pl-picker-head"><span class="ui-label" style="margin:0;">Person hinzufügen</span>' +
+    '<div class="pl-picker-head"><span class="ui-label" style="margin:0;">' + plPickerTitle(r) + '</span>' +
       '<button type="button" class="ord-textbtn" onclick="plTogglePicker(' + id + ')">Schließen</button></div>' +
     '<div class="pl-find">' +
       '<input type="search" class="meta-input" id="pl-search" placeholder="Name suchen" aria-label="Name suchen" autocomplete="off" autocapitalize="words" ' +
@@ -698,7 +765,62 @@ function plPickedRole() { var sel = document.getElementById('pl-role'); return s
 
 function plTogglePicker(id) {
   plOpenRow = plOpenRow === id ? null : id;
+  if (plState) plState.replace = null;
   plPaint();
+}
+
+// Replacing someone who cancelled: the picker of that row puts the chosen person in their place
+function plReplacing(row) {
+  var rp = plState && plState.replace;
+  if (!rp || !row || rp.rowId !== row.id) return null;
+  var idx = (row.people || []).findIndex(function(p) { return p.user_id === rp.userId; });
+  return idx === -1 ? null : { index: idx, userId: rp.userId, name: row.people[idx].name };
+}
+function plPickerTitle(r) { var rp = plReplacing(r); return rp ? 'Ersatz für ' + plE(rp.name) : 'Person hinzufügen'; }
+
+function plStartReplace(id, userId) {
+  if (!plState) return;
+  plOpenRow = id;
+  plState.replace = { rowId: id, userId: userId };
+  plPaint();
+}
+
+// Marks an Absage done (with the replacement, if any). RLS: planner switch, PL or Admin.
+async function plCancelDone(key, userId, replacementId) {
+  var st = plState;
+  if (!st || !st.planWeek) return false;
+  var r;
+  try {
+    r = await supabaseClient.from('plan_cancellations').update({ status: 'erledigt', replacement_user_id: replacementId || null })
+      .eq('week_id', st.planWeek.id).eq('shift_key', key).eq('user_id', userId).select('user_id');
+  } catch (e) { r = { error: e }; }
+  if (r.error || !r.data || !r.data.length) { console.error('Absage erledigen:', r.error); showToast('Absage nicht als erledigt gespeichert.', 'danger'); return false; }
+  if (st.cancels && st.cancels[key]) {
+    st.cancels[key] = st.cancels[key].filter(function(u) { return u !== userId; });
+    if (!st.cancels[key].length) delete st.cancels[key];
+  }
+  plPaint();
+  return true;
+}
+
+// "Nur austragen": the person who cancelled comes off the row, nobody takes the place
+async function plCancelDrop(id, userId) {
+  var row = plRowById(id), key = plState && plState.keys[id];
+  if (!row) return;
+  var idx = (row.people || []).findIndex(function(p) { return p.user_id === userId; });
+  if (idx === -1 || !await plSave(row, { people: plRemovePerson(row, idx) })) return;
+  if (await plCancelDone(key, userId, null)) showToast('Ausgetragen. Mit „Veröffentlichen“ steht es im Plan.', 'success');
+}
+
+async function plReplaceWith(row, rp, person) {
+  var key = plState.keys[row.id], people = plReplacePerson(row, rp.index, person);
+  if (!people) { showToast('Steht schon auf dem Eintrag.', 'danger'); return false; }
+  plOpenRow = null;
+  plState.replace = null;
+  if (!await plSave(row, { people: people })) return false;
+  await plCancelDone(key, rp.userId, person.user_id || null);
+  showToast('Ersetzt. Mit „Veröffentlichen“ bekommt ' + person.name + ' Bescheid.', 'success');
+  return true;
 }
 
 // Saves one row. A PL who fills an Auftrag row without AP becomes its AP (the RLS allows nothing else).
@@ -728,6 +850,11 @@ async function plSave(row, changes) {
 async function plPlace(id, userId) {
   var row = plRowById(id), u = wpUsers.find(function(x) { return x.id === userId; });
   if (!row || !u) return;
+  var rp = plReplacing(row);
+  if (rp) {
+    if (await plReplaceWith(row, rp, { user_id: u.id, name: plShortName(u, wpUsers) })) await plMeldungSet(id, u.id, 'offen', 'angenommen');
+    return;
+  }
   var role = plPlaceRole(plPickedRole(), true);
   var people = plAddPerson(row, { user_id: u.id, name: plShortName(u, wpUsers), role: role });
   if (people && await plSave(row, plWithOpen(row, role, { people: people }))) await plMeldungSet(id, u.id, 'offen', 'angenommen');
@@ -736,6 +863,8 @@ async function plPlace(id, userId) {
 async function plPlaceFree(id) {
   var row = plRowById(id), name = document.getElementById('pl-search');
   if (!row || !name) return;
+  var rpFree = plReplacing(row);
+  if (rpFree) { await plReplaceWith(row, rpFree, { user_id: null, name: planStripPhones(name.value) }); return; }
   var freeRole = plPlaceRole(plPickedRole(), false);
   var people = plAddPerson(row, { user_id: null, name: planStripPhones(name.value), role: freeRole });
   if (!people) { showToast(plText(name.value) ? 'Steht schon auf dem Eintrag.' : 'Bitte einen Namen eintragen.', 'danger'); return; }
@@ -1073,7 +1202,7 @@ function plExportPdf() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { plMonday: plMonday, plWeekOf: plWeekOf, plShortName: plShortName, plWannText: plWannText, plRowFromSlot: plRowFromSlot,
+  module.exports = { plCancelsOnRow: plCancelsOnRow, plReplacePerson: plReplacePerson, plUnmatchedCancels: plUnmatchedCancels, plMonday: plMonday, plWeekOf: plWeekOf, plShortName: plShortName, plWannText: plWannText, plRowFromSlot: plRowFromSlot,
     plMergeSlots: plMergeSlots, plRowsFromPlan: plRowsFromPlan, plSeed: plSeed, plFilled: plFilled, plOpenSlots: plOpenSlots, plToParsed: plToParsed,
     plCandidates: plCandidates, plSearchMatch: plSearchMatch, plPlaceRole: plPlaceRole, plCanEdit: plCanEdit, plCanPublish: plCanPublish, plCanOpen: plCanOpen, plPublishProblems: plPublishProblems,
     plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plKindOfColor: plKindOfColor, plKind: plKind, plWithoutKind: plWithoutKind, plWithout: plWithout, plOpenOther: plOpenOther, plTakeOpen: plTakeOpen, plSetOpen: plSetOpen, plRowKeys: plRowKeys, plAppliedFor: plAppliedFor, plOpenMeldungen: plOpenMeldungen, plMeldungTargets: plMeldungTargets, plWasText: plWasText, plWasSplit: plWasSplit, plIsAppWeek: plIsAppWeek, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };

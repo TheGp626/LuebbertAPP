@@ -201,6 +201,68 @@ function wpInterestBlock(s) {
   return '<div class="wp-ord-action wp-int-action"><button type="button" class="wp-ord-apply" onclick="' + call + '">Ich kann</button></div>';
 }
 
+// ── Absagen: "Ich kann doch nicht" on an own shift (plan_cancellations). _wpCancels = { 'weekId|key': status } of my
+// own Absagen; null while the table is missing or could not be read → no button at all ──
+var _wpCancels = null;
+async function wpLoadMyCancels() {
+  var me = wpMe();
+  if (!me) { _wpCancels = null; return; }
+  try {
+    var r = await supabaseClient.from('plan_cancellations').select('week_id, shift_key, status').eq('user_id', me);
+    if (r.error) throw r.error;
+    _wpCancels = {};
+    (r.data || []).forEach(function(c) { _wpCancels[c.week_id + '|' + c.shift_key] = c.status; });
+  } catch (err) { _wpCancels = null; }
+}
+function wpCanCancel(s, me, today) {
+  return !!(me && s && s.week_id && s.key && s.date >= today && (s.plan_assignments || []).some(function(a) { return a.user_id === me; }));
+}
+function wpCancelSoon(date, today) { return date <= wpAddDays(today, 1); }
+function wpCancelBlock(s) {
+  if (!_wpCancels || !s || !s.week_id) return '';
+  var st = _wpCancels[s.week_id + '|' + s.key], call = function(fn) { return 'event.stopPropagation(); ' + fn + '(this, \'' + s.id + '\')'; };
+  if (st === 'offen')
+    return '<div class="wp-ord-action wp-cancel-action" onclick="event.stopPropagation()"><span class="ord-pill ord-pill-danger">Abgesagt · wartet auf Ersatz</span>' +
+      '<button type="button" class="ord-textbtn" onclick="' + call('wpWithdrawCancel') + '">Zurückziehen</button></div>';
+  if (st === 'erledigt') return '<div class="wp-ord-action wp-cancel-action"><span class="ord-pill ord-pill-muted">Abgesagt · erledigt</span></div>';
+  if (!wpCanCancel(s, wpMe(), localDateStr())) return '';
+  return '<div class="wp-ord-action wp-cancel-action"><button type="button" class="ord-textbtn wp-cancel-btn" onclick="' + call('wpCancelShift') + '">Ich kann doch nicht</button></div>';
+}
+async function wpCancelShift(btn, shiftId) {
+  var s = _wpShiftCache[shiftId], me = wpMe();
+  if (!s || !me) return;
+  var soon = wpCancelSoon(s.date, localDateStr());
+  if (!confirm('Für ' + wpDayLabel(s.date) + ' (' + (s.venue || 'Einsatz') + ') absagen?\n\nDie Planung sieht das und trägt Ersatz ein. Einen Grund musst du nicht angeben.' +
+      (soon ? '\n\nDer Einsatz ist schon heute oder morgen: sag bitte zusätzlich direkt deiner PL Bescheid.' : ''))) return;
+  btn.disabled = true;
+  var r;
+  try { r = await supabaseClient.from('plan_cancellations').insert({ week_id: s.week_id, shift_key: s.key, user_id: me }).select('user_id'); } catch (e) { r = { error: e }; }
+  if (r.error || !r.data || !r.data.length) {
+    console.error('Absagen:', r.error);
+    showToast('Nicht gespeichert. Prüf deine Verbindung.', 'danger');
+    btn.disabled = false;
+    return;
+  }
+  if (_wpCancels) _wpCancels[s.week_id + '|' + s.key] = 'offen';
+  showToast(soon ? 'Abgesagt. Ruf bitte noch deine PL an.' : 'Abgesagt. Die Planung kümmert sich um Ersatz.', 'success');
+  wpSetView(wpView);
+}
+async function wpWithdrawCancel(btn, shiftId) {
+  var s = _wpShiftCache[shiftId], me = wpMe();
+  if (!s || !me) return;
+  btn.disabled = true;
+  var r;
+  try { r = await supabaseClient.from('plan_cancellations').delete().eq('week_id', s.week_id).eq('shift_key', s.key).eq('user_id', me).eq('status', 'offen').select('user_id'); } catch (e) { r = { error: e }; }
+  if (r.error || !r.data || !r.data.length) {
+    showToast('Nicht zurückgezogen, vielleicht hat die Planung schon Ersatz eingetragen.', 'danger');
+    btn.disabled = false;
+    return;
+  }
+  if (_wpCancels) delete _wpCancels[s.week_id + '|' + s.key];
+  showToast('Absage zurückgezogen. Du bist wieder dabei.', 'success');
+  wpSetView(wpView);
+}
+
 // Admin always, everyone else (PL included) only when "Sieht Bewerbungen" is switched on for them
 function wpSeesInterest() { return (typeof userRole !== 'undefined' && userRole === 'Admin') || !!window.currentUserSeesInterest; }
 
@@ -402,7 +464,7 @@ function wpRow(s, opts) {
       wpTeamLine(s) +
       wpDetails(s) +
       (s._orders || []).map(function(o) { return wpOrderBlock(o, s); }).join('') +
-      wpProtButton(s) + wpInterestBlock(s) +
+      wpProtButton(s) + wpInterestBlock(s) + wpCancelBlock(s) +
     '</div>' +
   '</div>';
 }
@@ -436,6 +498,7 @@ function wpHero(s) {
       '<div class="wp-more">Details ' + WP_ICON.chevron + '</div>' +
       wpDetails(s) +
       wpProtButton(s, 'primary wp-prot-wide') +
+      wpCancelBlock(s) +
     '</div>';
 }
 
@@ -608,7 +671,8 @@ async function wpRenderMine() {
       .eq('user_id', wpMe())
       .gte('shift.date', from),
     wpLoadSlots(),
-    wpLoadAcceptedShifts()
+    wpLoadAcceptedShifts(),
+    wpLoadMyCancels()
   ]);
   var data = mineRes.data, error = mineRes.error;
   // The user switched tab/week or another render started meanwhile → drop this result
@@ -766,7 +830,8 @@ async function wpRenderWeek() {
   var [res, iq, slots] = await Promise.all([
     week._virtual ? none : supabaseClient.from('plan_shifts').select('*, plan_assignments(*)').eq('week_id', week.id).order('date').order('sort'),
     week._virtual ? none : supabaseClient.from('plan_shift_interest').select('shift_key, user_id, status').eq('week_id', week.id),
-    wpLoadSlots()
+    wpLoadSlots(),
+    wpLoadMyCancels()
   ]);
   var data = res.data, error = res.error;
   if (seq !== _wpRenderSeq || wpView !== 'all' || wpWeekId !== week.id) return;
@@ -969,8 +1034,32 @@ function wpPreviewShift(s, i, status) {
     plan_assignments: s.people.map(function(p) { return { name: p.name, role: p.role, note: p.note, user_id: p.userId || null }; }) });
 }
 
+// Availability of the week for the check in the preview ('userId|day' → level); loaded once per import, then the preview redraws
+async function wpLoadImportAvail(imp) {
+  var avail = {};
+  try {
+    var r = await supabaseClient.from('availability').select('user_id, day, level').gte('day', imp.parsed.weekStart).lte('day', imp.parsed.weekEnd);
+    if (!r.error) (r.data || []).forEach(function(a) { avail[a.user_id + '|' + a.day] = a.level; });
+  } catch (err) { /* the check runs without it */ }
+  imp.avail = avail;
+  if (wpImport === imp) wpRenderImport();
+}
+
+var WP_CHECK_LABEL = { ruhe: 'Ruhezeit', doppelt: 'Doppelt eingeplant', fahrzeug: 'Fahrzeug doppelt', al: 'Keine AL', nein: 'Geht nicht', notfall: 'Nur im Notfall' };
+function wpChecksHtml(checks) {
+  if (!checks.length) return '<div class="ui-card wp-check wp-check-ok"><div class="wp-card-title">Prüfung</div><div class="wp-sub">Keine Ruhezeit unter 11 Stunden, niemand doppelt, kein Fahrzeug doppelt.</div></div>';
+  var shown = checks.slice(0, 15);
+  return '<div class="ui-card wp-check"><div class="wp-card-title">Bitte prüfen <span class="wp-sub-inline">' + checks.length + (checks.length === 1 ? ' Hinweis' : ' Hinweise') + '</span></div>' +
+    '<div class="wp-sub" style="margin-bottom:8px;">Nur Hinweise, speichern geht trotzdem. Zeiten liest die App aus „Wann“ und den Notizen an den Namen.</div>' +
+    shown.map(function(c) { return '<div class="wp-check-row"><span class="ui-pill wp-check-' + c.kind + '">' + WP_CHECK_LABEL[c.kind] + '</span> ' + wpEsc(c.text) + '</div>'; }).join('') +
+    (checks.length > shown.length ? '<div class="wp-sub">… und ' + (checks.length - shown.length) + ' weitere.</div>' : '') + '</div>';
+}
+
 function wpRenderImport() {
   var p = wpImport.parsed, ex = wpImport.existing;
+  if (wpImport.avail === undefined) { wpImport.avail = null; wpLoadImportAvail(wpImport); }
+  var checks = [];
+  try { checks = planChecks(p.shifts, wpImport.avail); } catch (chkErr) { console.error('Prüfung:', chkErr); }
   var active = wpUsers.filter(function(u) { return u.is_active !== false && u.role !== 'Gast'; });
   var status = p.shifts.map(function() { return null; }), fields = [], diffInfo = '';
   if (ex) {
@@ -1021,6 +1110,7 @@ function wpRenderImport() {
       diffInfo +
       (p.warnings.length ? '<div class="wp-warn-text">' + p.warnings.map(wpEsc).join('<br>') + '</div>' : '') +
     '</div>' +
+    wpChecksHtml(checks) +
     (names.length ? '<div class="ui-card"><div class="wp-card-title">Namen zuordnen</div>' +
       '<div class="wp-sub" style="margin-bottom:10px;">Die App merkt sich deine Auswahl für die nächsten Pläne.</div>' + nameRows + '</div>' : '') +
     '<div class="ui-label">Vorschau</div>' + preview;
