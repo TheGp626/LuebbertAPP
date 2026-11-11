@@ -1106,18 +1106,43 @@ async function dashLoadMonthSummary() {
   var from = new Date(r.from + 'T12:00:00Z'); from.setUTCDate(from.getUTCDate() - 3);
   var to = new Date(r.to + 'T12:00:00Z'); to.setUTCDate(to.getUTCDate() + 3);
   var f = from.toISOString().slice(0, 10), t = to.toISOString().slice(0, 10);
-  var cols = 'id, user_id, start_time, end_time, pause_mins, position_role, status, shift_date, created_at, protocols(date)';
+  // Everything the Stundenzettel pages need: times, place, AL and the signature of the protocol
+  var base = 'id, user_id, start_time, end_time, pause_mins, position_role, status, shift_date, created_at, ort, ';
+  var prot = '(date, al_name_fallback, pl_name_fallback, signature_text, projects(name, location))';
   var res = await Promise.all([
-    supabaseClient.from('shifts').select(cols).not('user_id', 'is', null).gte('shift_date', f).lte('shift_date', t).range(0, 4999),
-    supabaseClient.from('shifts').select('id, user_id, start_time, end_time, pause_mins, position_role, status, shift_date, created_at, protocols!inner(date)')
+    supabaseClient.from('shifts').select(base + 'protocols' + prot).not('user_id', 'is', null).gte('shift_date', f).lte('shift_date', t).range(0, 4999),
+    supabaseClient.from('shifts').select(base + 'protocols!inner' + prot)
       .not('user_id', 'is', null).is('shift_date', null).gte('protocols.date', f).lte('protocols.date', t).range(0, 4999),
     supabaseClient.from('app_users').select('id, full_name, role, hourly_rate_conni, income_limit')
   ]);
   var err = res[0].error || res[1].error || res[2].error;
   if (err) throw err;
-  var seen = {}, shifts = [];
+  var seen = {}, shifts = [], users = res[2].data || [];
   (res[0].data || []).concat(res[1].data || []).forEach(function(s) { if (!seen[s.id]) { seen[s.id] = true; shifts.push(s); } });
-  return { key: key, label: monthLabelFromKey(key), range: r, sum: dashMonthSummary(shifts, res[2].data || [], key, cutoff) };
+  var sum = dashMonthSummary(shifts, users, key, cutoff), months = {};
+  // Each person's Stundenzettel, built like the single PDF in the dashboard; its hours are the ones in the overview
+  // (a protocol shift replaces a self-entered one at the same time there), so overview, CSV and pages agree
+  sum.rows.forEach(function(r) {
+    months[r.id] = dashBuildMonthWeeks(shifts.filter(function(s) { return s.user_id === r.id; }), key, r.name);
+  });
+  dashSummaryFromMonths(sum, months);
+  return { key: key, label: monthLabelFromKey(key), range: r, sum: sum, months: months };
+}
+
+// Overview hours (and pay, share of the limit, totals) from the built Stundenzettel months
+function dashSummaryFromMonths(sum, months) {
+  sum.total.mins = 0; sum.total.pay = 0;
+  sum.rows.forEach(function(r) {
+    var m = months[r.id];
+    if (m) r.mins = Math.round((m.mTot || 0) * 60);
+    r.pay = r.rate !== null ? Math.round(r.mins / 60 * r.rate * 100) / 100 : null;
+    var share = incomeLimitShare(r.pay, r.limit);
+    r.limitPct = share ? share.pct : null;
+    sum.total.mins += r.mins;
+    sum.total.pay += r.pay || 0;
+  });
+  sum.total.pay = Math.round(sum.total.pay * 100) / 100;
+  return sum;
 }
 
 function dashDownload(blob, name) {
@@ -1138,6 +1163,7 @@ async function exportDashMonthClose(kind) {
   var file = 'Monatsabschluss_' + data.key;
   if (kind === 'csv') { dashDownload(new Blob([dashMonthCsv(data.sum, data.label)], { type: 'text/csv;charset=utf-8' }), file + '.csv'); return; }
   if (!window.jspdf || !window.jspdf.jsPDF) { showToast('PDF-Funktion nicht geladen. Bitte Seite neu laden.', 'danger'); return; }
+  showToast('PDF wird erstellt, das dauert bei vielen Unterschriften einen Moment…');
   var doc = pdfPatch(new jspdf.jsPDF({ orientation: 'l', unit: 'mm', format: 'a4' })), ml = 14, y = 18;
   var day = function(iso) { return iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.' + iso.slice(0, 4); };
   if (typeof LOGO_BASE64 !== 'undefined') {
@@ -1146,7 +1172,7 @@ async function exportDashMonthClose(kind) {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text('Monatsabschluss ' + data.label, ml, y);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(110);
   doc.text('Abrechnungszeitraum ' + day(data.range.from) + ' bis ' + day(data.range.to) + ' · erstellt am ' + new Date().toLocaleDateString('de-DE') +
-    ' · Stunden wie in der Buchhaltung (mit Mindeststunden)', ml, y + 7);
+    ' · Stunden wie in den Stundenzetteln dahinter (mit Mindeststunden)', ml, y + 7);
   doc.setTextColor(0);
   var cols = [['Name', 70], ['Rolle', 28], ['Schichten', 22], ['offen', 18], ['Stunden', 24], ['€/h', 22], ['Lohn', 30], ['Grenze', 26], ['Anteil', 20]];
   var x0 = ml, rowH = 7;
@@ -1179,9 +1205,17 @@ async function exportDashMonthClose(kind) {
   line(['Summe', '', data.sum.total.shifts, data.sum.total.open || '', dashDe(data.sum.total.mins / 60), '', dashDe(data.sum.total.pay) + ' €', '', ''], true);
   y += 4;
   doc.setFontSize(9); doc.setTextColor(110);
-  if (data.sum.total.open) doc.text(data.sum.total.open + (data.sum.total.open === 1 ? ' Schicht ist' : ' Schichten sind') + ' noch nicht verbucht (Spalte „offen“).', ml, y);
+  if (data.sum.total.open) { doc.text(data.sum.total.open + (data.sum.total.open === 1 ? ' Schicht ist' : ' Schichten sind') + ' noch nicht verbucht (Spalte „offen“).', ml, y); y += 5; }
+  doc.text('Danach folgt für jede Person ihr Stundenzettel des Monats mit Zeiten, Ort, AL und Unterschrift, in der Reihenfolge dieser Liste.', ml, y);
   doc.setTextColor(0);
+  for (var i = 0; i < data.sum.rows.length; i++) {
+    var r = data.sum.rows[i], m = data.months[r.id];
+    if (!m || !m.monthW.length) continue;
+    await dashCompressSigs(m.monthW);
+    dashDrawMonth(doc, m, data.key, r.name, r.rate || 0, false);
+  }
   doc.save(file + '.pdf');
+  showToast('Monatsabschluss gespeichert.', 'success');
 }
 
 // "Do 5.11." for the shift rows
@@ -2393,23 +2427,9 @@ async function exportDashboardMonthlyPDF() {
   }
 }
 
-async function exportDashboardMonthlyPDFRun() {
-  const mKey = (document.getElementById('dash-month-filter') || {}).value;
-  if (!mKey || !dashboardCurrentWorker) return;
-
-  const workerName = dashboardCurrentWorker.full_name || 'Mitarbeiter';
-  showToast('PDF wird erstellt…');
-
-  const { data: shifts, error } = await supabaseClient
-    .from('shifts')
-    .select(`
-      id, start_time, end_time, pause_mins, position_role, status, shift_date, ort,
-      protocols(date, al_name_fallback, pl_name_fallback, signature_text, projects(name, location))
-    `)
-    .eq('user_id', dashboardCurrentWorker.id);
-
-  if (error || !shifts || !shifts.length) { showToast('Keine Daten gefunden.'); return; }
-
+// One person's month as week buckets (the Stundenzettel of the dashboard): shifts with protocols(date, al/pl fallback,
+// signature_text, projects(name, location)) and ort. → { monthW, mTot, mLab }; monthW empty when nothing falls in the month.
+function dashBuildMonthWeeks(shifts, mKey, workerName) {
   // Group shifts into week buckets, keeping only the selected month
   const userWeeks = {};
   shifts.forEach(function(s) {
@@ -2484,8 +2504,10 @@ async function exportDashboardMonthlyPDFRun() {
     return w;
   });
 
-  if (!monthW.length) { showToast('Keine Schichten in diesem Monat.'); return; }
+  return { monthW: monthW, mTot: mTot, mLab: mLab || monthLabelFromKey(mKey) };
+}
 
+async function dashCompressSigs(monthW) {
   // Compress signatures before embedding
   const sigComprP = [];
   monthW.forEach(function(w) {
@@ -2498,9 +2520,15 @@ async function exportDashboardMonthlyPDFRun() {
     });
   });
   await Promise.all(sigComprP);
+}
 
+// Draws one person's Monatsübersicht plus a page per week (with times and signatures) into doc.
+// first = the person starts on the doc's first page; everyone after starts on a new page.
+function dashDrawMonth(doc, m, mKey, workerName, rateConni, first) {
+  var monthW = m.monthW, mTot = m.mTot, mLab = m.mLab;
   // Build PDF — same layout as exportMonthlyPDF
-  const doc = pdfPatch(new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }));
+  if (!first) doc.addPage('a4', 'p');
+  doc.setTextColor(0); doc.setDrawColor(0); doc.setFont('helvetica', 'normal'); // the page before may have left grey text
   const ml = 20, cw = 170;
 
   if (typeof LOGO_BASE64 !== 'undefined') {
@@ -2544,12 +2572,34 @@ async function exportDashboardMonthlyPDFRun() {
 
   // Set rate for drawPDFContent earnings line, then restore
   const prevRate = window.currentUserRateConni;
-  window.currentUserRateConni = dashboardCurrentWorker.hourly_rate_conni ? parseFloat(dashboardCurrentWorker.hourly_rate_conni) : 0;
+  window.currentUserRateConni = rateConni || 0;
   monthW.forEach(function(w) {
     splitWeekByDepts(w).forEach(function(pageData) { doc.addPage(); drawPDFContent(doc, pageData, ml, cw); });
   });
   window.currentUserRateConni = prevRate;
+}
 
+async function exportDashboardMonthlyPDFRun() {
+  const mKey = (document.getElementById('dash-month-filter') || {}).value;
+  if (!mKey || !dashboardCurrentWorker) return;
+
+  const workerName = dashboardCurrentWorker.full_name || 'Mitarbeiter';
+  showToast('PDF wird erstellt…');
+
+  const { data: shifts, error } = await supabaseClient
+    .from('shifts')
+    .select(`
+      id, start_time, end_time, pause_mins, position_role, status, shift_date, ort,
+      protocols(date, al_name_fallback, pl_name_fallback, signature_text, projects(name, location))
+    `)
+    .eq('user_id', dashboardCurrentWorker.id);
+
+  if (error || !shifts || !shifts.length) { showToast('Keine Daten gefunden.'); return; }
+  const m = dashBuildMonthWeeks(shifts, mKey, workerName);
+  if (!m.monthW.length) { showToast('Keine Schichten in diesem Monat.'); return; }
+  await dashCompressSigs(m.monthW);
+  const doc = pdfPatch(new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }));
+  dashDrawMonth(doc, m, mKey, workerName, dashboardCurrentWorker.hourly_rate_conni ? parseFloat(dashboardCurrentWorker.hourly_rate_conni) : 0, true);
   const fN = 'stundennachweis_' + mKey.replace('-', '_') + '_' + workerName.replace(/\s+/g, '_') + '.pdf';
   doc.save(fN); showToast('📄 Monats-PDF gespeichert!');
 }
