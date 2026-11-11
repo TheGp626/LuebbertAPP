@@ -720,3 +720,22 @@ test('dashMayResetPin: follows the reset rules, never oneself or a deactivated a
   assert.equal(ok('Admin', 'me', { id: 'a', role: 'Gast' }), false);
   assert.equal(ok('Admin', 'me', null), false);
 });
+
+test('pdfText: letters the PDF fonts lack fall back to their base letter', () => {
+  assert.equal(run("pdfText('Patryk Stańczyk, Łukasz Żółć')"), 'Patryk Stanczyk, Lukasz Zólc');
+  assert.equal(run("pdfText('Müller, Größe 5 € – „ok“ …')"), 'Müller, Größe 5 € – „ok“ …');
+  assert.equal(run("pdfText('日 ✓')"), '? x');
+  assert.equal(run('pdfText(12)'), 12);
+  const calls = run("(function(){ var seen = []; var d = pdfPatch({ text: function(t, x) { seen.push([t, x]); return 'r'; }, splitTextToSize: function(t) { return [t]; } }); var r = d.text(['Stańczyk', 'ok'], 5); return JSON.stringify([seen, r, d.splitTextToSize('Łódź')]); })()");
+  assert.equal(calls, JSON.stringify([[[['Stanczyk', 'ok'], 5]], 'r', ['Lódz']]));
+});
+
+test('dashboard shows only what the role can do: staff edits and booking', () => {
+  assert.deepEqual(['MA', 'AL', 'PL', 'Buchhaltung', 'Admin', null].map(r => run('dashMayManageStaff(' + JSON.stringify(r) + ')')), [false, false, true, true, true, false]);
+  assert.deepEqual(['AL', 'PL', 'Buchhaltung', 'Admin'].map(r => run('dashMayBook(' + JSON.stringify(r) + ')')), [false, false, true, true]);
+  const row = (canEdit, status) => run('dashShiftRowHtml(' + JSON.stringify({ id: 's1', shift_date: '2026-11-10', start_time: '08:00:00', end_time: '16:00:00', pause_mins: 30, status }) + ', ' + canEdit + ')');
+  assert.match(row(true, 'offen'), /shift-booked-cb/);
+  assert.doesNotMatch(row(false, 'offen'), /shift-booked-cb|openShiftEdit/);
+  assert.match(row(false, 'offen'), /ui-pill">offen/);
+  assert.match(row(false, 'eingetragen'), /ui-pill ui-pill-ok">verbucht/);
+});

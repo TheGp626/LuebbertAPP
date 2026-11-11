@@ -43,6 +43,13 @@ function planFindColumns(page) {
     var k = want[it.s.trim()];
     if (k && !found[k]) found[k] = it;
   });
+  // The last column is headed "AP" in Daniel's file and "PL" in the plan the app writes. "PL" also turns up inside
+  // cells ("BAR PL 550"), so it only counts on the header line itself, right of "Wer".
+  if (!found.ap && found.was && found.wer) {
+    found.ap = page.items.filter(function(it) {
+      return it.s.trim() === 'PL' && Math.abs(it.y - found.was.y) <= (found.was.h || 8) && it.x > found.wer.x;
+    })[0];
+  }
   if (PLAN_COLUMNS.some(function(c) { return !found[c]; })) return null;
   var y = found.was.y;
   return {
@@ -728,7 +735,7 @@ function planIcs(shifts, userId, stamp) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
+  module.exports = { planFindColumns: planFindColumns, planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
     planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planChangedFields: planChangedFields, planAssigned: planAssigned, planShiftKey: planShiftKey,
     planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek, planCellLines: planCellLines,
     planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName,

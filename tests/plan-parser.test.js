@@ -669,3 +669,15 @@ test('planAssigned: who joined an existing entry (not the people on a brand-new 
   assert.deepEqual(P.planAssigned(neu, d), [['u-e'], []]);
   assert.deepEqual(P.planUnassigned(neu, d).map(x => x.user_ids), [['u-j']]);
 });
+
+test('planFindColumns: last column may be headed PL, but only on the header line', () => {
+  const head = (last, extra) => ({ items: [
+    { s: 'Datum', x: 30, y: 50, h: 8 }, { s: 'Was', x: 150, y: 50, h: 8 }, { s: 'Wann', x: 360, y: 50, h: 8 }, { s: 'Wer', x: 480, y: 50, h: 8 },
+  ].concat(last ? [{ s: last, x: 700, y: 50, h: 8 }] : []).concat(extra || []) });
+  assert.deepEqual(P.planFindColumns(head('AP')).x, [28, 148, 358, 478, 698]);
+  assert.deepEqual(P.planFindColumns(head('PL')).x, [28, 148, 358, 478, 698]);
+  // "PL" inside a cell further down (a vehicle "BAR PL 550") is no header
+  assert.equal(P.planFindColumns(head(null, [{ s: 'PL', x: 500, y: 140, h: 8 }])), null);
+  // AP wins when both stand there
+  assert.equal(P.planFindColumns(head('AP', [{ s: 'PL', x: 760, y: 50, h: 8 }])).x[4], 698);
+});

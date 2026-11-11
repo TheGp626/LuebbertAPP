@@ -1842,7 +1842,7 @@ function buildProtPdfDoc(entry, opts) {
   protState = { transports: data.transports, personnel: data.personnel, categories: data.categories, signature: entry.signature || null };
   try {
 
-  var doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
+  var doc = pdfPatch(new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })), ml = 20, cw = 170;
   if (typeof LOGO_BASE64 !== 'undefined') {
     try { var lw = 30, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100; doc.addImage(LOGO_BASE64, 'PNG', 160, 10, lw, lh); } catch(e) {}
   }

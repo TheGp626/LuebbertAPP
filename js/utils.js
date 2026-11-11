@@ -291,3 +291,31 @@ function mergeOpenJobs(folderJobs, planRows) {
   });
   return out.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
 }
+
+// jsPDF's built-in fonts only hold Western European letters (WinAnsi): "Stańczyk" would print as garbage.
+// Letters outside that set fall back to their base letter (ń → n, ł → l), anything else to "?".
+var PDF_EXTRA_CHARS = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ';
+var PDF_CHAR_MAP = { 'ł': 'l', 'Ł': 'L', 'đ': 'd', 'Đ': 'D', 'ı': 'i', '−': '-', '‐': '-', '‑': '-', '→': '->', '✓': 'x', '≥': '>=', '≤': '<=' };
+function pdfText(t) {
+  if (typeof t !== 'string') return t;
+  var out = '';
+  for (var i = 0; i < t.length; i++) {
+    var ch = t.charAt(i), code = t.charCodeAt(i);
+    if (code <= 0xFF || PDF_EXTRA_CHARS.indexOf(ch) !== -1) { out += ch; continue; }
+    if (PDF_CHAR_MAP[ch] != null) { out += PDF_CHAR_MAP[ch]; continue; }
+    if (code >= 0x0300 && code <= 0x036F) continue; // a combining mark on its own
+    var base = ch.normalize ? ch.normalize('NFD').replace(/[̀-ͯ]/g, '') : ch;
+    out += (base && base !== ch && base.charCodeAt(0) <= 0xFF) ? base : '?';
+  }
+  return out;
+}
+// Every PDF of the app goes through this once after "new jsPDF": text, wrapping and measuring see the same letters
+function pdfPatch(doc) {
+  var fix = function(v) { return Array.isArray(v) ? v.map(pdfText) : pdfText(v); };
+  ['text', 'splitTextToSize', 'getTextWidth'].forEach(function(name) {
+    var orig = doc[name];
+    if (typeof orig !== 'function') return;
+    doc[name] = function() { var a = Array.prototype.slice.call(arguments); a[0] = fix(a[0]); return orig.apply(doc, a); };
+  });
+  return doc;
+}

@@ -351,6 +351,7 @@ function handleSession(user) {
   const userChanged = sessionUserChanged(lastSessionUserId, user ? user.id : null);
   lastSessionUserId = user ? user.id : null;
   if (userChanged) closePinSheet(); // no open PIN sheet or typed PINs across logout/user switch
+  if (userChanged && typeof _ordnerUsers !== 'undefined') _ordnerUsers = null; // people list of the project folders is loaded per login
 
   if (user) {
     currentUser = { id: user.id, email: '', full_name: user.full_name || '', role: user.role,
