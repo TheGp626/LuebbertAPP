@@ -488,3 +488,18 @@ test('wpStatusLabel: says what changed when the plan knows it', () => {
   assert.equal(ctx.wpStatusLabel({ change_status: 'geändert', change_fields: ['Wann', 'Wer', 'PL', 'Was'] }), 'geändert');
   assert.equal(ctx.wpStatusLabel({ change_status: 'neu', change_fields: ['Wann'] }), 'neu');
 });
+
+test('wpCanCancel: only on an own shift with an account, not for a day that is over', () => {
+  const s = { date: '2026-11-17', week_id: 'w', key: 'k', plan_assignments: [{ user_id: 'me' }, { user_id: null, name: 'Tom' }] };
+  assert.equal(ctx.wpCanCancel(s, 'me', '2026-11-17'), true);
+  assert.equal(ctx.wpCanCancel(s, 'me', '2026-11-18'), false);
+  assert.equal(ctx.wpCanCancel(s, 'other', '2026-11-11'), false);
+  assert.equal(ctx.wpCanCancel(Object.assign({}, s, { week_id: null }), 'me', '2026-11-11'), false);
+  assert.equal(ctx.wpCanCancel(s, null, '2026-11-11'), false);
+});
+
+test('wpCancelSoon: today or tomorrow asks to call the PL as well', () => {
+  assert.equal(ctx.wpCancelSoon('2026-11-11', '2026-11-11'), true);
+  assert.equal(ctx.wpCancelSoon('2026-11-12', '2026-11-11'), true);
+  assert.equal(ctx.wpCancelSoon('2026-11-13', '2026-11-11'), false);
+});

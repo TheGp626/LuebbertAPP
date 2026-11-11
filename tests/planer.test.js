@@ -463,3 +463,26 @@ test('plWithout: leaves out columns the database does not have yet', () => {
   const out = plain(ctx.plWithout([row({ kind: 'bus', open_other: [] })], ['kind', 'open_other']));
   assert.equal('kind' in out[0], false); assert.equal('open_other' in out[0], false); assert.equal(out[0].venue, 'Estrel');
 });
+
+// ── Absagen ──
+test('plCancelsOnRow: Absagen of the row by its plan key, with the place of the person on the row', () => {
+  const row = { people: [{ user_id: 'k', name: 'Kacper', role: 'AL' }, { user_id: 'm', name: 'Milan', role: 'MA' }] };
+  const users = [{ id: 'k', full_name: 'Kacper Nowak' }, { id: 'x', full_name: 'Xaver Eins' }];
+  assert.deepEqual(plain(ctx.plCancelsOnRow(row, 'k1', { k1: ['k', 'x'], k2: ['m'] }, users)), [
+    { user_id: 'k', index: 0, name: 'Kacper' }, { user_id: 'x', index: -1, name: 'Xaver Eins' }]);
+  assert.deepEqual(plain(ctx.plCancelsOnRow(row, 'k9', { k1: ['k'] }, users)), []);
+  assert.deepEqual(plain(ctx.plCancelsOnRow(row, null, { k1: ['k'] }, users)), []);
+});
+
+test('plReplacePerson: the new person takes the place and role, the old note goes', () => {
+  const row = { people: [{ user_id: 'k', name: 'Kacper', role: 'AL', note: 'ab 14 Uhr' }, { user_id: 'm', name: 'Milan', role: 'MA', note: null }] };
+  assert.deepEqual(plain(ctx.plReplacePerson(row, 0, { user_id: 'x', name: 'Xaver' })), [
+    { user_id: 'x', name: 'Xaver', role: 'AL', note: null }, { user_id: 'm', name: 'Milan', role: 'MA', note: null }]);
+  assert.equal(ctx.plReplacePerson(row, 0, { user_id: 'm', name: 'Milan' }), null, 'already on the row');
+  assert.equal(ctx.plReplacePerson(row, 5, { user_id: 'x', name: 'Xaver' }), null);
+});
+
+test('plUnmatchedCancels: Absagen whose plan key belongs to no row of the draft', () => {
+  assert.deepEqual(plain(ctx.plUnmatchedCancels({ r1: 'k1', r2: 'k2' }, { k1: ['a'], k3: ['b', 'c'] })), [
+    { key: 'k3', user_id: 'b' }, { key: 'k3', user_id: 'c' }]);
+});

@@ -461,3 +461,12 @@ button.opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .wp-check .ui-pill { margin-right: 4px; }
 .wp-check-ruhe, .wp-check-doppelt, .wp-check-nein { background: var(--danger-bg, #fbebeb); color: var(--danger, #b42318); }
 .wp-check-fahrzeug, .wp-check-al, .wp-check-notfall { background: var(--warn-bg, #f9eeda); color: var(--warn, #9a6700); }
+
+/* Absagen */
+.pl-chip-cancel { border-color: var(--danger); background: var(--danger-bg); }
+.pl-chip-cancel s { text-decoration-color: var(--danger); }
+.pl-chip-cancel small { color: var(--danger); font-weight: 600; }
+.pl-cancel { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--danger-bg); font-size: 14px; }
+.pl-cancel-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.pl-head .pl-cancel { margin-top: 10px; }
+.wp-cancel-btn { color: var(--danger); }
