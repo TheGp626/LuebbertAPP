@@ -558,6 +558,75 @@ function protPlanPersonnel(shift, users) {
   return rows.filter(function(r) { return r.pos === 'AL'; }).concat(rows.filter(function(r) { return r.pos !== 'AL'; }));
 }
 
+// "BAR PL 550" / "LeihLkw" / "Sprinter 2" → one of the vehicle types of the form; no hit → Hängerzug (the form's default)
+function protGuessVehicleType(label, types) {
+  var norm = function(t) { return String(t || '').toLowerCase().replace(/[^a-zäöüß]/g, ''); };
+  var l = norm(label), best = '';
+  (types || []).forEach(function(t) { var n = norm(t); if (n && l.indexOf(n) !== -1 && n.length > norm(best).length) best = t; });
+  return best || ((types || []).indexOf('Hängerzug') !== -1 ? 'Hängerzug' : (types || [])[0] || 'Hängerzug');
+}
+
+// Is this plan person a driver, and of which vehicle? Role "Fahrer", or a note that starts with one of the
+// shift's vehicle lines ("BAR PL 550 | Kacper (AL)" → Kacper, AL, note "BAR PL 550"). → vehicle text ('' if unnamed) or null
+function protPlanVehicleOf(person, shift) {
+  var note = String(person.note || '').toLowerCase();
+  var veh = (shift.notes || []).filter(function(v) { return v && note && note.indexOf(String(v).toLowerCase()) === 0; })[0];
+  if (veh) return veh;
+  return person.role === 'Fahrer' ? String(person.note || '') : null;
+}
+
+// Wochenplan shift → transport rows: one per driver the plan names. A pure driver gets the usual 5 hours; an AL or MA
+// who also drives is in the personnel list with their times already, so the driver hours stay empty for the AL to decide.
+// An open driver slot only counts when its vehicle is a known type (a Spedition line, say).
+function protPlanTransports(shift, users, types) {
+  var out = [];
+  (shift.people || []).forEach(function(p) {
+    var veh = protPlanVehicleOf(p, shift);
+    if (veh === null) return;
+    var u = p.userId ? (users || []).find(function(x) { return x.id === p.userId; }) : null;
+    out.push({ type: protGuessVehicleType(veh, types), driver: u ? (u.full_name || u.email) : p.name, driverUserId: u ? u.id : '',
+      hours: p.role === 'Fahrer' ? 5 : null, punctuality: 'pünktlich', delay: '' });
+  });
+  (shift.open || []).forEach(function(o) {
+    if (o.role !== 'Fahrer' || !o.note) return;
+    var norm = function(t) { return String(t || '').toLowerCase().replace(/[^a-zäöüß]/g, ''); };
+    var hit = (types || []).filter(function(t) { return norm(t) && norm(o.note).indexOf(norm(t)) !== -1; })[0];
+    if (hit) out.push({ type: protGuessVehicleType(o.note, types), driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
+  });
+  return out;
+}
+
+// Personnel rows of the plan without the pure drivers: they stand under Transport (else they would be paid twice)
+function protPlanCrew(shift, users) {
+  var crew = Object.assign({}, shift, { people: (shift.people || []).filter(function(p) { return p.role !== 'Fahrer'; }) });
+  return protPlanPersonnel(crew, users);
+}
+
+// PL of a plan shift: the linked account, else the name in the PL column if exactly one PL goes by it
+function protPlanPl(shift, users) {
+  var pls = (users || []).filter(function(u) { return u.is_active !== false && (userHasRole(u, 'PL') || u.role === 'Admin'); });
+  if (shift.apUserId && pls.some(function(u) { return u.id === shift.apUserId; })) return shift.apUserId;
+  var ap = String(shift.ap || '').trim().toLowerCase();
+  if (!ap) return null;
+  var hits = pls.filter(function(u) {
+    var full = String(u.full_name || '').trim().toLowerCase();
+    return full === ap || full.split(' ')[0] === ap;
+  });
+  return hits.length === 1 ? hits[0].id : null;
+}
+
+// Puts the plan's drivers into the form unless the AL already named a driver (then nothing changes)
+function protApplyPlanTransports(rows) {
+  if (!rows || !rows.length) return false;
+  if (protState.transports.some(function(t) { return (t.driver || '').trim() || t.driverUserId; })) return false;
+  protState.transports = rows;
+  Object.keys(protOpenRows).forEach(function(k) { if (k.charAt(0) === 't') delete protOpenRows[k]; });
+  renderProtTransport();
+  saveProtDraft();
+  if (typeof calcProtCosts === 'function') calcProtCosts();
+  return true;
+}
+
 // Puts plan rows into the form unless the AL already entered someone (then nothing changes)
 function protApplyPlanPersonnel(rows) {
   if (!rows || !rows.length) return false;

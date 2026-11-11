@@ -614,7 +614,7 @@ function planShiftFromDb(r) {
   var lines = function(t) { return t ? String(t).split('\n') : []; };
   return {
     id: r.id, key: r.key, date: r.date, venue: r.venue, title: r.title || '', location: lines(r.location),
-    details: lines(r.details), wann: lines(r.wann), ap: r.ap, notes: lines(r.notes), color: r.color,
+    details: lines(r.details), wann: lines(r.wann), ap: r.ap, apUserId: r.ap_user_id || null, notes: lines(r.notes), color: r.color,
     open: r.open_slots || [], changeStatus: r.change_status,
     people: (r.plan_assignments || []).map(function(a) { return { name: a.name, role: a.role, note: a.note, userId: a.user_id }; })
   };

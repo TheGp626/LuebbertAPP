@@ -955,3 +955,51 @@ test('protLongerThanAl: AL over midnight, MA starting after midnight and ending 
   ];
   assert.deepEqual(plain(run('protLongerThanAl')(rows, 'al')), ['Eda']);
 });
+
+// ── Transport, PL and crew prefill from a Wochenplan shift ──
+const TYPES = ['Hängerzug', 'LKW', 'Spedition', 'Sprinter'];
+const staff = users.concat([{ id: 'u-pl', full_name: 'Jenni Lang', role: 'PL' }, { id: 'u-pl2', full_name: 'Inge Sommer', role: 'PL' }, { id: 'u-adm', full_name: 'Jenni Admin', role: 'Admin', is_active: false }]);
+
+test('protGuessVehicleType: known type inside the plan text, else the form default', () => {
+  const g = run('protGuessVehicleType');
+  assert.equal(g('LeihLkw', TYPES), 'LKW');
+  assert.equal(g('Sprinter 2 (B-XY 123)', TYPES), 'Sprinter');
+  assert.equal(g('BAR PL 550', TYPES), 'Hängerzug');
+  assert.equal(g('', ['LKW', 'Sprinter']), 'LKW');
+});
+
+test('protPlanTransports: one transport per driver the plan names', () => {
+  const shift = planShift({ notes: ['BAR PL 550', 'LeihLkw', 'Bitte pünktlich'], people: [
+    { name: 'Anna', role: 'AL', note: 'BAR PL 550', userId: 'u-anna' },
+    { name: 'Marcin', role: 'Fahrer', note: 'LeihLkw, ab 7 Uhr', userId: null },
+    { name: 'Bert', role: 'MA', note: 'ab 14 Uhr', userId: 'u-bert' },
+    { name: 'Olaf', role: 'Fahrer', note: null, userId: null },
+  ], open: [{ role: 'Fahrer', count: 1, note: 'Spedition Barnim' }, { role: 'Fahrer', count: 1, note: 'Barnimer Land' }, { role: 'MA', count: 2 }] });
+  const t = plain(run('protPlanTransports')(shift, users, TYPES));
+  assert.deepEqual(t.map(x => [x.type, x.driver, x.driverUserId, x.hours]), [
+    ['Hängerzug', 'Anna Albers', 'u-anna', null], // also works on site: hours stay open
+    ['LKW', 'Marcin', '', 5],
+    ['Hängerzug', 'Olaf', '', 5],
+    ['Spedition', '', '', 5],
+  ]);
+  assert.deepEqual(plain(run('protPlanTransports')(planShift({ people: [{ name: 'Bert', role: 'MA', note: null, userId: 'u-bert' }] }), users, TYPES)), []);
+});
+
+test('protPlanCrew: pure drivers stand under Transport, not in the personnel list', () => {
+  const rows = plain(run('protPlanCrew')(planShift({ notes: ['BAR PL 550'], people: [
+    { name: 'Marcin', role: 'Fahrer', note: 'LeihLkw', userId: null },
+    { name: 'Anna', role: 'AL', note: 'BAR PL 550', userId: 'u-anna' },
+    { name: 'Bert', role: 'MA', note: null, userId: 'u-bert' },
+  ] }), users));
+  assert.deepEqual(rows.map(r => [r.pos, r.name, r.start]), [['AL', 'Anna Albers', '08:00'], ['MA', 'Bert Brandt', '08:00']]);
+});
+
+test('protPlanPl: linked account first, else a name only one active PL goes by', () => {
+  const pl = run('protPlanPl');
+  assert.equal(pl({ apUserId: 'u-pl2', ap: 'Jenni' }, staff), 'u-pl2');
+  assert.equal(pl({ apUserId: 'u-bert', ap: 'Jenni' }, staff), 'u-pl'); // a linked non-PL is ignored, the name decides
+  assert.equal(pl({ ap: 'inge sommer' }, staff), 'u-pl2');
+  assert.equal(pl({ ap: 'Daniel' }, staff), null);
+  assert.equal(pl({ ap: '' }, staff), null);
+  assert.equal(pl({ ap: 'Jenni' }, staff.concat([{ id: 'u-pl3', full_name: 'Jenni Zwei', role: 'PL' }])), null);
+});

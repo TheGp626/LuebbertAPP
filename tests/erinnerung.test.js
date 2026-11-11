@@ -48,3 +48,13 @@ test('source: no direct upsert into push_subscriptions left', () => {
   const src = fs.readFileSync(path.join(__dirname, '../js/erinnerung.js'), 'utf8');
   assert.doesNotMatch(src, /from\('push_subscriptions'\)\s*\.upsert/);
 });
+
+test('erPickShift: the plan shift that shares words with the folder name, else the only one of the day', () => {
+  const estrel = { venue: 'Estrel', title: 'Business of Apps', location: ['Auditorium'] };
+  const messe = { venue: 'Messe Berlin', title: 'Gala Dinner', location: [] };
+  assert.equal(ctx.erPickShift([messe, estrel], '261111_Estrel_Business of Apps'), estrel);
+  assert.equal(ctx.erPickShift([messe, estrel], '261111 Gala'), messe);
+  assert.equal(ctx.erPickShift([messe], 'Ganz anderer Name'), messe);
+  assert.equal(ctx.erPickShift([messe, estrel], 'Ganz anderer Name'), null);
+  assert.equal(ctx.erPickShift([], 'Estrel'), null);
+});
