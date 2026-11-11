@@ -358,7 +358,39 @@ function ordListHtml(view) {
 function ordRenderList() {
   var content = document.getElementById('ord-content');
   if (!content || !_ordView) return;
-  content.innerHTML = ordListHtml(_ordView);
+  var nkOpen = !!(content.querySelector('details.dash-nk') || {}).open, openJobs = {};
+  content.querySelectorAll('details.dash-nk-job[open] summary b').forEach(function(b) { openJobs[b.textContent] = true; });
+  content.innerHTML = ordListHtml(_ordView) + ordNachkalkHtml(_ordNk, nkOpen);
+  content.querySelectorAll('details.dash-nk-job').forEach(function(d) { if (openJobs[(d.querySelector('summary b') || {}).textContent]) d.open = true; });
+}
+
+// ── Nachkalkulation: what the protocols of an Auftrag add up to (dashNachkalk in dashboard.js). Admin and PL only:
+// they read every protocol; someone with just „Sieht Bewerbungen“ would get a sum of their own shifts. ──
+var _ordNk = null; // null = not loaded (or not allowed) → no section
+
+function ordNachkalkHtml(jobs, open) {
+  if (!jobs) return '';
+  return '<details class="dash-nk ord-nk"' + (open ? ' open' : '') + '><summary>Nachkalkulation<span class="ui-sub"> · ' +
+    jobs.length + (jobs.length === 1 ? ' Auftrag' : ' Aufträge') + ' mit Protokoll</span></summary>' +
+    (jobs.length ? jobs.map(function(j) { return dashNkJobHtml(j, false); }).join('')
+      : '<p class="ui-sub dash-nk-empty">Noch kein Protokoll mit Auftragsnummer. Die Nummer kommt von selbst mit, wenn ein Protokoll aus dem Wochenplan oder der Erinnerung gestartet wird. Bei älteren Protokollen trägst du sie im Dashboard beim Bearbeiten nach.</p>') +
+    '</details>';
+}
+
+async function ordLoadNachkalk(seq) {
+  if (!ordCanEdit() || typeof dashNachkalk !== 'function') { _ordNk = null; return; }
+  try {
+    if (typeof ensureRateUsers === 'function') await ensureRateUsers(); // driver rates for the transport share
+    var r = await supabaseClient.from('protocols')
+      .select('id, date, action, is_holiday, total_cost, job_no, projects(name), shifts(user_id, temp_worker_name, position_role, start_time, end_time, pause_mins), protocol_transports(*)')
+      .not('job_no', 'is', null);
+    if (r.error) throw r.error;
+    if (seq !== _ordSeq) return;
+    _ordNk = dashNachkalk(r.data || [], _ordSaved, dashNkTransportCost);
+    ordRenderList();
+  } catch (err) {
+    console.error('Nachkalkulation laden:', err); // the Aufträge list works without it
+  }
 }
 
 // Context for the phase blocks and the inbox: all upcoming entries of Daniel's plan; a failing part only leaves its hints out
@@ -568,6 +600,7 @@ async function initAuftraege() {
   _ordCtx = c;
   _ordView = { jobs: jobs, failed: out.failed };
   ordRenderList();
+  ordLoadNachkalk(seq); // after the list is up: it must not wait for the protocols
 }
 
 var _ordOpening = false; // double tap while signing must not open two viewers

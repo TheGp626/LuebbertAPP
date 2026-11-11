@@ -843,7 +843,8 @@ function dashNkRowHtml(label, a, strong) {
     cell('Gesamt', '<b>' + dashNkEuro(a.cost) + '</b>', true) + '</dl></div>';
 }
 
-function dashNkJobHtml(j) {
+// links: buttons that open the protocol (dashboard); without them the days are listed as text (Aufträge tab)
+function dashNkJobHtml(j, links) {
   var day = function(iso) { return iso.slice(8) + '.' + iso.slice(5, 7) + '.'; };
   var range = j.from === j.to ? day(j.from) : day(j.from) + ' – ' + day(j.to);
   return '<details class="dash-nk-job"><summary><span><b>' + escapeHtml(j.jobNo) + '</b> · ' + escapeHtml(j.name || 'Ohne Projekt') + '</span>' +
@@ -852,20 +853,24 @@ function dashNkJobHtml(j) {
     DASH_NK_PHASES.filter(function(ph) { return ph[0] !== 'other' || j.phases.other.count; })
       .map(function(ph) { return dashNkRowHtml(ph[1], j.phases[ph[0]], false); }).join('') +
     dashNkRowHtml('Gesamt', j.total, true) +
-    '<div class="dash-nk-prots">' + j.protocols.map(function(p) {
-      return '<button type="button" class="ui-btn dash-small-btn" onclick="openDashDetail(\'' + jsAttrArg(p.id) + '\')">' + day(p.date) + ' ' + escapeHtml(p.action || 'Protokoll') + '</button>';
-    }).join('') + '</div></details>';
+    (links === false
+      ? '<div class="dash-nk-prots ui-sub">Protokolle: ' + j.protocols.map(function(p) { return day(p.date) + ' ' + escapeHtml(p.action || 'Protokoll'); }).join(' · ') + '</div>'
+      : '<div class="dash-nk-prots">' + j.protocols.map(function(p) {
+          return '<button type="button" class="ui-btn dash-small-btn" onclick="openDashDetail(\'' + jsAttrArg(p.id) + '\')">' + day(p.date) + ' ' + escapeHtml(p.action || 'Protokoll') + '</button>';
+        }).join('') + '</div>') + '</details>';
 }
 
 function renderDashNachkalk() {
   var box = document.getElementById('dash-nachkalk');
   if (!box) return;
+  // Its home is the Aufträge tab, where Admin and PL see it; here it only shows for the others (Buchhaltung, AL)
+  if (typeof userRole !== 'undefined' && (userRole === 'Admin' || userRole === 'PL')) { box.innerHTML = ''; return; }
   var wasOpen = !!(box.querySelector('details.dash-nk') || {}).open, openJobs = {};
   box.querySelectorAll('details.dash-nk-job[open] summary b').forEach(function(b) { openJobs[b.textContent] = true; });
   var jobs = dashNachkalk(dashboardProtocols, _dashStaffing, dashNkTransportCost);
   box.innerHTML = '<details class="dash-nk"' + (wasOpen ? ' open' : '') + '><summary>Nachkalkulation pro Auftrag<span class="ui-sub"> · ' +
     jobs.length + (jobs.length === 1 ? ' Auftrag' : ' Aufträge') + '</span></summary>' +
-    (jobs.length ? jobs.map(dashNkJobHtml).join('')
+    (jobs.length ? jobs.map(function(j) { return dashNkJobHtml(j); }).join('')
       : '<p class="ui-sub dash-nk-empty">Noch kein Protokoll mit Auftragsnummer. Die Nummer kommt von selbst mit, wenn ein Protokoll aus dem Wochenplan oder der Erinnerung gestartet wird, oder du trägst sie beim Bearbeiten ein.</p>') +
     '</details>';
   box.querySelectorAll('details.dash-nk-job').forEach(function(d) { if (openJobs[(d.querySelector('summary b') || {}).textContent]) d.open = true; });
