@@ -438,3 +438,18 @@ button.opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .opt-row .ui-btn-primary { flex: 0 0 auto; min-height: 38px; padding: 8px 14px; font-size: 14px; }
 .opt-note { margin: 8px 4px 0; }
 .opt-logout { margin-top: 26px; }
+
+/* Dashboard: Nachkalkulation pro Auftrag */
+.dash-nk { margin: 0 0 14px; border: 0.5px solid var(--border); border-radius: 12px; background: var(--bg); }
+.dash-nk > summary { padding: 12px 14px; font-weight: 600; cursor: pointer; }
+.dash-nk-empty { padding: 0 14px 14px; margin: 0; }
+.dash-nk-job { border-top: 0.5px solid var(--border); }
+.dash-nk-job > summary { padding: 10px 14px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.dash-nk-ph { padding: 8px 14px; border-top: 0.5px dashed var(--border); }
+.dash-nk-sum { background: var(--bg2); }
+.dash-nk-ph-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.dash-nk-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 10px; margin: 0; }
+.dash-nk-grid dt { font-size: 11px; color: var(--text2); }
+.dash-nk-grid dd { margin: 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.dash-nk-over { color: var(--warn); font-size: 13px; }
+.dash-nk-prots { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px 14px; }
