@@ -1032,7 +1032,7 @@ function plExportPdf() {
   var st = plState;
   if (!st || !st.rows.length) { showToast('Der Entwurf ist leer.', 'danger'); return; }
   if (!window.jspdf || !window.jspdf.jsPDF) { showToast('PDF-Bibliothek nicht geladen. Prüf deine Verbindung.', 'danger'); return; }
-  var doc = new jspdf.jsPDF({ orientation: 'l', unit: 'mm', format: 'a4' });
+  var doc = pdfPatch(new jspdf.jsPDF({ orientation: 'l', unit: 'mm', format: 'a4' }));
   var ml = 10, top = 12, bottom = 198, lh = 4.2, pad = 1.6;
   var widths = [48, 74, 44, 76, 35], heads = ['Datum', 'Was', 'Wann', 'Wer', 'PL'];
   var xs = widths.map(function(_, i) { return ml + widths.slice(0, i).reduce(function(a, b) { return a + b; }, 0); });

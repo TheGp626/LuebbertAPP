@@ -66,10 +66,17 @@ function switchDashTab(tab) {
   if (tab === 'work') loadDashboardWorkers();
 }
 
+// Adding and editing people: PL, Buchhaltung, Admin (as the database allows). An AL only looks.
+function dashMayManageStaff(role) { return ['PL', 'Buchhaltung', 'Admin'].indexOf(role) !== -1; }
+// Marking shifts as "eingetragen": Buchhaltung and Admin
+function dashMayBook(role) { return role === 'Buchhaltung' || role === 'Admin'; }
+
 // Opens/closes the "Mitarbeiter hinzufügen" sheet (name kept: addDashboardUser closes it after saving)
 function toggleAddUserForm() {
   const m = document.getElementById('add-user-modal');
-  if (m) m.classList.toggle('open');
+  if (!m) return;
+  if (!m.classList.contains('open') && !dashMayManageStaff(typeof userRole !== 'undefined' ? userRole : null)) return;
+  m.classList.toggle('open');
 }
 
 // Employee list: people with new hours first, then by name; filtered by a name search
@@ -91,6 +98,8 @@ function dashWorkerRowHtml(w, selectedId) {
 }
 
 function renderDashWorkerList() {
+  const addBtn = document.getElementById('dash-add-user-btn');
+  if (addBtn) addBtn.style.display = dashMayManageStaff(typeof userRole !== 'undefined' ? userRole : null) ? '' : 'none';
   var listEl = document.getElementById('dash-worker-list');
   if (!listEl) return;
   var selected = (document.getElementById('dash-worker-select') || {}).value || '';
@@ -292,7 +301,10 @@ function updateEditWorkerBtn() {
   const btn = document.getElementById('edit-worker-btn');
   if (!btn) return;
   const selected = document.getElementById('dash-worker-select').value;
-  btn.style.display = selected ? 'inline-flex' : 'none';
+  const role = typeof userRole !== 'undefined' ? userRole : null;
+  btn.style.display = selected && dashMayManageStaff(role) ? 'inline-flex' : 'none';
+  const add = document.getElementById('dash-add-user-btn');
+  if (add) add.style.display = dashMayManageStaff(role) ? '' : 'none';
   // PIN reset sits with the person it is for; shown only where the reset rules allow it (auth.js, same matrix as the server)
   const reset = document.getElementById('reset-worker-pin-btn'), w = dashSelectedWorker();
   if (reset) reset.style.display = selected && dashMayResetPin(typeof userRole !== 'undefined' ? userRole : null, currentUser && currentUser.id, w) ? 'inline-flex' : 'none';
@@ -342,7 +354,7 @@ async function loadEditWorkerPlansWeek(workerId) {
 
 function openEditWorker() {
   const worker = dashboardCurrentWorker;
-  if (!worker) return;
+  if (!worker || !dashMayManageStaff(typeof userRole !== 'undefined' ? userRole : null)) return;
   const nameParts = (worker.full_name || '').trim().split(' ');
   const lastName  = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
   const firstName = nameParts[0] || '';
@@ -909,6 +921,7 @@ function dashShortDay(iso) {
 }
 
 function dashShiftRowHtml(s, canEdit) {
+  const booked = s.status === 'eingetragen';
   const st = s.start_time ? s.start_time.substring(0, 5) : '';
   const en = s.end_time ? s.end_time.substring(0, 5) : '';
   const netMins = dashShiftNetMins(s);
@@ -922,7 +935,9 @@ function dashShiftRowHtml(s, canEdit) {
     ? `<button type="button" class="dash-shift-main" onclick="openShiftEdit('${escapeHtml(s.id)}')" aria-label="Schicht ${escapeHtml(dashShortDay(dashShiftDate(s)))} bearbeiten">${body}</button>`
     : `<div class="dash-shift-main">${body}</div>`;
   return `<div class="dash-shift${s.status === 'eingetragen' ? ' dash-shift-booked' : ''}">${main}` +
-    `<input type="checkbox" ${s.status === 'eingetragen' ? 'checked' : ''} data-shift-id="${escapeHtml(s.id)}" class="shift-booked-cb ui-switch" aria-label="Verbucht"></div>`;
+    (canEdit
+      ? `<input type="checkbox" ${booked ? 'checked' : ''} data-shift-id="${escapeHtml(s.id)}" class="shift-booked-cb ui-switch" aria-label="Verbucht">`
+      : `<span class="ui-pill${booked ? ' ui-pill-ok' : ''}">${booked ? 'verbucht' : 'offen'}</span>`) + '</div>';
 }
 
 // Stats, actions and shift rows of the month picked in #dash-month-filter (re-rendered from cache, no reload)
@@ -930,7 +945,7 @@ function dashRenderWorkerMonth() {
   const cont = document.getElementById('worker-shifts-container');
   const worker = dashboardCurrentWorker;
   if (!cont || !worker) return;
-  const canEdit = (typeof userRole !== 'undefined') && (userRole === 'Buchhaltung' || userRole === 'Admin');
+  const canEdit = dashMayBook(typeof userRole !== 'undefined' ? userRole : null);
   const cutoff = dashBillingCutoff();
   const sel = document.getElementById('dash-month-filter');
   const key = (sel && sel.value) || getBillingKeyForDate(new Date(), cutoff).key;
@@ -954,7 +969,7 @@ function dashRenderWorkerMonth() {
     '</div>';
 
   const actions = (canEdit ? `<button type="button" class="ui-btn dash-small-btn" onclick="openAddShift()">+ Schicht</button>` : '') +
-    (open ? `<button type="button" class="ui-btn ui-btn-primary dash-small-btn" onclick="markAllShiftsBooked('${escapeHtml(worker.id)}')">${open} offene verbuchen</button>` : '');
+    (open && canEdit ? `<button type="button" class="ui-btn ui-btn-primary dash-small-btn" onclick="markAllShiftsBooked('${escapeHtml(worker.id)}')">${open} offene verbuchen</button>` : '');
   if (actions) html += `<div class="dash-shift-actions">${actions}</div>`;
 
   html += list.length
@@ -2204,7 +2219,7 @@ async function exportDashboardMonthlyPDFRun() {
   await Promise.all(sigComprP);
 
   // Build PDF — same layout as exportMonthlyPDF
-  const doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+  const doc = pdfPatch(new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }));
   const ml = 20, cw = 170;
 
   if (typeof LOGO_BASE64 !== 'undefined') {

@@ -1512,7 +1512,7 @@ async function downloadWeekPDF() {
   var sigP = [];
   data.days.forEach(function (dd) { dd.shifts.forEach(function (sh) { if (sh.sig) sigP.push(new Promise(function (res) { compressSignature(sh.sig, function (c) { sh.sig = c; res(); }); })); }); });
   await Promise.all(sigP);
-  var doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
+  var doc = pdfPatch(new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })), ml = 20, cw = 170;
   splitWeekByDepts(data).forEach(function (pageData, i) {
     if (i > 0) doc.addPage();
     drawPDFContent(doc, pageData, ml, cw);
@@ -1556,7 +1556,7 @@ async function exportMonthlyPDF(mKey) {
     if (!name) name = w.name;
   });
   if (!monthW.length) return;
-  var doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
+  var doc = pdfPatch(new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })), ml = 20, cw = 170;
   if (typeof LOGO_BASE64 !== 'undefined') {
     try { var lw = 30, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100; doc.addImage(LOGO_BASE64, 'PNG', 160, 10, lw, lh); } catch (e) { }
   }
