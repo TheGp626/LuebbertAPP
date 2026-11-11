@@ -162,25 +162,86 @@ async function enablePushReminders() {
   }
 }
 
-// Opens a fresh protocol form pre-filled from a planned job (banner click or notification tap)
-async function openProtokollForEinsatz(einsatzId) {
-  var { data: e, error } = await supabaseClient.from('einsaetze')
-    .select('id, date, action, al_id, folder:project_folders(name)').eq('id', einsatzId).maybeSingle();
-  if (error || !e) { showToast('Einsatz nicht gefunden.', 'danger'); return; }
-  await openProtokollPrefilled({ event: (e.folder && e.folder.name) || '', date: e.date, action: e.action, alId: e.al_id });
+// The AL's plan shifts of one day (planShiftFromDb shape, in plan order); [] when there are none or the plan can't be read
+async function erPlanShifts(userId, date) {
+  try {
+    var { data, error } = await supabaseClient.from('plan_assignments')
+      .select('shift:plan_shifts!inner(id, date, sort, venue, title, wann, location, details, notes, ap, ap_user_id, open_slots, plan_assignments(name, role, note, user_id))')
+      .eq('user_id', userId).eq('role', 'AL').eq('shift.date', date);
+    if (error) throw error;
+    return (data || []).map(function(r) { return r.shift; }).sort(function(a, b) { return a.sort - b.sort; }).map(planShiftFromDb);
+  } catch (err) {
+    console.error('Plan-Einsatz laden:', err); // the form still opens, just with less filled in
+    return [];
+  }
 }
 
-// Fresh protocol form pre-filled with { event, date, action, alId, location, shift } (reminder banner, Wochenplan);
-// shift (planShiftFromDb shape) also fills the personnel list with the people the plan names
+// Which plan shift belongs to a project folder? The one sharing the most words with the folder name
+// ("261111_Estrel_Business of Apps" ↔ venue "Estrel", title "Business of Apps"); no shared word → the only shift of the day, else none.
+function erPickShift(shifts, folderName) {
+  var words = function(t) { return String(t || '').toLowerCase().split(/[^a-zäöüß]+/).filter(function(w) { return w.length >= 3; }); };
+  var want = words(folderName), best = null, bestScore = 0;
+  (shifts || []).forEach(function(s) {
+    var have = words([s.venue, s.title].concat(s.location || []).join(' '));
+    var score = want.filter(function(w) { return have.indexOf(w) !== -1; }).length;
+    if (score > bestScore) { best = s; bestScore = score; }
+  });
+  return best || ((shifts || []).length === 1 ? shifts[0] : null);
+}
+
+// One event often has several plan rows on a day (one per room): the protocol gets everyone from all of them
+function erWithGroupPeople(shift, shifts) {
+  var name = planEventName(shift).trim().toLowerCase();
+  var group = shifts.filter(function(s) { return planEventName(s).trim().toLowerCase() === name; });
+  if (group.length < 2 || typeof dashMergePlanPeople !== 'function') return shift;
+  var open = [];
+  group.forEach(function(s) { open = open.concat(s.open || []); });
+  var notes = [];
+  group.forEach(function(s) { (s.notes || []).forEach(function(n) { if (notes.indexOf(n) === -1) notes.push(n); }); });
+  return Object.assign({}, shift, { people: dashMergePlanPeople(group, shift), open: open, notes: notes });
+}
+
+function erPlanLocation(p) { return [p.venue].concat((p.location || []).slice(0, 1)).filter(Boolean).join(', '); }
+
+// Opens a fresh protocol form pre-filled from a planned job (banner click or notification tap).
+// Title, date, action, AL and PL come from the project folder; people, drivers and the place from the AL's plan shift of that day.
+async function openProtokollForEinsatz(einsatzId) {
+  var { data: e, error } = await supabaseClient.from('einsaetze')
+    .select('id, date, action, al_id, folder:project_folders(name, pl_id)').eq('id', einsatzId).maybeSingle();
+  if (error || !e) { showToast('Einsatz nicht gefunden.', 'danger'); return; }
+  var name = (e.folder && e.folder.name) || '';
+  var shifts = e.al_id ? await erPlanShifts(e.al_id, e.date) : [];
+  var p = erPickShift(shifts, name);
+  if (p) p = erWithGroupPeople(p, shifts);
+  await openProtokollPrefilled({ event: name, date: e.date, action: e.action, alId: e.al_id, plId: (e.folder && e.folder.pl_id) || null,
+    location: p ? erPlanLocation(p) : '', shift: p || undefined });
+}
+
+// Fresh protocol form pre-filled with { event, date, action, alId, plId, location, shift } (reminder banner, Wochenplan);
+// shift (planShiftFromDb shape) also fills the personnel list, the drivers under Transport and the PL from what the plan names
 async function openProtokollPrefilled(p) {
   var val = function(id) { return ((document.getElementById(id) || {}).value || '').trim(); };
   if (typeof appUsers !== 'undefined' && !appUsers.length && typeof fetchAppUsers === 'function') await fetchAppUsers();
+  var plId = p.plId || (p.shift ? protPlanPl(p.shift, appUsers) : null);
+  var setPl = function() {
+    if (!plId || val('prot-pl')) return;
+    protState.plId = plId;
+    if (typeof populateAlPlSelects === 'function') populateAlPlSelects(); // the PL may not be in the list yet
+    document.getElementById('prot-pl').value = plId;
+  };
+  var fillFromPlan = function() {
+    if (!p.shift) return;
+    protApplyPlanTransports(protPlanTransports(p.shift, appUsers, protVehicleTypes()));
+    protApplyPlanPersonnel(protPlanCrew(p.shift, appUsers));
+  };
 
   // The AL already started this very protocol → keep the draft, only fill what's missing
   if (val('prot-event') === p.event && val('prot-date') === p.date) {
     if (!val('prot-al') && p.alId) { document.getElementById('prot-al').value = p.alId; protState.alId = p.alId; }
+    if (!val('prot-location') && p.location) document.getElementById('prot-location').value = p.location;
+    setPl();
     saveProtDraft();
-    if (p.shift) protApplyPlanPersonnel(protPlanPersonnel(p.shift, appUsers));
+    fillFromPlan();
     selectMode('protokoll');
     return;
   }
@@ -191,10 +252,12 @@ async function openProtokollPrefilled(p) {
   document.getElementById('prot-event').value = p.event;
   document.getElementById('prot-date').value = p.date;
   if (p.action) document.getElementById('prot-action').value = p.action;
+  if (typeof syncProtActionSeg === 'function') syncProtActionSeg();
   if (p.location) document.getElementById('prot-location').value = p.location;
   if (p.alId) { document.getElementById('prot-al').value = p.alId; protState.alId = p.alId; }
+  setPl();
   saveProtDraft();
-  if (p.shift) protApplyPlanPersonnel(protPlanPersonnel(p.shift, appUsers));
+  fillFromPlan();
   if (typeof calcProtCosts === 'function') calcProtCosts();
   selectMode('protokoll');
 }
@@ -204,17 +267,10 @@ async function openProtokollPrefilled(p) {
 // The link carries the date, not a shift id, because shift ids change with every plan upload.
 async function openProtokollForDate(date) {
   var me = currentUser.id;
-  var { data, error } = await supabaseClient.from('plan_assignments')
-    .select('shift:plan_shifts!inner(date, sort, venue, title, wann, location, details, notes, open_slots, plan_assignments(name, role, note, user_id))')
-    .eq('user_id', me).eq('role', 'AL').eq('shift.date', date);
-  if (error) console.error('Plan-Einsatz laden:', error);
-  var shifts = (data || []).map(function(r) { return r.shift; }).sort(function(a, b) { return a.sort - b.sort; });
+  var shifts = await erPlanShifts(me, date);
   if (!shifts.length) { await openProtokollPrefilled({ event: '', date: date, alId: me }); return; }
-  var p = planShiftFromDb(shifts[0]);
-  await openProtokollPrefilled({
-    event: planEventName(p), date: date, action: planGuessAction(p.wann), alId: me,
-    location: [p.venue].concat(p.location.slice(0, 1)).filter(Boolean).join(', '), shift: p
-  });
+  var p = erWithGroupPeople(shifts[0], shifts);
+  await openProtokollPrefilled({ event: planEventName(p), date: date, action: planGuessAction(p.wann), alId: me, location: erPlanLocation(p), shift: p });
 }
 
 // Notification tap opens ./index.html?open=protokoll&einsatz=<id> (folder job) or &datum=YYYY-MM-DD (plan job);
