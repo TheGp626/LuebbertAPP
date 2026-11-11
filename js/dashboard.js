@@ -98,6 +98,7 @@ function dashWorkerRowHtml(w, selectedId) {
 }
 
 function renderDashWorkerList() {
+  renderDashClosePanel();
   const addBtn = document.getElementById('dash-add-user-btn');
   if (addBtn) addBtn.style.display = dashMayManageStaff(typeof userRole !== 'undefined' ? userRole : null) ? '' : 'none';
   var listEl = document.getElementById('dash-worker-list');
@@ -1017,6 +1018,170 @@ function dashShiftsInMonth(shifts, key, cutoff) {
     var d = dashShiftDate(s);
     return !!d && getBillingKeyForDate(new Date(d + 'T12:00:00'), cutoff).key === key;
   });
+}
+
+// ── Monatsabschluss: hours and pay of everyone with an account for one billing month, as PDF and CSV (Buchhaltung) ──
+// The days a billing month covers: cutoff C → from day C of the month before to the day before C (getBillingKeyForDate)
+function dashBillingRange(key, cutoff) {
+  var p = String(key).split('-').map(Number), iso = function(d) { return d.toISOString().slice(0, 10); };
+  if (cutoff > 1 && cutoff < 31)
+    return { from: iso(new Date(Date.UTC(p[0], p[1] - 2, cutoff))), to: iso(new Date(Date.UTC(p[0], p[1] - 1, cutoff - 1))) };
+  return { from: iso(new Date(Date.UTC(p[0], p[1] - 1, 1))), to: iso(new Date(Date.UTC(p[0], p[1], 0))) };
+}
+
+// shifts (user_id, shift_date or protocols.date, times, pause, status), users (id, full_name, role, hourly_rate_conni, income_limit).
+// Agency and other people without an account are invoiced elsewhere and stay out. Hours follow dashShiftNetMins
+// (the same numbers as the person's month in the dashboard). → { rows: [{ id, name, role, shifts, open, mins, rate, pay, limit, limitPct }], total }
+function dashMonthSummary(shifts, users, key, cutoff) {
+  var byId = {}, rows = {};
+  (users || []).forEach(function(u) { byId[u.id] = u; });
+  dashShiftsInMonth((shifts || []).filter(function(s) { return s.user_id; }), key, cutoff).forEach(function(s) {
+    var u = byId[s.user_id];
+    var r = rows[s.user_id] = rows[s.user_id] || { id: s.user_id, name: u ? u.full_name : 'Unbekannt (' + s.user_id + ')', role: u ? u.role || '' : '',
+      shifts: 0, open: 0, mins: 0, rate: u && parseFloat(u.hourly_rate_conni) > 0 ? parseFloat(u.hourly_rate_conni) : null,
+      limit: u && parseFloat(u.income_limit) > 0 ? parseFloat(u.income_limit) : null };
+    r.shifts++;
+    if (s.status !== 'eingetragen') r.open++;
+    r.mins += dashShiftNetMins(s);
+  });
+  var list = Object.keys(rows).map(function(k) {
+    var r = rows[k];
+    r.pay = r.rate !== null ? Math.round(r.mins / 60 * r.rate * 100) / 100 : null;
+    var share = incomeLimitShare(r.pay, r.limit);
+    r.limitPct = share ? share.pct : null;
+    return r;
+  }).sort(function(a, b) { return a.name.localeCompare(b.name, 'de'); });
+  var total = { shifts: 0, open: 0, mins: 0, pay: 0 };
+  list.forEach(function(r) { total.shifts += r.shifts; total.open += r.open; total.mins += r.mins; total.pay += r.pay || 0; });
+  total.pay = Math.round(total.pay * 100) / 100;
+  return { rows: list, total: total };
+}
+
+function dashDe(n) { return (Number(n) || 0).toFixed(2).replace('.', ','); }
+
+// CSV for Excel in German: semicolons, decimal commas, UTF-8 with BOM; a cell starting with = + - @ gets a ' so it is never a formula
+function dashMonthCsv(sum, label) {
+  var cell = function(v) {
+    var t = v == null ? '' : String(v);
+    if (/^[=+\-@]/.test(t)) t = "'" + t;
+    return /[;"\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  };
+  var lines = [['Name', 'Rolle', 'Schichten', 'davon offen', 'Stunden', 'Stundenlohn', 'Lohn', 'Verdienstgrenze', 'Anteil Grenze']];
+  sum.rows.forEach(function(r) {
+    lines.push([r.name, r.role, r.shifts, r.open, dashDe(r.mins / 60), r.rate !== null ? dashDe(r.rate) : '', r.pay !== null ? dashDe(r.pay) : '',
+      r.limit !== null ? dashDe(r.limit) : '', r.limitPct !== null ? r.limitPct + ' %' : '']);
+  });
+  lines.push(['Summe ' + label, '', sum.total.shifts, sum.total.open, dashDe(sum.total.mins / 60), '', dashDe(sum.total.pay), '', '']);
+  return '\uFEFF' + lines.map(function(l) { return l.map(cell).join(';'); }).join('\r\n') + '\r\n';
+}
+
+function dashCloseKeys(now, cutoff, n) {
+  var out = [], d = new Date(now.getTime());
+  var cur = getBillingKeyForDate(d, cutoff).key, p = cur.split('-').map(Number);
+  for (var i = 0; i < n; i++) {
+    var y = p[0], m = p[1] - i;
+    while (m < 1) { m += 12; y--; }
+    out.push(y + '-' + ('0' + m).slice(-2));
+  }
+  return out;
+}
+
+function renderDashClosePanel() {
+  var box = document.getElementById('dash-close-panel');
+  if (!box) return;
+  var allowed = dashMayBook(typeof userRole !== 'undefined' ? userRole : null);
+  box.hidden = !allowed;
+  var sel = document.getElementById('dash-close-month');
+  if (!allowed || !sel || sel.options.length) return;
+  // The month that just ended is what Conni closes: preselected; the current one is still running
+  var keys = dashCloseKeys(new Date(), dashBillingCutoff(), 7);
+  sel.innerHTML = keys.map(function(k, i) { return '<option value="' + k + '"' + (i === 1 ? ' selected' : '') + '>' + monthLabelFromKey(k) + (i === 0 ? ' (läuft noch)' : '') + '</option>'; }).join('');
+}
+
+async function dashLoadMonthSummary() {
+  var key = (document.getElementById('dash-close-month') || {}).value, cutoff = dashBillingCutoff();
+  if (!key) return null;
+  var r = dashBillingRange(key, cutoff);
+  // A margin of a few days each side; dashShiftsInMonth does the exact cut. Shifts without their own date carry the protocol's.
+  var from = new Date(r.from + 'T12:00:00Z'); from.setUTCDate(from.getUTCDate() - 3);
+  var to = new Date(r.to + 'T12:00:00Z'); to.setUTCDate(to.getUTCDate() + 3);
+  var f = from.toISOString().slice(0, 10), t = to.toISOString().slice(0, 10);
+  var cols = 'id, user_id, start_time, end_time, pause_mins, position_role, status, shift_date, created_at, protocols(date)';
+  var res = await Promise.all([
+    supabaseClient.from('shifts').select(cols).not('user_id', 'is', null).gte('shift_date', f).lte('shift_date', t).range(0, 4999),
+    supabaseClient.from('shifts').select('id, user_id, start_time, end_time, pause_mins, position_role, status, shift_date, created_at, protocols!inner(date)')
+      .not('user_id', 'is', null).is('shift_date', null).gte('protocols.date', f).lte('protocols.date', t).range(0, 4999),
+    supabaseClient.from('app_users').select('id, full_name, role, hourly_rate_conni, income_limit')
+  ]);
+  var err = res[0].error || res[1].error || res[2].error;
+  if (err) throw err;
+  var seen = {}, shifts = [];
+  (res[0].data || []).concat(res[1].data || []).forEach(function(s) { if (!seen[s.id]) { seen[s.id] = true; shifts.push(s); } });
+  return { key: key, label: monthLabelFromKey(key), range: r, sum: dashMonthSummary(shifts, res[2].data || [], key, cutoff) };
+}
+
+function dashDownload(blob, name) {
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+async function exportDashMonthClose(kind) {
+  if (!dashMayBook(typeof userRole !== 'undefined' ? userRole : null)) return;
+  var data;
+  try { data = await dashLoadMonthSummary(); } catch (err) { console.error('Monatsabschluss:', err); showToast('Daten konnten nicht geladen werden.', 'danger'); return; }
+  if (!data) return;
+  if (!data.sum.rows.length) { showToast('In ' + data.label + ' gibt es keine Schichten.', 'info'); return; }
+  var file = 'Monatsabschluss_' + data.key;
+  if (kind === 'csv') { dashDownload(new Blob([dashMonthCsv(data.sum, data.label)], { type: 'text/csv;charset=utf-8' }), file + '.csv'); return; }
+  if (!window.jspdf || !window.jspdf.jsPDF) { showToast('PDF-Funktion nicht geladen. Bitte Seite neu laden.', 'danger'); return; }
+  var doc = pdfPatch(new jspdf.jsPDF({ orientation: 'l', unit: 'mm', format: 'a4' })), ml = 14, y = 18;
+  var day = function(iso) { return iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.' + iso.slice(0, 4); };
+  if (typeof LOGO_BASE64 !== 'undefined') {
+    try { var lw = 30, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100; doc.addImage(LOGO_BASE64, 'PNG', 253, 10, lw, lh); } catch (e) { /* no logo */ }
+  }
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text('Monatsabschluss ' + data.label, ml, y);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(110);
+  doc.text('Abrechnungszeitraum ' + day(data.range.from) + ' bis ' + day(data.range.to) + ' · erstellt am ' + new Date().toLocaleDateString('de-DE') +
+    ' · Stunden wie in der Buchhaltung (mit Mindeststunden)', ml, y + 7);
+  doc.setTextColor(0);
+  var cols = [['Name', 70], ['Rolle', 28], ['Schichten', 22], ['offen', 18], ['Stunden', 24], ['€/h', 22], ['Lohn', 30], ['Grenze', 26], ['Anteil', 20]];
+  var x0 = ml, rowH = 7;
+  y += 18;
+  var head = function() {
+    doc.setFillColor(240, 239, 236); doc.rect(ml, y - 5, 260, rowH, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    var x = x0;
+    cols.forEach(function(c, i) { doc.text(c[0], i >= 2 ? x + c[1] - 2 : x + 1, y, i >= 2 ? { align: 'right' } : undefined); x += c[1]; });
+    doc.setFont('helvetica', 'normal'); y += rowH;
+  };
+  head();
+  var line = function(vals, bold) {
+    if (y > 195) { doc.addPage(); y = 18; head(); }
+    doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(9);
+    var x = x0;
+    vals.forEach(function(v, i) {
+      var t = String(v == null ? '' : v);
+      if (i === 0) t = doc.splitTextToSize(t, cols[0][1] - 2)[0];
+      doc.text(t, i >= 2 ? x + cols[i][1] - 2 : x + 1, y, i >= 2 ? { align: 'right' } : undefined);
+      x += cols[i][1];
+    });
+    doc.setDrawColor(225); doc.line(ml, y + 2, ml + 260, y + 2);
+    y += rowH;
+  };
+  data.sum.rows.forEach(function(r) {
+    line([r.name, r.role, r.shifts, r.open || '', dashDe(r.mins / 60), r.rate !== null ? dashDe(r.rate) : '', r.pay !== null ? dashDe(r.pay) + ' €' : '',
+      r.limit !== null ? dashDe(r.limit) + ' €' : '', r.limitPct !== null ? r.limitPct + ' %' : '']);
+  });
+  line(['Summe', '', data.sum.total.shifts, data.sum.total.open || '', dashDe(data.sum.total.mins / 60), '', dashDe(data.sum.total.pay) + ' €', '', ''], true);
+  y += 4;
+  doc.setFontSize(9); doc.setTextColor(110);
+  if (data.sum.total.open) doc.text(data.sum.total.open + (data.sum.total.open === 1 ? ' Schicht ist' : ' Schichten sind') + ' noch nicht verbucht (Spalte „offen“).', ml, y);
+  doc.setTextColor(0);
+  doc.save(file + '.pdf');
 }
 
 // "Do 5.11." for the shift rows

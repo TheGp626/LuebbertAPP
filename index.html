@@ -16,7 +16,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <link rel="stylesheet" href="css/style.css?v=41">
-  <link rel="stylesheet" href="css/ui.css?v=34">
+  <link rel="stylesheet" href="css/ui.css?v=35">
 </head>
 
 <body>
@@ -301,6 +301,17 @@
               <details id="dash-night-panel">
                 <summary class="ui-label" style="cursor:pointer;" id="dash-night-title">Nachtschichten · Kalenderjahr</summary>
                 <div id="dash-night-ranking" class="ui-list"></div>
+              </details>
+              <details id="dash-close-panel" class="dash-close" hidden>
+                <summary class="ui-label" style="cursor:pointer;">Monatsabschluss</summary>
+                <div class="dash-close-body">
+                  <label class="ui-field"><span>Abrechnungsmonat</span><select id="dash-close-month"></select></label>
+                  <div class="dash-close-btns">
+                    <button type="button" class="ui-btn dash-small-btn" onclick="exportDashMonthClose('pdf')">PDF</button>
+                    <button type="button" class="ui-btn dash-small-btn" onclick="exportDashMonthClose('csv')">CSV für Excel</button>
+                  </div>
+                  <div class="ui-sub">Alle mit App-Konto: Schichten, davon noch offen, Stunden, Lohn und Anteil an der Verdienstgrenze. Zenjob und Rockit stehen nicht drin.</div>
+                </div>
               </details>
               <div class="ui-label">Alle Mitarbeiter</div>
               <div id="dash-worker-list" class="ui-list"></div>
@@ -890,14 +901,14 @@
   <script src="js/protokoll.js?v=49"></script>
   <script src="js/erinnerung.js?v=12"></script>
   <script src="js/plan-pdf.js?v=2"></script>
-  <script src="js/plan-parser.js?v=22"></script>
+  <script src="js/plan-parser.js?v=23"></script>
   <script src="js/order-parser.js?v=8"></script>
   <script src="js/order-slots.js?v=5"></script>
-  <script src="js/planer.js?v=8"></script>
+  <script src="js/planer.js?v=9"></script>
   <script src="js/auftraege.js?v=13"></script>
-  <script src="js/wochenplan.js?v=34"></script>
-  <script src="js/home.js?v=8"></script>
-  <script src="js/dashboard.js?v=47"></script>
+  <script src="js/wochenplan.js?v=35"></script>
+  <script src="js/home.js?v=9"></script>
+  <script src="js/dashboard.js?v=48"></script>
   <script src="js/produkte.js?v=18"></script>
   <script src="js/ordner.js?v=30"></script>
   <script src="js/app.js?v=27"></script>

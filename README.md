@@ -12,6 +12,7 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 ## was drin ist
 
 ### 🏠 Startseite
+- ist dein einsatz heute, zeigt die startseite alles für den tag aufgeklappt: adresse mit route-link, team mit rollen und zeiten, fahrzeuge, material und "protokoll starten" für die AL
 - "Hallo \<name\>" + dein nächster einsatz aus dem wochenplan
 - kacheln für alles, was deine rolle sehen darf
 
@@ -41,6 +42,8 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - nachträgliche protokolle funktionieren, datum ist frei wählbar
 
 ### 📅 Wochenplan
+- absagen: bei der eigenen schicht "ich kann doch nicht", ohne grund. die planung sieht es im planer an der zeile und trägt mit einem tipp ersatz ein. ist der einsatz heute oder morgen, zusätzlich die PL anrufen
+- vor dem speichern prüft die vorschau den plan: unter 11 stunden ruhe zwischen zwei arbeitstagen, jemand gleichzeitig an zwei orten, ein kennzeichen doppelt, ein auftrag mit 3+ leuten ohne AL, eingeplant trotz "geht nicht". nur hinweise, speichern geht trotzdem
 - PL lädt den wochenplan als PDF hoch, die app liest ihn selbst aus
 - "meine schichten" + die ganze woche für alle
 - kalender-abo (iPhone, google kalender) oder .ics zum runterladen
@@ -83,6 +86,7 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - sicherung speichern / einspielen gibt es nicht mehr, schichten und protokolle liegen in der datenbank
 
 ### 📊 Dashboard (AL, PL, Buchhaltung, Admin)
+- monatsabschluss (buchhaltung, admin): alle mit app-konto für einen abrechnungsmonat als PDF oder CSV für excel, mit schichten, offenen, stunden, lohn und anteil an der verdienstgrenze
 - nachkalkulation pro projekt: alle protokolle mit derselben projektnummer zusammengezählt, aufbau und abbau getrennt. leute gegen die geplanten MA, stunden, personal, transport, gesamt. admin und PL sehen sie im reiter aufträge, buchhaltung und AL hier
 - **protokolle:** alles auf einen blick mit suche, kosten pro monat, bearbeiten
 - **mitarbeiter:** alle schichten eines MAs nach tatsächlichem arbeitsdatum, ausstehendes wird rot, monat als PDF

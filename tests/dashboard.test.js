@@ -784,3 +784,43 @@ test('dashNkJobHtml: protocol buttons in the dashboard, plain days in the Auftr�
   assert.match(plainDays, /Business &lt;Apps&gt;/);
   assert.doesNotMatch(plainDays, /Sonstiges/);
 });
+
+// ── Monatsabschluss ──
+const plainJ = v => JSON.parse(JSON.stringify(v));
+test('dashBillingRange: the days a billing month covers, with and without a cutoff day', () => {
+  assert.deepEqual(plainJ(run("dashBillingRange('2026-11', 20)")), { from: '2026-10-20', to: '2026-11-19' });
+  assert.deepEqual(plainJ(run("dashBillingRange('2026-01', 20)")), { from: '2025-12-20', to: '2026-01-19' });
+  assert.deepEqual(plainJ(run("dashBillingRange('2026-02', 0)")), { from: '2026-02-01', to: '2026-02-28' });
+});
+
+test('dashMonthSummary: per person shifts, open ones, hours and pay of one billing month', () => {
+  ctx.__sh = [
+    { user_id: 'a', shift_date: '2026-10-25', start_time: '08:00:00', end_time: '16:30:00', pause_mins: 30, status: 'eingetragen' },
+    { user_id: 'a', shift_date: null, protocols: { date: '2026-11-02' }, start_time: '20:00:00', end_time: '02:00:00', pause_mins: 0, status: 'offen' },
+    { user_id: 'a', shift_date: '2026-11-20', start_time: '08:00:00', end_time: '16:00:00', pause_mins: 0, status: 'offen' }, // next month
+    { user_id: 'b', shift_date: '2026-11-03', start_time: '08:00:00', end_time: '12:00:00', pause_mins: 0, status: 'eingetragen' },
+    { user_id: null, temp_worker_name: 'Tom', shift_date: '2026-11-03', start_time: '08:00:00', end_time: '12:00:00' },
+    { user_id: 'gone', shift_date: '2026-11-04', start_time: '08:00:00', end_time: '12:00:00', status: 'offen' },
+  ];
+  ctx.__users = [
+    { id: 'a', full_name: 'Zora Alt', role: 'MA', hourly_rate_conni: '14.50', income_limit: '556' },
+    { id: 'b', full_name: 'Bert Brandt', role: 'AL', hourly_rate_conni: null, income_limit: null },
+  ];
+  const out = JSON.parse(run("JSON.stringify(dashMonthSummary(__sh, __users, '2026-11', 20))"));
+  assert.deepEqual(out.rows.map(r => [r.name, r.role, r.shifts, r.open, r.mins, r.rate, r.pay, r.limitPct]), [
+    ['Bert Brandt', 'AL', 1, 0, 240, null, null, null],
+    ['Unbekannt (gone)', '', 1, 1, 240, null, null, null],
+    ['Zora Alt', 'MA', 2, 1, 840, 14.5, 203, 37],
+  ]);
+  assert.deepEqual([out.total.shifts, out.total.open, out.total.mins, out.total.pay], [4, 2, 1320, 203]);
+});
+
+test('dashMonthCsv: semicolons, decimal commas, a header and a total line, safe against formulas', () => {
+  const csv = run("dashMonthCsv({ rows: [{ name: '=Zora; Alt', role: 'MA', shifts: 2, open: 1, mins: 840, rate: 14.5, pay: 203, limit: 556, limitPct: 37 }, { name: 'Bert', role: 'AL', shifts: 1, open: 0, mins: 90, rate: null, pay: null, limit: null, limitPct: null }], total: { shifts: 3, open: 1, mins: 930, pay: 203 } }, 'November 2026')");
+  const lines = csv.replace(/^﻿/, '').trim().split('\r\n');
+  assert.equal(lines[0], 'Name;Rolle;Schichten;davon offen;Stunden;Stundenlohn;Lohn;Verdienstgrenze;Anteil Grenze');
+  assert.equal(lines[1], '"\'=Zora; Alt";MA;2;1;14,00;14,50;203,00;556,00;37 %');
+  assert.equal(lines[2], 'Bert;AL;1;0;1,50;;;;');
+  assert.equal(lines[3], 'Summe November 2026;;3;1;15,50;;203,00;;');
+  assert.ok(csv.startsWith('﻿'));
+});

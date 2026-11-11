@@ -477,3 +477,7 @@ button.opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .home-today-addr span { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
 .home-today .wp-details { font-size: 14px; }
 .home-today-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+
+/* Dashboard: Monatsabschluss */
+.dash-close-body { display: grid; gap: 8px; padding: 4px 0 12px; }
+.dash-close-btns { display: flex; gap: 8px; flex-wrap: wrap; }
