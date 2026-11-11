@@ -86,7 +86,7 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - sicherung speichern / einspielen gibt es nicht mehr, schichten und protokolle liegen in der datenbank
 
 ### 📊 Dashboard (AL, PL, Buchhaltung, Admin)
-- monatsabschluss (buchhaltung, admin): alle mit app-konto für einen abrechnungsmonat als PDF oder CSV für excel, mit schichten, offenen, stunden, lohn und anteil an der verdienstgrenze
+- monatsabschluss (buchhaltung, admin): ein PDF für den ganzen abrechnungsmonat, vorne die übersicht aller mit app-konto (schichten, offene, stunden, lohn, anteil an der verdienstgrenze), dahinter jeder stundenzettel mit zeiten, ort, AL und unterschriften. die übersicht gibts auch als CSV für excel
 - nachkalkulation pro projekt: alle protokolle mit derselben projektnummer zusammengezählt, aufbau und abbau getrennt. leute gegen die geplanten MA, stunden, personal, transport, gesamt. admin und PL sehen sie im reiter aufträge, buchhaltung und AL hier
 - **protokolle:** alles auf einen blick mit suche, kosten pro monat, bearbeiten
 - **mitarbeiter:** alle schichten eines MAs nach tatsächlichem arbeitsdatum, ausstehendes wird rot, monat als PDF

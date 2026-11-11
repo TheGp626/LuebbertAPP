@@ -824,3 +824,10 @@ test('dashMonthCsv: semicolons, decimal commas, a header and a total line, safe 
   assert.equal(lines[3], 'Summe November 2026;;3;1;15,50;;203,00;;');
   assert.ok(csv.startsWith('﻿'));
 });
+
+test('dashSummaryFromMonths: overview hours and pay come from the built Stundenzettel', () => {
+  ctx.__sum = { rows: [{ id: 'a', mins: 900, rate: 14.5, limit: 556 }, { id: 'b', mins: 240, rate: null, limit: null }, { id: 'c', mins: 60, rate: 10, limit: null }], total: { shifts: 3, open: 0, mins: 0, pay: 0 } };
+  const out = JSON.parse(run("JSON.stringify(dashSummaryFromMonths(__sum, { a: { mTot: 14 }, b: { mTot: 3.5 } }))"));
+  assert.deepEqual(out.rows.map(r => [r.mins, r.pay, r.limitPct]), [[840, 203, 37], [210, null, null], [60, 10, null]]);
+  assert.deepEqual([out.total.mins, out.total.pay], [1110, 213]);
+});
