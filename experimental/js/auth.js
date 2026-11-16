@@ -545,6 +545,12 @@ async function handleLogout() {
   await signOutLocal();
   localStorage.removeItem(LOGIN_TS_KEY);
   localStorage.removeItem(OWN_PROFILE_KEY);
+  // Shared phones: nothing personal of the last person stays readable. Unsent protocols and the own Stundenzettel
+  // weeks (stored per person, only unsent ones matter) stay, so no work is lost.
+  ['luebbert_next_shift', 'luebbert_dash_view', 'luebbert_dash_prot_scope', 'luebbert_prot_hist_scope', 'luebbert_mode'].forEach(function(k) {
+    try { localStorage.removeItem(k); } catch (e) { /* storage unavailable */ }
+  });
+  if (typeof protLogoutCleanup === 'function') protLogoutCleanup();
   // Close the open module so the next user doesn't land in e.g. the dashboard of the previous one
   if (typeof exitToMenu === 'function') exitToMenu();
   handleSession(null);

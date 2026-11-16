@@ -1,5 +1,5 @@
 /**
- * Wochenplan (experimental): Daniel's weekly plan PDFs as a table.
+ * Wochenplan (experimental): the weekly plan PDFs as a table.
  * Everyone sees the whole week with their own shifts highlighted ("Meine Schichten").
  * PL/Admin upload a PDF → plan-pdf.js reads it → plan-parser.js builds shifts → preview with name
  * assignment → saved to plan_weeks/plan_shifts/plan_assignments; changes get a push (notify-plan-change).
@@ -176,20 +176,20 @@ function wpCanApply(s, me, today, who) {
     !(s.plan_assignments || []).some(function(a) { return a.user_id === me; }));
 }
 
-// My Meldung on a shift of Daniel's plan (plan_shift_interest): 'offen' | 'angenommen' | 'abgelehnt' | null
+// My Meldung on a shift of the weekly plan (plan_shift_interest): 'offen' | 'angenommen' | 'abgelehnt' | null
 function wpMyInterest(s) {
   var me = wpMe(), row = (s._interest || []).find(function(r) { return r.user_id === me; });
   return row ? row.status : null;
 }
 
-// Status pill of an own Meldung (Daniel's shift or Auftrag phase)
+// Status pill of an own Meldung (a plan shift or Auftrag phase)
 function wpMeldungPill(status) {
   return status === 'angenommen' ? '<span class="ord-pill ord-pill-ok">Angenommen ✓</span>'
     : status === 'offen' ? '<span class="ord-pill ord-pill-new">Gemeldet</span>'
     : status === 'abgelehnt' ? '<span class="ord-pill ord-pill-muted">Abgelehnt</span>' : '';
 }
 
-// „Ich kann“ on a shift of Daniel's plan with a fitting open slot; a shift with an Auftrag uses wpOrderBlock instead
+// „Ich kann“ on a shift of the weekly plan with a fitting open slot; a shift with an Auftrag uses wpOrderBlock instead
 function wpInterestBlock(s) {
   if ((s._orders && s._orders.length) || !s._interest) return '';
   var mine = wpMyInterest(s), call = 'event.stopPropagation(); wpToggleInterest(this, \'' + s.id + '\')';
@@ -469,7 +469,7 @@ function wpRow(s, opts) {
     '<div class="wp-time' + (tc.fuzzy ? ' wp-time-fuzzy' : '') + '"><b>' + wpEsc(tc.big) + '</b><span>' + wpEsc(tc.small) + '</span></div>' +
     '<div class="wp-main">' +
       '<div class="wp-head"><div class="wp-venue">' + (s.color ? '<span class="wp-dot" style="background:' + wpEsc(s.color) + '"></span>' : '') + wpEsc(s.venue || '—') +
-        // A blue row is an Angebot (planer.js, Daniel's colours): say so, a dot alone does not tell people it may still fall away
+        // A blue row is an Angebot (planer.js, the plan colours): say so, a dot alone does not tell people it may still fall away
         (s.color && typeof plKindOfColor === 'function' && plKindOfColor(s.color) === 'angebot' ? ' <span class="ui-pill ui-pill-info wp-angebot">Angebot</span>' : '') + '</div>' +
         '<div class="wp-badges">' + wpStatusPill(s) + (mine ? '<span class="ui-pill ui-pill-info">Du' + (mine.role && mine.role !== 'MA' ? ' · ' + wpEsc(mine.role) : '') + '</span>' : '') + WP_ICON.chevron + '</div></div>' +
       (opts.showDate ? '<div class="wp-sub">' + wpDayLabel(s.date) + (sub ? ' · ' + wpEsc(sub) : '') + '</div>' : (sub ? '<div class="wp-sub">' + wpEsc(sub) + '</div>' : '')) +
@@ -536,7 +536,7 @@ async function initWochenplan() {
   wpAliases = {};
   // Same normalisation as planMatchPerson (older entries were saved with a trailing dot)
   (a.data || []).forEach(function(r) { wpAliases[planAliasKey(r.alias)] = r.user_id; });
-  // KWs with Auftrag slots but no plan from Daniel yet show as empty weeks, so people can already say "Ich kann"
+  // KWs with Auftrag slots but no plan from the scheduler yet show as empty weeks, so people can already say "Ich kann"
   wpWeeks = (w.data || []).concat(wpVirtualWeeks(w.data || [], sl, localDateStr()))
     .sort(function(x, y) { return x.week_start < y.week_start ? 1 : x.week_start > y.week_start ? -1 : 0; });
   // Default: the week containing today, else the next upcoming one, else the newest
@@ -637,7 +637,7 @@ function wpStepWeek(dir) {
 }
 
 // "Meine Schichten": accepted Meldungen that are not one of my plan shifts yet (open ones are in "Ganze Woche").
-// acceptedShifts = Daniel's shifts with my accepted Meldung (wpLoadAcceptedShifts), slots = order_slots()
+// acceptedShifts = the plan's shifts with my accepted Meldung (wpLoadAcceptedShifts), slots = order_slots()
 function wpMineOrdersHtml(slots, myShifts, acceptedShifts) {
   var att = ordAttachSlots(slots, myShifts), onMine = {};
   Object.keys(att.bySid).forEach(function(id) { att.bySid[id].forEach(function(sl) { onMine[sl.job_no + sl.phase] = true; }); });
@@ -648,7 +648,7 @@ function wpMineOrdersHtml(slots, myShifts, acceptedShifts) {
     accepted.map(function(sl) { return wpOrderCard(sl, { showDate: true }); }).join('') : '';
 }
 
-// Shifts of Daniel's plan where my Meldung was accepted and he has not put me in yet; null on a load error
+// Shifts of the weekly plan where my Meldung was accepted and he has not put me in yet; null on a load error
 async function wpLoadAcceptedShifts() {
   var me = wpMe();
   try {
@@ -838,7 +838,7 @@ async function wpRenderWeek() {
   label.innerHTML = 'KW ' + week.kw + ' <span>' + s0.d + '.' + (s0.m !== s1.m ? s0.m + '.' : '') + '–' + s1.d + '.' + s1.m + '.' +
     (week.version > 1 ? ' · Stand ' + week.version : '') + '</span>';
   content.innerHTML = '<div class="wp-empty">Lädt…</div>';
-  var none = Promise.resolve({ data: [], error: null }); // virtual week: nothing from Daniel yet
+  var none = Promise.resolve({ data: [], error: null }); // virtual week: nothing from the scheduler yet
   var [res, iq, slots] = await Promise.all([
     week._virtual ? none : supabaseClient.from('plan_shifts').select('*, plan_assignments(*)').eq('week_id', week.id).order('date').order('sort'),
     week._virtual ? none : supabaseClient.from('plan_shift_interest').select('shift_key, user_id, status').eq('week_id', week.id),
@@ -908,7 +908,7 @@ var WP_PHASE = { setup: 'Aufbau', teardown: 'Abbau' };
 
 function wpSlotTime(t) { return t && t.length > 10 ? t.slice(11, 16) : ''; }
 
-// Auftrag info and the "Ich kann" button for one phase; planShift = Daniel's linked entry or null.
+// Auftrag info and the "Ich kann" button for one phase; planShift = the linked plan entry or null.
 // A full phase offers no "Ich kann"; an own open application can still be withdrawn.
 function wpOrderBlock(slot, planShift) {
   var me = wpMe(), role = typeof userRole !== 'undefined' ? userRole : null;
@@ -935,7 +935,7 @@ function wpOrderBlock(slot, planShift) {
   '</div>';
 }
 
-// Phase without an entry in Daniel's plan: its own row
+// Phase without an entry in the weekly plan: its own row
 function wpOrderCard(slot, opts) {
   return '<div class="ui-row wp-ord-row">' +
     '<div class="wp-time"><b>' + wpEsc(wpSlotTime(slot.start_at) || '—') + '</b><span>' + WP_PHASE[slot.phase] + '</span></div>' +

@@ -1,4 +1,4 @@
-/* Aufträge (Jenni, test build): jobs from the Auftragsbestätigungen in the project folders, with MA needed.
+/* Aufträge (test build): jobs from the Auftragsbestätigungen in the project folders, with MA needed.
  * PDFs are parsed once (order-parser.js) and the result is stored in order_parsed for everyone;
  * only new files or files parsed by an older ORDER_PARSER_VERSION are downloaded again.
  * MA numbers live in order_staffing (job_no). Admin/PL and „Sieht Bewerbungen“ (moduleAllowedForRole, RLS);
@@ -9,7 +9,7 @@ var _ordSaved = {};   // job_no → { staff_setup, staff_teardown } as last conf
 var _ordFiles = [];
 var _ordSeq = 0;      // bumped per render; a slower earlier render must not overwrite a newer one
 var _ordView = null;  // { jobs, failed } of the last load, re-rendered after a decision
-// Applications, manual links, Daniel's entries of the slot days, availability and names (each may stay empty on a load error)
+// Applications, manual links, the plan entries of the slot days, availability and names (each may stay empty on a load error)
 var _ordCtx = { apps: [], interest: [], accepted: {}, links: {}, plan: [], avail: {}, names: {}, users: [] };
 var ORD_PHASE = { setup: 'Aufbau', teardown: 'Abbau' };
 
@@ -123,7 +123,7 @@ function ordCardSlot(x, phase) {
     link_set: !!link, link_date: link ? link.plan_date : null, link_key: link ? link.plan_key : null };
 }
 
-// Everything a phase shows: number, Daniel's linked entry, who counts, applications
+// Everything a phase shows: number, the linked plan entry, who counts, applications
 function ordPhaseInfo(x, phase) {
   var slot = ordCardSlot(x, phase), att = ordAttachSlots([slot], _ordCtx.plan), ps = null;
   Object.keys(att.bySid).forEach(function(id) { ps = _ordCtx.plan.find(function(p) { return p.id === id; }) || null; });
@@ -197,7 +197,7 @@ function ordHints(uid, date, ps) {
   return h.join('');
 }
 
-// One phase: MA stepper, how full it is, link to Daniel's plan, who is on it, applications with hints, accept / reject
+// One phase: MA stepper, how full it is, link to the weekly plan, who is on it, applications with hints, accept / reject
 function ordSlotHtml(x, phase) {
   if (!x.job[phase]) return '';
   var i = ordPhaseInfo(x, phase), slot = i.slot, ps = i.ps, needed = i.needed, apps = i.apps, date = ordSlotDate(slot);
@@ -312,7 +312,7 @@ async function ordDecide(jobNo, phase, userId, status) {
   ordRenderList();
 }
 
-// <select>: 'auto' = automatic match again, 'none' = not in Daniel's plan, 'date|key' = that entry
+// <select>: 'auto' = automatic match again, 'none' = not in the weekly plan, 'date|key' = that entry
 async function ordSetLink(sel) {
   var job = sel.dataset.job, phase = sel.dataset.phase, v = sel.value, k = job + '|' + phase;
   if (!v) return;
@@ -393,10 +393,10 @@ async function ordLoadNachkalk(seq) {
   }
 }
 
-// Context for the phase blocks and the inbox: all upcoming entries of Daniel's plan; a failing part only leaves its hints out
+// Context for the phase blocks and the inbox: all upcoming entries of the weekly plan; a failing part only leaves its hints out
 async function ordLoadCtx() {
   var today = localDateStr();
-  // An order stays listed until its Abbau, so its Aufbau can already lie in the past: load Daniel's entries 14 days back
+  // An order stays listed until its Abbau, so its Aufbau can already lie in the past: load the plan entries 14 days back
   var ordPlanFrom = localDateStr(new Date(Date.now() - 14 * 864e5));
   var res = await Promise.all([
     supabaseClient.from('order_applications').select('job_no, phase, user_id, status'),
@@ -417,7 +417,7 @@ async function ordLoadCtx() {
   return c;
 }
 
-// Who sets MA numbers and links to Daniel's plan (RLS on order_staffing / order_plan_links)
+// Who sets MA numbers and links to the weekly plan (RLS on order_staffing / order_plan_links)
 function ordCanEdit() { return typeof userRole !== 'undefined' && (userRole === 'Admin' || userRole === 'PL'); }
 
 // Who decides Meldungen (same rule as sees_plan_interest() in the database)
@@ -425,7 +425,7 @@ function ordCanDecide() {
   return (typeof userRole !== 'undefined' && userRole === 'Admin') || !!window.currentUserSeesInterest;
 }
 
-// Both kinds of Meldungen as one list: open ones, and accepted ones whose person is not in Daniel's plan yet.
+// Both kinds of Meldungen as one list: open ones, and accepted ones whose person is not in the weekly plan yet.
 // Item: { kind: 'order'|'shift', date, time, title, phase, full, user_id, job_no, phaseKey, week_id, shift_key, ps }
 function ordInbox(jobs, today) {
   var open = [], accepted = [];
@@ -453,7 +453,7 @@ function ordInbox(jobs, today) {
   return { open: open.sort(order), accepted: accepted.sort(order) };
 }
 
-// Inbox above the Auftrag cards (deciders only): open Meldungen with ✓ / ✕, then accepted ones not in Daniel's plan yet
+// Inbox above the Auftrag cards (deciders only): open Meldungen with ✓ / ✕, then accepted ones not in the weekly plan yet
 function ordInboxHtml(box, avail) {
   var call = function(it, status) {
     return it.kind === 'shift'
@@ -497,8 +497,8 @@ function ordFitsSlot(role, u) {
   return true;
 }
 
-// „Hätten laut Verfügbarkeit Zeit“: per place that is still free (Daniel's open slots, Auftrag phases below their number),
-// unlocked people without „geht nicht“ that day, not on any of Daniel's entries that day, without a Meldung for it.
+// „Hätten laut Verfügbarkeit Zeit“: per place that is still free (the plan's open slots, Auftrag phases below their number),
+// unlocked people without „geht nicht“ that day, not on any of the plan entries that day, without a Meldung for it.
 // Group: { kind, date, time, title, phase, full, week_id, shift_key | job_no, phaseKey, people: [{ user_id, notfall }] }
 function ordAvailable(jobs, today) {
   var groups = [], withOrder = {};
@@ -550,7 +550,7 @@ async function ordAcceptAvailable(kind, a, b, userId) {
   ordRenderList();
 }
 
-// Decide a Meldung on a shift of Daniel's plan (plan_shift_interest)
+// Decide a Meldung on a shift of the weekly plan (plan_shift_interest)
 async function ordDecideShift(weekId, key, userId, status) {
   var row = (_ordCtx.interest || []).find(function(x) { return x.week_id === weekId && x.shift_key === key && x.user_id === userId; });
   if (!row) return;

@@ -292,7 +292,7 @@ function mergeOpenJobs(folderJobs, planRows) {
   return out.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
 }
 
-// jsPDF's built-in fonts only hold Western European letters (WinAnsi): "Stańczyk" would print as garbage.
+// jsPDF's built-in fonts only hold Western European letters (WinAnsi): "Sieńkowski" would print as garbage.
 // Letters outside that set fall back to their base letter (ń → n, ł → l), anything else to "?".
 var PDF_EXTRA_CHARS = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ';
 var PDF_CHAR_MAP = { 'ł': 'l', 'Ł': 'L', 'đ': 'd', 'Đ': 'D', 'ı': 'i', '−': '-', '‐': '-', '‑': '-', '→': '->', '✓': 'x', '≥': '>=', '≤': '<=' };

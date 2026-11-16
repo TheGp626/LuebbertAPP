@@ -172,7 +172,7 @@ function dashNightRanking(shifts, workers) {
   }).sort(function(a, b) { return b.nights - a.nights || b.share - a.share || a.name.localeCompare(b.name, 'de'); });
 }
 
-// ── Auswertung (Jenni): night shifts per year, people without work for 4+ weeks, busiest bees of the month ──
+// ── Auswertung (PL): night shifts per year, people without work for 4+ weeks, busiest bees of the month ──
 var DASH_PAGE = 1000;          // PostgREST answers at most 1000 rows per request
 var DASH_INACTIVE_DAYS = 28;   // "seit vier Wochen nicht im Einsatz"
 var DASH_INACTIVE_ALERT = 56;  // from 8 weeks: Minijob deregistration may be due
@@ -1093,7 +1093,7 @@ function renderDashClosePanel() {
   box.hidden = !allowed;
   var sel = document.getElementById('dash-close-month');
   if (!allowed || !sel || sel.options.length) return;
-  // The month that just ended is what Conni closes: preselected; the current one is still running
+  // The month that just ended is what the Buchhaltung closes: preselected; the current one is still running
   var keys = dashCloseKeys(new Date(), dashBillingCutoff(), 7);
   sel.innerHTML = keys.map(function(k, i) { return '<option value="' + k + '"' + (i === 1 ? ' selected' : '') + '>' + monthLabelFromKey(k) + (i === 0 ? ' (läuft noch)' : '') + '</option>'; }).join('');
 }
@@ -1113,11 +1113,12 @@ async function dashLoadMonthSummary() {
     supabaseClient.from('shifts').select(base + 'protocols' + prot).not('user_id', 'is', null).gte('shift_date', f).lte('shift_date', t).range(0, 4999),
     supabaseClient.from('shifts').select(base + 'protocols!inner' + prot)
       .not('user_id', 'is', null).is('shift_date', null).gte('protocols.date', f).lte('protocols.date', t).range(0, 4999),
-    supabaseClient.from('app_users').select('id, full_name, role, hourly_rate_conni, income_limit')
+    // Pay rate and earnings limit live in app_user_private; the old columns in app_users are empty
+    supabaseClient.from('app_users').select('id, full_name, role, app_user_private(hourly_rate_conni, income_limit)')
   ]);
   var err = res[0].error || res[1].error || res[2].error;
   if (err) throw err;
-  var seen = {}, shifts = [], users = res[2].data || [];
+  var seen = {}, shifts = [], users = (res[2].data || []).map(flattenPrivate);
   (res[0].data || []).concat(res[1].data || []).forEach(function(s) { if (!seen[s.id]) { seen[s.id] = true; shifts.push(s); } });
   var sum = dashMonthSummary(shifts, users, key, cutoff), months = {};
   // Each person's Stundenzettel, built like the single PDF in the dashboard; its hours are the ones in the overview

@@ -559,6 +559,20 @@ function protPlanPersonnel(shift, users) {
   return rows.filter(function(r) { return r.pos === 'AL'; }).concat(rows.filter(function(r) { return r.pos !== 'AL'; }));
 }
 
+// On logout from a shared phone: the protocol history keeps only entries the server does not have yet (not synced,
+// or the mail to the PL still pending); everything else is loaded from the server again at the next login
+function protKeepOnLogout(archive) {
+  return (archive || []).filter(function(e) { return e && (!e.synced || e.mailed === false); });
+}
+function protLogoutCleanup() {
+  try {
+    var all = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]'), kept = protKeepOnLogout(all);
+    if (kept.length) localStorage.setItem('luebbert_protokoll_history', JSON.stringify(kept));
+    else localStorage.removeItem('luebbert_protokoll_history');
+    return kept.length;
+  } catch (e) { return 0; }
+}
+
 // Projektnummer of the Auftragsbestätigung ("26-0447"), optionally with the job in it ("26-0447.01"): optional on a
 // protocol, links it to its project (Nachkalkulation). Prefills carry the full job, a hand-typed project number is enough.
 var PROT_JOB_RE = /^\d{2}-\d{4}(\.\d{2})?$/;
@@ -581,7 +595,7 @@ function protGuessVehicleType(label, types) {
 }
 
 // Is this plan person a driver, and of which vehicle? Role "Fahrer", or a note that starts with one of the
-// shift's vehicle lines ("BAR PL 550 | Kacper (AL)" → Kacper, AL, note "BAR PL 550"). → vehicle text ('' if unnamed) or null
+// shift's vehicle lines ("BAR PL 550 | Konrad (AL)" → Konrad, AL, note "BAR PL 550"). → vehicle text ('' if unnamed) or null
 function protPlanVehicleOf(person, shift) {
   var note = String(person.note || '').toLowerCase();
   var veh = (shift.notes || []).filter(function(v) { return v && note && note.indexOf(String(v).toLowerCase()) === 0; })[0];
@@ -1141,7 +1155,7 @@ function protIncompleteNames(personnel) {
   }).map(function(p) { return p.name || p.tempName || 'Ohne Name'; });
 }
 
-// People who end later than the AL's own row (Sonja: the AL must explain why). No AL row or AL time → nobody.
+// People who end later than the AL's own row (rule: the AL must explain why). No AL row or AL time → nobody.
 // An end before the start counts as the next day (over midnight); a row starting more than 12 h before the AL's
 // start belongs to the night after it (AL 18:00–02:00, MA 00:30–03:00).
 var PROT_LONGER_THAN_AL = 'Länger als AL';
