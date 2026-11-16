@@ -151,6 +151,7 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - der besetzungsplaner liegt in `js/planer.js`: oben reine funktionen (getestet in `tests/planer.test.js`), unten alles was die seite anfasst. veröffentlichen baut den entwurf in das format um, das der PDF-parser liefert, und nimmt denselben weg wie der upload
 - was sich zwischen zwei planständen geändert hat rechnet `planDiff` in `js/plan-parser.js` aus, wer eine push bekommt entscheidet `supabase/functions/notify-plan-change/notify.mjs`
 - code der eine neue spalte braucht muss auch ohne sie laufen, bis die migration eingespielt ist
+- fremde bibliotheken (supabase-js, jsPDF, pdf.js, chart.js) liegen mit fester version in `vendor/`, kein CDN. update: siehe `vendor/README.md`
 - branch `experimental` = testversion, gebaut in den ordner `experimental/` auf `main`
 
 ---
