@@ -536,7 +536,7 @@ function addProtPersonnel() {
 // names, AL first. Start: personal note ("ab 14 Uhr", agency "8.30 - 16.30 Uhr") → else the shift's Wann time.
 // End only when the plan states one for that person; the AL fills in the rest.
 function protPlanPersonnel(shift, users) {
-  var shiftWhen = planWhen(shift.wann || []);
+  var shiftWhen = planCrewWhen(shift.wann || []);
   var shiftStart = shiftWhen.prefix === 'bis' ? '' : (shiftWhen.time || '');
   var posOf = function(role) {
     if (role === 'ROCKiT') return 'Rockit';

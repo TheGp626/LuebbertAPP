@@ -26,7 +26,16 @@ function orderLines(pages) {
 function orderIsAb(name) { return /auftragsbest/i.test(name || ''); }
 
 // Stored parse results (table order_parsed) older than this are parsed again: bump on every parser change
-var ORDER_PARSER_VERSION = 5;
+var ORDER_PARSER_VERSION = 6;
+
+// A position that only holds discounts or credits ("Personal- & Transportkosten (Rabatt)" with the one item
+// "Rabatt Personal- und Transportkosten") is bookkeeping, not an Einsatz: nobody is planned on it.
+var ORDER_BILLING_RE = /rabatt|nachlass|gutschrift|skonto/i;
+function orderIsBillingJob(job) {
+  var items = [];
+  ((job && job.materials) || []).forEach(function(g) { items = items.concat(g.items || []); });
+  return items.length > 0 && items.every(function(it) { return ORDER_BILLING_RE.test(it.name || ''); });
+}
 
 var ORDER_JOB_RE = /^(\d{2}-\d{4}\.\d{2}) \/ (.+)$/;
 var ORDER_LABEL_RE = /^([A-ZÄÖÜ][A-Za-zÄÖÜäöüß&.\- ]{0,40}):\s*(.*)$/;
@@ -143,7 +152,7 @@ function orderParse(lines) {
     if (!j.lead) j.lead = firstLead;
     j.materials = j.materials.filter(function(g) { return g.items.length; });
     delete j._items; delete j._group; delete j._note; delete j.period;
-    if ((j.setup || j.teardown) && !j.external) res.jobs.push(j);
+    if ((j.setup || j.teardown) && !j.external && !orderIsBillingJob(j)) res.jobs.push(j);
     delete j.external;
   });
   if (!res.jobs.length && !res.project) res.warnings.push('Keine Auftragsbestätigung erkannt.');

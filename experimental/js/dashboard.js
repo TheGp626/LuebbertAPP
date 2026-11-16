@@ -699,7 +699,7 @@ function dashStartProtokollFromPlan(shiftId) {
   openProtokollPrefilled({
     event: event, date: p.date, action: planGuessAction(p.wann),
     alId: planAlUserId(row) || group.map(planAlUserId).filter(Boolean)[0] || null,
-    location: [p.venue].concat(p.location.slice(0, 1)).filter(Boolean).join(', '), shift: p
+    location: planPlace(p), shift: p
   });
 }
 
