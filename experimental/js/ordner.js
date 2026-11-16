@@ -943,13 +943,19 @@ function openFileViewer(url, name, mimeType) {
 // ── ZOOMABLE VIEWER (PDF via PDF.js, images) ──
 // The page itself has user-scalable=no, so pinch/zoom is implemented here:
 // content width = fit-width * zoom; pinch + buttons + double-tap change `zoom`.
-var PDFJS_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-var PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+// Shipped with the app (vendor/README.md), no CDN
+var PDFJS_SRC = 'vendor/pdfjs-3.11.174/pdf.min.js';
+var PDFJS_WORKER = 'vendor/pdfjs-3.11.174/pdf.worker.min.js';
+// index.html loads pdf.js already: every PDF read (Wochenplan upload, Bestätigungen, products) uses the worker shipped with the app
+if (typeof window !== 'undefined' && window.pdfjsLib && !window.pdfjsLib.GlobalWorkerOptions.workerSrc) window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
 var _pdfjsPromise = null;
 var _zv = null; // current zoom viewer state
 
 function loadPdfJs() {
-  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (window.pdfjsLib) {
+    if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+    return Promise.resolve(window.pdfjsLib);
+  }
   if (_pdfjsPromise) return _pdfjsPromise;
   _pdfjsPromise = new Promise(function(resolve, reject) {
     var s = document.createElement('script');

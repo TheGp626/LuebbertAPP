@@ -83,7 +83,7 @@ function renderProdukte(list) {
   // Configure PDF.js worker once
   if (typeof pdfjsLib !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
     pdfjsLib.GlobalWorkerOptions.workerSrc =
-      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      'vendor/pdfjs-3.11.174/pdf.worker.min.js';
   }
 
   grid.innerHTML = list.map(function(p) {
@@ -560,7 +560,7 @@ function aufbauDateiInlineHtml(url, kind) {
 async function renderAufbauPdfPages(box) {
   if (!box || typeof pdfjsLib === 'undefined') return;
   if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs-3.11.174/pdf.worker.min.js';
   }
   var pdf = null;
   try {
