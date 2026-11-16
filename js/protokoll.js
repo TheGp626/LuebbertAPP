@@ -559,6 +559,20 @@ function protPlanPersonnel(shift, users) {
   return rows.filter(function(r) { return r.pos === 'AL'; }).concat(rows.filter(function(r) { return r.pos !== 'AL'; }));
 }
 
+// On logout from a shared phone: the protocol history keeps only entries the server does not have yet (not synced,
+// or the mail to the PL still pending); everything else is loaded from the server again at the next login
+function protKeepOnLogout(archive) {
+  return (archive || []).filter(function(e) { return e && (!e.synced || e.mailed === false); });
+}
+function protLogoutCleanup() {
+  try {
+    var all = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]'), kept = protKeepOnLogout(all);
+    if (kept.length) localStorage.setItem('luebbert_protokoll_history', JSON.stringify(kept));
+    else localStorage.removeItem('luebbert_protokoll_history');
+    return kept.length;
+  } catch (e) { return 0; }
+}
+
 // Projektnummer of the Auftragsbestätigung ("26-0447"), optionally with the job in it ("26-0447.01"): optional on a
 // protocol, links it to its project (Nachkalkulation). Prefills carry the full job, a hand-typed project number is enough.
 var PROT_JOB_RE = /^\d{2}-\d{4}(\.\d{2})?$/;

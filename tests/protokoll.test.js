@@ -1037,3 +1037,16 @@ test('protRowToEntry carries the Auftragsnummer', () => {
   assert.equal(ctx.protRowToEntry({ id: 'x', job_no: '26-0447.01' }).jobNo, '26-0447.01');
   assert.equal(ctx.protRowToEntry({ id: 'y' }).jobNo, '');
 });
+
+test('protKeepOnLogout: only what is not on the server yet stays on a shared phone', () => {
+  const keep = run('protKeepOnLogout');
+  const a = [
+    { id: 1, synced: true, mailed: true, supabaseId: 's1' },
+    { id: 2, synced: false },
+    { id: 3, synced: true, mailed: false, supabaseId: 's3' },
+    { id: 4, synced: true, supabaseId: 's4' },
+  ];
+  assert.deepEqual(plain(keep(a)).map(e => e.id), [2, 3]);
+  assert.deepEqual(plain(keep([])), []);
+  assert.deepEqual(plain(keep(null)), []);
+});

@@ -831,3 +831,10 @@ test('dashSummaryFromMonths: overview hours and pay come from the built Stundenz
   assert.deepEqual(out.rows.map(r => [r.mins, r.pay, r.limitPct]), [[840, 203, 37], [210, null, null], [60, 10, null]]);
   assert.deepEqual([out.total.mins, out.total.pay], [1110, 213]);
 });
+
+test('Monatsabschluss reads pay rate and earnings limit from app_user_private, not the emptied columns', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../js/dashboard.js'), 'utf8');
+  const body = src.slice(src.indexOf('async function dashLoadMonthSummary'), src.indexOf('function dashSummaryFromMonths'));
+  assert.match(body, /app_user_private\(hourly_rate_conni, income_limit\)/);
+  assert.doesNotMatch(body, /select\('id, full_name, role, hourly_rate_conni, income_limit'\)/);
+});
