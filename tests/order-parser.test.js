@@ -352,3 +352,12 @@ test('orderParse: Angebot without Job marker rows → material groups up to Zwis
     { group: 'CH II // Deko', items: [{ qty: 208, name: 'Kerzenleuchter, silber' }] },
   ]);
 });
+
+test('orderIsBillingJob: a position that is only a discount or credit is no Einsatz', () => {
+  const job = (name, items) => ({ name, materials: [{ group: name, items: items.map(n => ({ qty: 1, name: n })) }] });
+  assert.equal(ctx.orderIsBillingJob(job('Personal- & Transportkosten (Rabatt)', ['Rabatt Personal- und Transportkosten'])), true);
+  assert.equal(ctx.orderIsBillingJob(job('Gutschrift', ['Gutschrift aus Rechnung 123', 'Nachlass 5 %'])), true);
+  assert.equal(ctx.orderIsBillingJob(job('CH II AVA', ['Stuhlhusse Estrel', 'Tischdekoration (klein)', 'Schnellumbaupauschale'])), false);
+  assert.equal(ctx.orderIsBillingJob(job('Saal A', ['Stuhlhusse', 'Rabatt Stammkunde'])), false);
+  assert.equal(ctx.orderIsBillingJob(job('Leer', [])), false);
+});

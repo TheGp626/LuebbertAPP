@@ -782,3 +782,27 @@ test('planChecks: planned on a day marked "geht nicht" or "nur im Notfall"', () 
   assert.match(out[0].text, /Anna.*geht nicht/);
   assert.deepEqual(chk([]), []);
 });
+
+test('planGuessAction: the first action named counts, also inside a word ("Schnellaufbau")', () => {
+  assert.equal(P.planGuessAction(['Abbau 01.30 - 6 Uhr', '(Umbau auf Plenum)']), 'Abbau');
+  assert.equal(P.planGuessAction(['Anlieferung: 13 Uhr', 'Schnellaufbau: 16 - 19 Uhr']), 'Aufbau');
+  assert.equal(P.planGuessAction(['Umbau: 14 Uhr', 'Abbau: 22 Uhr']), 'Umbau');
+  assert.equal(P.planGuessAction(['Teilaufbau: 9 Uhr']), 'Teilaufbau');
+  assert.equal(P.planGuessAction(['Teilabbau 22 Uhr']), 'Teilabbau');
+  assert.equal(P.planGuessAction(['Abholung: 14 Uhr']), 'Aufbau');
+});
+
+test('planCrewWhen: the line that names the Aufbau/Abbau gives the crew time, not the delivery before it', () => {
+  assert.equal(P.planCrewWhen(['Anlieferung: 13 Uhr', '@Kacper: ins PL Lager stellen!!', 'Schnellaufbau: 16 - 19 Uhr']).time, '16:00');
+  assert.equal(P.planCrewWhen(['Abbau 01.30 - 6 Uhr', 'Abholung: 14 Uhr']).time, '01:30');
+  assert.equal(P.planCrewWhen(['Anlieferung: 13 Uhr']).time, '13:00');
+  assert.equal(P.planCrewWhen(['Aufbau nach Absprache', 'ab 9 Uhr']).time, '09:00');
+  assert.equal(P.planCrewWhen([]).time, null);
+});
+
+test('planPlace: venue and room, without street and postcode', () => {
+  assert.equal(P.planPlace({ venue: 'Estrel', location: ['Sonnenallee 225', '12057 Berlin', 'CH II', 'Hagebau'] }), 'Estrel, CH II, Hagebau');
+  assert.equal(P.planPlace({ venue: 'Estrel', location: ['Saal 3'] }), 'Estrel, Saal 3');
+  assert.equal(P.planPlace({ venue: 'Messe', location: ['Messedamm 22', '14055 Berlin'] }), 'Messe, Messedamm 22');
+  assert.equal(P.planPlace({ venue: '', location: [] }), '');
+});

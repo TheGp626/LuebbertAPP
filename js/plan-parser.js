@@ -523,13 +523,33 @@ function planWhen(wann) {
 }
 
 // "Abbau: 0.30 Uhr" → protocol action for the "Protokoll starten" prefill
+// When the crew starts: the first line that names the Aufbau, Abbau or Umbau and carries a time; a delivery or pick-up
+// line before it ("Anlieferung: 13 Uhr") is the driver's time. Without such a line: planWhen of everything.
+function planCrewWhen(wann) {
+  var lines = (wann || []).filter(function(l) { return /aufbau|abbau|umbau|umstellen/i.test(l); });
+  var w = lines.length ? planWhen(lines) : null;
+  return w && w.time ? w : planWhen(wann || []);
+}
+
+// "Estrel, CH II, Hagebau": venue and up to two room lines for the protocol's Ort. Street and postcode lines stay out,
+// unless the plan names nothing else.
+var PLAN_STREET_RE = /^\d{5}\b|(str\.|straße|strasse|allee|weg|platz|damm|ufer|chaussee|ring|gasse)\s*\d/i;
+function planPlace(p) {
+  var loc = (p && p.location) || [], rooms = loc.filter(function(l) { return l && !PLAN_STREET_RE.test(l); });
+  var rest = rooms.length ? rooms.slice(0, 2) : loc.filter(function(l) { return l && !/^\d{5}\b/.test(l); }).slice(0, 1);
+  return [p && p.venue].concat(rest).filter(Boolean).join(', ');
+}
+
 function planGuessAction(wann) {
-  var t = (wann || []).join(' ');
-  var has = function(w) { return new RegExp('\\b' + w, 'i').test(t); };
-  if (has('Umbau') || has('Umstellen')) return 'Umbau';
-  if (has('Abbau') && !has('Aufbau')) return 'Abbau';
-  if (has('Teilaufbau')) return 'Teilaufbau';
-  return 'Aufbau';
+  // The action named first counts ("Abbau 01.30 - 6 Uhr (Umbau auf Plenum)" is an Abbau), also inside a word ("Schnellaufbau")
+  var t = (wann || []).join(' ').toLowerCase(), best = 'Aufbau', at = -1;
+  [['teilaufbau', 'Teilaufbau'], ['teilabbau', 'Teilabbau'], ['umbau', 'Umbau'], ['umstellen', 'Umbau'], ['abbau', 'Abbau'], ['aufbau', 'Aufbau']].forEach(function(k) {
+    var i = t.indexOf(k[0]);
+    if (i === -1) return;
+    // "teilaufbau" also contains "aufbau": the longer word found at an earlier or equal place wins
+    if (at === -1 || i < at - (k[0].length > 6 ? 0 : 4)) { best = k[1]; at = i; }
+  });
+  return best;
 }
 
 // ── Check before a week goes out (import preview of a PDF and of the Besetzungsplaner). Warnings only, never blocking. ──
@@ -880,7 +900,7 @@ function planIcs(shifts, userId, stamp) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { planChecks: planChecks, planSpanOf: planSpanOf, planIsSentence: planIsSentence, planFindColumns: planFindColumns, planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
+  module.exports = { planCrewWhen: planCrewWhen, planPlace: planPlace, planChecks: planChecks, planSpanOf: planSpanOf, planIsSentence: planIsSentence, planFindColumns: planFindColumns, planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
     planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planChangedFields: planChangedFields, planAssigned: planAssigned, planShiftKey: planShiftKey,
     planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek, planCellLines: planCellLines,
     planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName,

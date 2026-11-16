@@ -71,3 +71,14 @@ test('erPickJob: the Auftrag linked to the plan entry; the action decides betwee
   assert.equal(ctx.erPickJob(links, ['k9'], 'Aufbau'), '');
   assert.equal(ctx.erPickJob(null, [], 'Aufbau'), '');
 });
+
+test('erPickShift with a hint: the night Abbau after midnight sits on the next plan day (Hagebau, 16.11.)', () => {
+  const aufbau = { date: '2026-11-16', venue: 'Estrel', title: '1210 Hussen mit Armlehne', location: ['Sonnenallee 225', 'CH II', 'Hagebau'], wann: ['Anlieferung: 13 Uhr', 'Schnellaufbau: 16 - 19 Uhr'], myRole: 'MA' };
+  const abbau = { date: '2026-11-17', venue: 'Estrel', title: '1210 Hussen mit Armlehne', location: ['Sonnenallee 225', 'CH II', 'Hagebau'], wann: ['Abbau 01.30 - 6 Uhr', '(Umbau auf Plenum)'], myRole: 'AL' };
+  const other = { date: '2026-11-16', venue: 'Messe', title: 'Gala', location: [], wann: ['Abbau: 22 Uhr'], myRole: 'AL' };
+  assert.equal(ctx.erPickShift([aufbau, abbau, other], 'Estrel Hagebau', { date: '2026-11-16', action: 'Abbau' }), abbau);
+  assert.equal(ctx.erPickShift([aufbau, abbau, other], 'Estrel Hagebau', { date: '2026-11-16', action: 'Aufbau' }), aufbau);
+  // no shared word: only an own AL shift on the day itself, and only when it is the one
+  assert.equal(ctx.erPickShift([aufbau, abbau, other], 'Ganz anders', { date: '2026-11-16', action: 'Abbau' }), other);
+  assert.equal(ctx.erPickShift([aufbau, abbau], 'Ganz anders', { date: '2026-11-16', action: 'Abbau' }), null);
+});
