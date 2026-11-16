@@ -581,7 +581,7 @@ function protGuessVehicleType(label, types) {
 }
 
 // Is this plan person a driver, and of which vehicle? Role "Fahrer", or a note that starts with one of the
-// shift's vehicle lines ("BAR PL 550 | Kacper (AL)" → Kacper, AL, note "BAR PL 550"). → vehicle text ('' if unnamed) or null
+// shift's vehicle lines ("BAR PL 550 | Konrad (AL)" → Konrad, AL, note "BAR PL 550"). → vehicle text ('' if unnamed) or null
 function protPlanVehicleOf(person, shift) {
   var note = String(person.note || '').toLowerCase();
   var veh = (shift.notes || []).filter(function(v) { return v && note && note.indexOf(String(v).toLowerCase()) === 0; })[0];
@@ -1141,7 +1141,7 @@ function protIncompleteNames(personnel) {
   }).map(function(p) { return p.name || p.tempName || 'Ohne Name'; });
 }
 
-// People who end later than the AL's own row (Sonja: the AL must explain why). No AL row or AL time → nobody.
+// People who end later than the AL's own row (rule: the AL must explain why). No AL row or AL time → nobody.
 // An end before the start counts as the next day (over midnight); a row starting more than 12 h before the AL's
 // start belongs to the night after it (AL 18:00–02:00, MA 00:30–03:00).
 var PROT_LONGER_THAN_AL = 'Länger als AL';

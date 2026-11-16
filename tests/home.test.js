@@ -11,7 +11,7 @@ const fn = auth.match(/function moduleAllowedForRole\([\s\S]*?\r?\n}\r?\n/)[0];
 const allowed = new Function(gast + '\n' + fn + '; return moduleAllowedForRole;')();
 
 test('firstName', () => {
-  assert.equal(H.firstName('Patryk Stanczyk'), 'Patryk');
+  assert.equal(H.firstName('Piotr Sienkowski'), 'Piotr');
   assert.equal(H.firstName('  Erika  '), 'Erika');
   assert.equal(H.firstName(''), '');
   assert.equal(H.firstName(undefined), '');

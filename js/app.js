@@ -481,7 +481,7 @@ function saveSigModal() {
 // ── SETTINGS (Optionen: one menu for everything personal) ──
 var OPT_ROLE_NAMES = { MA: 'Mitarbeiter', AL: 'Aufbauleitung', PL: 'Projektleitung', Buchhaltung: 'Buchhaltung', Admin: 'Admin', Gast: 'Gast (nur ansehen)' };
 
-// "Patryk Stańczyk" → "PS"
+// "Piotr Sieńkowski" → "PS"
 function optInitials(name) {
   var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return '?';

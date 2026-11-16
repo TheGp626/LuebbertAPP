@@ -12,7 +12,7 @@ var PL_ROLES = ['MA', 'AL', 'Fahrer', 'Deko', 'Zenjob', 'ROCKiT'];
 var PL_AGENCY = ['Zenjob', 'ROCKiT'];
 var PL_NO_CANDIDATE = ['Gast', 'Buchhaltung']; // never offered for a shift
 var PL_WEEKS_AHEAD = 5;
-// Art eines Einsatzes, mit der Zeilenfarbe aus Daniels Plänen (Jenni): weiß = Auftragsbestätigung, blau = Angebot (kann noch
+// Art eines Einsatzes, mit der Zeilenfarbe aus den Wochenplänen (PL): weiß = Auftragsbestätigung, blau = Angebot (kann noch
 // wegfallen), gelb = intern und alles weitere, grün = Busfahrt. `color` is what gets published as plan_shifts.color.
 var PL_KINDS = {
   auftrag: { label: 'Auftrag', long: 'Auftrag (bestätigt)', color: null },
@@ -22,7 +22,7 @@ var PL_KINDS = {
 };
 var PL_KIND_ORDER = ['auftrag', 'angebot', 'intern', 'bus'];
 
-// Row colour of a plan entry → Art. Works on the hue, so Daniel's shades of blue and green are recognised as well;
+// Row colour of a plan entry → Art. Works on the hue, so the plan's shades of blue and green are recognised as well;
 // no colour (white, grey header) = Auftrag, any other colour (yellow, pink, lilac) = intern.
 function plKindOfColor(hex) {
   var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || '').trim());
@@ -65,7 +65,7 @@ function plDayShort(iso) {
 function plLines(t) { return t ? String(t).split('\n').map(function(s) { return s.trim(); }).filter(Boolean) : []; }
 function plText(v) { var s = v == null ? '' : String(v).trim(); return s || null; }
 
-// Name as Daniel writes it: first name, plus the surname initial when two active people share the first name
+// Name as the plan writes it: first name, plus the surname initial when two active people share the first name
 function plShortName(user, users) {
   var parts = String((user && user.full_name) || '').trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return '';
@@ -302,7 +302,7 @@ function plMeldungTargets(row, key, planWeekId, apps, interest, userId, from) {
   return out;
 }
 
-// Search in the picker: every typed word must start a word of the short or full name ("pat st" finds Patryk Stańczyk);
+// Search in the picker: every typed word must start a word of the short or full name ("pio si" finds Piotr Sieńkowski);
 // case and accents do not matter. An empty search matches everyone.
 function plNorm(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').replace(/ß/g, 'ss'); }
 function plSearchMatch(query, name, fullName) {
@@ -332,7 +332,7 @@ function plPublishProblems(rows) {
     .map(function(r) { return 'Ein Eintrag am ' + plDayShort(r.date) + ' hat weder Ort noch Titel.'; });
 }
 
-// The "Was" cell as Daniel writes it: one line per item. The first line is the heading of the entry (plan_shifts.title),
+// The "Was" cell as the plan writes it: one line per item. The first line is the heading of the entry (plan_shifts.title),
 // the rest are its details; the sheet shows and edits them as one field.
 function plWasText(row) { return [plText(row && row.title)].concat(plLines(row && row.details)).filter(Boolean).join('\n'); }
 function plWasSplit(text) {
@@ -413,7 +413,7 @@ function plHasUnpublished(rows, publishedAt) {
   return (rows || []).some(function(r) { return r.updated_at && Date.parse(r.updated_at) > t; });
 }
 
-// The "Wer" cell in Daniel's notation, so planParseWer reads an exported PDF back unchanged
+// The "Wer" cell in the plan's notation, so planParseWer reads an exported PDF back unchanged
 function plWerLines(row) {
   var lines = [];
   (row.people || []).forEach(function(p) {
@@ -1155,7 +1155,7 @@ async function plAfterPublish(week, parsed, weekId, lastChange) {
   plState = null;
 }
 
-/* ── PDF in Daniel's layout: Datum | Was | Wann | Wer | PL (his column "AP" names the Projektleitung) ── */
+/* ── PDF in the plan layout: Datum | Was | Wann | Wer | PL (his column "AP" names the Projektleitung) ── */
 
 function plExportPdf() {
   var st = plState;

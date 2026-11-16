@@ -7,7 +7,7 @@ const base = {
   projects: { name: 'BVL 20.10', location: 'ESTREL' },
   al: { full_name: 'Adriano Sorrentino' }, pl: { full_name: 'Jennifer Wolf', email: 'j@x.de' },
   notes_damages: 'nein', notes_incidents: '', notes_feedback: 'Alles <super> & "gut"',
-  shifts: [{ position_role: 'Rockit', temp_worker_name: 'ALEX' }, { position_role: 'MA frei', app_users: { full_name: 'Lukas Kozmus' } }],
+  shifts: [{ position_role: 'Rockit', temp_worker_name: 'ALEX' }, { position_role: 'MA frei', app_users: { full_name: 'Lasse Kozmus' } }],
   protocol_equipments: [{ category_id: 'mobiliar', status: 'okay' }, { category_id: 'stoffe', status: 'beschädigt', note: 'Riss' }],
   worker_ratings: [{ temp_worker_name: 'ALEX', rating: 'up', is_star: true }]
 };

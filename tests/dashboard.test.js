@@ -659,7 +659,7 @@ test('loadDashInsights: pages past the 1000-row cap; night ranking only counts t
   assert.equal(run('dashInsights').nights[0].nights, 1002); // the 2001 shift is not this year
 });
 
-// ── Auswertung (Jenni 06.11.): no night shift, inactive for 4 weeks, busiest bees ──
+// ── Auswertung (Judith 06.11.): no night shift, inactive for 4 weeks, busiest bees ──
 const AW = [
   { id: 'a', full_name: 'Anna', role: 'MA' }, { id: 'b', full_name: 'Ben', role: 'AL' },
   { id: 'c', full_name: 'Cleo', role: 'MA' },                 // never worked
@@ -722,12 +722,12 @@ test('dashMayResetPin: follows the reset rules, never oneself or a deactivated a
 });
 
 test('pdfText: letters the PDF fonts lack fall back to their base letter', () => {
-  assert.equal(run("pdfText('Patryk Stańczyk, Łukasz Żółć')"), 'Patryk Stanczyk, Lukasz Zólc');
+  assert.equal(run("pdfText('Piotr Sieńkowski, Łukasz Żółć')"), 'Piotr Sienkowski, Lukasz Zólc');
   assert.equal(run("pdfText('Müller, Größe 5 € – „ok“ …')"), 'Müller, Größe 5 € – „ok“ …');
   assert.equal(run("pdfText('日 ✓')"), '? x');
   assert.equal(run('pdfText(12)'), 12);
-  const calls = run("(function(){ var seen = []; var d = pdfPatch({ text: function(t, x) { seen.push([t, x]); return 'r'; }, splitTextToSize: function(t) { return [t]; } }); var r = d.text(['Stańczyk', 'ok'], 5); return JSON.stringify([seen, r, d.splitTextToSize('Łódź')]); })()");
-  assert.equal(calls, JSON.stringify([[[['Stanczyk', 'ok'], 5]], 'r', ['Lódz']]));
+  const calls = run("(function(){ var seen = []; var d = pdfPatch({ text: function(t, x) { seen.push([t, x]); return 'r'; }, splitTextToSize: function(t) { return [t]; } }); var r = d.text(['Sieńkowski', 'ok'], 5); return JSON.stringify([seen, r, d.splitTextToSize('Łódź')]); })()");
+  assert.equal(calls, JSON.stringify([[[['Sienkowski', 'ok'], 5]], 'r', ['Lódz']]));
 });
 
 test('dashboard shows only what the role can do: staff edits and booking', () => {

@@ -1,5 +1,5 @@
 // Run from the repo root: node --test tests/order-slots.test.js
-// Plan entries are shaped like Daniel's real weekly plan (1.–13.11.2026), names left out.
+// Plan entries are shaped like Dennis's real weekly plan (1.–13.11.2026), names left out.
 const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('vm');
@@ -72,7 +72,7 @@ test('ordAttachSlots: manual link wins; manual unlink → unlinked; link to miss
   assert.deepEqual(JSON.parse(JSON.stringify(r.unlinked.map(s => s.job_no + s.phase))), ['26-0415.01setup', '26-0415.01teardown']);
 });
 
-test('ordTaken: Daniel + accepted applications, no duplicates; count without application list', () => {
+test('ordTaken: Dennis + accepted applications, no duplicates; count without application list', () => {
   const s = slot('26-0415.01', 'setup', '2026-11-09T10:00', VER, 'Neuköllnspeicher', { accepted: 2 });
   const p = PLAN.find(x => x.id === 'ver-auf');
   const apps = [{ job_no: '26-0415.01', phase: 'setup', user_id: 'u1', status: 'angenommen' },
@@ -80,11 +80,11 @@ test('ordTaken: Daniel + accepted applications, no duplicates; count without app
     { job_no: '26-0415.01', phase: 'setup', user_id: 'u3', status: 'offen' },
     { job_no: '26-0415.01', phase: 'teardown', user_id: 'u4', status: 'angenommen' }];
   assert.deepEqual([...ctx.ordTaken(s, p, apps)].sort(), ['u1', 'u2']);
-  assert.equal(ctx.ordTakenCount(s, p), 3); // MA view: Daniel's 1 + 2 accepted (overlap unknown there)
+  assert.equal(ctx.ordTakenCount(s, p), 3); // MA view: Dennis's 1 + 2 accepted (overlap unknown there)
   assert.equal(ctx.ordTakenCount(s, null), 2);
 });
 
-test('ordCanApply: past, already assigned by Daniel, Gast, already applied → false', () => {
+test('ordCanApply: past, already assigned by Dennis, Gast, already applied → false', () => {
   const s = slot('26-0415.01', 'setup', '2026-11-09T10:00', VER, 'Neuköllnspeicher');
   const p = PLAN.find(x => x.id === 'ver-auf');
   assert.equal(ctx.ordCanApply(s, 'u9', '2026-11-06', 'MA', p), true);
@@ -95,7 +95,7 @@ test('ordCanApply: past, already assigned by Daniel, Gast, already applied → f
   assert.equal(ctx.ordCanApply(s, null, '2026-11-06', 'MA', null), false);
 });
 
-test('ordTakenCount: accepted ids from the RPC are not counted twice when Daniel copied them into his plan', () => {
+test('ordTakenCount: accepted ids from the RPC are not counted twice when Dennis copied them into his plan', () => {
   const p = { id: 'p', plan_assignments: [{ user_id: 'u1' }, { user_id: 'u2' }] };
   assert.equal(ctx.ordTakenCount({ accepted: 2, accepted_ids: ['u1', 'u3'] }, p), 3);
   assert.equal(ctx.ordTakenCount({ accepted: 2 }, p), 4); // old shape without ids: plain sum

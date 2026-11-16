@@ -76,7 +76,7 @@ const plain = v => JSON.parse(JSON.stringify(v));
 function protData(extra) {
   return Object.assign({
     event: 'Gala', location: 'Estrel', date: '2026-10-28', action: 'Aufbau',
-    alId: 'u-al', plId: 'u-pl', al: 'Anna', pl: 'Paul',
+    alId: 'u-al', plId: 'u-pl', al: 'Anna', pl: 'Pius',
     damages: 'nein', incidents: 'nein', feedback: '—',
     transports: [{ type: 'Sprinter', driver: 'Tom', punctuality: 'pünktlich', delay: '' }],
     personnel: [{ pos: 'MA', userId: 'u-ma', name: 'Max', start: '08:00', end: '16:00', pause: '30' }],
@@ -423,13 +423,13 @@ test('protPlanPersonnel: one row per named person, AL first, start from Wann, en
 
 test('protPlanPersonnel: personal and agency times win over the shift time', () => {
   const rows = plain(run('protPlanPersonnel')(planShift({ people: [
-    { name: 'Milan', role: 'MA', note: 'ab 14 Uhr', userId: null },
-    { name: 'Feli', role: 'Deko', note: 'bis 13 Uhr', userId: null },
+    { name: 'Mats', role: 'MA', note: 'ab 14 Uhr', userId: null },
+    { name: 'Frida', role: 'Deko', note: 'bis 13 Uhr', userId: null },
     { name: 'Carla Muster', role: 'Zenjob', note: '8.30 - 16.30 Uhr', userId: null },
   ] }), users));
   assert.deepEqual(rows.map(r => [r.name, r.start, r.end, r.pause]), [
-    ['Milan', '14:00', '', '0'],
-    ['Feli', '08:00', '13:00', '0'],
+    ['Mats', '14:00', '', '0'],
+    ['Frida', '08:00', '13:00', '0'],
     ['Carla Muster', '08:30', '16:30', '30'],
   ]);
 });
@@ -685,11 +685,11 @@ test('AL/PL select keeps a stored person who is no longer in the list', () => {
 });
 
 test('loadProtFromHistory remembers the stored AL name for a deactivated AL', () => {
-  store['luebbert_protokoll_history'] = JSON.stringify([{ id: 'h1', event: 'Gala', al: 'Gerd Alt', alId: 'u-gone', pl: 'Paul', plId: 'u-pl', personnel: [], transports: [] }]);
+  store['luebbert_protokoll_history'] = JSON.stringify([{ id: 'h1', event: 'Gala', al: 'Gerd Alt', alId: 'u-gone', pl: 'Pius', plId: 'u-pl', personnel: [], transports: [] }]);
   ctx.confirm = () => true;
   dom['prot-al'] = { innerHTML: '', value: '' };
   dom['prot-pl'] = { innerHTML: '', value: '' };
-  run('appUsers = [{ id: "u-pl", full_name: "Paul", role: "Admin" }]');
+  run('appUsers = [{ id: "u-pl", full_name: "Pius", role: "Admin" }]');
   run('loadProtFromHistory("h1")');
   assert.equal(run('protState.alName'), 'Gerd Alt');
   assert.equal(dom['prot-al'].value, 'u-gone');
@@ -919,7 +919,7 @@ test('protShiftChanges: every paid change on a booked shift sets status offen', 
 
 test('buildProtPdfDoc: cost block only with costs:true (AL download without, PL mail with)', () => {
   const entry = {
-    event: 'Gala', location: 'Estrel', date: '2026-10-28', action: 'Aufbau', al: 'Anna', pl: 'Paul', holiday: false,
+    event: 'Gala', location: 'Estrel', date: '2026-10-28', action: 'Aufbau', al: 'Anna', pl: 'Pius', holiday: false,
     transports: [{ type: 'Solo', driver: 'Tom', punctuality: 'pünktlich', delay: 0, hours: 2 }],
     personnel: [{ pos: 'MA', userId: 'u1', name: 'Max', start: '08:00', end: '16:00', pause: 30 }],
     categories: {}, totalCost: '400,00 €',
@@ -958,7 +958,7 @@ test('protLongerThanAl: AL over midnight, MA starting after midnight and ending 
 
 // ── Transport, PL and crew prefill from a Wochenplan shift ──
 const TYPES = ['Hängerzug', 'LKW', 'Spedition', 'Sprinter'];
-const staff = users.concat([{ id: 'u-pl', full_name: 'Jenni Lang', role: 'PL' }, { id: 'u-pl2', full_name: 'Inge Sommer', role: 'PL' }, { id: 'u-adm', full_name: 'Jenni Admin', role: 'Admin', is_active: false }]);
+const staff = users.concat([{ id: 'u-pl', full_name: 'Judith Lang', role: 'PL' }, { id: 'u-pl2', full_name: 'Ilka Sommer', role: 'PL' }, { id: 'u-adm', full_name: 'Judith Admin', role: 'Admin', is_active: false }]);
 
 test('protGuessVehicleType: known type inside the plan text, else the form default', () => {
   const g = run('protGuessVehicleType');
@@ -996,12 +996,12 @@ test('protPlanCrew: pure drivers stand under Transport, not in the personnel lis
 
 test('protPlanPl: linked account first, else a name only one active PL goes by', () => {
   const pl = run('protPlanPl');
-  assert.equal(pl({ apUserId: 'u-pl2', ap: 'Jenni' }, staff), 'u-pl2');
-  assert.equal(pl({ apUserId: 'u-bert', ap: 'Jenni' }, staff), 'u-pl'); // a linked non-PL is ignored, the name decides
-  assert.equal(pl({ ap: 'inge sommer' }, staff), 'u-pl2');
-  assert.equal(pl({ ap: 'Daniel' }, staff), null);
+  assert.equal(pl({ apUserId: 'u-pl2', ap: 'Judith' }, staff), 'u-pl2');
+  assert.equal(pl({ apUserId: 'u-bert', ap: 'Judith' }, staff), 'u-pl'); // a linked non-PL is ignored, the name decides
+  assert.equal(pl({ ap: 'ilka sommer' }, staff), 'u-pl2');
+  assert.equal(pl({ ap: 'Dennis' }, staff), null);
   assert.equal(pl({ ap: '' }, staff), null);
-  assert.equal(pl({ ap: 'Jenni' }, staff.concat([{ id: 'u-pl3', full_name: 'Jenni Zwei', role: 'PL' }])), null);
+  assert.equal(pl({ ap: 'Judith' }, staff.concat([{ id: 'u-pl3', full_name: 'Judith Zwei', role: 'PL' }])), null);
 });
 
 // ── Auftragsnummer on a protocol ──

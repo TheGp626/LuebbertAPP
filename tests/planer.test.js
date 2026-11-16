@@ -15,14 +15,14 @@ beforeEach(() => {
 });
 
 const USERS = [
-  { id: 'u-kac', full_name: 'Kacper Nowak', role: 'AL', is_active: true },
-  { id: 'u-mil', full_name: 'Milan Berg', role: 'MA', is_active: true },
-  { id: 'u-fe1', full_name: 'Feli Kraus', role: 'MA', is_active: true },
-  { id: 'u-fe2', full_name: 'Feli Sommer', role: 'MA', is_active: true },
+  { id: 'u-kac', full_name: 'Konrad Nowak', role: 'AL', is_active: true },
+  { id: 'u-mil', full_name: 'Mats Berg', role: 'MA', is_active: true },
+  { id: 'u-fe1', full_name: 'Frida Kraus', role: 'MA', is_active: true },
+  { id: 'u-fe2', full_name: 'Frida Sommer', role: 'MA', is_active: true },
   { id: 'u-pl', full_name: 'Sabine Lang', role: 'PL', is_active: true },
   { id: 'u-old', full_name: 'Alt Weg', role: 'MA', is_active: false },
   { id: 'u-gast', full_name: 'Gast Zugang', role: 'Gast', is_active: true },
-  { id: 'u-bh', full_name: 'Conni Buch', role: 'Buchhaltung', is_active: true }
+  { id: 'u-bh', full_name: 'Clara Buch', role: 'Buchhaltung', is_active: true }
 ];
 const WEEK = { year: 2026, kw: 46, weekStart: '2026-11-09', weekEnd: '2026-11-15' };
 const slot = o => Object.assign({ job_no: '26-0447.01', phase: 'setup', name: 'Loungemöbel', title: '261111_Estrel_Business of Apps',
@@ -44,9 +44,9 @@ test('plWeekOf: ISO year and KW of the Monday', () => {
 });
 
 test('plShortName: first name, with the surname initial only when the first name is taken twice', () => {
-  assert.equal(ctx.plShortName(USERS[1], USERS), 'Milan');
-  assert.equal(ctx.plShortName(USERS[2], USERS), 'Feli K.');
-  assert.equal(ctx.plShortName(USERS[3], USERS), 'Feli S.');
+  assert.equal(ctx.plShortName(USERS[1], USERS), 'Mats');
+  assert.equal(ctx.plShortName(USERS[2], USERS), 'Frida K.');
+  assert.equal(ctx.plShortName(USERS[3], USERS), 'Frida S.');
   assert.equal(ctx.plShortName({ id: 'x', full_name: '' }, USERS), '');
 });
 
@@ -69,7 +69,7 @@ test('plRowFromSlot: an Auftrag phase becomes a row with the accepted people alr
   assert.equal(r.title, 'Loungemöbel');
   assert.equal(r.wann, 'Aufbau: 09:00 - 16:00 Uhr');
   assert.equal(r.need, 4);
-  assert.deepEqual(r.people, [{ user_id: 'u-mil', name: 'Milan', role: 'MA', note: null }, { user_id: 'u-fe1', name: 'Feli K.', role: 'MA', note: null }]);
+  assert.deepEqual(r.people, [{ user_id: 'u-mil', name: 'Mats', role: 'MA', note: null }, { user_id: 'u-fe1', name: 'Frida K.', role: 'MA', note: null }]);
   assert.equal('id' in r, false);
 });
 
@@ -92,7 +92,7 @@ test('plMergeSlots: new phases of the week are added, phases of other weeks are 
 
 test('plMergeSlots: an existing row keeps its people and texts; day and MA number follow the Auftrag', () => {
   const have = row({ id: 'r9', job_no: '26-0447.01', phase: 'setup', title: 'von Hand geändert', need: 4,
-    people: [{ user_id: 'u-kac', name: 'Kacper', role: 'AL', note: null }] });
+    people: [{ user_id: 'u-kac', name: 'Konrad', role: 'AL', note: null }] });
   const m = plain(ctx.plMergeSlots([have], [slot({ start_at: '2026-11-12T09:00', needed: 6, accepted_ids: ['u-mil'] })], WEEK, USERS));
   assert.deepEqual(m.add, []);
   assert.deepEqual(m.patch, [{ id: 'r9', changes: { date: '2026-11-12', need: 6 } }]);
@@ -116,8 +116,8 @@ test('plMergeSlots: an Auftrag row whose phase left the week is reported, never 
 test('plRowsFromPlan: an imported week becomes a draft, open places count into the need', () => {
   const rows = plain(ctx.plRowsFromPlan([{ id: 's1', date: '2026-11-11', sort: 3, key: 'k', venue: 'Estrel', location: 'Auditorium\nBoA', title: 'Sofas',
     details: '4 Loungesofa', wann: 'Aufbau: 11 Uhr', ap: 'Sabine', ap_user_id: 'u-pl', notes: 'LeihLkw', open_slots: [{ role: 'MA', count: 2, note: null }],
-    plan_assignments: [{ user_id: 'u-kac', name: 'Kacper', role: 'AL', note: null }, { user_id: null, name: 'Tom', role: 'Zenjob', note: '8 - 16 Uhr' },
-      { user_id: 'u-mil', name: 'Milan', role: 'Fahrer', note: 'BAR PL 550' }] }], WEEK));
+    plan_assignments: [{ user_id: 'u-kac', name: 'Konrad', role: 'AL', note: null }, { user_id: null, name: 'Tom', role: 'Zenjob', note: '8 - 16 Uhr' },
+      { user_id: 'u-mil', name: 'Mats', role: 'Fahrer', note: 'BAR PL 550' }] }], WEEK));
   assert.equal(rows.length, 1);
   const r = rows[0];
   assert.equal('id' in r, false);
@@ -131,7 +131,7 @@ test('plRowsFromPlan: an imported week becomes a draft, open places count into t
 });
 
 test('plFilled / plOpenSlots: drivers never fill an MA place', () => {
-  const r = row({ need: 3, people: [{ user_id: 'u-kac', name: 'Kacper', role: 'AL' }, { user_id: 'u-mil', name: 'Milan', role: 'Fahrer' }] });
+  const r = row({ need: 3, people: [{ user_id: 'u-kac', name: 'Konrad', role: 'AL' }, { user_id: 'u-mil', name: 'Mats', role: 'Fahrer' }] });
   assert.equal(ctx.plFilled(r), 1);
   assert.deepEqual(plain(ctx.plOpenSlots(r)), [{ role: 'MA', count: 2, note: null }]);
   assert.deepEqual(plain(ctx.plOpenSlots(row({ need: 1, people: [{ name: 'A', role: 'MA' }, { name: 'B', role: 'MA' }] }))), []);
@@ -144,7 +144,7 @@ test('plToParsed: the shape planParse returns, ordered by day and time', () => {
     row({ id: 'a2', date: '2026-11-11', wann: 'Aufbau: 11 Uhr', title: 'Spät', sort: 0 }),
     row({ id: 'a1', date: '2026-11-11', wann: 'Aufbau: 8 Uhr\nLeergut hinter Vorhang', title: 'Früh', location: 'Halle 1\nBoA', details: '4 Sofa\n2 Tische',
       notes: 'LeihLkw', ap: 'Sabine', ap_user_id: 'u-pl', need: 3,
-      people: [{ user_id: 'u-kac', name: 'Kacper', role: 'AL', note: null }, { user_id: null, name: 'Tom', role: 'Zenjob', note: 'ab 9 Uhr' }] })
+      people: [{ user_id: 'u-kac', name: 'Konrad', role: 'AL', note: null }, { user_id: null, name: 'Tom', role: 'Zenjob', note: 'ab 9 Uhr' }] })
   ], USERS));
   assert.equal(p.year, 2026); assert.equal(p.kw, 46); assert.equal(p.weekStart, '2026-11-09'); assert.equal(p.weekEnd, '2026-11-15');
   assert.deepEqual(p.warnings, []);
@@ -158,7 +158,7 @@ test('plToParsed: the shape planParse returns, ordered by day and time', () => {
   assert.equal(s.ap, 'Sabine'); assert.equal(s.apUserId, 'u-pl');
   assert.equal(s.key, '2026-11-11|estrel|früh');
   assert.deepEqual(s.open, [{ role: 'MA', count: 1, note: null }]);
-  assert.deepEqual(s.people, [{ name: 'Kacper', role: 'AL', note: null, userId: 'u-kac' }, { name: 'Tom', role: 'Zenjob', note: 'ab 9 Uhr', userId: null }]);
+  assert.deepEqual(s.people, [{ name: 'Konrad', role: 'AL', note: null, userId: 'u-kac' }, { name: 'Tom', role: 'Zenjob', note: 'ab 9 Uhr', userId: null }]);
   // planShiftRow (plan-parser.js) must accept it as is
   const dbRow = plain(ctx.planShiftRow(s, 'w1', 'neu'));
   assert.equal(dbRow.location, 'Halle 1\nBoA'); assert.equal(dbRow.wann, 'Aufbau: 8 Uhr\nLeergut hinter Vorhang'); assert.equal(dbRow.ap_user_id, 'u-pl');
@@ -178,7 +178,7 @@ test('plToParsed: a deactivated or unknown person is published by name only', ()
 });
 
 test('plToParsed + planDiff: publishing an unchanged draft again marks nothing', () => {
-  const rows = [row({ people: [{ user_id: 'u-kac', name: 'Kacper', role: 'AL', note: null }] })];
+  const rows = [row({ people: [{ user_id: 'u-kac', name: 'Konrad', role: 'AL', note: null }] })];
   const first = ctx.plToParsed(WEEK, rows, USERS);
   // what the database hands back after the first publish
   const stored = first.shifts.map((s, i) => ctx.planShiftFromDb(Object.assign(plain(ctx.planShiftRow(s, 'w', null)), { id: 'db' + i,
@@ -189,13 +189,13 @@ test('plToParsed + planDiff: publishing an unchanged draft again marks nothing',
 });
 
 test('plCandidates: applicants first, then free people, blocked ones last; nobody twice', () => {
-  const r = row({ id: 'r1', people: [{ user_id: 'u-kac', name: 'Kacper', role: 'AL' }] });
-  const other = row({ id: 'r2', people: [{ user_id: 'u-fe2', name: 'Feli S.', role: 'MA' }] });
-  const otherDay = row({ id: 'r3', date: '2026-11-12', people: [{ user_id: 'u-mil', name: 'Milan', role: 'MA' }] });
+  const r = row({ id: 'r1', people: [{ user_id: 'u-kac', name: 'Konrad', role: 'AL' }] });
+  const other = row({ id: 'r2', people: [{ user_id: 'u-fe2', name: 'Frida S.', role: 'MA' }] });
+  const otherDay = row({ id: 'r3', date: '2026-11-12', people: [{ user_id: 'u-mil', name: 'Mats', role: 'MA' }] });
   const c = plain(ctx.plCandidates(r, [r, other, otherDay], USERS, { 'u-fe1|2026-11-11': 'nein', 'u-mil|2026-11-12': 'nein' }, { 'u-pl': 'offen' }));
   assert.deepEqual(c.map(x => x.id), ['u-pl', 'u-mil', 'u-fe2', 'u-fe1']);
   assert.deepEqual(c[0], { id: 'u-pl', name: 'Sabine', applied: 'offen', level: null, busy: false, free: false });
-  assert.deepEqual(c[1], { id: 'u-mil', name: 'Milan', applied: null, level: null, busy: false, free: false });
+  assert.deepEqual(c[1], { id: 'u-mil', name: 'Mats', applied: null, level: null, busy: false, free: false });
   assert.equal(c[2].busy, true);
   assert.equal(c[3].level, 'nein');
 });
@@ -233,12 +233,12 @@ test('plPublishProblems: an empty draft and a row without place and title are re
 });
 
 test('plAddPerson / plRemovePerson: no duplicates, the row itself stays untouched', () => {
-  const r = row({ people: [{ user_id: 'u-kac', name: 'Kacper', role: 'AL', note: null }] });
-  assert.equal(ctx.plAddPerson(r, { user_id: 'u-kac', name: 'Kacper', role: 'MA' }), null);
-  assert.equal(ctx.plAddPerson(r, { user_id: null, name: ' kacper ', role: 'MA' }), null);
+  const r = row({ people: [{ user_id: 'u-kac', name: 'Konrad', role: 'AL', note: null }] });
+  assert.equal(ctx.plAddPerson(r, { user_id: 'u-kac', name: 'Konrad', role: 'MA' }), null);
+  assert.equal(ctx.plAddPerson(r, { user_id: null, name: ' konrad ', role: 'MA' }), null);
   assert.equal(ctx.plAddPerson(r, { name: '  ', role: 'MA' }), null);
   assert.deepEqual(plain(ctx.plAddPerson(r, { user_id: null, name: ' Tom ', role: 'Zenjob', note: '' })),
-    [{ user_id: 'u-kac', name: 'Kacper', role: 'AL', note: null }, { user_id: null, name: 'Tom', role: 'Zenjob', note: null }]);
+    [{ user_id: 'u-kac', name: 'Konrad', role: 'AL', note: null }, { user_id: null, name: 'Tom', role: 'Zenjob', note: null }]);
   assert.equal(r.people.length, 1);
   assert.deepEqual(plain(ctx.plRemovePerson(r, 0)), []);
   assert.equal(r.people.length, 1);
@@ -248,13 +248,13 @@ test('plRowPatch: a save is tied to the updated_at that was loaded', () => {
   assert.deepEqual(plain(ctx.plRowPatch(row(), { need: 5 })), { match: { id: 'r1', updated_at: '2026-11-10T10:00:00Z' }, values: { need: 5 } });
 });
 
-test('plWerLines: the Wer cell in Daniel\'s notation, read back unchanged by planParseWer', () => {
-  const r = row({ need: 5, people: [{ user_id: 'u-kac', name: 'Kacper', role: 'AL', note: null }, { user_id: 'u-mil', name: 'Milan', role: 'MA', note: 'ab 14 Uhr' },
-    { user_id: null, name: 'Tom', role: 'Zenjob', note: null }, { user_id: 'u-fe1', name: 'Feli K.', role: 'Fahrer', note: 'BAR PL 550' }] });
+test('plWerLines: the Wer cell in Dennis\'s notation, read back unchanged by planParseWer', () => {
+  const r = row({ need: 5, people: [{ user_id: 'u-kac', name: 'Konrad', role: 'AL', note: null }, { user_id: 'u-mil', name: 'Mats', role: 'MA', note: 'ab 14 Uhr' },
+    { user_id: null, name: 'Tom', role: 'Zenjob', note: null }, { user_id: 'u-fe1', name: 'Frida K.', role: 'Fahrer', note: 'BAR PL 550' }] });
   const lines = plain(ctx.plWerLines(r));
-  assert.deepEqual(lines, ['Kacper (AL)', 'Milan (ab 14 Uhr)', '1 x Zenjob', 'Tom', 'BAR PL 550 | Feli K.', '2 MA']);
+  assert.deepEqual(lines, ['Konrad (AL)', 'Mats (ab 14 Uhr)', '1 x Zenjob', 'Tom', 'BAR PL 550 | Frida K.', '2 MA']);
   const back = plain(ctx.planParseWer(lines));
-  assert.deepEqual(back.people.map(p => [p.name, p.role]), [['Kacper', 'AL'], ['Milan', 'MA'], ['Tom', 'Zenjob'], ['Feli K.', 'Fahrer']]);
+  assert.deepEqual(back.people.map(p => [p.name, p.role]), [['Konrad', 'AL'], ['Mats', 'MA'], ['Tom', 'Zenjob'], ['Frida K.', 'Fahrer']]);
   assert.deepEqual(back.open, [{ role: 'MA', count: 2, note: null }]);
 });
 
@@ -267,7 +267,7 @@ test('plPdfTable: day headings and one line of cells per row', () => {
 test('plSeed: an uploaded plan becomes the draft, Auftrag phases land on their entry instead of twice', () => {
   const planShifts = [
     { id: 's1', date: '2026-11-11', sort: 0, key: 'k1', venue: 'Estrel', location: 'Auditorium\nBusiness of Apps', title: '4 Loungesofa weiß', wann: 'Aufbau: 11 Uhr',
-      open_slots: [], plan_assignments: [{ user_id: 'u-kac', name: 'Kacper', role: 'AL', note: null }] },
+      open_slots: [], plan_assignments: [{ user_id: 'u-kac', name: 'Konrad', role: 'AL', note: null }] },
     { id: 's2', date: '2026-11-11', sort: 1, key: 'k2', venue: 'Estrel', location: 'Dt. Post Betriebsräte', title: 'CH I', wann: 'Aufbau: 10 Uhr', open_slots: [], plan_assignments: [] }
   ];
   const slots = [slot({ link_set: false }), slot({ phase: 'teardown', start_at: '2026-11-12T19:15', end_at: null, link_set: false, accepted_ids: ['u-mil'] }),
@@ -276,8 +276,8 @@ test('plSeed: an uploaded plan becomes the draft, Auftrag phases land on their e
   assert.equal(rows.length, 3);
   assert.equal(rows[0].job_no, '26-0447.01'); assert.equal(rows[0].phase, 'setup');
   assert.equal(rows[0].need, 4);                       // the PL's number beats the count from the PDF
-  assert.equal(rows[0].title, '4 Loungesofa weiß');    // Daniel's text stays
-  assert.deepEqual(rows[0].people.map(p => p.name), ['Kacper']);
+  assert.equal(rows[0].title, '4 Loungesofa weiß');    // Dennis's text stays
+  assert.deepEqual(rows[0].people.map(p => p.name), ['Konrad']);
   assert.equal(rows[1].job_no, null);
   assert.equal(rows[2].phase, 'teardown'); assert.equal(rows[2].date, '2026-11-12');
   assert.deepEqual(rows[2].people.map(p => p.user_id), ['u-mil']);
@@ -301,10 +301,10 @@ test('plLastChange / plHasUnpublished: edits after publishing are noticed, whate
 });
 
 test('plCandidates: people who keep their Verfügbarkeit and have not blocked the day come before everyone unknown', () => {
-  const r = row({ id: 'r1' }), other = row({ id: 'r2', people: [{ user_id: 'u-fe2', name: 'Feli S.', role: 'MA' }] });
+  const r = row({ id: 'r1' }), other = row({ id: 'r2', people: [{ user_id: 'u-fe2', name: 'Frida S.', role: 'MA' }] });
   const tracked = { 'u-pl': true, 'u-fe1': true, 'u-fe2': true, 'u-kac': true };
   const c = plain(ctx.plCandidates(r, [r, other], USERS, { 'u-fe1|2026-11-11': 'notfall' }, { 'u-mil': 'offen' }, tracked));
-  // Meldung, hat Zeit (Kacper, Sabine), unknown (nobody left), nur im Notfall, schon eingeplant
+  // Meldung, hat Zeit (Konrad, Sabine), unknown (nobody left), nur im Notfall, schon eingeplant
   assert.deepEqual(c.map(x => x.id), ['u-mil', 'u-kac', 'u-pl', 'u-fe1', 'u-fe2']);
   assert.deepEqual(c.map(x => x.free), [false, true, true, false, false]);
   // someone unknown sits between "hat Zeit" and "nur im Notfall"
@@ -314,15 +314,15 @@ test('plCandidates: people who keep their Verfügbarkeit and have not blocked th
 
 test('plSearchMatch: word beginnings of the short or the full name, without case and accents', () => {
   const m = (q, n, f) => ctx.plSearchMatch(q, n, f);
-  assert.equal(m('', 'Patryk', 'Patryk Stańczyk'), true);
-  assert.equal(m('pat', 'Patryk', 'Patryk Stańczyk'), true);
-  assert.equal(m('STAN', 'Patryk', 'Patryk Stańczyk'), true);
-  assert.equal(m('pat st', 'Patryk', 'Patryk Stańczyk'), true);
-  assert.equal(m('ryk', 'Patryk', 'Patryk Stańczyk'), false);     // not in the middle of a word
-  assert.equal(m('pat x', 'Patryk', 'Patryk Stańczyk'), false);
+  assert.equal(m('', 'Piotr', 'Piotr Sieńkowski'), true);
+  assert.equal(m('pio', 'Piotr', 'Piotr Sieńkowski'), true);
+  assert.equal(m('SIEN', 'Piotr', 'Piotr Sieńkowski'), true);
+  assert.equal(m('pio si', 'Piotr', 'Piotr Sieńkowski'), true);
+  assert.equal(m('otr', 'Piotr', 'Piotr Sieńkowski'), false);     // not in the middle of a word
+  assert.equal(m('pio x', 'Piotr', 'Piotr Sieńkowski'), false);
   assert.equal(m('jorg', 'Jörg', 'Jörg Müller'), true);
   assert.equal(m('mül', 'Jörg', 'Jörg Müller'), true);
-  assert.equal(m('k.', 'Feli K.', 'Feli Kraus'), true);
+  assert.equal(m('k.', 'Frida K.', 'Frida Kraus'), true);
   assert.equal(m('lukasz', 'Łukasz', ''), true);
 });
 
@@ -372,7 +372,7 @@ test('plAppliedFor: Auftrag Meldungen and Meldungen on the published entry in on
 });
 
 test('plOpenMeldungen: only open ones of people who are not on the row yet', () => {
-  const r = row({ people: [{ user_id: 'u-kac', name: 'Kacper', role: 'MA' }] });
+  const r = row({ people: [{ user_id: 'u-kac', name: 'Konrad', role: 'MA' }] });
   assert.equal(ctx.plOpenMeldungen(r, { 'u-kac': 'offen', 'u-mil': 'offen', 'u-fe1': 'angenommen', 'u-fe2': 'abgelehnt' }), 1);
   assert.equal(ctx.plOpenMeldungen(r, {}), 0);
   assert.equal(ctx.plOpenMeldungen(row(), { 'u-kac': 'offen', 'u-mil': 'offen' }), 2);
@@ -390,7 +390,7 @@ test('plMeldungTargets: which records change when someone is placed or taken off
   assert.deepEqual(plain(ctx.plMeldungTargets(row(), 'k1', null, apps, interest, 'u-fe1', 'offen')), []);    // week not published
 });
 
-test('plKindOfColor: Daniel\'s row colours → Art', () => {
+test('plKindOfColor: Dennis\'s row colours → Art', () => {
   const k = c => ctx.plKindOfColor(c);
   assert.equal(k(null), 'auftrag'); assert.equal(k(''), 'auftrag'); assert.equal(k('#ffffff'), 'auftrag'); assert.equal(k('#d9d9d9'), 'auftrag');
   assert.equal(k('#8db4e2'), 'angebot'); assert.equal(k('#9dc3e6'), 'angebot'); assert.equal(k('#00b0f0'), 'angebot'); assert.equal(k('#0070c0'), 'angebot');
@@ -466,19 +466,19 @@ test('plWithout: leaves out columns the database does not have yet', () => {
 
 // ── Absagen ──
 test('plCancelsOnRow: Absagen of the row by its plan key, with the place of the person on the row', () => {
-  const row = { people: [{ user_id: 'k', name: 'Kacper', role: 'AL' }, { user_id: 'm', name: 'Milan', role: 'MA' }] };
-  const users = [{ id: 'k', full_name: 'Kacper Nowak' }, { id: 'x', full_name: 'Xaver Eins' }];
+  const row = { people: [{ user_id: 'k', name: 'Konrad', role: 'AL' }, { user_id: 'm', name: 'Mats', role: 'MA' }] };
+  const users = [{ id: 'k', full_name: 'Konrad Nowak' }, { id: 'x', full_name: 'Xaver Eins' }];
   assert.deepEqual(plain(ctx.plCancelsOnRow(row, 'k1', { k1: ['k', 'x'], k2: ['m'] }, users)), [
-    { user_id: 'k', index: 0, name: 'Kacper' }, { user_id: 'x', index: -1, name: 'Xaver Eins' }]);
+    { user_id: 'k', index: 0, name: 'Konrad' }, { user_id: 'x', index: -1, name: 'Xaver Eins' }]);
   assert.deepEqual(plain(ctx.plCancelsOnRow(row, 'k9', { k1: ['k'] }, users)), []);
   assert.deepEqual(plain(ctx.plCancelsOnRow(row, null, { k1: ['k'] }, users)), []);
 });
 
 test('plReplacePerson: the new person takes the place and role, the old note goes', () => {
-  const row = { people: [{ user_id: 'k', name: 'Kacper', role: 'AL', note: 'ab 14 Uhr' }, { user_id: 'm', name: 'Milan', role: 'MA', note: null }] };
+  const row = { people: [{ user_id: 'k', name: 'Konrad', role: 'AL', note: 'ab 14 Uhr' }, { user_id: 'm', name: 'Mats', role: 'MA', note: null }] };
   assert.deepEqual(plain(ctx.plReplacePerson(row, 0, { user_id: 'x', name: 'Xaver' })), [
-    { user_id: 'x', name: 'Xaver', role: 'AL', note: null }, { user_id: 'm', name: 'Milan', role: 'MA', note: null }]);
-  assert.equal(ctx.plReplacePerson(row, 0, { user_id: 'm', name: 'Milan' }), null, 'already on the row');
+    { user_id: 'x', name: 'Xaver', role: 'AL', note: null }, { user_id: 'm', name: 'Mats', role: 'MA', note: null }]);
+  assert.equal(ctx.plReplacePerson(row, 0, { user_id: 'm', name: 'Mats' }), null, 'already on the row');
   assert.equal(ctx.plReplacePerson(row, 5, { user_id: 'x', name: 'Xaver' }), null);
 });
 

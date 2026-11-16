@@ -181,7 +181,7 @@ function setCtx(extra) {
   }, extra || {})), ctx);
 }
 
-test('ordSlotHtml: besetzt counts Daniel + accepted without duplicates, warns when full; no block without a number', () => {
+test('ordSlotHtml: besetzt counts Dennis + accepted without duplicates, warns when full; no block without a number', () => {
   setCtx({ apps: [{ job_no: '26-0415.01', phase: 'setup', user_id: 'u1', status: 'angenommen' },
     { job_no: '26-0415.01', phase: 'setup', user_id: 'u2', status: 'angenommen' }] });
   const html = ctx.ordSlotHtml(vx(), 'setup');
@@ -303,11 +303,11 @@ test('ordStep: never below 0 or above 99, no minus on an empty number', async ()
   assert.equal(vm.runInContext('_ordSaved["26-0415.01"].staff_setup', ctx), 0);
 });
 
-test('ordSlotHtml: a Fahrer on Daniel’s entry is listed but does not count', () => {
+test('ordSlotHtml: a Fahrer on Dennis’s entry is listed but does not count', () => {
   setCtx();
-  vm.runInContext('_ordCtx.plan[0].plan_assignments.push({ user_id: "d1", name: "Hassan", role: "Fahrer" }); _ordCtx.names.d1 = "Hassan"', ctx);
+  vm.runInContext('_ordCtx.plan[0].plan_assignments.push({ user_id: "d1", name: "Hamid", role: "Fahrer" }); _ordCtx.names.d1 = "Hamid"', ctx);
   const html = ctx.ordSlotHtml(vx(), 'setup');
-  assert.match(html, /Hassan · Fahrer/);
+  assert.match(html, /Hamid · Fahrer/);
   assert.match(html, /zählt nicht/);
   assert.match(html, /1<\/b> von 2 besetzt/);
 });
@@ -404,7 +404,7 @@ test('ordInboxHtml: open rows with name, hint, ✓ / ✕ wired to the right deci
   assert.match(html, /ordDecide\('26-0447\.01', 'setup', 'u2', 'abgelehnt'\)/);
   assert.match(html, /nur im Notfall/);
   assert.match(html, /Ben &lt;b&gt;/);
-  assert.match(html, /1 MA fehlt/);         // Daniel's open slot
+  assert.match(html, /1 MA fehlt/);         // Dennis's open slot
   assert.match(html, /0 von 2 besetzt/);    // the Auftrag phase
   assert.ok(html.indexOf('Tempodrom') < html.indexOf('Business of Apps'), 'sorted by day');
 });
@@ -451,7 +451,7 @@ test('fix: accepted ids from order_slots() count for everyone (RLS hides other p
   setCtx({ apps: [], accepted: { '26-0415.01|setup': ['u2', 'u1'] } });
   ctx.userRole = 'PL';
   const html = ctx.ordSlotHtml(vx(), 'setup');
-  assert.match(html, /2<\/b> von 2 besetzt/); // u1 from Daniel + u2 accepted, u1 not counted twice
+  assert.match(html, /2<\/b> von 2 besetzt/); // u1 from Dennis + u2 accepted, u1 not counted twice
 });
 
 test('fix: a viewer without Admin/PL role sees no stepper buttons and no link editor', () => {
@@ -486,7 +486,7 @@ function availCtx(extra) {
   }, extra || {}));
 }
 
-test('ordAvailable: free, unlocked people for a Daniel shift with an open slot; „nur im Notfall“ last', () => {
+test('ordAvailable: free, unlocked people for a Dennis shift with an open slot; „nur im Notfall“ last', () => {
   availCtx();
   const groups = ctx.ordAvailable([], '2026-11-06');
   assert.equal(groups.length, 1);

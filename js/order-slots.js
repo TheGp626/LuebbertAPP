@@ -1,6 +1,6 @@
-/* Aufträge ↔ Daniel's weekly plan: pure helpers, no DOM (used by wochenplan.js and auftraege.js).
+/* Aufträge ↔ the weekly plan: pure helpers, no DOM (used by wochenplan.js and auftraege.js).
  * A slot is one phase (setup = Aufbau, teardown = Abbau) of a sub-order, as returned by the RPC order_slots().
- * Daniel's PDF has no order number, so a slot is matched by date, venue, shared words and phase. */
+ * the plan PDF has no order number, so a slot is matched by date, venue, shared words and phase. */
 
 var ORD_STOP = ['und', 'der', 'die', 'das', 'den', 'dem', 'fur', 'mit', 'von', 'the', 'of', 'im', 'am', 'an', 'in', 'zu', 'bei',
   'aufbau', 'abbau', 'berlin', 'gmbh', 'uhr', 'nach', 'ab', 'bis'];
@@ -19,7 +19,7 @@ function ordSlotVenue(title) {
 // For display, as written: '261109_Neuköllnspeicher_Vernissage' → 'Neuköllnspeicher'
 function ordVenueLabel(title) { return (String(title || '').split('_')[1] || '').trim(); }
 
-// First line of Daniel's "wann" names the phase; an empty "wann" fits both
+// First line of the plan's "wann" names the phase; an empty "wann" fits both
 function ordPhaseFits(phase, wann) {
   var first = String(wann || '').trim().split('\n')[0];
   if (!first) return true;
@@ -28,7 +28,7 @@ function ordPhaseFits(phase, wann) {
 
 function ordSlotDate(slot) { return String(slot.start_at || '').slice(0, 10); }
 
-// Best entry of Daniel's plan for a slot, or null (equal best scores → null: a separate card beats a wrong link)
+// Best entry of the weekly plan for a slot, or null (equal best scores → null: a separate card beats a wrong link)
 function ordMatchSlot(slot, planShifts) {
   var venue = ordSlotVenue(slot.title), date = ordSlotDate(slot);
   if (!venue) return null;
@@ -44,14 +44,14 @@ function ordMatchSlot(slot, planShifts) {
   return bestScore && !tie ? best : null;
 }
 
-// Slots on Daniel's entries (by plan shift id) and the rest; a manual link (order_plan_links) beats the automatic match
+// Slots on the plan entries (by plan shift id) and the rest; a manual link (order_plan_links) beats the automatic match
 function ordAttachSlots(slots, planShifts) {
   var bySid = {}, unlinked = [];
   (slots || []).forEach(function(s) {
     var p = null;
     if (s.link_set) {
       if (s.link_date) p = (planShifts || []).find(function(x) { return x.date === s.link_date && x.key === s.link_key; }) || null;
-      // Daniel's re-import renumbers equal keys (k, k#2): a link that now points at the other phase is dropped
+      // a re-import renumbers equal keys (k, k#2): a link that now points at the other phase is dropped
       if (p && !ordPhaseFits(s.phase, p.wann)) p = null;
     } else p = ordMatchSlot(s, planShifts);
     if (p) (bySid[p.id] = bySid[p.id] || []).push(s); else unlinked.push(s);
@@ -59,7 +59,7 @@ function ordAttachSlots(slots, planShifts) {
   return { bySid: bySid, unlinked: unlinked };
 }
 
-// Daniel's people who count as MA: drivers (role 'Fahrer') are on the shift but never fill an MA place
+// the people in the plan who count as MA: drivers (role 'Fahrer') are on the shift but never fill an MA place
 function ordAssignedIds(planShift, withDrivers) {
   return ((planShift && planShift.plan_assignments) || [])
     .filter(function(a) { return withDrivers || a.role !== 'Fahrer'; })
@@ -71,7 +71,7 @@ function ordDrivers(planShift) {
     .map(function(a) { return a.user_id; }).filter(Boolean);
 }
 
-// PL view: user ids on the slot = Daniel's assignment ∪ accepted applications
+// PL view: user ids on the slot = the plan's assignment ∪ accepted applications
 function ordTaken(slot, planShift, applications) {
   var ids = ordAssignedIds(planShift);
   (applications || []).forEach(function(a) {
@@ -80,7 +80,7 @@ function ordTaken(slot, planShift, applications) {
   return ids;
 }
 
-// MA view: Daniel's people ∪ accepted ids from order_slots() (the PL copies accepted names into Daniel's plan)
+// MA view: the people in the plan ∪ accepted ids from order_slots() (the PL copies accepted names into the weekly plan)
 function ordTakenCount(slot, planShift) {
   var ids = ordAssignedIds(planShift);
   if (!Array.isArray(slot.accepted_ids)) return ids.length + (slot.accepted || 0);

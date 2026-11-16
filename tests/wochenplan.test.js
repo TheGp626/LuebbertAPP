@@ -112,7 +112,7 @@ test('wpCanApply: only when one open slot fits the person', () => {
   assert.equal(ctx.wpCanApply({ ...s, open_slots: [{ role: 'AL', count: 1 }] }, 'a', '2030-01-01', { role: 'AL' }), true);
 });
 
-// ── Meldungen on Daniel's shifts (plan_shift_interest rows { user_id, status }) ──
+// ── Meldungen on Dennis's shifts (plan_shift_interest rows { user_id, status }) ──
 const ishift = (rows) => ({ id: 'p1', week_id: 'w', date: '2026-11-09', key: 'k', venue: 'Estrel', wann: 'Aufbau: 10 Uhr',
   plan_assignments: [], open_slots: [{ role: 'MA', count: 2 }], _interest: rows });
 
@@ -206,9 +206,9 @@ test('wpCanSetAvail: flag or forAll, never Gast', () => {
 });
 
 test('wpAvailGrid: one row per person, cells Mo–So, sorted by name', () => {
-  const g = plain(ctx.wpAvailGrid([{ id: 'b', full_name: 'Mo' }, { id: 'a', full_name: 'Kacper' }],
+  const g = plain(ctx.wpAvailGrid([{ id: 'b', full_name: 'Mo' }, { id: 'a', full_name: 'Konrad' }],
     [{ user_id: 'b', day: '2026-11-04', level: 'nein' }, { user_id: 'a', day: '2026-11-09', level: 'notfall' }], '2026-11-02'));
-  assert.deepEqual(g.map(r => r.name), ['Kacper', 'Mo']);
+  assert.deepEqual(g.map(r => r.name), ['Konrad', 'Mo']);
   assert.deepEqual(g[1].cells, ['', '', 'nein', '', '', '', '']);
   assert.deepEqual(g[0].cells, ['', '', '', '', '', '', '']);
 });
@@ -289,12 +289,12 @@ test('wpRenderAvail: planner without own unlock gets the grid, no calendar; week
   ctx.userRole = 'PL'; ctx.currentUserAvailability = false; ctx.currentUserSeesInterest = true;
   stubToday('2026-11-06');
   const q = { select() { return q; }, gte() { return q; }, lte() { return Promise.resolve({ data: [{ user_id: 'k', day: '2026-11-04', level: 'nein' }], error: null }); } };
-  ctx.supabaseClient = { from: () => q, rpc: () => Promise.resolve({ data: [{ id: 'k', full_name: 'Kacper' }], error: null }) };
+  ctx.supabaseClient = { from: () => q, rpc: () => Promise.resolve({ data: [{ id: 'k', full_name: 'Konrad' }], error: null }) };
   await ctx.wpRenderAvail();
   await new Promise(r => setImmediate(r));
   assert.doesNotMatch(el.innerHTML, /wp-av-cal/);
   assert.match(planner.innerHTML, /wp-av-grid/);
-  assert.match(planner.innerHTML, /Kacper/);
+  assert.match(planner.innerHTML, /Konrad/);
   assert.match(planner.innerHTML, /geht nicht/);
   assert.equal(ctx.wpAvailGridBounds().min, '2026-11-02');
   assert.equal(ctx.wpAvailGridBounds().max, '2026-12-21'); // + 7 weeks = 8th week shown
@@ -412,7 +412,7 @@ test('wpMineOrdersHtml: only accepted Aufträge, no „Offene Aufträge“ list'
   assert.doesNotMatch(html, /Offene Aufträge|Gemeldet|Ich kann/);
 });
 
-test('wpOpenPills: Daniel’s „MA fehlt“ is hidden on a shift with an Auftrag (its own status counts)', () => {
+test('wpOpenPills: Dennis’s „MA fehlt“ is hidden on a shift with an Auftrag (its own status counts)', () => {
   const s = { open_slots: [{ role: 'MA', count: 1 }] };
   assert.match(ctx.wpOpenPills(s), /1 MA fehlt/);
   s._orders = [{ job_no: 'j', phase: 'setup' }];
@@ -426,7 +426,7 @@ test('wpOrderCard: one „Auftrag“ label, venue as written', () => {
   assert.match(html, /Neuköllnspeicher/);
 });
 
-test('wpMineOrdersHtml: accepted Daniel shift listed under „Angenommen“ with „Angenommen ✓“', () => {
+test('wpMineOrdersHtml: accepted Dennis shift listed under „Angenommen“ with „Angenommen ✓“', () => {
   stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
   const sh = { id: 'p9', week_id: 'w', date: '2026-11-10', key: 'k9', venue: 'Tempodrom', wann: 'Abbau: 22 Uhr', plan_assignments: [],
     open_slots: [{ role: 'MA', count: 1 }], _interest: [{ user_id: 'me', status: 'angenommen' }] };
@@ -506,10 +506,10 @@ test('wpCancelSoon: today or tomorrow asks to call the PL as well', () => {
 
 test('wpCancelContact: the AL of the shift; the PL when you are the AL yourself or no AL is named', () => {
   const s = (people, ap) => ({ ap: ap || null, plan_assignments: people });
-  assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Patryk' }, { user_id: 'k', role: 'AL', name: 'Kacper' }], 'Jenni'), 'me'))), { role: 'AL', name: 'Kacper' });
-  assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'AL', name: 'Patryk' }], 'Jenni'), 'me'))), { role: 'PL', name: 'Jenni' });
-  assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Patryk' }], 'Jenni'), 'me'))), { role: 'PL', name: 'Jenni' });
-  assert.equal(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Patryk' }]), 'me'), null);
-  assert.equal(ctx.wpCancelText({ role: 'AL', name: 'Kacper' }), 'Ruf bitte Kacper (AL) an oder schreib eine Nachricht, damit vor Ort alle Bescheid wissen.');
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Piotr' }, { user_id: 'k', role: 'AL', name: 'Konrad' }], 'Judith'), 'me'))), { role: 'AL', name: 'Konrad' });
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'AL', name: 'Piotr' }], 'Judith'), 'me'))), { role: 'PL', name: 'Judith' });
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Piotr' }], 'Judith'), 'me'))), { role: 'PL', name: 'Judith' });
+  assert.equal(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Piotr' }]), 'me'), null);
+  assert.equal(ctx.wpCancelText({ role: 'AL', name: 'Konrad' }), 'Ruf bitte Konrad (AL) an oder schreib eine Nachricht, damit vor Ort alle Bescheid wissen.');
   assert.equal(ctx.wpCancelText(null), 'Sag bitte deiner AL Bescheid, per Anruf oder Nachricht.');
 });

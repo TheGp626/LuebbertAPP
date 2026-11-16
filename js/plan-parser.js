@@ -1,4 +1,4 @@
-// Turns the page data from plan-pdf.js (Daniel's weekly plan, Excel → PDF) into shifts.
+// Turns the page data from plan-pdf.js (the weekly plan, Excel → PDF) into shifts.
 // Pure functions without DOM/Supabase → testable with `node --test` (exported via module.exports).
 //
 // Layout: one table with the columns Datum | Was | Wann | Wer | AP (header on page 1 only).
@@ -43,7 +43,7 @@ function planFindColumns(page) {
     var k = want[it.s.trim()];
     if (k && !found[k]) found[k] = it;
   });
-  // The last column is headed "AP" in Daniel's file and "PL" in the plan the app writes. "PL" also turns up inside
+  // The last column is headed "AP" in the scheduler's file and "PL" in the plan the app writes. "PL" also turns up inside
   // cells ("BAR PL 550"), so it only counts on the header line itself, right of "Wer".
   if (!found.ap && found.was && found.wer) {
     found.ap = page.items.filter(function(it) {
@@ -139,10 +139,10 @@ function planRoleFromTag(tag) {
   return null;
 }
 
-// "Kacper (AL)" / "Milan (ab 14 Uhr)" / "Feli bis 13 Uhr" → { name, role, note }
+// "Konrad (AL)" / "Mats (ab 14 Uhr)" / "Frida bis 13 Uhr" → { name, role, note }
 // Name particles that are written in lowercase inside a real name ("Mauro Reyero de Diego", "Anna von Berg")
 var PLAN_NAME_PARTICLES = /^(de|da|di|del|della|do|dos|das|du|van|von|vom|zu|zum|zur|der|den|ter|la|le|y|e|al|el|bin|ibn)$/;
-// "Abholung durch Kacper", "Service baut ab", "steht vor Ort": several words, one of them lowercase and no name
+// "Abholung durch Konrad", "Service baut ab", "steht vor Ort": several words, one of them lowercase and no name
 // particle → a remark, not a person. A single lowercase word ("milan") still counts as a name.
 function planIsSentence(text) {
   var s = String(text || '').replace(/\([^)]*\)/g, ' ').replace(/[?!.,;:]+/g, ' ').trim();
@@ -160,7 +160,7 @@ function planPerson(text, defaultRole) {
   });
   var m = /\s+((?:ab|bis)\s+\d.*)$/i.exec(s);
   if (m) { notes.push(m[1].trim()); s = s.slice(0, m.index); }
-  // "Patryk ?" = not sure yet: the name without it, the question mark kept as note
+  // "Piotr ?" = not sure yet: the name without it, the question mark kept as note
   if (/\?\s*$/.test(s)) { s = s.replace(/\s*\?+\s*$/, ''); notes.unshift('?'); }
   s = s.replace(/[,;]+$/, '').replace(/\s+/g, ' ').trim();
   if (!s) return null;
@@ -201,7 +201,7 @@ function planParseWer(lines) {
       open.push({ role: planRoleFromTag(o[3]) || planRoleFromTag(o[2]) || o[2], count: parseInt(o[1], 10), note: null });
       return;
     }
-    // "BAR PL 550 | Kacper (AL)", "LeihLkw | Marcin", "Barnimer Land | Fahrer"
+    // "BAR PL 550 | Konrad (AL)", "LeihLkw | Marcin", "Barnimer Land | Fahrer"
     if (line.indexOf('|') !== -1) {
       closeGroup();
       var parts = line.split('|'), vehicle = parts[0].trim(), who = parts.slice(1).join('|').trim();
@@ -214,7 +214,7 @@ function planParseWer(lines) {
       }
       return;
     }
-    // "Deko: Feli & Arina"
+    // "Deko: Frida & Arina"
     var d = /^([A-Za-zÄÖÜäöü]+):\s*(.+)$/.exec(line);
     if (d) {
       closeGroup();
@@ -322,7 +322,7 @@ function planParse(pages) {
 
 var PLAN_PL_ROLES = ['PL', 'Admin', 'Buchhaltung'];
 
-// Plan name → normalised form used for matching ("  Julian   H. " → "julian h")
+// Plan name → normalised form used for matching ("  Jonas   H. " → "julian h")
 function planNormName(name) {
   return String(name || '').toLowerCase().replace(/\s+/g, ' ').trim().replace(/\.$/, '').trim();
 }
@@ -356,7 +356,7 @@ function planMatchPerson(person, users, aliases) {
   var byFirst = active.filter(function(u) {
     var parts = (u.full_name || '').toLowerCase().split(/\s+/);
     if (parts[0] !== words[0]) return false;
-    // "Julian H." must fit the surname's initial
+    // "Jonas H." must fit the surname's initial
     return !rest || parts.slice(1).join(' ').indexOf(rest) === 0;
   });
   if (byFirst.length === 1) return { userId: byFirst[0].id, candidates: [], via: 'vorname' };

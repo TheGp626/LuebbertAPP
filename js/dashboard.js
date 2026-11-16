@@ -172,7 +172,7 @@ function dashNightRanking(shifts, workers) {
   }).sort(function(a, b) { return b.nights - a.nights || b.share - a.share || a.name.localeCompare(b.name, 'de'); });
 }
 
-// ── Auswertung (Jenni): night shifts per year, people without work for 4+ weeks, busiest bees of the month ──
+// ── Auswertung (PL): night shifts per year, people without work for 4+ weeks, busiest bees of the month ──
 var DASH_PAGE = 1000;          // PostgREST answers at most 1000 rows per request
 var DASH_INACTIVE_DAYS = 28;   // "seit vier Wochen nicht im Einsatz"
 var DASH_INACTIVE_ALERT = 56;  // from 8 weeks: Minijob deregistration may be due
@@ -1093,7 +1093,7 @@ function renderDashClosePanel() {
   box.hidden = !allowed;
   var sel = document.getElementById('dash-close-month');
   if (!allowed || !sel || sel.options.length) return;
-  // The month that just ended is what Conni closes: preselected; the current one is still running
+  // The month that just ended is what the Buchhaltung closes: preselected; the current one is still running
   var keys = dashCloseKeys(new Date(), dashBillingCutoff(), 7);
   sel.innerHTML = keys.map(function(k, i) { return '<option value="' + k + '"' + (i === 1 ? ' selected' : '') + '>' + monthLabelFromKey(k) + (i === 0 ? ' (läuft noch)' : '') + '</option>'; }).join('');
 }
