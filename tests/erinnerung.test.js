@@ -82,3 +82,22 @@ test('erPickShift with a hint: the night Abbau after midnight sits on the next p
   assert.equal(ctx.erPickShift([aufbau, abbau, other], 'Ganz anders', { date: '2026-11-16', action: 'Abbau' }), other);
   assert.equal(ctx.erPickShift([aufbau, abbau], 'Ganz anders', { date: '2026-11-16', action: 'Abbau' }), null);
 });
+
+test('erProjectNoOf: the Projektnummer of a folder from its read Bestätigung, else from the file names, only when unambiguous', () => {
+  const ab = 'Auftragsbestätigung 26-0463 261116_Estrel_Hagebau_Stand 10.11.2026.pdf';
+  assert.equal(ctx.erProjectNoOf([{ name: ab }, { name: '261027_hagebau_2026_Overview.pdf' }], []), '26-0463');
+  assert.equal(ctx.erProjectNoOf([{ name: 'scan.pdf' }], ['26-0463']), '26-0463');
+  assert.equal(ctx.erProjectNoOf([{ name: ab }], ['26-0463', '26-0463']), '26-0463');
+  assert.equal(ctx.erProjectNoOf([{ name: ab }, { name: 'Auftragsbestätigung 26-0470 Abbau.pdf' }], []), '');
+  assert.equal(ctx.erProjectNoOf([{ name: 'Plan 2026-0463 final.pdf' }, { name: 'Foto 12-3456789.jpg' }], []), '');
+  assert.equal(ctx.erProjectNoOf([], []), '');
+});
+
+test('erPickFolder: the folder Einsatz that belongs to a plan shift, by shared words, only when it is one folder', () => {
+  const shift = { venue: 'Estrel', title: '1210 Hussen mit Armlehne', location: ['CH II', 'Hagebau'] };
+  const rows = [{ folder_id: 'f1', folder: { name: 'Estrel Hagebau' } }, { folder_id: 'f1', folder: { name: 'Estrel Hagebau' } }, { folder_id: 'f2', folder: { name: 'Messe Gala' } }];
+  assert.equal(ctx.erPickFolder(rows, shift), 'f1');
+  assert.equal(ctx.erPickFolder(rows.concat([{ folder_id: 'f3', folder: { name: 'Estrel Hagebau Abend' } }]), shift), '', 'two folders fit equally: no guess');
+  assert.equal(ctx.erPickFolder([{ folder_id: 'f1', folder: { name: 'Estrel A' } }, { folder_id: 'f2', folder: { name: 'Estrel B' } }], shift), '');
+  assert.equal(ctx.erPickFolder([{ folder_id: 'f2', folder: { name: 'Messe Gala' } }], shift), '');
+});

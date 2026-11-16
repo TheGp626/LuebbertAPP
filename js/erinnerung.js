@@ -229,15 +229,66 @@ function erPickJob(links, keys, action) {
   return (same[0] || hits[0]).job_no;
 }
 
+// The Projektnummer of a project folder: from the Bestätigungen read in it (Admin and PL may read those), else from the
+// file names ("Auftragsbestätigung 26-0463 …pdf", which everyone sees). Only when the folder knows exactly one number.
+function erProjectNoOf(files, parsedProjects) {
+  var uniq = function(list) { return list.filter(function(v, i, a) { return v && a.indexOf(v) === i; }); };
+  var fromParsed = uniq((parsedProjects || []).map(function(v) { var m = /^\d{2}-\d{4}/.exec(v || ''); return m ? m[0] : ''; }));
+  if (fromParsed.length) return fromParsed.length === 1 ? fromParsed[0] : '';
+  var fromNames = uniq((files || []).map(function(f) { var m = /(?:^|[^\d-])(\d{2}-\d{4})(?![\d-])/.exec(f.name || ''); return m ? m[1] : ''; }));
+  return fromNames.length === 1 ? fromNames[0] : '';
+}
+async function erFolderProjectNo(folderId) {
+  if (!folderId) return '';
+  try {
+    var f = await supabaseClient.from('folder_files').select('id, name').eq('folder_id', folderId);
+    if (f.error) throw f.error;
+    var files = f.data || [], parsed = [];
+    if (files.length) {
+      var o = await supabaseClient.from('order_parsed').select('file_id, result').in('file_id', files.map(function(x) { return x.id; }));
+      parsed = ((!o.error && o.data) || []).map(function(x) { return x.result && x.result.project; });
+    }
+    return erProjectNoOf(files, parsed);
+  } catch (err) {
+    console.error('Projektnummer des Ordners laden:', err); // the field just stays empty
+    return '';
+  }
+}
+// einsaetze rows (folder_id, folder.name) of the shift's days → the one folder sharing the most words with the plan entry
+function erPickFolder(rows, shift) {
+  var words = function(t) { return String(t || '').toLowerCase().split(/[^a-zäöüß]+/).filter(function(w) { return w.length >= 3; }); };
+  var have = words([shift.venue, shift.title].concat(shift.location || []).join(' ')), score = {}, best = 0;
+  (rows || []).forEach(function(r) {
+    if (!r.folder_id || !r.folder) return;
+    var n = words(r.folder.name).filter(function(w) { return have.indexOf(w) !== -1; }).length;
+    score[r.folder_id] = n;
+    if (n > best) best = n;
+  });
+  var top = Object.keys(score).filter(function(id) { return best > 0 && score[id] === best; });
+  return top.length === 1 ? top[0] : '';
+}
+
+// Projektnummer for a protocol started from a plan entry: the Auftrag linked to it (planner publish or a PL's link),
+// else the number of the project folder that has an Einsatz for it around that day
 async function erJobForShift(p) {
   var keys = (p.shift.keys && p.shift.keys.length) ? p.shift.keys : [p.shift.key].filter(Boolean);
-  if (!keys.length || !p.date) return '';
+  if (!p.date) return '';
   try {
-    var r = await supabaseClient.from('order_plan_links').select('job_no, phase, plan_date, plan_key').eq('plan_date', p.date);
-    if (r.error) throw r.error;
-    return erPickJob(r.data, keys, p.action);
+    if (keys.length) {
+      var r = await supabaseClient.from('order_plan_links').select('job_no, phase, plan_date, plan_key').eq('plan_date', p.date);
+      if (r.error) throw r.error;
+      var linked = erPickJob(r.data, keys, p.action);
+      if (linked) return linked;
+    }
+    var e = await supabaseClient.from('einsaetze').select('folder_id, job_no, date, cancelled, folder:project_folders(name)')
+      .gte('date', wpAddDays(p.date, -1)).lte('date', p.date);
+    if (e.error) throw e.error;
+    var rows = (e.data || []).filter(function(x) { return !x.cancelled; }), folderId = erPickFolder(rows, p.shift);
+    if (!folderId) return '';
+    var tagged = rows.filter(function(x) { return x.folder_id === folderId && x.job_no; })[0];
+    return tagged ? tagged.job_no : await erFolderProjectNo(folderId);
   } catch (err) {
-    console.error('Auftrag zum Plan-Eintrag laden:', err); // the field just stays empty
+    console.error('Projektnummer zum Plan-Eintrag laden:', err); // the field just stays empty
     return '';
   }
 }
@@ -248,13 +299,13 @@ function erPlanLocation(p) { return planPlace(p); }
 // Title, date, action, AL and PL come from the project folder; people, drivers and the place from the AL's plan shift of that day.
 async function openProtokollForEinsatz(einsatzId) {
   var { data: e, error } = await supabaseClient.from('einsaetze')
-    .select('id, date, action, al_id, job_no, folder:project_folders(name, pl_id)').eq('id', einsatzId).maybeSingle();
+    .select('id, date, action, al_id, job_no, folder_id, folder:project_folders(name, pl_id)').eq('id', einsatzId).maybeSingle();
   if (error || !e) { showToast('Einsatz nicht gefunden.', 'danger'); return; }
   var name = (e.folder && e.folder.name) || '';
   var shifts = e.al_id ? await erPlanShifts(e.al_id, e.date, true) : [];
   var p = erPickShift(shifts, name, { date: e.date, action: e.action });
   if (p) p = erWithGroupPeople(p, shifts.filter(function(s) { return s.date === p.date; }));
-  await openProtokollPrefilled({ event: name, date: e.date, action: e.action, alId: e.al_id, plId: (e.folder && e.folder.pl_id) || null, jobNo: e.job_no || '',
+  await openProtokollPrefilled({ event: name, date: e.date, action: e.action, alId: e.al_id, plId: (e.folder && e.folder.pl_id) || null, jobNo: e.job_no || await erFolderProjectNo(e.folder_id),
     location: p ? erPlanLocation(p) : '', shift: p || undefined });
 }
 
