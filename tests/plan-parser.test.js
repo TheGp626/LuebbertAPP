@@ -763,6 +763,25 @@ test('planChecks: same start time at two places without an end is a double booki
   assert.deepEqual(out.map(w => w.kind), ['doppelt']);
 });
 
+test('planChecks: several events at the same venue at once are one place (crew and van cover all halls)', () => {
+  const out = chk([
+    { date: '2026-11-23', venue: 'Estrel', title: 'Dt. Post', location: ['Saal A'], wann: ['Aufbau: 10 Uhr'], notes: ['BAR PL 600'], people: [per('Paul', 'AL', { userId: 'p' }), per('Kacper', 'MA', { userId: 'k' })] },
+    { date: '2026-11-23', venue: 'Estrel', title: 'Siemens', location: ['Saal B'], wann: ['Aufbau: 10 Uhr'], notes: ['BAR PL 600'], people: [per('Paul', 'AL', { userId: 'p' }), per('Kacper', 'MA', { userId: 'k' })] },
+    { date: '2026-11-23', venue: 'estrel ', title: 'Ionos', location: ['CH II'], wann: ['Aufbau: 10 Uhr'], notes: ['BAR PL 600'], people: [per('Paul', 'AL', { userId: 'p' })] },
+  ]);
+  assert.deepEqual(out, []);
+});
+
+test('planChecks: a person at three rows of one venue and also elsewhere gets one hint per clash, not duplicates', () => {
+  const out = chk([
+    { date: '2026-11-23', venue: 'Estrel', title: 'A', wann: ['Aufbau: 10 Uhr'], people: [per('Paul', 'AL', { userId: 'p' })] },
+    { date: '2026-11-23', venue: 'Estrel', title: 'B', wann: ['Aufbau: 10 Uhr'], people: [per('Paul', 'AL', { userId: 'p' })] },
+    { date: '2026-11-23', venue: 'Messe', title: 'C', wann: ['Aufbau: 10 Uhr'], people: [per('Paul', 'AL', { userId: 'p' })] },
+  ]);
+  assert.equal(out.length, 1);
+  assert.match(out[0].text, /Estrel \(10:00\) und Messe/);
+});
+
 test('planChecks: one vehicle at two places at the same time; rental vans without a plate are ignored', () => {
   const out = chk([
     { date: '2026-11-17', venue: 'Estrel', title: 'A', wann: ['Aufbau: 8 Uhr'], notes: ['BAR PL 550', 'LeihLkw'], people: [per('Anna', 'AL')] },

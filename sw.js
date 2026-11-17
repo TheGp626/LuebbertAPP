@@ -1,4 +1,4 @@
-const CACHE = 'stundenzettel-v202';
+const CACHE = 'stundenzettel-v203';
 // Loaded by the app only when needed (utils.js loadLib), so index.html doesn't name them: precached here for offline use
 const LAZY_ASSETS = ['vendor/jspdf-2.5.1.umd.min.js', 'vendor/pdfjs-3.11.174/pdf.min.js', 'vendor/pdfjs-3.11.174/pdf.worker.min.js',
   'vendor/chart-4.6.1.umd.min.js'];
