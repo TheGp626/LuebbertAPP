@@ -14,7 +14,7 @@ function load(failText) {
     getOperatorList: async () => { log.opLists++; return { fnArray: [], argsArray: [] }; },
   };
   const pdf = { numPages: 1, getPage: async () => page, destroy: async () => { log.destroyed++; } };
-  const ctx = vm.createContext({ pdfjsLib: { OPS: {}, getDocument: () => ({ promise: Promise.resolve(pdf) }) } });
+  const ctx = vm.createContext({ loadLib: async () => {}, pdfjsLib: { OPS: {}, getDocument: () => ({ promise: Promise.resolve(pdf) }) } });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/plan-pdf.js'), 'utf8'), ctx);
   return { ctx, log };
 }

@@ -1678,6 +1678,7 @@ async function mailProtokoll(supabaseId, entry, isUpdate, notify) {
   if (!supabaseId || typeof supabaseClient === 'undefined') return false;
   var pdfBase64 = null;
   try {
+    await loadLib('jspdf');
     pdfBase64 = buildProtPdfDoc(entry, { costs: true }).output('datauristring').split(',')[1] || null;
     // The function rejects >5 MB with 413 forever → send the summary without attachment instead
     if (pdfBase64 && pdfBase64.length > MAIL_MAX_PDF_B64) {
@@ -1922,6 +1923,7 @@ async function reExportProtPDF(id) {
   for (var i = 0; i < archive.length; i++) { if (archive[i].id === id) { entry = archive[i]; break; } }
   if (!entry) { showToast('Nicht gefunden'); return; }
 
+  if (!(await needLib('jspdf'))) return;
   showToast('Generiere PDF...');
   buildProtPdfDoc(entry, { costs: canSeeCosts(currentUser) }).save(protPdfFileName(entry));
   showToast('PDF wurde gespeichert!');

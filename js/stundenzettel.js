@@ -1046,6 +1046,8 @@ function renderHistory(skipSync) {
 
 function renderHistoryChart() {
   var ctx = document.getElementById('historyChart'); if (!ctx) return;
+  // Chart.js loads on first use; draw once it is there (no chart offline before the first install is fine)
+  if (!window.Chart) { loadLib('chart').then(renderHistoryChart).catch(function(e) { console.error('chart', e); }); return; }
   var all = loadStore();
   // Aggregate hours per base week key (merges "2026-W12:AL" + "2026-W12:MA" into "2026-W12")
   var weekTotals = {};
@@ -1508,6 +1510,7 @@ function weekEarningsTotal(parts) {
 // saving/syncing happens only via the Speichern button.
 async function downloadWeekPDF() {
   var data = collectData(); if (!data.name) { showToast('Bitte Namen eingeben'); return; }
+  if (!(await needLib('jspdf'))) return;
   await fetchSignaturesForWeeks([data]);
   var sigP = [];
   data.days.forEach(function (dd) { dd.shifts.forEach(function (sh) { if (sh.sig) sigP.push(new Promise(function (res) { compressSignature(sh.sig, function (c) { sh.sig = c; res(); }); })); }); });
@@ -1526,6 +1529,7 @@ async function downloadWeekPDF() {
 var sendToBuchhaltung = downloadWeekPDF;
 
 async function exportMonthlyPDF(mKey) {
+  if (!(await needLib('jspdf'))) return;
   var all = loadStore();
   var ks = Object.keys(all).sort();
   var monthW = [], mLab = monthLabelFromKey(mKey), mTot = 0, name = '';

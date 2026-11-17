@@ -1163,7 +1163,7 @@ async function exportDashMonthClose(kind) {
   if (!data.sum.rows.length) { showToast('In ' + data.label + ' gibt es keine Schichten.', 'info'); return; }
   var file = 'Monatsabschluss_' + data.key;
   if (kind === 'csv') { dashDownload(new Blob([dashMonthCsv(data.sum, data.label)], { type: 'text/csv;charset=utf-8' }), file + '.csv'); return; }
-  if (!window.jspdf || !window.jspdf.jsPDF) { showToast('PDF-Funktion nicht geladen. Bitte Seite neu laden.', 'danger'); return; }
+  if (!(await needLib('jspdf'))) return;
   showToast('PDF wird erstellt, das dauert bei vielen Unterschriften einen Moment…');
   var doc = pdfPatch(new jspdf.jsPDF({ orientation: 'l', unit: 'mm', format: 'a4' })), ml = 14, y = 18;
   var day = function(iso) { return iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.' + iso.slice(0, 4); };
@@ -2361,9 +2361,7 @@ async function saveDashProtEdit() {
 async function exportDashProtPDF(pId) {
   const p = dashboardProtocols.find(x => x.id === pId);
   if (!p) return;
-  if (!window.jspdf || !window.jspdf.jsPDF) {
-    alert("PDF Engine nicht geladen!"); return;
-  }
+  if (!(await needLib('jspdf'))) return;
 
   if (typeof showToast === 'function') showToast('Generiere Protokoll-PDF...');
   try {
@@ -2586,6 +2584,7 @@ function dashDrawMonth(doc, m, mKey, workerName, rateConni, first) {
 async function exportDashboardMonthlyPDFRun() {
   const mKey = (document.getElementById('dash-month-filter') || {}).value;
   if (!mKey || !dashboardCurrentWorker) return;
+  if (!(await needLib('jspdf'))) return;
 
   const workerName = dashboardCurrentWorker.full_name || 'Mitarbeiter';
   showToast('PDF wird erstellt…');

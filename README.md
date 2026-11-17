@@ -157,6 +157,8 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - was sich zwischen zwei planständen geändert hat rechnet `planDiff` in `js/plan-parser.js` aus, wer eine push bekommt entscheidet `supabase/functions/notify-plan-change/notify.mjs`
 - code der eine neue spalte braucht muss auch ohne sie laufen, bis die migration eingespielt ist
 - fremde bibliotheken (supabase-js, jsPDF, pdf.js, chart.js) liegen mit fester version in `vendor/`, kein CDN. update: siehe `vendor/README.md`
+- jsPDF, pdf.js und chart.js lädt die app erst, wenn sie gebraucht werden (`loadLib` in `utils.js`, buttons nehmen `needLib`). `sw.js` speichert sie trotzdem vorab (`LAZY_ASSETS`), damit PDFs offline gehen. neue lib = in beide listen.
+- start ohne warten: der service worker liefert `index.html` sofort aus dem speicher. eine neue version kommt nur über einen neuen `CACHE`-namen in `sw.js`, also bei jeder änderung hochzählen, sonst bleibt das handy auf der alten version. vendor-dateien werden beim update aus dem alten speicher kopiert statt neu geladen.
 - branch `experimental` = testversion, gebaut in den ordner `experimental/` auf `main`
 
 ---
