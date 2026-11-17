@@ -208,9 +208,38 @@ function markEditorClean() { _editorBaseline = editorSnapshot(); }
 function editorIsDirty() { return _editorBaseline !== null && editorSnapshot() !== _editorBaseline; }
 
 // Empty editor, then (if given) the stored week on top
+// AL signatures of protocol shifts, fetched from the protocol only to show them (never saved into the week:
+// the protocol holds them, and they'd make the editor look changed). Key "day-shift" like shiftSigData.
+var _protSigShown = {};
+function shownSig(key) { return shiftSigData[key] || _protSigShown[key] || null; }
+
+// Protocol shifts of the open week whose signature this phone doesn't have: load them from their protocols
+async function loadProtocolSigsForEditor() {
+  if (typeof supabaseClient === 'undefined' || !currentUser) return;
+  var want = {}, wk = _editorWeek;
+  Object.keys(shiftValues).forEach(function(d) {
+    (shiftValues[d] || []).forEach(function(sv, s) {
+      var key = d + '-' + s;
+      if (sv && sv.protocolId && !shiftSigData[key] && !_protSigShown[key]) (want[sv.protocolId] = want[sv.protocolId] || []).push(key);
+    });
+  });
+  var ids = Object.keys(want);
+  if (!ids.length) return;
+  try {
+    var res = await supabaseClient.from('protocols').select('id, signature_text').in('id', ids);
+    if (res.error || !res.data || wk !== _editorWeek) return; // another week opened meanwhile
+    res.data.forEach(function(r) {
+      if (!r.signature_text) return;
+      want[r.id].forEach(function(key) { _protSigShown[key] = r.signature_text; redrawShiftSig(key); });
+    });
+    for (var i = 0; i < DAYS.length; i++) updateBubble(i);
+  } catch (e) { console.warn('Protokoll-Unterschriften nicht geladen:', e); }
+}
+
 function resetEditorState(w, fallbackDept) {
   shiftSigCanvases = {};
   shiftSigData = {};
+  _protSigShown = {};
   shiftValues = {};
   shiftCounts = {};
   for (var i = 0; i < DAYS.length; i++) {
@@ -233,6 +262,7 @@ function renderEditorFromState() {
   updateTopBarSub();
   _editorWeek = (document.getElementById('inp-week') || {}).value || currentWeekVal();
   markEditorClean();
+  loadProtocolSigsForEditor();
 }
 
 // The sync brought a newer state of the week that is open — show it, but never over unsaved input
@@ -642,7 +672,7 @@ function updateBubble(dayIdx) {
   for (var s = 0; s < (shiftCounts[dayIdx] || 1); s++) {
     var data = getShiftData(dayIdx, s);
     shifts.push(data);
-    if (shiftSigData[dayIdx + '-' + s]) signed++;
+    if (shownSig(dayIdx + '-' + s)) signed++;
     var von = timeToMins(data.von), bis = timeToMins(data.bis);
     var pause = parseInt(data.pause) || 0;
     var effB = (bis < von) ? bis + 1440 : bis;
@@ -872,12 +902,12 @@ function redrawShiftSig(key) {
   var sc = shiftSigCanvases[key];
   if (sc) {
     sc.ctx.clearRect(0, 0, sc.w, sc.h);
-    if (shiftSigData[key]) {
+    if (shownSig(key)) {
       var img = new Image(); img.onload = function () { sc.ctx.drawImage(img, 0, 0, sc.w, sc.h); };
-      img.src = shiftSigData[key];
+      img.src = shownSig(key);
     }
   }
-  var ph = document.getElementById('sigph-' + key); if (ph) ph.style.display = shiftSigData[key] ? 'none' : '';
+  var ph = document.getElementById('sigph-' + key); if (ph) ph.style.display = shownSig(key) ? 'none' : '';
   updateShiftLockState(key);
 }
 
@@ -932,8 +962,8 @@ function updateShiftLockState(key) {
     // Signature status pill next to "Unterschrift AL"
     var pill = document.getElementById('sigpill-' + key);
     if (pill) {
-      pill.className = 'ui-pill ' + (shiftSigData[key] ? 'ui-pill-ok' : 'ui-pill-warn');
-      pill.textContent = shiftSigData[key] ? 'unterschrieben' : 'fehlt';
+      pill.className = 'ui-pill ' + (shownSig(key) ? 'ui-pill-ok' : 'ui-pill-warn');
+      pill.textContent = shownSig(key) ? 'unterschrieben' : 'fehlt';
     }
   }
   if (!isNaN(dayIdx)) updateBubble(dayIdx);
