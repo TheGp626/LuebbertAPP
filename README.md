@@ -138,6 +138,11 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - stundensätze, verdienstgrenze und e-mails liegen in einer eigenen tabelle, die nur PL / buchhaltung / admin lesen.
 - projektdateien sind privat, öffnen nur mit kurzlebigem link aus der app.
 - datenbank in der EU (supabase, irland).
+- die login-mail hinter jeder PIN ist zufällig (nicht aus der user-id gebaut), sonst könnte man supabase auth direkt fragen und die 5-versuche-sperre umgehen.
+- das admin-passwort liegt nur als bcrypt-hash in `app_secrets`, prüfen darf es nur der server. einstellungen speichern geht nur als admin.
+- edge functions: der anon-key ist öffentlich und zählt als "gültiges jwt". testmodus, dry runs und `force` gehen deshalb nur mit admin-login (`_shared/caller.ts`), cron läuft ohne.
+- produktbilder: nur jpg/png/gif/webp (kein svg), links aus der datenbank werden nur als `https://` benutzt.
+- pentest vom 17.11.26: `supabase/migrations/20261117_security_haertung.sql`, prüfung in `supabase/tests/security_haertung_check.sql`.
 
 ---
 
