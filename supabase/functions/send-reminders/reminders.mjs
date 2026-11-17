@@ -93,6 +93,13 @@ export function mergePlanJobs(folderJobs, planRows) {
   return [...byKey.values()];
 }
 
+// Plan rows marked "Kein Protokoll nötig" (protocol_waivers.shift_keys, plan_shifts.key) need no reminder.
+// rows: [{key, ...}] (key may be missing on old rows: kept), waivers: [{shift_keys: []}]
+export function dropWaivedPlanRows(rows, waivers) {
+  const done = new Set((waivers || []).flatMap(w => w.shift_keys || []));
+  return (rows || []).filter(r => !r.key || !done.has(r.key));
+}
+
 // First job date that counts for plan reminders: the later of the lookback start and the (Berlin) day the
 // switch was turned on — switching on must not flood the PLs with mails about weeks before
 export function planWindowStart(lookbackFrom, enabledAtIso) {

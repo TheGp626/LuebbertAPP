@@ -813,6 +813,19 @@ function planShiftMatchTokens(s) {
 // with an AL; covered = a protocol of the same date whose name shares a distinctive word with the shift (see
 // planTokensMatch). One entry per day and event (count = plan rows merged into it), newest first.
 // protocols = [{ date, event }]
+// Event part of the key of an "Einsatz ohne Protokoll": the same name for every room of one event on one day.
+// protocol_waivers stores it (with the date) when someone marks "Kein Protokoll nötig".
+function planEventKey(s) { return String(planEventName(s) || '').trim().toLowerCase(); }
+
+// Entries of planWithoutProtocol() split into still open and marked "Kein Protokoll nötig" (waivers: [{date, event_key}])
+function planSplitWaived(open, waivers) {
+  var done = {};
+  (waivers || []).forEach(function(w) { done[w.date + '|' + w.event_key] = true; });
+  var res = { open: [], waived: [] };
+  (open || []).forEach(function(s) { (done[s.date + '|' + planEventKey(s)] ? res.waived : res.open).push(s); });
+  return res;
+}
+
 function planWithoutProtocol(shifts, protocols, from, to) {
   var norm = function(s) { return String(s || '').trim().toLowerCase(); };
   var protByDate = {};
@@ -823,7 +836,7 @@ function planWithoutProtocol(shifts, protocols, from, to) {
     if (!(s.people || []).some(function(p) { return p.role === 'AL'; })) return;
     var tokens = planShiftMatchTokens(s);
     if ((protByDate[s.date] || []).some(function(t) { return planTokensMatch(tokens, t); })) return;
-    var k = s.date + '|' + norm(planEventName(s));
+    var k = s.date + '|' + planEventKey(s);
     if (byKey[k]) { byKey[k].count++; return; }
     byKey[k] = Object.assign({}, s, { count: 1 });
     out.push(byKey[k]);
@@ -903,7 +916,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { planCrewWhen: planCrewWhen, planPlace: planPlace, planChecks: planChecks, planSpanOf: planSpanOf, planIsSentence: planIsSentence, planFindColumns: planFindColumns, planDate: planDate, planIsoWeek: planIsoWeek, planStripPhones: planStripPhones, planBands: planBands,
     planParseWer: planParseWer, planParse: planParse, planMatchPerson: planMatchPerson, planDiff: planDiff, planChangedFields: planChangedFields, planAssigned: planAssigned, planShiftKey: planShiftKey,
     planNormName: planNormName, planAliasKey: planAliasKey, planUnassigned: planUnassigned, planMainWeek: planMainWeek, planPickExistingWeek: planPickExistingWeek, planCellLines: planCellLines,
-    planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName,
+    planWhen: planWhen, planGuessAction: planGuessAction, planEventName: planEventName, planEventKey: planEventKey, planSplitWaived: planSplitWaived,
     planShiftOrder: planShiftOrder, nextOwnShift: nextOwnShift, planShiftHeading: planShiftHeading, planMaterialLines: planMaterialLines, planShiftRow: planShiftRow, planShiftFromDb: planShiftFromDb, planIcs: planIcs,
     planWithoutProtocol: planWithoutProtocol, planAlUserId: planAlUserId };
 }

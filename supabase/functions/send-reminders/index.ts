@@ -4,7 +4,7 @@
 // Cron runs several times in the 9:00 hour; reminder_log / plan_reminder_log make later runs no-ops and retry failures.
 // Body: { mode? ("evening" → evening push), force?, only_user_id?, dry_run? (list only, send/log nothing), plan_override? (daily dry runs: treat plan reminders as on) } or { mode: "test", user_id, pin } (test push)
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
-import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, pendingPlIds, testPush, testPushResult, LOOKBACK_DAYS } from './reminders.mjs';
+import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, pendingPlIds, testPush, testPushResult, dropWaivedPlanRows, LOOKBACK_DAYS } from './reminders.mjs';
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { loadSettings } from '../_shared/settings.ts';
 import { callerRole, isAdminRole } from '../_shared/caller.ts';
@@ -60,14 +60,18 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
       planFrom = planWindowStart(from, sw?.updated_at || null);
     }
     let pq = db.from('plan_assignments')
-      .select('user_id, role, shift:plan_shifts!inner(date, venue, title, wann, ap_user_id)')
+      .select('user_id, role, shift:plan_shifts!inner(key, date, venue, title, wann, ap_user_id)')
       .eq('role', 'AL').not('user_id', 'is', null)
       .gte('shift.date', planFrom).lte('shift.date', to);
     if (input.only_user_id) pq = pq.eq('user_id', input.only_user_id);
     const { data: rows, error: rErr } = await pq;
     if (rErr) { console.error('send-reminders: load plan failed', rErr); return json({ error: 'db_error' }, 500); }
-    planJobs = mergePlanJobs(einsaetze || [], (rows || []).map((r: Db) => ({ al_id: r.user_id, date: r.shift.date, venue: r.shift.venue,
-      title: r.shift.title, wann: r.shift.wann, ap_user_id: r.shift.ap_user_id })));
+    // "Kein Protokoll nötig" in the Protokoll-Übersicht: no push and no PL mail for those (a failed read reminds as before)
+    const { data: waivers, error: wvErr } = await db.from('protocol_waivers').select('shift_keys').gte('date', planFrom).lte('date', to);
+    if (wvErr) console.error('send-reminders: load protocol_waivers failed', wvErr);
+    const planRows = (rows || []).map((r: Db) => ({ key: r.shift.key, al_id: r.user_id, date: r.shift.date, venue: r.shift.venue,
+      title: r.shift.title, wann: r.shift.wann, ap_user_id: r.shift.ap_user_id }));
+    planJobs = mergePlanJobs(einsaetze || [], dropWaivedPlanRows(planRows, wvErr ? [] : waivers));
   }
   if (!(einsaetze || []).length && !planJobs.length) return json({ pushed: 0, mailed: 0, removed_subscriptions: 0, ...(dry ? { dry_run: true } : {}) });
 

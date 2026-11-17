@@ -481,3 +481,7 @@ button.opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset:
 /* Dashboard: Monatsabschluss */
 .dash-close-body { display: grid; gap: 8px; padding: 4px 0 12px; }
 .dash-close-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Einsätze ohne Protokoll: "Kein Protokoll nötig" under the title, marked ones struck through */
+.dash-waive-link { padding: 4px 0 0; font-size: 12px; text-align: left; }
+.dash-waived-title { text-decoration: line-through; opacity: 0.7; }

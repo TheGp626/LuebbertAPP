@@ -451,6 +451,17 @@ test('planWithoutProtocol: shifts of the window without a protocol of the same d
   assert.deepEqual(P.planWithoutProtocol([], [], '2026-10-16', '2026-10-30'), []);
 });
 
+test('planSplitWaived: entries marked "Kein Protokoll nötig" move out of the open list, by date and event', () => {
+  const sh = (date, title) => ({ id: date + title, date, venue: 'Estrel', title, location: [], wann: [], people: [] });
+  const open = [sh('2026-11-12', 'Dt. Post Betriebsräte'), sh('2026-11-08', 'Stand 421'), sh('2026-11-08', 'Stand 502')];
+  assert.equal(P.planEventKey(open[0]), 'dt. post betriebsräte');
+  const r = P.planSplitWaived(open, [{ date: '2026-11-08', event_key: 'stand 421' }, { date: '2026-11-09', event_key: 'stand 502' }]);
+  assert.deepEqual(r.open.map(s => s.title), ['Dt. Post Betriebsräte', 'Stand 502'], 'same event on another day stays open');
+  assert.deepEqual(r.waived.map(s => s.title), ['Stand 421']);
+  assert.deepEqual(P.planSplitWaived(open, null).open.length, 3);
+  assert.deepEqual(P.planSplitWaived(null, []), { open: [], waived: [] });
+});
+
 test('planWithoutProtocol: shifts without an AL need no protocol', () => {
   const shifts = [
     { id: 'a', date: '2026-10-29', venue: 'Lager', title: 'Inventur', location: [], wann: [], people: [{ name: 'Bert', role: 'MA' }] },

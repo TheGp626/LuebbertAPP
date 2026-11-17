@@ -642,6 +642,8 @@ async function refreshDashboardOnce() {
 
 // ── Einsätze ohne Protokoll: plan shifts of the last 14 days that no protocol covers yet ──
 var _dashPlanRows = [];      // plan_shifts rows (with plan_assignments) of the window
+var _dashWaivers = [];       // protocol_waivers of the window: "Kein Protokoll nötig"
+var _dashWaivedOpen = false; // the list of marked ones is folded away by default
 var _dashMissingAll = false; // list collapsed to 5 entries by default
 var DASH_MISSING_DAYS = 14, DASH_MISSING_COLLAPSED = 5;
 
@@ -652,6 +654,10 @@ async function loadDashMissing() {
     .gte('date', wpAddDays(today, -DASH_MISSING_DAYS)).lte('date', today);
   if (error) { console.error('Einsätze ohne Protokoll:', error); return; }
   _dashPlanRows = data || [];
+  // Table missing (live app before the migration) or no right to read: nothing counts as marked
+  var w = await supabaseClient.from('protocol_waivers').select('date, event_key, event_label, created_by')
+    .gte('date', wpAddDays(today, -DASH_MISSING_DAYS));
+  _dashWaivers = w.error ? [] : (w.data || []);
   renderDashMissing();
 }
 
@@ -662,22 +668,84 @@ function renderDashMissing() {
   var rowsById = {};
   var shifts = _dashPlanRows.map(function(r) { var s = planShiftFromDb(r); rowsById[s.id] = r; return s; });
   var protocols = dashboardProtocols.map(function(p) { return { date: p.date, event: p.projects && p.projects.name }; });
-  var open = planWithoutProtocol(shifts, protocols, wpAddDays(today, -DASH_MISSING_DAYS), today);
-  if (!open.length) { box.innerHTML = ''; return; }
+  var split = planSplitWaived(planWithoutProtocol(shifts, protocols, wpAddDays(today, -DASH_MISSING_DAYS), today), _dashWaivers);
+  var open = split.open;
+  if (!open.length && !split.waived.length) { box.innerHTML = ''; return; }
   var canWrite = typeof moduleAllowedForRole === 'function' && moduleAllowedForRole('protokoll', userRole);
+  var canWaive = dashMayWaive(userRole);
   var shown = (_dashMissingAll || open.length <= DASH_MISSING_COLLAPSED) ? open : open.slice(0, DASH_MISSING_COLLAPSED);
-  box.innerHTML = '<div class="ui-label">Einsätze ohne Protokoll</div><div class="ui-list" style="margin-bottom:14px;">' +
-    shown.map(function(s) {
-      var ev = planEventName(s);
-      return '<div class="ui-row"><div class="ui-row-main"><div class="ui-row-title">' + escapeHtml(shortDateDE(s.date)) + ' ' + escapeHtml(s.venue || '—') +
-        (ev && ev !== s.venue ? ' · ' + escapeHtml(ev) : '') + '</div>' +
-        (s.count > 1 ? '<div class="ui-sub">' + s.count + ' Aufträge</div>' : '') + '</div>' +
+  var title = function(s) {
+    var ev = planEventName(s);
+    return escapeHtml(shortDateDE(s.date)) + ' ' + escapeHtml(s.venue || '—') + (ev && ev !== s.venue ? ' · ' + escapeHtml(ev) : '');
+  };
+  var html = '<div class="ui-label">Einsätze ohne Protokoll</div>';
+  if (open.length) {
+    html += '<div class="ui-list" style="margin-bottom:14px;">' + shown.map(function(s) {
+      return '<div class="ui-row"><div class="ui-row-main"><div class="ui-row-title">' + title(s) + '</div>' +
+        (s.count > 1 ? '<div class="ui-sub">' + s.count + ' Aufträge</div>' : '') +
+        (canWaive ? '<button type="button" class="stunden-link dash-waive-link" onclick="dashWaiveMissing(' + uiArg(s.id) + ')">Kein Protokoll nötig</button>' : '') +
+        '</div>' +
         (canWrite ? '<div class="ui-row-end"><button type="button" class="ui-btn dash-small-btn" onclick="dashStartProtokollFromPlan(' + uiArg(s.id) + ')">Protokoll anlegen</button></div>' : '') +
         '</div>';
     }).join('') + '</div>' +
     (open.length > DASH_MISSING_COLLAPSED
       ? '<button type="button" class="stunden-link" style="margin:-6px 0 14px;" onclick="toggleDashMissing()">' + (_dashMissingAll ? 'Weniger zeigen' : 'Alle zeigen (' + open.length + ')') + '</button>'
       : '');
+  } else {
+    html += '<p class="ui-sub" style="margin:0 0 8px;">Alles erledigt.</p>';
+  }
+  if (split.waived.length) {
+    html += '<button type="button" class="stunden-link" style="margin:-6px 0 10px;" onclick="toggleDashWaived()">' +
+      (_dashWaivedOpen ? 'Ausblenden' : split.waived.length + ' ohne Protokoll markiert') + '</button>';
+    if (_dashWaivedOpen) {
+      html += '<div class="ui-list" style="margin-bottom:14px;">' + split.waived.map(function(s) {
+        var w = _dashWaivers.find(function(x) { return x.date === s.date && x.event_key === planEventKey(s); });
+        var mayUndo = w && (w.created_by === (currentUser && currentUser.id) || ['PL', 'Admin'].indexOf(userRole) !== -1);
+        return '<div class="ui-row"><div class="ui-row-main"><div class="ui-row-title dash-waived-title">' + title(s) + '</div>' +
+          '<div class="ui-sub">Kein Protokoll nötig' + (w && w.created_by ? ', markiert von ' + escapeHtml(dashUserName(w.created_by)) : '') + '</div></div>' +
+          (mayUndo ? '<div class="ui-row-end"><button type="button" class="ui-btn dash-small-btn" onclick="dashUnwaiveMissing(' + uiArg(s.date) + ',' + uiArg(planEventKey(s)) + ')">Zurückholen</button></div>' : '') +
+          '</div>';
+      }).join('') + '</div>';
+    }
+  }
+  box.innerHTML = html;
+}
+
+// "Kein Protokoll nötig" (abgesagt, nur Lieferung, …): who may write protocols may say there won't be one
+function dashMayWaive(role) { return ['AL', 'PL', 'Admin'].indexOf(role) !== -1; }
+
+function dashUserName(id) {
+  var u = (typeof allUsers !== 'undefined' ? allUsers : []).find(function(x) { return x.id === id; });
+  return u ? u.full_name : 'jemandem';
+}
+
+function toggleDashWaived() {
+  _dashWaivedOpen = !_dashWaivedOpen;
+  renderDashMissing();
+}
+
+// Marks the whole event of that day (all its rooms) as "no protocol": hidden here for everyone, and the
+// reminder pushes/mails for it stop (send-reminders skips the plan keys stored with it)
+async function dashWaiveMissing(shiftId) {
+  var row = _dashPlanRows.find(function(r) { return r.id === shiftId; });
+  if (!row || !dashMayWaive(userRole)) return;
+  var s = planShiftFromDb(row), key = planEventKey(s);
+  var keys = _dashPlanRows.filter(function(r) { return r.date === row.date && planEventKey(planShiftFromDb(r)) === key; })
+    .map(function(r) { return r.key; }).filter(Boolean);
+  var res = await supabaseClient.from('protocol_waivers')
+    .upsert({ date: s.date, event_key: key, event_label: planEventName(s) || s.venue || '', shift_keys: keys, created_by: currentUser.id },
+      { onConflict: 'date,event_key', ignoreDuplicates: true });
+  if (res.error) { console.error('Kein Protokoll:', res.error); showToast('Konnte nicht gespeichert werden.', 'danger'); return; }
+  _dashWaivers.push({ date: s.date, event_key: key, event_label: planEventName(s), created_by: currentUser.id });
+  renderDashMissing();
+  showToast('Ausgeblendet. Unten bei „ohne Protokoll markiert“ zurückholbar.');
+}
+
+async function dashUnwaiveMissing(date, key) {
+  var res = await supabaseClient.from('protocol_waivers').delete().eq('date', date).eq('event_key', key).select('date');
+  if (res.error || !(res.data || []).length) { showToast('Konnte nicht zurückgeholt werden.', 'danger'); return; }
+  _dashWaivers = _dashWaivers.filter(function(w) { return !(w.date === date && w.event_key === key); });
+  renderDashMissing();
 }
 
 function toggleDashMissing() {
