@@ -26,8 +26,8 @@ Deno.serve(async (req) => {
   if (!input.folder_id || typeof input.folder_id !== 'string') return json({ error: 'folder_id_required' }, 400);
 
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-  // Dry runs list who would get which push: Admins only
-  if (input.dry_run && !isAdminRole(await callerRole(db, req))) input.dry_run = false;
+  // Dry runs list who would get which push: Admins only (refused, never turned into a real send)
+  if (input.dry_run && !isAdminRole(await callerRole(db, req))) return json({ error: 'forbidden' }, 403);
   const { data: folder, error } = await db.from('project_folders').select('id, name, notified_al_ids')
     .eq('id', input.folder_id).maybeSingle();
   if (error) {

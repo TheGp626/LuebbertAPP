@@ -30,8 +30,8 @@ Deno.serve(async (req) => {
   if (!input.week_id || typeof input.week_id !== 'string') return json({ error: 'week_id_required' }, 400);
 
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-  // Dry runs list who would get which push: Admins only
-  if (input.dry_run && !isAdminRole(await callerRole(db, req))) input.dry_run = false;
+  // Dry runs list who would get which push: Admins only (refused, never turned into a real send)
+  if (input.dry_run && !isAdminRole(await callerRole(db, req))) return json({ error: 'forbidden' }, 403);
   const { data: week, error } = await db.from('plan_weeks').select('id, kw, version, notified_version, removed')
     .eq('id', input.week_id).maybeSingle();
   if (error) {

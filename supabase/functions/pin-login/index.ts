@@ -1,4 +1,4 @@
-// pin-login: personal PIN login. Account id = app_users.id, email/password derived server-side from the PIN.
+// pin-login: personal PIN login. Account id = app_users.id, password derived server-side from the PIN, login email random per account.
 // Gast has no PIN (password = GAST_LOGIN_SECRET, no lockout). Others: 5 wrong PINs lock the user for 15 min.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import {

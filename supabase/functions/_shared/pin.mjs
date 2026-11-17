@@ -18,7 +18,7 @@ export function lockoutRemainingMin(row, now) {
 
 // Legacy: the login email used to be derived from the (public) user id, so anyone could call Supabase Auth directly
 // with it and guess the 4 digit PIN without our lockout. New accounts get a random email; existing ones were moved
-// by migration 20261117_pin_email_random. Functions read the email from the auth user, never rebuild it.
+// by migration 20261117_security_haertung. Functions read the email from the auth user, never rebuild it.
 export const pinEmail = (userId) => `${userId}@nutzer.luebbert.invalid`;
 export const newPinEmail = () => `${crypto.randomUUID()}@nutzer.luebbert.invalid`;
 export const isLegacyPinEmail = (userId, email) => String(email || '').toLowerCase() === pinEmail(userId).toLowerCase();
