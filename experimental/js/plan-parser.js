@@ -584,6 +584,9 @@ function planChecks(shifts, avail) {
   var hours = function(mins) { return String(Math.round(mins / 30) / 2).replace('.', ','); };
   var place = function(s) { return (s.venue || s.title || 'ohne Ort').trim(); };
   var eventKey = function(s) { return [s.date, String(s.venue || '').toLowerCase(), String(planEventName(s) || '').toLowerCase()].join('|'); };
+  // Same venue on the same day counts as one place: one crew (and one van) covers several halls of the Estrel at
+  // once, that is not a double booking. A real clash is two different places at the same time.
+  var siteKey = function(s) { var v = String(s.venue || '').trim().toLowerCase(); return v ? s.date + '|' + v : eventKey(s); };
   var overlap = function(a, b) {
     if (a.start === b.start) return true;
     var first = a.start < b.start ? a : b, second = first === a ? b : a;
@@ -613,7 +616,7 @@ function planChecks(shifts, avail) {
     for (var a = 0; a < timed.length; a++) {
       for (var b = a + 1; b < timed.length; b++) {
         var x = timed[a], y = timed[b];
-        if (eventKey(x.shift) === eventKey(y.shift)) continue;
+        if (siteKey(x.shift) === siteKey(y.shift)) continue;
         if (overlap(x.span, y.span)) {
           out.push({ kind: 'doppelt', date: x.shift.date, text: e.name + ' steht am ' + day(x.shift.date) + ' gleichzeitig bei ' + place(x.shift) + ' (' + clock(x.span.start) + ') und ' + place(y.shift) + ' (' + clock(y.span.start) + ').' });
         } else if (b === a + 1 && x.span.end !== null && x.shift.date !== y.shift.date) {
@@ -643,8 +646,8 @@ function planChecks(shifts, avail) {
   Object.keys(byPlate).forEach(function(plate) {
     var items = byPlate[plate].sort(function(a, b) { return a.span.start - b.span.start; }), done = {};
     for (var a = 0; a < items.length; a++) for (var b = a + 1; b < items.length; b++) {
-      var x = items[a], y = items[b], k = eventKey(x.shift) + '>' + eventKey(y.shift);
-      if (eventKey(x.shift) === eventKey(y.shift) || done[k] || !overlap(x.span, y.span)) continue;
+      var x = items[a], y = items[b], k = siteKey(x.shift) + '>' + siteKey(y.shift);
+      if (siteKey(x.shift) === siteKey(y.shift) || done[k] || !overlap(x.span, y.span)) continue;
       done[k] = true;
       out.push({ kind: 'fahrzeug', date: x.shift.date, text: 'Fahrzeug ' + plate + ' ist am ' + day(x.shift.date) + ' um ' + clock(y.span.start) + ' bei ' + place(x.shift) + ' und bei ' + place(y.shift) + ' eingeplant.' });
     }
@@ -670,6 +673,9 @@ function planChecks(shifts, avail) {
       out.push({ kind: 'al', date: g.shift.date, text: 'Am ' + day(g.shift.date) + ' hat „' + [g.shift.venue, planEventName(g.shift)].filter(function(v, i, a) { return v && a.indexOf(v) === i; }).join(' · ') + '“ keine AL.' });
   });
 
+  // The same hint twice (e.g. three rows of one place at another place) reads as one
+  var seenText = {};
+  out = out.filter(function(w) { if (seenText[w.text]) return false; seenText[w.text] = true; return true; });
   return out.map(function(w) { return { kind: w.kind, date: w.date, text: w.text }; }).sort(function(a, b) {
     return PLAN_CHECK_ORDER.indexOf(a.kind) - PLAN_CHECK_ORDER.indexOf(b.kind) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
   });
