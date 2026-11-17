@@ -1905,6 +1905,12 @@ function loadProtFromHistory(id) {
 
   // Redraw signature preview if present
   redrawProtSig();
+  // Synced protocol opened on a phone that doesn't have its signature: show the server's (saving keeps it either way)
+  if (!protState.signature && entry.supabaseId) {
+    protServerSignature(entry).then(function(sig) {
+      if (sig && !protState.signature && protState.editingLocalId === id) { protState.signature = sig; redrawProtSig(); renderProtSectionNav(); }
+    });
+  }
 
   // Switch to Erfassen tab and save as draft
   if (typeof navigateProt === 'function') navigateProt('protokoll');
@@ -1925,8 +1931,27 @@ async function reExportProtPDF(id) {
 
   if (!(await needLib('jspdf'))) return;
   showToast('Generiere PDF...');
-  buildProtPdfDoc(entry, { costs: canSeeCosts(currentUser) }).save(protPdfFileName(entry));
-  showToast('PDF wurde gespeichert!');
+  // The history keeps only signatures drawn on this phone (storage): a synced protocol gets its signature from the server
+  var sig = await protServerSignature(entry);
+  if (sig === undefined) {
+    showToast('Unterschrift konnte nicht geladen werden (offline?). PDF ist ohne Unterschrift.', 'danger');
+    sig = null;
+  }
+  buildProtPdfDoc(Object.assign({}, entry, { signature: sig }), { costs: canSeeCosts(currentUser) }).save(protPdfFileName(entry));
+  if (sig !== null || !entry.supabaseId) showToast('PDF wurde gespeichert!');
+}
+
+// Signature of a history entry: the local one if this phone has it, else the one stored on the server.
+// null = there is none; undefined = it couldn't be loaded (offline, error), so the caller can tell the person.
+async function protServerSignature(entry) {
+  if (!entry) return null;
+  if (entry.signature) return entry.signature;
+  if (!entry.supabaseId || typeof supabaseClient === 'undefined') return null;
+  try {
+    var res = await supabaseClient.from('protocols').select('signature_text').eq('id', entry.supabaseId).maybeSingle();
+    if (res.error) { console.warn('Unterschrift nicht geladen:', res.error); return undefined; }
+    return (res.data && res.data.signature_text) || null;
+  } catch (e) { console.warn('Unterschrift nicht geladen:', e); return undefined; }
 }
 
 function protPdfFileName(entry) {
