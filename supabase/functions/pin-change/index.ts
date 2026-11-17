@@ -1,7 +1,7 @@
 // pin-change: logged-in user changes own PIN. Old PIN is verified with the same lockout bookkeeping as pin-login.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import {
-  PIN_LOCK_MIN, PIN_MAX_FAILS, isValidPin, isWrongCredentials, lockoutRemainingMin, pinEmail, pinPassword,
+  PIN_LOCK_MIN, PIN_MAX_FAILS, isValidPin, isWrongCredentials, lockoutRemainingMin, pinPassword,
 } from '../_shared/pin.mjs';
 
 const CORS = {
@@ -43,7 +43,10 @@ Deno.serve(async (req) => {
   const mins0 = lockoutRemainingMin(row, new Date());
   if (mins0 > 0) return json({ error: 'locked', minutes: mins0 });
 
-  const { data: sign, error: sErr } = await pub.auth.signInWithPassword({ email: pinEmail(id), password: pinPassword(input.old_pin as string) });
+  // the login email is random per account: take it from the caller's own auth user
+  const email = au.user.email;
+  if (!email) { console.error('pin-change: caller has no login email'); return serverError(); }
+  const { data: sign, error: sErr } = await pub.auth.signInWithPassword({ email, password: pinPassword(input.old_pin as string) });
   if (sErr && !isWrongCredentials(sErr)) { console.error('pin-change: sign-in failed', sErr); return serverError(); }
   if (sErr || !sign?.session) {
     const { data: f, error: wErr } = await admin.rpc('pin_register_failure', { p_user_id: id, p_max: PIN_MAX_FAILS, p_lock_min: PIN_LOCK_MIN });

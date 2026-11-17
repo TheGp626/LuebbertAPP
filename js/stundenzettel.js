@@ -820,7 +820,7 @@ function calcTotal() {
         var earn = formatEarnings(byDept[d], d);
         if (!earn) return null;
         var shortName = d.split(' ')[0]; // e.g. "AL" or "MA"
-        return '<span style="font-size:11px;opacity:0.85">' + shortName + ':</span> ' + earn;
+        return '<span style="font-size:11px;opacity:0.85">' + escapeHtml(shortName) + ':</span> ' + earn;
       }).filter(Boolean);
       if (parts.length) {
         e.innerHTML = parts.join('<span style="margin:0 6px;opacity:0.4">|</span>');

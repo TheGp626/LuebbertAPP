@@ -6,6 +6,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { pushTo, vapidReady } from '../_shared/push.ts';
 import { buildPlanPushes } from './notify.mjs';
 import { loadSettings } from '../_shared/settings.ts';
+import { callerRole, isAdminRole } from '../_shared/caller.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -29,6 +30,8 @@ Deno.serve(async (req) => {
   if (!input.week_id || typeof input.week_id !== 'string') return json({ error: 'week_id_required' }, 400);
 
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  // Dry runs list who would get which push: Admins only
+  if (input.dry_run && !isAdminRole(await callerRole(db, req))) input.dry_run = false;
   const { data: week, error } = await db.from('plan_weeks').select('id, kw, version, notified_version, removed')
     .eq('id', input.week_id).maybeSingle();
   if (error) {

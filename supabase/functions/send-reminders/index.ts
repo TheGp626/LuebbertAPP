@@ -7,6 +7,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, pendingPlIds, testPush, testPushResult, LOOKBACK_DAYS } from './reminders.mjs';
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { loadSettings } from '../_shared/settings.ts';
+import { callerRole, isAdminRole } from '../_shared/caller.ts';
+import { stripDebug, wantsDebug } from '../_shared/debug-input.mjs';
 import { pushTo, vapidReady } from '../_shared/push.ts';
 import { chooseRecipient, emailOf } from '../_shared/recipient.mjs';
 import { planGuessAction } from '../_shared/plan-time.mjs';
@@ -274,8 +276,9 @@ async function runEvening(db: Db, input: Input, settings: Record<string, unknown
 }
 
 // Test push from the admin settings tab: one fixed message to all devices of one user, nothing logged.
-// Needs the admin password (checked by verify_admin_pin), so the anon key alone can't push to people.
-async function runTest(db: Db, input: Input, now: Date) {
+// Needs a logged-in Admin plus the admin password (the anon key is public, so the password alone could be guessed).
+async function runTest(db: Db, input: Input, now: Date, isAdmin: boolean) {
+  if (!isAdmin) return json({ error: 'forbidden' }, 403);
   if (!input.user_id || !input.pin) return json({ error: 'missing_input' }, 400);
   const { data: okPin, error: pinErr } = await db.rpc('verify_admin_pin', { input_pin: input.pin });
   if (pinErr) { console.error('send-reminders: pin check failed', pinErr); return json({ error: 'db_error' }, 500); }
@@ -292,7 +295,10 @@ Deno.serve(async (req) => {
 
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const now = new Date();
-  if (input.mode === 'test') return runTest(db, input, now);
+  // Cron calls with the anon key and no switches; only an Admin may test, dry-run or force
+  const isAdmin = (input.mode === 'test' || wantsDebug(input)) && isAdminRole(await callerRole(db, req));
+  if (input.mode === 'test') return runTest(db, input, now, isAdmin);
+  input = stripDebug(input, isAdmin) as Input;
   const settings = await loadSettings(db);
   return input.mode === 'evening' ? runEvening(db, input, settings, now) : runDaily(db, input, settings, now);
 });

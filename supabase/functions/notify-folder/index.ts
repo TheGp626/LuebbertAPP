@@ -6,6 +6,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { pushTo, vapidReady } from '../_shared/push.ts';
 import { buildFolderPushes, pgUuidArray } from './notify.mjs';
 import { loadSettings } from '../_shared/settings.ts';
+import { callerRole, isAdminRole } from '../_shared/caller.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -25,6 +26,8 @@ Deno.serve(async (req) => {
   if (!input.folder_id || typeof input.folder_id !== 'string') return json({ error: 'folder_id_required' }, 400);
 
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  // Dry runs list who would get which push: Admins only
+  if (input.dry_run && !isAdminRole(await callerRole(db, req))) input.dry_run = false;
   const { data: folder, error } = await db.from('project_folders').select('id, name, notified_al_ids')
     .eq('id', input.folder_id).maybeSingle();
   if (error) {

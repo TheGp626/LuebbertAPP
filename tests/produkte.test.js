@@ -59,7 +59,8 @@ test('isPdfMagic: detects the %PDF- header', () => {
 });
 
 test('isBucketImageType: only types the product-images bucket accepts', () => {
-  ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'].forEach(t => assert.equal(P.isBucketImageType(t), true, t));
+  ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].forEach(t => assert.equal(P.isBucketImageType(t), true, t));
+  assert.equal(P.isBucketImageType('image/svg+xml'), false);
   ['image/heic', 'image/heif', 'image/tiff', '', 'application/pdf'].forEach(t => assert.equal(P.isBucketImageType(t), false, t));
 });
 
@@ -143,4 +144,21 @@ test('produktPayload: created_by only on insert, never on update', () => {
   assert.equal('created_by' in upd, false);
   assert.equal(upd.name, 'Tisch');
   assert.equal(P.produktPayload(f, undefined, true).created_by, null);
+});
+
+test('produktSafeUrl: only plain https links survive', () => {
+  const ok = 'https://jbrvghmkftvnkjmyoigv.supabase.co/storage/v1/object/public/product-images/a/b.png';
+  assert.equal(P.produktSafeUrl(ok), ok);
+  assert.equal(P.produktSafeUrl('  ' + ok + ' '), ok);
+  for (const bad of ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:text/html,x', 'http://x.de/a.png',
+    'https://x.de/a.png" onerror="alert(1)', "https://x.de/'x", 'https://x.de/<b>', '', null, undefined, '//x.de/a.png'])
+    assert.equal(P.produktSafeUrl(bad), '', String(bad));
+});
+
+test('produktSafeRow: bad links are dropped, good ones kept', () => {
+  const r = P.produktSafeRow({ id: '1', name: 'Stuhl', pdf_url: 'javascript:alert(1)',
+    product_images: [{ id: 'a', image_url: 'https://x.de/a.png' }, { id: 'b', image_url: 'x" onerror="alert(1)' }] });
+  assert.equal(r.pdf_url, null);
+  assert.deepEqual(r.product_images.map(i => i.id), ['a']);
+  assert.equal(P.produktSafeRow(null), null);
 });
