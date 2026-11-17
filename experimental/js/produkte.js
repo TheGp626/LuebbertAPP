@@ -93,12 +93,6 @@ function renderProdukte(list) {
   if (empty) empty.style.display = 'none';
   var canUpload = typeof userRole !== 'undefined' && ['AL', 'PL', 'Admin'].includes(userRole);
 
-  // Configure PDF.js worker once
-  if (typeof pdfjsLib !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      'vendor/pdfjs-3.11.174/pdf.worker.min.js';
-  }
-
   grid.innerHTML = list.map(function(p) {
     // Thumbnail priority: 1) first product_image/video, 2) pdf_url image, 3) pdf canvas, 4) placeholder
     var images = (p.product_images || []).slice().sort(function(a, b) { return a.sort_order - b.sort_order; });
@@ -146,8 +140,9 @@ function renderProdukte(list) {
 }
 
 async function renderPdfThumbnails() {
-  if (typeof pdfjsLib === 'undefined') return;
   var canvases = document.querySelectorAll('.produkt-pdf-canvas');
+  if (!canvases.length) return;
+  try { await loadLib('pdfjs'); } catch (e) { console.error('pdfjs', e); return; }
   for (var i = 0; i < canvases.length; i++) {
     var canvas = canvases[i];
     var url = canvas.dataset.url;
@@ -571,10 +566,8 @@ function aufbauDateiInlineHtml(url, kind) {
 
 // Draws the PDF pages into the viewer. Stops quietly when the viewer was closed or switched meanwhile.
 async function renderAufbauPdfPages(box) {
-  if (!box || typeof pdfjsLib === 'undefined') return;
-  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs-3.11.174/pdf.worker.min.js';
-  }
+  if (!box) return;
+  try { await loadLib('pdfjs'); } catch (e) { console.error('pdfjs', e); return; }
   var pdf = null;
   try {
     pdf = await pdfjsLib.getDocument({ url: box.dataset.url }).promise;

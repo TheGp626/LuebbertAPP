@@ -309,6 +309,43 @@ function pdfText(t) {
   }
   return out;
 }
+// Big libraries load only when a feature needs them, not at app start (about 900 KB less to parse on every open).
+// The service worker precaches them (sw.js LAZY_ASSETS), so this is instant and works offline after the first install.
+var LIBS = {
+  jspdf: { src: 'vendor/jspdf-2.5.1.umd.min.js', ready: function() { return window.jspdf && window.jspdf.jsPDF; } },
+  pdfjs: { src: 'vendor/pdfjs-3.11.174/pdf.min.js', ready: function() { return window.pdfjsLib; },
+    after: function() { if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs-3.11.174/pdf.worker.min.js'; } },
+  chart: { src: 'vendor/chart-4.6.1.umd.min.js', ready: function() { return window.Chart; } },
+};
+var _libLoads = {};
+function loadLib(name) {
+  var lib = LIBS[name];
+  if (!lib) return Promise.reject(new Error('unknown lib ' + name));
+  if (lib.ready()) { if (lib.after) lib.after(); return Promise.resolve(lib.ready()); }
+  if (_libLoads[name]) return _libLoads[name];
+  _libLoads[name] = new Promise(function(resolve, reject) {
+    var s = document.createElement('script');
+    s.src = lib.src;
+    s.onload = function() {
+      if (!lib.ready()) { _libLoads[name] = null; reject(new Error(name + ' did not load')); return; }
+      if (lib.after) lib.after();
+      resolve(lib.ready());
+    };
+    s.onerror = function() { _libLoads[name] = null; reject(new Error(name + ' load failed')); };
+    document.head.appendChild(s);
+  });
+  return _libLoads[name];
+}
+// For buttons: true when the library is there, otherwise a toast and false
+async function needLib(name) {
+  try { await loadLib(name); return true; }
+  catch (e) {
+    console.error('loadLib', name, e);
+    if (typeof showToast === 'function') showToast('Funktion konnte nicht geladen werden. Prüf deine Verbindung.', 'danger');
+    return false;
+  }
+}
+
 // Every PDF of the app goes through this once after "new jsPDF": text, wrapping and measuring see the same letters
 function pdfPatch(doc) {
   var fix = function(v) { return Array.isArray(v) ? v.map(pdfText) : pdfText(v); };

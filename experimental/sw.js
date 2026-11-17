@@ -1,4 +1,7 @@
-const CACHE = 'stundenzettel-exp-2dc9f90';
+const CACHE = 'stundenzettel-exp-483c9ed';
+// Loaded by the app only when needed (utils.js loadLib), so index.html doesn't name them: precached here for offline use
+const LAZY_ASSETS = ['vendor/jspdf-2.5.1.umd.min.js', 'vendor/pdfjs-3.11.174/pdf.min.js', 'vendor/pdfjs-3.11.174/pdf.worker.min.js',
+  'vendor/chart-4.6.1.umd.min.js'];
 
 // Offline start needs every script/stylesheet of index.html (own files + CDN libs): the install step reads
 // index.html and caches whatever it references, so this list never has to be kept in sync by hand.
@@ -6,9 +9,9 @@ const CACHE = 'stundenzettel-exp-2dc9f90';
 function assetUrlsOf(html) {
   const urls = [];
   const add = u => { if (u && !/^(data|blob):/.test(u) && !urls.includes(u)) urls.push(u); };
-  (html.match(/<script[^>]*>/gi) || []).forEach(t => add((/src\s*=\s*["']([^"']+)["']/i.exec(t) || [])[1]));
-  (html.match(/<link[^>]*>/gi) || []).forEach(t => {
-    if (/rel\s*=\s*["']stylesheet["']/i.test(t)) add((/href\s*=\s*["']([^"']+)["']/i.exec(t) || [])[1]);
+  (html.match(/<script\b[^>]*>/gi) || []).forEach(t => add((/\bsrc\s*=\s*["']([^"']+)["']/i.exec(t) || [])[1]));
+  (html.match(/<link\b[^>]*>/gi) || []).forEach(t => {
+    if (/\brel\s*=\s*["']stylesheet["']/i.test(t)) add((/\bhref\s*=\s*["']([^"']+)["']/i.exec(t) || [])[1]);
   });
   return urls.map(u => new URL(u, self.registration.scope).href);
 }
@@ -22,12 +25,20 @@ async function precache() {
   // that references ?v= files which are not in this cache → broken offline start
   await cache.put('./index.html', res.clone());
   const urls = assetUrlsOf(await res.text());
+  LAZY_ASSETS.forEach(a => { const u = new URL(a, self.registration.scope).href; if (!urls.includes(u)) urls.push(u); });
   const own = urls.filter(u => u.startsWith(self.location.origin));
   const cdn = urls.filter(u => !u.startsWith(self.location.origin));
-  await Promise.all(own.map(u => fetch(new Request(u, { cache: 'no-cache' })).then(r => {
+  // vendor/ files carry their version in the name and never change: an update copies them from the old cache
+  // instead of downloading about 2 MB again on every new app version
+  await Promise.all(own.map(async u => {
+    if (u.includes('/vendor/')) {
+      const old = await caches.match(u);
+      if (old) return cache.put(u, old);
+    }
+    const r = await fetch(new Request(u, { cache: 'no-cache' }));
     if (!r.ok) throw new Error('precache failed: ' + u);
     return cache.put(u, r);
-  })));
+  }));
   await Promise.all(cdn.map(u => fetch(new Request(u, { mode: 'no-cors' })).then(r => cache.put(u, r)).catch(() => {})));
 }
 
@@ -57,6 +68,19 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.mode === 'navigate') {
+    // App start: open from the saved copy at once instead of waiting for GitHub (hung for seconds on weak signal).
+    // A new version always comes with a new sw.js (CACHE bump): its install stores the new index.html with its files,
+    // and the page reloads itself (SW_UPDATED / controllerchange in app.js). Only the app page itself, by path.
+    const path = new URL(e.request.url).pathname;
+    const scopePath = new URL(self.registration.scope).pathname;
+    if (path === scopePath || path === scopePath + 'index.html') {
+      e.respondWith(caches.open(CACHE).then(c => c.match('./index.html')).then(cached => cached || fetch(new Request(e.request, { cache: 'no-cache' }))
+        .then(res => {
+          if (res.ok && !res.redirected) { const clone = res.clone(); caches.open(CACHE).then(c => c.put('./index.html', clone)); }
+          return res;
+        })));
+      return;
+    }
     e.respondWith(
       fetch(new Request(e.request, { cache: 'no-cache' }))
         .then(res => {

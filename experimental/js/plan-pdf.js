@@ -74,6 +74,7 @@ async function _planShapes(page, viewport) {
 // opts.textOnly: skip the shape pass (Auftragsbestätigungen only need text). The document is always destroyed,
 // otherwise pdf.js keeps every loaded PDF in memory.
 async function readPlanPdf(arrayBuffer, opts) {
+  await loadLib('pdfjs');
   var pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   try { return await _planReadPages(pdf, opts || {}); }
   finally { try { await pdf.destroy(); } catch (e) { /* already gone */ } }
