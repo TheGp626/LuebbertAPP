@@ -933,7 +933,7 @@ function openFileViewer(url, name, mimeType) {
       body.innerHTML = '<div style="color:#fff;padding:40px;text-align:center;">' +
         '<div style="font-size:64px;margin-bottom:16px;">' + fileIcon(mimeType, name) + '</div>' +
         '<div style="font-size:16px;margin-bottom:20px;">' + escOrdner(name) + '</div>' +
-        '<a href="' + url + '" target="_blank" class="btn primary" style="display:inline-block;width:auto;padding:12px 24px;text-decoration:none;">⬇ Herunterladen</a>' +
+        '<a href="' + escOrdner(url) + '" target="_blank" rel="noopener" class="btn primary" style="display:inline-block;width:auto;padding:12px 24px;text-decoration:none;">⬇ Herunterladen</a>' +
         '</div>';
     }
   }
