@@ -114,7 +114,26 @@ var _ordOpen = {}; // jobNo → card expanded (kept across re-renders)
 function ordToggle(jobNo) { _ordOpen[jobNo] = !_ordOpen[jobNo]; ordRenderList(); }
 
 function ordName(id) { return _ordCtx.names[id] || 'Unbekannt'; }
-function ordInitial(id) { return ordEsc((ordName(id).trim().charAt(0) || '?').toUpperCase()); }
+function ordInitial(id) {
+  var letter = ordEsc((ordName(id).trim().charAt(0) || '?').toUpperCase());
+  return typeof mitAvatarInner === 'function' ? mitAvatarInner(id, letter) : letter;
+}
+
+// unter 18 (Spec Teil E): a phase over midnight, before 6 / after 20 Uhr, or without a time is night work
+function ordPhaseNight(r) {
+  if (!r || !r.start) return true;
+  if (r.end && r.end.slice(0, 10) !== r.start.slice(0, 10)) return true;
+  return (typeof mitNightForMinor === 'function') && mitNightForMinor(r.start.slice(11, 16) || null, r.end ? r.end.slice(11, 16) || null : null, '');
+}
+// Share of the limit (Teil F) and the lock for someone under 18 on night work; only deciders get the data
+function ordShare(uid) { return typeof mitShareHtml === 'function' ? mitShareHtml((_ordCtx.shares || {})[uid]) : ''; }
+function ordMinorLocked(uid, night) { return !!night && !!(_ordCtx.minors || {})[uid]; }
+var ORD_MINOR_LOCK = '<button type="button" class="ord-accept" disabled title="Jugendarbeitsschutz">Nachteinsatz nicht erlaubt (unter 18)</button>';
+function ordByShare(list, uidOf) {
+  if (!(typeof mitLowFirst === 'function' && mitLowFirst())) return list;
+  var key = function(x) { return mitShareSort((_ordCtx.shares || {})[uidOf(x)]); };
+  return list.slice().sort(function(a, b) { return key(a) - key(b); });
+}
 
 // The slot of a card phase in the shape order-slots.js expects (as order_slots() returns it)
 function ordCardSlot(x, phase) {
@@ -239,16 +258,17 @@ function ordSlotHtml(x, phase) {
     drivers.map(function(id) {
       return '<li class="ord-person ord-person-driver"><span class="ord-avatar">' + ORD_ICON.truck + '</span><span class="ord-person-name">' + ordEsc(ordName(id)) + ' · Fahrer</span><span class="ord-person-note">zählt nicht</span></li>';
     }).join('');
-  var hint = function(uid) { return ordHints(uid, date, ps); };
-  var open = apps.filter(function(a) { return a.status === 'offen'; });
+  var night = ordPhaseNight(x.job[phase]);
+  var hint = function(uid) { return ordHints(uid, date, ps) + ordShare(uid); };
+  var open = ordByShare(apps.filter(function(a) { return a.status === 'offen'; }), function(a) { return a.user_id; });
   var rejected = apps.filter(function(a) { return a.status === 'abgelehnt'; });
   var requests = open.map(function(a) {
     return '<li class="ord-req"><div class="ord-req-top"><span class="ord-avatar ord-avatar-new">' + ordInitial(a.user_id) + '</span><b class="ord-person-name">' + ordEsc(ordName(a.user_id)) + '</b>' + hint(a.user_id) + '</div>' +
-      '<div class="ord-req-acts"><button type="button" class="ord-accept" onclick="' + decide(a, 'angenommen') + '">' + ORD_ICON.check + 'Annehmen</button>' +
+      '<div class="ord-req-acts">' + (ordMinorLocked(a.user_id, night) ? ORD_MINOR_LOCK : '<button type="button" class="ord-accept" onclick="' + decide(a, 'angenommen') + '">' + ORD_ICON.check + 'Annehmen</button>') +
       '<button type="button" class="ord-reject" aria-label="' + ordEsc(ordName(a.user_id)) + ' ablehnen" onclick="' + decide(a, 'abgelehnt') + '">' + ORD_ICON.x + '</button></div></li>';
   }).join('') + rejected.map(function(a) {
     return '<li class="ord-person ord-person-off"><span class="ord-avatar">' + ordInitial(a.user_id) + '</span><span class="ord-person-name">' + ordEsc(ordName(a.user_id)) + ' · abgelehnt</span>' +
-      '<button type="button" class="ord-textbtn" onclick="' + decide(a, 'angenommen') + '">Doch annehmen</button></li>';
+      (ordMinorLocked(a.user_id, night) ? '' : '<button type="button" class="ord-textbtn" onclick="' + decide(a, 'angenommen') + '">Doch annehmen</button>') + '</li>';
   }).join('');
   return '<section class="ord-slot">' + top + progress + link +
     (people ? '<ul class="ord-people">' + people + '</ul>' : '') +
@@ -405,15 +425,23 @@ async function ordLoadCtx() {
     supabaseClient.from('availability').select('user_id, day, level').gte('day', today),
     supabaseClient.from('app_users').select('id, full_name, role, is_active, availability_enabled, can_drive'),
     supabaseClient.from('plan_shift_interest').select('week_id, shift_key, user_id, status'),
-    supabaseClient.rpc('order_slots') // accepted ids for everyone (security definer)
+    supabaseClient.rpc('order_slots'), // accepted ids for everyone (security definer)
+    typeof mitLoadPhotos === 'function' ? mitLoadPhotos() : null // Profilbilder (never throws)
   ]);
-  res.forEach(function(r) { if (r.error) console.warn('Aufträge: Zusatzdaten fehlen:', r.error); });
+  res.forEach(function(r) { if (r && r.error) console.warn('Aufträge: Zusatzdaten fehlen:', r.error); });
   var ok = function(r) { return r.error ? [] : (r.data || []); };
   var c = { apps: ok(res[0]), interest: ok(res[5]), accepted: {}, links: {}, plan: ok(res[2]), avail: {}, names: {}, users: ok(res[4]) };
   ok(res[6]).forEach(function(sl) { c.accepted[sl.job_no + '|' + sl.phase] = sl.accepted_ids || []; });
   ok(res[1]).forEach(function(l) { c.links[l.job_no + '|' + l.phase] = { plan_date: l.plan_date, plan_key: l.plan_key }; });
   ok(res[3]).forEach(function(a) { c.avail[a.user_id + '|' + a.day] = a.level; });
   ok(res[4]).forEach(function(u) { c.names[u.id] = u.full_name; });
+  c.shares = {}; c.minors = {};
+  if (ordCanDecide() && typeof mitLoadDeciderInfo === 'function') {
+    var ids = c.apps.concat(c.interest).map(function(a) { return a.user_id; })
+      .concat(c.users.filter(function(u) { return u.availability_enabled; }).map(function(u) { return u.id; }));
+    try { var info = await mitLoadDeciderInfo(ids); c.shares = info.shares; c.minors = info.minors; }
+    catch (e) { console.warn('Verdienst-Balken / unter 18:', e); }
+  }
   return c;
 }
 
@@ -438,18 +466,21 @@ function ordInbox(jobs, today) {
     var x = (jobs || []).find(function(j) { return j.job.jobNo === a.job_no; });
     if (!x || !x.job[a.phase]) return;
     var start = x.job[a.phase].start || '', info = ordPhaseInfo(x, a.phase);
-    push({ kind: 'order', date: start.slice(0, 10), time: start.slice(11, 16), title: [ordVenueLabel(x.title), x.job.name].filter(Boolean).join(' – '),
+    push({ kind: 'order', night: ordPhaseNight(x.job[a.phase]), date: start.slice(0, 10), time: start.slice(11, 16), title: [ordVenueLabel(x.title), x.job.name].filter(Boolean).join(' – '),
       phase: ORD_PHASE[a.phase], user_id: a.user_id, job_no: a.job_no, phaseKey: a.phase, ps: info.ps,
       full: info.needed ? info.taken.length + ' von ' + info.needed + ' besetzt' : '' }, a.status);
   });
   (_ordCtx.interest || []).forEach(function(r) {
     var p = _ordCtx.plan.find(function(s) { return s.week_id === r.week_id && s.key === r.shift_key; });
     if (!p) return;
-    push({ kind: 'shift', date: p.date, time: '', title: [p.venue, p.title].filter(Boolean).join(' – '),
+    push({ kind: 'shift', night: (typeof mitNightForMinor === 'function') && mitNightForMinor(null, null, p.wann), date: p.date, time: '', title: [p.venue, p.title].filter(Boolean).join(' – '),
       phase: String(p.wann || '').split('\n')[0], user_id: r.user_id, week_id: r.week_id, shift_key: r.shift_key, ps: p,
       full: (p.open_slots || []).map(function(o) { return o.count + ' ' + (o.role || 'MA') + (o.count === 1 ? ' fehlt' : ' fehlen'); }).join(', ') }, r.status || 'offen');
   });
-  var order = function(a, b) { return a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.title.localeCompare(b.title); };
+  var low = (typeof mitLowFirst === 'function' && mitLowFirst()), share = function(it) { return mitShareSort((_ordCtx.shares || {})[it.user_id]); };
+  var order = function(a, b) {
+    return a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.title.localeCompare(b.title) || (low ? share(a) - share(b) : 0);
+  };
   return { open: open.sort(order), accepted: accepted.sort(order) };
 }
 
@@ -464,13 +495,14 @@ function ordInboxHtml(box, avail) {
     var what = [ordDay(it.date) + (it.time ? ' ' + it.time : ''), it.title, it.phase, it.full].filter(Boolean).map(ordEsc).join(' · ');
     return '<li class="ord-req"><div class="ord-inbox-what">' + what + '</div>' +
       '<div class="ord-req-top"><span class="ord-avatar ' + (accepted ? 'ord-avatar-ok' : 'ord-avatar-new') + '">' + ordInitial(it.user_id) + '</span>' +
-        '<b class="ord-person-name">' + ordEsc(ordName(it.user_id)) + '</b>' + (accepted ? '' : ordHints(it.user_id, it.date, it.ps)) +
+        '<b class="ord-person-name">' + ordEsc(ordName(it.user_id)) + '</b>' + (accepted ? '' : ordHints(it.user_id, it.date, it.ps) + ordShare(it.user_id)) +
         (accepted ? '<button type="button" class="ord-textbtn" onclick="' + call(it, 'offen') + '">Zurücknehmen</button>' : '') + '</div>' +
-      (accepted ? '' : '<div class="ord-req-acts"><button type="button" class="ord-accept" onclick="' + call(it, 'angenommen') + '">' + ORD_ICON.check + 'Annehmen</button>' +
+      (accepted ? '' : '<div class="ord-req-acts">' + (ordMinorLocked(it.user_id, it.night) ? ORD_MINOR_LOCK : '<button type="button" class="ord-accept" onclick="' + call(it, 'angenommen') + '">' + ORD_ICON.check + 'Annehmen</button>') +
         '<button type="button" class="ord-reject" aria-label="' + ordEsc(ordName(it.user_id)) + ' ablehnen" onclick="' + call(it, 'abgelehnt') + '">' + ORD_ICON.x + '</button></div>') +
     '</li>';
   };
-  return '<section class="ord-inbox"><div class="ord-label">Meldungen' + (box.open.length ? ' · ' + box.open.length + ' offen' : '') + '</div>' +
+  return '<section class="ord-inbox"><div class="ord-inbox-head"><div class="ord-label">Meldungen' + (box.open.length ? ' · ' + box.open.length + ' offen' : '') + '</div>' +
+    '<label class="ord-lowfirst"><input type="checkbox"' + ((typeof mitLowFirst === 'function' && mitLowFirst()) ? ' checked' : '') + ' onchange="mitToggleLowFirst()"> wenig gearbeitet zuerst</label></div>' +
     (box.open.length ? '<ul class="ord-reqs">' + box.open.map(function(it) { return row(it, false); }).join('') + '</ul>'
       : '<div class="ord-slot-sub">Keine offenen Meldungen.</div>') +
     (box.accepted.length ? '<div class="ord-label">Angenommen, noch nicht in Daniels Plan</div><ul class="ord-reqs">' +
@@ -478,7 +510,7 @@ function ordInboxHtml(box, avail) {
     ((avail || []).length ? '<div class="ord-label">Hätten laut Verfügbarkeit Zeit</div><ul class="ord-reqs">' + avail.map(function(g) {
       var add = function(p) {
         return '<li class="ord-person"><span class="ord-avatar">' + ordInitial(p.user_id) + '</span><span class="ord-person-name">' + ordEsc(ordName(p.user_id)) + '</span>' +
-          (p.notfall ? '<span class="ord-pill ord-pill-warn">nur im Notfall</span>' : '') +
+          (p.notfall ? '<span class="ord-pill ord-pill-warn">nur im Notfall</span>' : '') + ordShare(p.user_id) +
           '<button type="button" class="ord-textbtn" onclick="ordAcceptAvailable(\'' + g.kind + '\', \'' + jsAttrArg(g.kind === 'shift' ? g.week_id : g.job_no) + '\', \'' +
             jsAttrArg(g.kind === 'shift' ? g.shift_key : g.phaseKey) + '\', \'' + jsAttrArg(p.user_id) + '\')">Annehmen</button></li>';
       };
@@ -503,12 +535,13 @@ function ordFitsSlot(role, u) {
 function ordAvailable(jobs, today) {
   var groups = [], withOrder = {};
   var busy = function(uid, date) { return _ordCtx.plan.some(function(p) { return p.date === date && ordAssignedIds(p, true).indexOf(uid) !== -1; }); };
-  var people = function(date, fits, applied) {
+  var low = (typeof mitLowFirst === 'function' && mitLowFirst()), share = function(p) { return low ? mitShareSort((_ordCtx.shares || {})[p.user_id]) : 0; };
+  var people = function(date, fits, applied, night) {
     return (_ordCtx.users || []).filter(function(u) {
       return u.availability_enabled && u.is_active !== false && u.role !== 'Gast' && _ordCtx.avail[u.id + '|' + date] !== 'nein' &&
-        applied.indexOf(u.id) === -1 && !busy(u.id, date) && fits(u);
+        applied.indexOf(u.id) === -1 && !busy(u.id, date) && fits(u) && !ordMinorLocked(u.id, night);
     }).map(function(u) { return { user_id: u.id, notfall: _ordCtx.avail[u.id + '|' + date] === 'notfall' }; })
-      .sort(function(a, b) { return (a.notfall - b.notfall) || ordName(a.user_id).localeCompare(ordName(b.user_id)); });
+      .sort(function(a, b) { return (a.notfall - b.notfall) || share(a) - share(b) || ordName(a.user_id).localeCompare(ordName(b.user_id)); });
   };
   (jobs || []).forEach(function(x) {
     ['setup', 'teardown'].forEach(function(ph) {
@@ -517,7 +550,7 @@ function ordAvailable(jobs, today) {
       if (i.ps) withOrder[i.ps.id] = true;
       if (!i.needed || i.taken.length >= i.needed || date < today) return;
       var applied = _ordCtx.apps.filter(function(a) { return a.job_no === x.job.jobNo && a.phase === ph; }).map(function(a) { return a.user_id; }).concat(i.taken);
-      var list = people(date, function() { return true; }, applied);
+      var list = people(date, function() { return true; }, applied, ordPhaseNight(x.job[ph]));
       if (list.length) groups.push({ kind: 'order', date: date, time: start.slice(11, 16), title: [ordVenueLabel(x.title), x.job.name].filter(Boolean).join(' – '),
         phase: ORD_PHASE[ph], full: i.taken.length + ' von ' + i.needed + ' besetzt', job_no: x.job.jobNo, phaseKey: ph, people: list });
     });
@@ -525,7 +558,7 @@ function ordAvailable(jobs, today) {
   _ordCtx.plan.forEach(function(p) {
     if (withOrder[p.id] || p.date < today || !(p.open_slots || []).length) return;
     var applied = (_ordCtx.interest || []).filter(function(r) { return r.week_id === p.week_id && r.shift_key === p.key; }).map(function(r) { return r.user_id; });
-    var list = people(p.date, function(u) { return p.open_slots.some(function(o) { return ordFitsSlot(o && o.role, u); }); }, applied);
+    var list = people(p.date, function(u) { return p.open_slots.some(function(o) { return ordFitsSlot(o && o.role, u); }); }, applied, (typeof mitNightForMinor === 'function') && mitNightForMinor(null, null, p.wann));
     if (list.length) groups.push({ kind: 'shift', date: p.date, time: '', title: [p.venue, p.title].filter(Boolean).join(' – '), phase: String(p.wann || '').split('\n')[0],
       full: p.open_slots.map(function(o) { return o.count + ' ' + (o.role || 'MA') + (o.count === 1 ? ' fehlt' : ' fehlen'); }).join(', '),
       week_id: p.week_id, shift_key: p.key, people: list });

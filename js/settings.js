@@ -16,6 +16,9 @@ var APP_SETTINGS_DEFAULTS = {
   protocol_mail_enabled: true,
   mail_test_mode: true,
   billing_cutoff: 20,
+  income_limit_minijob: 603,   // default Verdienstgrenze per month by Art der Anstellung (own limit on the person wins)
+  income_limit_midijob: 2000,
+  inactive_months: 3,          // „Lange kein Einsatz“: Minijobber without a shift for this many months
   availability_for_all: false,
   department_mail_enabled: true,
   department_mail_test_mode: true,
@@ -102,6 +105,8 @@ function validateSettings(changes) {
     if (typeof v !== typeof APP_SETTINGS_DEFAULTS[k]) return k;
     if (k === 'evening_push_hour' && (v !== Math.floor(v) || v < 15 || v > 22)) return k;
     if (k === 'billing_cutoff' && (v !== Math.floor(v) || v < 1 || v > 31)) return k;
+    if (k === 'inactive_months' && (v !== Math.floor(v) || v < 1 || v > 24)) return k;
+    if ((k === 'income_limit_minijob' || k === 'income_limit_midijob') && !(v >= 0 && v <= 100000)) return k;
     if (k === 'vehicle_rates' && !validVehicleRates(v)) return k;
     if (k === 'personnel_rates' && !validPersonnelRates(v)) return k;
     if (k === 'department_routes' && !validDepartmentRoutes(v)) return k;
@@ -183,7 +188,13 @@ async function renderSettingsTab() {
     }).join('') + '</div>';
   html += '<div class="set-group"><div class="set-group-title">Abrechnung</div>' +
     '<label class="set-row"><span class="set-text"><b>Abrechnungsstichtag</b><small>Tag im Monat, ab dem Stunden zum nächsten Abrechnungsmonat zählen (gilt auf allen Geräten)</small></span>' +
-    '<input type="number" min="1" max="31" step="1" id="set-billing_cutoff" class="meta-input set-num" value="' + appSetting('billing_cutoff') + '"></label></div>';
+    '<input type="number" min="1" max="31" step="1" id="set-billing_cutoff" class="meta-input set-num" value="' + appSetting('billing_cutoff') + '"></label>' +
+    '<label class="set-row"><span class="set-text"><b>Verdienstgrenze Minijob (€/Monat)</b><small>Gilt für alle Minijobber ohne eigene Grenze</small></span>' +
+    '<input type="number" min="0" max="100000" step="1" id="set-income_limit_minijob" class="meta-input set-num" value="' + appSetting('income_limit_minijob') + '"></label>' +
+    '<label class="set-row"><span class="set-text"><b>Verdienstgrenze Midijob (€/Monat)</b><small>Gilt für alle Midijobber ohne eigene Grenze</small></span>' +
+    '<input type="number" min="0" max="100000" step="1" id="set-income_limit_midijob" class="meta-input set-num" value="' + appSetting('income_limit_midijob') + '"></label>' +
+    '<label class="set-row"><span class="set-text"><b>Lange kein Einsatz (Monate)</b><small>Minijobber ohne Einsatz seit so vielen Monaten stehen im Personal auf der Liste</small></span>' +
+    '<input type="number" min="1" max="24" step="1" id="set-inactive_months" class="meta-input set-num" value="' + appSetting('inactive_months') + '"></label></div>';
   var rates = appSetting('vehicle_rates');
   html += '<div class="set-group"><div class="set-group-title">Fahrzeugsätze (€ pro Einsatz)</div>' +
     '<div class="set-veh-row set-veh-head"><span>Fahrzeug</span><span>Mo–Fr</span><span>Sa</span><span>So</span><span></span></div>' +
@@ -225,6 +236,10 @@ function _readSettingsForm() {
   changes.evening_push_hour = parseInt(document.getElementById('set-evening_push_hour').value, 10);
   var cut = document.getElementById('set-billing_cutoff').value;
   changes.billing_cutoff = cut === '' ? NaN : Number(cut);
+  ['income_limit_minijob', 'income_limit_midijob', 'inactive_months'].forEach(function(k) {
+    var el = document.getElementById('set-' + k);
+    if (el && typeof el.value === 'string') changes[k] = el.value === '' ? NaN : Number(el.value); // not rendered → left out
+  });
   changes.vehicle_rates = readVehicleRates(Array.from(document.querySelectorAll('#set-vehicles .set-veh-row')).map(function(row) {
     var val = function(f) { return row.querySelector('[data-f="' + f + '"]').value; };
     return { name: val('name'), wk: val('wk'), sa: val('sa'), so: val('so') };
@@ -274,7 +289,8 @@ function addVehicleRateRow() {
 var SETTINGS_LABELS = { evening_push_hour: 'Uhrzeit Abend-Push', billing_cutoff: 'Abrechnungsstichtag (1–31)',
   vehicle_rates: 'Fahrzeugsätze (jeder Name einmal, alle Beträge 0–100000 €)',
   personnel_rates: 'Stundensätze nach Beschäftigungsart (alle Felder 0–1000 €)',
-  department_routes: 'Abteilungs-Mails (Bereich → Abteilung)' };
+  department_routes: 'Abteilungs-Mails (Bereich → Abteilung)', inactive_months: 'Lange kein Einsatz (1–24 Monate)',
+  income_limit_minijob: 'Verdienstgrenze Minijob (0–100000 €)', income_limit_midijob: 'Verdienstgrenze Midijob (0–100000 €)' };
 
 async function saveSettingsTab() {
   var err = document.getElementById('set-error'), btn = document.getElementById('set-save-btn');

@@ -12,7 +12,7 @@
 
 
   <link rel="stylesheet" href="css/style.css?v=41">
-  <link rel="stylesheet" href="css/ui.css?v=40">
+  <link rel="stylesheet" href="css/ui.css?v=41">
 </head>
 
 <body>
@@ -299,6 +299,11 @@
                 <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
                 <input type="search" id="dash-worker-search" placeholder="Mitarbeiter suchen" oninput="renderDashWorkerList()">
               </div>
+              <select id="dash-worker-filter" class="meta-input mit-filter" aria-label="Liste filtern" onchange="renderDashWorkerList()">
+                <option value="">Alle</option>
+                <option value="nosurname">Ohne Nachname</option>
+                <option value="nophoto">Ohne Profilbild</option>
+              </select>
               <details id="dash-close-panel" class="dash-close" hidden open>
                 <summary class="ui-label" style="cursor:pointer;">Monatsabschluss</summary>
                 <div class="dash-close-body">
@@ -314,6 +319,18 @@
               <details id="dash-inactive-panel">
                 <summary class="ui-label" style="cursor:pointer;" id="dash-inactive-title">Seit 4 Wochen kein Einsatz</summary>
                 <div id="dash-inactive-list" class="ui-list"></div>
+              </details>
+              <details id="dash-unknown-panel" hidden>
+                <summary class="ui-label" style="cursor:pointer;" id="dash-unknown-title">Unbekannte Namen</summary>
+                <div id="dash-unknown-list" class="ui-list"></div>
+              </details>
+              <details id="dash-idle-panel" hidden>
+                <summary class="ui-label" style="cursor:pointer;" id="dash-idle-title">Lange kein Einsatz</summary>
+                <div id="dash-idle-list" class="ui-list"></div>
+              </details>
+              <details id="dash-minor-panel" hidden>
+                <summary class="ui-label" style="cursor:pointer;" id="dash-minor-title">Unter 18: Einsätze prüfen</summary>
+                <div id="dash-minor-list" class="ui-list"></div>
               </details>
               <details id="dash-night-panel">
                 <summary class="ui-label" style="cursor:pointer;" id="dash-night-title">Nachtschichten · Kalenderjahr</summary>
@@ -479,11 +496,19 @@
           </select></label>
         <label class="ui-field"><span>Abteilung</span><input type="text" id="new-user-dept" placeholder="z.B. MA"></label>
       </div>
+      <label class="ui-field"><span>Art der Anstellung</span>
+        <select id="new-user-type">
+          <option value="">Bitte wählen</option>
+          <option value="Minijob">Minijob</option>
+          <option value="Midijob">Midijob</option>
+          <option value="Rechnung">Rechnungsschreiber</option>
+          <option value="Fest">Festangestellt</option>
+        </select></label>
       <div class="stunden-grid">
         <label class="ui-field cost-only"><span>Lohn Conni (€/h)</span><input type="number" id="new-user-rate-conni" step="0.50" min="0" placeholder="z.B. 21.50"></label>
         <label class="ui-field cost-only"><span>Satz intern (€/h)</span><input type="number" id="new-user-rate-internal" step="0.50" min="0" placeholder="z.B. 25.00"></label>
       </div>
-      <label class="ui-field cost-only"><span>Einkommensgrenze (€)</span><input type="number" id="new-user-income-limit" step="1" min="0" placeholder="z.B. 520"></label>
+      <label class="ui-field cost-only"><span>Eigene Verdienstgrenze (€, leer = Standard)</span><input type="number" id="new-user-income-limit" step="1" min="0" placeholder="Standard nach Art der Anstellung"></label>
       <div class="ui-sheet-actions">
         <button type="button" class="ui-btn" onclick="toggleAddUserForm()">Abbrechen</button>
         <button type="button" class="ui-btn ui-btn-primary" onclick="addDashboardUser()">Speichern</button>
@@ -724,6 +749,7 @@
       <div id="opt-sec-account">
         <div class="ui-label">Konto</div>
         <div class="opt-group">
+          <button type="button" class="opt-row" onclick="optGo('mitOpenPhoto')"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span class="opt-row-label">Profilbild <span class="mit-dot" id="opt-photo-dot" hidden aria-label="noch keins"></span></span><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
           <button type="button" class="opt-row" onclick="optGo('openPinChange')"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z"/></svg><span class="opt-row-label">PIN ändern</span><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
           <button type="button" class="opt-row" id="opt-calendar" onclick="optGo('wpCalendarSheet')"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14v14H5zM5 10h14M9 3v4M15 3v4"/></svg><span class="opt-row-label">Schichten im Handy-Kalender</span><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
         </div>
@@ -849,6 +875,12 @@
               <span style="font-size:14px;">Verfügbarkeit eintragen <span style="color:var(--text3); font-size:12px;">(Tage blocken im Wochenplan)</span></span>
             </label>
           </div>
+          <div class="field" id="edit-worker-minor-field" style="display:none;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" id="edit-worker-minor">
+              <span style="font-size:14px;">Unter 18 <span style="color:var(--text3); font-size:12px;">(keine Nachteinsätze; nur Admin und Buchhaltung sehen den Haken, zum 18. Geburtstag rausnehmen)</span></span>
+            </label>
+          </div>
           <div class="field">
             <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
               <input type="checkbox" id="edit-worker-can-drive">
@@ -870,7 +902,7 @@
             </div>
           </div>
           <div class="cost-only field">
-            <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Einkommensgrenze (€)</label>
+            <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Eigene Verdienstgrenze (€, leer = Standard)</label>
             <input type="number" id="edit-worker-income-limit" class="meta-input" step="1" min="0" placeholder="z.B. 520">
           </div>
           <div class="field">
@@ -889,6 +921,7 @@
         <button class="btn" style="flex:1;" onclick="closeEditWorker()">Abbrechen</button>
       </div>
       <div style="margin-top:12px; text-align:center; border-top:0.5px solid var(--border2); padding-top:12px; flex-shrink:0;">
+        <button type="button" id="edit-worker-photo-btn" onclick="mitAdminDeletePhoto()" style="display:none;font-size:12px;padding:5px 14px;margin-right:8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:none;color:var(--text2);cursor:pointer;">Profilbild löschen</button>
         <button onclick="deactivateWorker()" style="font-size:12px;padding:5px 14px;border:0.5px solid var(--danger);border-radius:var(--radius);background:none;color:var(--danger);cursor:pointer;">Mitarbeiter deaktivieren</button>
       </div>
     </div>
@@ -897,26 +930,27 @@
   <!-- Scripts -->
   <script src="vendor/supabase-js-2.119.0.js"></script>
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=41"></script>
+  <script src="js/auth.js?v=42"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=16"></script>
-  <script src="js/utils.js?v=24"></script>
+  <script src="js/utils.js?v=25"></script>
   <script src="js/ui.js?v=5"></script>
   <script src="js/changelog.js?v=1"></script>
-  <script src="js/settings.js?v=13"></script>
+  <script src="js/settings.js?v=14"></script>
+  <script src="js/mitarbeiter.js?v=1"></script>
   <script src="js/stundenzettel.js?v=29"></script>
-  <script src="js/protokoll.js?v=55"></script>
+  <script src="js/protokoll.js?v=56"></script>
   <script src="js/erinnerung.js?v=14"></script>
   <script src="js/plan-pdf.js?v=3"></script>
   <script src="js/plan-parser.js?v=26"></script>
   <script src="js/order-parser.js?v=9"></script>
   <script src="js/order-slots.js?v=5"></script>
   <script src="js/planer.js?v=10"></script>
-  <script src="js/auftraege.js?v=13"></script>
-  <script src="js/wochenplan.js?v=38"></script>
+  <script src="js/auftraege.js?v=14"></script>
+  <script src="js/wochenplan.js?v=39"></script>
   <script src="js/material.js?v=2"></script>
   <script src="js/home.js?v=10"></script>
-  <script src="js/dashboard.js?v=55"></script>
+  <script src="js/dashboard.js?v=56"></script>
   <script src="js/produkte.js?v=21"></script>
   <script src="js/ordner.js?v=34"></script>
   <script src="js/app.js?v=27"></script>

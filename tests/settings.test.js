@@ -21,6 +21,11 @@ test('validateSettings: first invalid key or null', () => {
   assert.equal(S.validateSettings({ foo: true }), 'foo');
   assert.equal(S.validateSettings({ mail_test_mode: 'yes' }), 'mail_test_mode');
   assert.equal(S.validateSettings({ billing_cutoff: 31, evening_push_hour: 15, mail_test_mode: false }), null);
+  assert.equal(S.validateSettings({ inactive_months: 0 }), 'inactive_months');
+  assert.equal(S.validateSettings({ inactive_months: 2.5 }), 'inactive_months');
+  assert.equal(S.validateSettings({ income_limit_minijob: -1 }), 'income_limit_minijob');
+  assert.equal(S.validateSettings({ income_limit_midijob: NaN }), 'income_limit_midijob');
+  assert.equal(S.validateSettings({ income_limit_minijob: 603, income_limit_midijob: 2000, inactive_months: 3 }), null);
 });
 
 test('defaults when nothing is cached', () => {

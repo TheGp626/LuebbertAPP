@@ -198,12 +198,12 @@ test('showToast: honours type, clears the previous timer', () => {
 
 test('flattenPrivate: object, array, missing; no mutation', () => {
   const priv = { hourly_rate_conni: 15, income_limit: 556, email: 'x@y' };
-  const want = { id: 'a', full_name: 'X', hourly_rate_conni: 15, income_limit: 556, email: 'x@y' };
+  const want = { id: 'a', full_name: 'X', hourly_rate_conni: 15, income_limit_own: 556, income_limit: 556, email: 'x@y' };
   const row = { id: 'a', full_name: 'X', app_user_private: priv };
   assert.deepEqual(flattenPrivate(row), want);
   assert.deepEqual(row, { id: 'a', full_name: 'X', app_user_private: priv });
   assert.deepEqual(flattenPrivate({ id: 'a', full_name: 'X', app_user_private: [priv] }), want);
-  const none = { id: 'a', full_name: 'X', hourly_rate_conni: null, income_limit: null, email: null };
+  const none = { id: 'a', full_name: 'X', hourly_rate_conni: null, income_limit_own: null, income_limit: null, email: null };
   assert.deepEqual(flattenPrivate({ id: 'a', full_name: 'X', app_user_private: null }), none);
   assert.deepEqual(flattenPrivate({ id: 'a', full_name: 'X', app_user_private: [] }), none);
   assert.deepEqual(flattenPrivate({ id: 'a', full_name: 'X' }), none);

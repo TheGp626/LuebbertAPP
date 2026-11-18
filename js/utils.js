@@ -245,7 +245,9 @@ function flattenPrivate(row) {
   const out = Object.assign({}, row);
   delete out.app_user_private;
   out.hourly_rate_conni = (p && p.hourly_rate_conni) ?? null;
-  out.income_limit = (p && p.income_limit) ?? null;
+  // Own limit (form value) and the one that counts: own, else the default for the Art der Anstellung (js/mitarbeiter.js)
+  out.income_limit_own = (p && p.income_limit) ?? null;
+  out.income_limit = out.income_limit_own ?? (typeof mitDefaultLimit === 'function' ? mitDefaultLimit(row) : null);
   out.email = (p && p.email) ?? null;
   return out;
 }
