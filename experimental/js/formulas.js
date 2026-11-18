@@ -87,11 +87,15 @@ function roleRateMatches(entryRole, key) {
   return e.legacy === 'fest' ? k.type === 'Fest' : k.type !== 'Fest';
 }
 
-// The person's own rate entry (app_users.role_rates) for a position, field 'rate_conni' or 'rate_internal'; exact role first
+// The person's own rate entry (app_users.role_rates) for a position, field 'rate_conni' or 'rate_internal': exact role,
+// then an old "MA frei"/"MA fest" entry, then any entry of the same function (an old "MA Minijob" shift after the
+// person became Midijob still gets their MA rate)
 function personRoleRate(user, pos, field) {
-  var list = user && Array.isArray(user.role_rates) ? user.role_rates : [];
-  var hit = list.find(function(r) { return r.role === pos && parseFloat(r[field]) > 0; }) ||
-    list.find(function(r) { return roleRateMatches(r.role, pos) && parseFloat(r[field]) > 0; });
+  var list = user && Array.isArray(user.role_rates) ? user.role_rates : [], fn = splitPosition(pos).func;
+  var ok = function(r) { return parseFloat(r[field]) > 0; };
+  var hit = list.find(function(r) { return r.role === pos && ok(r); }) ||
+    list.find(function(r) { return roleRateMatches(r.role, pos) && ok(r); }) ||
+    list.find(function(r) { return splitPosition(r.role).func === fn && ok(r); });
   return hit ? parseFloat(hit[field]) : null;
 }
 

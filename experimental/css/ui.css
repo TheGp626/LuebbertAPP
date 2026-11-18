@@ -256,7 +256,7 @@ button.dash-shift-main:focus-visible { outline: 2px solid var(--accent); outline
 .dash-work-detail, .dash-work-list { min-width: 0; } /* long project names must not widen the grid column */
 
 /* ── Buchhaltung → Auswertung (renderDashInsights) ── */
-.dash-bees { background: var(--warn-bg); border-radius: var(--r-card); padding: 10px 12px; margin: 10px 0 4px; }
+.dash-bees { padding: 0 0 10px; }
 .dash-bees-title { font-size: 12px; font-weight: 700; color: var(--warn); margin-bottom: 4px; }
 .dash-bee { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 2px 0; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .dash-bee:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }

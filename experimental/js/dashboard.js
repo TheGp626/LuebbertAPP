@@ -267,9 +267,11 @@ function dashPersonBtn(id, title, sub, end) {
 
 function renderDashInsights() {
   var I = dashInsights, el;
+  if ((el = document.getElementById('dash-bees-panel'))) el.hidden = !I.bees.length; // collapsed row, opened on tap
+  if ((el = document.getElementById('dash-bees-title'))) el.textContent = '🐝 Fleißigste Bienen · ' + I.beesLabel;
   if ((el = document.getElementById('dash-bees'))) {
     var medals = ['🥇', '🥈', '🥉'];
-    el.innerHTML = I.bees.length ? '<div class="dash-bees"><div class="dash-bees-title">🐝 Fleißigste Bienen · ' + escapeHtml(I.beesLabel) + '</div>' +
+    el.innerHTML = I.bees.length ? '<div class="dash-bees">' +
       I.bees.map(function(b, i) {
         return '<button type="button" class="dash-bee" onclick="selectDashWorker(\'' + jsAttrArg(b.id) + '\')">' +
           '<span class="dash-bee-medal" aria-label="Platz ' + (i + 1) + '">' + medals[i] + '</span><span class="dash-bee-name">' + escapeHtml(b.name) + '</span>' +
