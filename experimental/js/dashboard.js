@@ -1088,6 +1088,24 @@ async function renderWorkerShifts() {
   }
 }
 
+// Pay and internal cost of a person's shifts, each with the rate for its position → { pay, cost (null = no rate at all),
+// payRates, costRates (distinct, sorted), byPos ('MA 6 h · AL 10,5 h' when more than one function), unpaid (shifts without pay rate) }
+function dashWorkerMoney(shifts, worker) {
+  var pay = 0, cost = 0, anyPay = false, anyCost = false, unpaid = 0, pr = {}, cr = {}, pos = {};
+  (shifts || []).forEach(function(s) {
+    var m = dashShiftNetMins(s), p = personPayRate(worker, s.position_role), c = personCostRate(worker, s.position_role);
+    var fn = splitPosition(s.position_role).func || '—';
+    pos[fn] = (pos[fn] || 0) + m;
+    if (p) { anyPay = true; pay += m / 60 * p; pr[p] = true; } else unpaid++;
+    if (c) { anyCost = true; cost += m / 60 * c; cr[c] = true; }
+  });
+  var nums = function(o) { return Object.keys(o).map(Number).sort(function(a, b) { return a - b; }); };
+  var fns = Object.keys(pos);
+  return { pay: anyPay ? Math.round(pay * 100) / 100 : null, cost: anyCost ? Math.round(cost * 100) / 100 : null,
+    payRates: nums(pr), costRates: nums(cr), unpaid: anyPay ? unpaid : 0,
+    byPos: fns.length > 1 ? fns.map(function(f) { return f + ' ' + String(Math.round(pos[f] / 6) / 10).replace('.', ',') + ' h'; }).join(' · ') : '' };
+}
+
 // Day a shift belongs to: protocol date → shift_date → creation day
 function dashShiftDate(s) {
   return (s.protocols && s.protocols.date) || s.shift_date || (s.created_at || '').slice(0, 10);
@@ -1121,14 +1139,19 @@ function dashMonthSummary(shifts, users, key, cutoff) {
   dashShiftsInMonth((shifts || []).filter(function(s) { return s.user_id; }), key, cutoff).forEach(function(s) {
     var u = byId[s.user_id];
     var r = rows[s.user_id] = rows[s.user_id] || { id: s.user_id, name: u ? u.full_name : 'Unbekannt (' + s.user_id + ')', role: u ? u.role || '' : '',
-      shifts: 0, open: 0, mins: 0, rate: u && parseFloat(u.hourly_rate_conni) > 0 ? parseFloat(u.hourly_rate_conni) : null,
+      shifts: 0, open: 0, mins: 0, rate: null, payAcc: 0, rated: false,
       limit: u && parseFloat(u.income_limit) > 0 ? parseFloat(u.income_limit) : null };
+    var m = dashShiftNetMins(s), rate = u ? personPayRate(u, s.position_role) : null; // MA and AL hours can have different pay
     r.shifts++;
     if (s.status !== 'eingetragen') r.open++;
-    r.mins += dashShiftNetMins(s);
+    r.mins += m;
+    if (rate) { r.rated = true; r.payAcc += m / 60 * rate; }
   });
   var list = Object.keys(rows).map(function(k) {
     var r = rows[k];
+    // Average pay per hour of the month (one number when all shifts share a rate)
+    r.rate = r.rated && r.mins ? Math.round(r.payAcc / r.mins * 60 * 10000) / 10000 : null;
+    delete r.payAcc; delete r.rated;
     r.pay = r.rate !== null ? Math.round(r.mins / 60 * r.rate * 100) / 100 : null;
     var share = incomeLimitShare(r.pay, r.limit);
     r.limitPct = share ? share.pct : null;
@@ -1197,11 +1220,12 @@ async function dashLoadMonthSummary() {
     supabaseClient.from('shifts').select(base + 'protocols!inner' + prot)
       .not('user_id', 'is', null).is('shift_date', null).gte('protocols.date', f).lte('protocols.date', t).range(0, 4999),
     // Pay rate and earnings limit live in app_user_private; the old columns in app_users are empty
-    supabaseClient.from('app_users').select('id, full_name, role, employment_type, is_fest, app_user_private(hourly_rate_conni, income_limit)')
+    supabaseClient.from('app_users').select('id, full_name, role, employment_type, is_fest, role_rates, app_user_private(hourly_rate_conni, income_limit)')
   ]);
   var err = res[0].error || res[1].error || res[2].error;
   if (err) throw err;
-  var seen = {}, shifts = [], users = (res[2].data || []).map(flattenPrivate);
+  var seen = {}, shifts = [], users = (res[2].data || []).map(flattenPrivate), userById = {};
+  users.forEach(function(u) { userById[u.id] = u; });
   (res[0].data || []).concat(res[1].data || []).forEach(function(s) { if (!seen[s.id]) { seen[s.id] = true; shifts.push(s); } });
   var sum = dashMonthSummary(shifts, users, key, cutoff), months = {};
   // Each person's Stundenzettel, built like the single PDF in the dashboard; its hours are the ones in the overview
@@ -1210,7 +1234,7 @@ async function dashLoadMonthSummary() {
     months[r.id] = dashBuildMonthWeeks(shifts.filter(function(s) { return s.user_id === r.id; }), key, r.name);
   });
   dashSummaryFromMonths(sum, months);
-  return { key: key, label: monthLabelFromKey(key), range: r, sum: sum, months: months };
+  return { key: key, label: monthLabelFromKey(key), range: r, sum: sum, months: months, users: userById };
 }
 
 // Overview hours (and pay, share of the limit, totals) from the built Stundenzettel months
@@ -1299,7 +1323,7 @@ async function exportDashMonthClose(kind) {
     var r = data.sum.rows[i], m = data.months[r.id];
     if (!m || !m.monthW.length) continue;
     await dashCompressSigs(m.monthW);
-    dashDrawMonth(doc, m, data.key, r.name, r.rate || 0, false);
+    dashDrawMonth(doc, m, data.key, r.name, r.rate || 0, false, data.users[r.id]);
   }
   doc.save(file + '.pdf');
   showToast('Gespeichert: Übersicht und ' + people + ' Stundenzettel (' + doc.getNumberOfPages() + ' Seiten).', 'success');
@@ -1348,14 +1372,15 @@ function dashRenderWorkerMonth() {
   const mins = list.reduce((n, s) => n + dashShiftNetMins(s), 0);
   const hrs = mins / 60;
   const eur = n => n.toFixed(2).replace('.', ',') + ' €';
-  const rateConni = worker.hourly_rate_conni ? parseFloat(worker.hourly_rate_conni) : null;
-  const rateInternal = worker.hourly_rate_internal ? parseFloat(worker.hourly_rate_internal) : null;
-  const share = incomeLimitShare(rateConni ? hrs * rateConni : null, worker.income_limit ? parseFloat(worker.income_limit) : null);
+  // Pay and cost per shift with the rate for its function (MA / AL / Fahrer can differ)
+  const money = dashWorkerMoney(list, worker);
+  const rateLabel = r => !r.length ? '' : ' (' + (r.length === 1 ? r[0].toFixed(2).replace('.', ',') : r.map(x => String(x).replace('.', ',')).join(' / ')) + ' €/h)';
+  const share = incomeLimitShare(money.pay, worker.income_limit ? parseFloat(worker.income_limit) : null);
   let html = '<div class="ui-stats">' +
     `<div class="ui-stat"><span>Netto-Stunden</span><b>${mins > 0 ? hrs.toFixed(2).replace('.', ',') + ' h' : '—'}</b></div>` +
     `<div class="ui-stat"><span>Schichten</span><b>${list.length}</b><div class="ui-sub">${open ? open + ' offen' : list.length ? 'alle verbucht' : ''}</div></div>` +
-    (rateConni ? `<div class="ui-stat cost-only"><span>Lohn (${rateConni.toFixed(2).replace('.', ',')} €/h)</span><b>${hrs > 0 ? eur(hrs * rateConni) : '—'}</b></div>` : '') +
-    (rateInternal ? `<div class="ui-stat cost-only"><span>Intern (${rateInternal.toFixed(2).replace('.', ',')} €/h)</span><b>${hrs > 0 ? eur(hrs * rateInternal) : '—'}</b></div>` : '') +
+    (money.pay !== null ? `<div class="ui-stat cost-only"><span>Lohn${rateLabel(money.payRates)}</span><b>${hrs > 0 ? eur(money.pay) : '—'}</b>${money.byPos ? '<div class="ui-sub">' + escapeHtml(money.byPos) + '</div>' : ''}${money.unpaid ? '<div class="ui-sub">' + money.unpaid + ' Schicht(en) ohne Lohnsatz</div>' : ''}</div>` : '') +
+    (money.cost !== null ? `<div class="ui-stat cost-only"><span>Intern${rateLabel(money.costRates)}</span><b>${hrs > 0 ? eur(money.cost) : '—'}</b></div>` : '') +
     (share ? `<div class="ui-stat cost-only"><span>Grenze ${eur(parseFloat(worker.income_limit))}</span><b>${share.pct} %</b>` +
       `<div class="ui-bar${share.over ? ' ui-bar-over' : share.pct >= 80 ? ' ui-bar-warn' : ''}"><i style="width:${share.pct}%"></i></div></div>` : '') +
     '</div>';
@@ -2609,7 +2634,7 @@ async function dashCompressSigs(monthW) {
 
 // Draws one person's Monatsübersicht plus a page per week (with times and signatures) into doc.
 // first = the person starts on the doc's first page; everyone after starts on a new page.
-function dashDrawMonth(doc, m, mKey, workerName, rateConni, first) {
+function dashDrawMonth(doc, m, mKey, workerName, rateConni, first, rateUser) {
   var monthW = m.monthW, mTot = m.mTot, mLab = m.mLab;
   // Build PDF — same layout as exportMonthlyPDF
   if (!first) doc.addPage('a4', 'p');
@@ -2658,10 +2683,15 @@ function dashDrawMonth(doc, m, mKey, workerName, rateConni, first) {
   // Set rate for drawPDFContent earnings line, then restore
   const prevRate = window.currentUserRateConni;
   window.currentUserRateConni = rateConni || 0;
-  monthW.forEach(function(w) {
-    splitWeekByDepts(w).forEach(function(pageData) { doc.addPage(); drawPDFContent(doc, pageData, ml, cw); });
-  });
-  window.currentUserRateConni = prevRate;
+  window._pdfRateUser = rateUser || null; // each department page uses the person's pay for that function
+  try {
+    monthW.forEach(function(w) {
+      splitWeekByDepts(w).forEach(function(pageData) { doc.addPage(); drawPDFContent(doc, pageData, ml, cw); });
+    });
+  } finally {
+    window.currentUserRateConni = prevRate;
+    window._pdfRateUser = null;
+  }
 }
 
 async function exportDashboardMonthlyPDFRun() {
@@ -2685,7 +2715,7 @@ async function exportDashboardMonthlyPDFRun() {
   if (!m.monthW.length) { showToast('Keine Schichten in diesem Monat.'); return; }
   await dashCompressSigs(m.monthW);
   const doc = pdfPatch(new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }));
-  dashDrawMonth(doc, m, mKey, workerName, dashboardCurrentWorker.hourly_rate_conni ? parseFloat(dashboardCurrentWorker.hourly_rate_conni) : 0, true);
+  dashDrawMonth(doc, m, mKey, workerName, dashboardCurrentWorker.hourly_rate_conni ? parseFloat(dashboardCurrentWorker.hourly_rate_conni) : 0, true, dashboardCurrentWorker);
   const fN = 'stundennachweis_' + mKey.replace('-', '_') + '_' + workerName.replace(/\s+/g, '_') + '.pdf';
   doc.save(fN); showToast('📄 Monats-PDF gespeichert!');
 }

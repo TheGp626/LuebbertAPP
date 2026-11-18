@@ -87,6 +87,25 @@ function roleRateMatches(entryRole, key) {
   return e.legacy === 'fest' ? k.type === 'Fest' : k.type !== 'Fest';
 }
 
+// The person's own rate entry (app_users.role_rates) for a position, field 'rate_conni' or 'rate_internal'; exact role first
+function personRoleRate(user, pos, field) {
+  var list = user && Array.isArray(user.role_rates) ? user.role_rates : [];
+  var hit = list.find(function(r) { return r.role === pos && parseFloat(r[field]) > 0; }) ||
+    list.find(function(r) { return roleRateMatches(r.role, pos) && parseFloat(r[field]) > 0; });
+  return hit ? parseFloat(hit[field]) : null;
+}
+
+// Pay per hour (Lohn Conni) for a shift in this position: the rate for that function, else the general Lohn; null = none
+function personPayRate(user, pos) {
+  return personRoleRate(user, pos, 'rate_conni') || (user && parseFloat(user.hourly_rate_conni) > 0 ? parseFloat(user.hourly_rate_conni) : null);
+}
+
+// Cost per hour (intern): the rate for that function, else the general internal rate, else the default for type and function
+function personCostRate(user, pos) {
+  return personRoleRate(user, pos, 'rate_internal') || (user && parseFloat(user.hourly_rate_internal) > 0 ? parseFloat(user.hourly_rate_internal) : null) ||
+    (pos ? personnelRate(pos) || null : null);
+}
+
 function personnelRate(key) {
   var p = splitPosition(key);
   if (!p.type) return PROT_PERSONNEL_RATES[key] || 0;
