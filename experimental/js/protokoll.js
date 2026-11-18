@@ -26,10 +26,16 @@ var protState = {
 };
 
 var appUsers = [];
+var protNameAliases = {}; // Unbekannte Namen: free-text spelling (lower, trimmed) → user id, set by Admin in the Office Dashboard
 async function fetchAppUsers() {
   if (typeof supabaseClient === 'undefined') return;
   // MA/Gast may only read their own row (RLS): the pickers and rates are office-only
   if (typeof userRole === 'undefined' || !['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole)) return;
+  supabaseClient.from('worker_name_aliases').select('alias, user_id').then(function(r) {
+    if (r.error) return; // table not there yet / offline: names stay free text
+    protNameAliases = {};
+    (r.data || []).forEach(function(a) { if (a.user_id) protNameAliases[a.alias] = a.user_id; });
+  });
   var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, hourly_rate_internal, is_fest, employment_type').or('is_active.is.null,is_active.eq.true');
   if (error) console.error("Error fetching app_users:", error);
   if (data) {
@@ -826,6 +832,7 @@ function onProtPersonnelName(idx, val) {
   var exact = appUsers.filter(function(u) { return (u.full_name || '').toLowerCase() === lower; });
   var partial = typed.length >= 3 ? appUsers.filter(function(u) { return (u.full_name || '').toLowerCase().includes(lower); }) : [];
   var match = exact.length === 1 ? exact[0] : (partial.length === 1 ? partial[0] : null);
+  if (!match && protNameAliases[lower]) match = appUsers.find(function(u) { return u.id === protNameAliases[lower]; }) || null; // remembered spelling
   var row = protState.personnel[idx];
   if (!row) return;
   var userId = match ? match.id : '';

@@ -88,7 +88,7 @@ function wpPeopleSummary(s) {
   var me = wpMe(), agency = {}, internal = [];
   (s.plan_assignments || []).forEach(function(a) {
     if (WP_AGENCY.indexOf(a.role) !== -1) { agency[a.role] = (agency[a.role] || 0) + 1; return; }
-    internal.push({ label: a.user_id ? (wpUserName(a.user_id) || a.name) : a.name, role: a.role, isMe: a.user_id && a.user_id === me, note: a.note });
+    internal.push({ uid: a.user_id || null, label: a.user_id ? (wpUserName(a.user_id) || a.name) : a.name, role: a.role, isMe: a.user_id && a.user_id === me, note: a.note });
   });
   return { internal: internal, agency: agency };
 }
@@ -117,7 +117,8 @@ function wpStatusPill(s) {
 function wpAvatars(people, max) {
   var shown = people.slice(0, max);
   return shown.map(function(p) {
-    return '<span class="ui-avatar' + (p.isMe ? ' ui-avatar-me' : '') + '" title="' + wpEsc(p.label) + '">' + wpEsc(wpInitials(p.label)) + '</span>';
+    var inner = wpEsc(wpInitials(p.label));
+    return '<span class="ui-avatar' + (p.isMe ? ' ui-avatar-me' : '') + '" title="' + wpEsc(p.label) + '">' + (typeof mitAvatarInner === 'function' ? mitAvatarInner(p.uid, inner) : inner) + '</span>';
   }).join('') + (people.length > max ? '<span class="ui-avatar wp-av-more">+' + (people.length - max) + '</span>' : '');
 }
 
@@ -198,6 +199,7 @@ function wpInterestBlock(s) {
       (mine === 'offen' ? '<button type="button" class="ord-textbtn" onclick="' + call + '">Zurückziehen</button>' : '') + '</div>';
   }
   if (!wpCanApply(s, wpMe(), localDateStr(), wpWho())) return '';
+  if (window.currentUserIsMinor && (typeof mitNightForMinor === 'function') && mitNightForMinor(null, null, s.wann)) return ''; // unter 18: no night work
   return '<div class="wp-ord-action wp-int-action"><button type="button" class="wp-ord-apply" onclick="' + call + '">Ich kann</button></div>';
 }
 
@@ -525,7 +527,8 @@ async function initWochenplan() {
     supabaseClient.from('plan_name_aliases').select('alias, user_id'),
     supabaseClient.from('plan_weeks').select('*').order('week_start', { ascending: false }),
     wpLoadSlots(),
-    typeof plLoadFlag === 'function' ? plLoadFlag() : null // Besetzungsplaner: "Plant den Wochenplan" (never throws)
+    typeof plLoadFlag === 'function' ? plLoadFlag() : null, // Besetzungsplaner: "Plant den Wochenplan" (never throws)
+    typeof mitLoadPhotos === 'function' ? mitLoadPhotos() : null // Profilbilder for the avatars (never throws)
   ]);
   if (u.error || a.error || w.error) {
     console.error('Wochenplan laden:', u.error || a.error || w.error);
@@ -920,7 +923,8 @@ function wpOrderBlock(slot, planShift) {
     : '<span class="ord-pill ord-pill-ok">voll</span>';
   var action = slot.my_status === 'offen'
     ? '<button type="button" class="ord-textbtn" onclick="event.stopPropagation(); wpOrderApply(' + args + ', false)">Zurückziehen</button>'
-    : free > 0 && ordCanApply(slot, me, localDateStr(), role, planShift)
+    : free > 0 && ordCanApply(slot, me, localDateStr(), role, planShift) &&
+      !(window.currentUserIsMinor && (typeof mitNightForMinor === 'function') && mitNightForMinor(wpSlotTime(slot.start_at), wpSlotTime(slot.end_at), slot.phase === 'teardown' ? (planShift && planShift.wann) || '' : ''))
       ? '<button type="button" class="wp-ord-apply" onclick="event.stopPropagation(); wpOrderApply(' + args + ', true)">Ich kann</button>' : '';
   var chips = (count ? '<details class="ord-chip-d"><summary class="ord-chip">Material <b>' + count + '</b></summary><div class="ord-chip-body">' +
       mats.map(function(g) {

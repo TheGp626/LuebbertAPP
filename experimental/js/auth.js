@@ -195,7 +195,7 @@ async function fetchOwnProfile(id) {
   let data = null, error = null;
   try {
     ({ data, error } = await supabaseClient.from('app_users')
-      .select('id, full_name, role, role_rates, employment_type, default_dept, hourly_rate_internal, is_active, plan_interest_viewer, can_drive, availability_enabled, app_user_private(hourly_rate_conni)')
+      .select('id, full_name, role, role_rates, employment_type, default_dept, hourly_rate_internal, is_active, plan_interest_viewer, can_drive, availability_enabled, photo_path, photo_consent_at, app_user_private(hourly_rate_conni)')
       .eq('id', id).maybeSingle());
   } catch (e) { error = e; }
   if (isProfileDenied(error)) return { profile: null, error: false };
@@ -390,6 +390,7 @@ function handleSession(user) {
     settingsReady.then(function() { if (typeof loadErinnerungen === 'function') loadErinnerungen(); });
     // Employee list for the Protokoll pickers and rates — only readable with a session (no anon access)
     if (userChanged && typeof fetchAppUsers === 'function') fetchAppUsers();
+    if (userChanged && typeof mitAfterLogin === 'function') mitAfterLogin(); // unter 18, Profilbilder, Foto-Hinweis
     // A ?open=wochenplan link goes through selectMode(), which already initialises the plan
     const wpDeepLink = new URLSearchParams(location.search).get('open') === 'wochenplan';
     if (typeof handleEinsatzDeepLink === 'function') handleEinsatzDeepLink();
@@ -416,6 +417,7 @@ function handleSession(user) {
     userRole = 'MA';
     window.currentUserSeesInterest = false;
     window.currentUserCanDrive     = false;
+    window.currentUserIsMinor      = false;
     authSelectedUserId = null;
     if (userChanged && typeof buildDays === 'function') buildDays(true); // no editor content of the logged-out user stays in memory
     const nameInp = document.getElementById('auth-name-input');

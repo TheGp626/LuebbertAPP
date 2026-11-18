@@ -85,10 +85,11 @@ function toggleAddUserForm() {
 }
 
 // Employee list: people with new hours first, then by name; filtered by a name search
-function dashWorkerList(workers, pendingMap, query) {
+function dashWorkerList(workers, pendingMap, query, filter) {
   var q = String(query || '').trim().toLowerCase();
   return (workers || [])
     .filter(function(w) { return !q || String(w.full_name || '').toLowerCase().indexOf(q) !== -1; }) // real names only, not the placeholder
+    .filter(function(w) { return filter === 'nosurname' ? mitNoSurname(w) : filter === 'nophoto' ? !w.photo_path && w.role !== 'Gast' : true; })
     .map(function(w) { return { id: w.id, name: w.full_name || 'Unbekannt', role: w.role || '', pending: (pendingMap || {})[w.id] || 0 }; })
     .sort(function(a, b) { return (b.pending > 0) - (a.pending > 0) || a.name.localeCompare(b.name, 'de'); });
 }
@@ -110,7 +111,7 @@ function renderDashWorkerList() {
   if (!listEl) return;
   var selected = (document.getElementById('dash-worker-select') || {}).value || '';
   var query = (document.getElementById('dash-worker-search') || {}).value || '';
-  var rows = dashWorkerList(dashboardWorkers, dashPendingMap, query);
+  var rows = dashWorkerList(dashboardWorkers, dashPendingMap, query, (document.getElementById('dash-worker-filter') || {}).value || '');
   listEl.innerHTML = rows.length ? rows.map(function(w) { return dashWorkerRowHtml(w, selected); }).join('') : uiEmptyHtml('Niemand gefunden', '');
 }
 
@@ -256,6 +257,7 @@ async function loadDashInsights() {
     dashInsights = { year: year, nights: [], noNight: [], inactive: [], bees: [], beesLabel: month.label };
   }
   renderDashInsights();
+  if (typeof mitLoadAdminBoxes === 'function') mitLoadAdminBoxes(all).catch(function(e) { console.error('Personal-Kästen:', e); });
 }
 
 function dashPersonBtn(id, title, sub, end) {
@@ -370,7 +372,9 @@ function openEditWorker() {
   document.getElementById('edit-worker-dept').value          = worker.default_dept || '';
   document.getElementById('edit-worker-rate-conni').value    = worker.hourly_rate_conni || '';
   document.getElementById('edit-worker-rate-internal').value = worker.hourly_rate_internal || '';
-  document.getElementById('edit-worker-income-limit').value  = worker.income_limit || '';
+  document.getElementById('edit-worker-income-limit').value  = worker.income_limit_own || '';
+  var defLimit = typeof mitDefaultLimit === 'function' ? mitDefaultLimit(worker) : null;
+  document.getElementById('edit-worker-income-limit').placeholder = defLimit ? 'Standard wäre ' + defLimit + ' €' : 'keine Grenze';
   document.getElementById('edit-worker-email').value         = worker.email || '';
   _editWorkerRoleRates = Array.isArray(worker.role_rates) ? JSON.parse(JSON.stringify(worker.role_rates)) : [];
   renderRoleRatesList();
@@ -379,6 +383,7 @@ function openEditWorker() {
   document.getElementById('edit-worker-can-drive').checked = !!worker.can_drive;
   document.getElementById('edit-worker-avail').checked = !!worker.availability_enabled;
   loadEditWorkerPlansWeek(worker.id);
+  if (typeof mitLoadEditExtras === 'function') mitLoadEditExtras(worker);
   document.getElementById('edit-worker-modal').classList.add('open');
 }
 
@@ -494,6 +499,7 @@ async function saveEditWorker() {
       income_limit:      parseFloat(document.getElementById('edit-worker-income-limit').value) || null,
       email:             email || null,
     });
+    if (typeof mitSaveEditExtras === 'function') await mitSaveEditExtras(worker.id);
     var plansBox = document.getElementById('edit-worker-plans-week');
     var plans = dashPlansWeekChange(_editWorkerPlansWeek, plansBox && plansBox.checked);
     if (plans !== null) {
@@ -532,8 +538,9 @@ async function addDashboardUser() {
   const role = document.getElementById('new-user-role').value;
   const dept = document.getElementById('new-user-dept').value.trim();
 
-  if (!fullName || !dept) {
-    if (typeof showToast === 'function') showToast('Bitte Vor- und Nachname sowie Abteilung ausfüllen.', 'danger');
+  const type = (document.getElementById('new-user-type') || {}).value || '';
+  if (!firstName || !lastName || !dept || !type) {
+    if (typeof showToast === 'function') showToast('Bitte Vor- und Nachname, Abteilung und Art der Anstellung ausfüllen.', 'danger');
     return;
   }
 
@@ -545,7 +552,7 @@ async function addDashboardUser() {
 
     const { data: created, error } = await supabaseClient
       .from('app_users')
-      .insert({ full_name: fullName, role: role, default_dept: dept, hourly_rate_internal: rateInternal })
+      .insert({ full_name: fullName, role: role, default_dept: dept, hourly_rate_internal: rateInternal, employment_type: type, is_fest: type === 'Fest' })
       .select('id');
 
     if (error) throw error;
@@ -553,6 +560,8 @@ async function addDashboardUser() {
     if (rateConni || incomeLimit) await saveWorkerPrivate(created[0].id, { hourly_rate_conni: rateConni, income_limit: incomeLimit, email: null });
 
     if (typeof showToast === 'function') showToast('Mitarbeiter erfolgreich hinzugefügt!');
+    if (typeof mitAfterUserCreated === 'function') await mitAfterUserCreated(created[0].id); // „Neu anlegen“ from Unbekannte Namen
+    if (document.getElementById('new-user-type')) document.getElementById('new-user-type').value = '';
 
     // Clear form and reload
     if (document.getElementById('new-user-firstname')) document.getElementById('new-user-firstname').value = '';
@@ -1003,7 +1012,7 @@ async function loadDashboardWorkers() {
   try {
     const { data: users, error: uErr } = await supabaseClient
       .from('app_users')
-      .select('id, full_name, role, default_dept, hourly_rate_internal, role_rates, is_active, is_fest, employment_type, plan_interest_viewer, can_drive, availability_enabled, app_user_private(hourly_rate_conni, income_limit, email)')
+      .select('id, full_name, role, default_dept, hourly_rate_internal, role_rates, is_active, is_fest, employment_type, plan_interest_viewer, can_drive, availability_enabled, keep_until, photo_path, created_at, app_user_private(hourly_rate_conni, income_limit, email)')
       .eq('is_active', true)
       .order('full_name');
     if (uErr) throw uErr;
@@ -1188,7 +1197,7 @@ async function dashLoadMonthSummary() {
     supabaseClient.from('shifts').select(base + 'protocols!inner' + prot)
       .not('user_id', 'is', null).is('shift_date', null).gte('protocols.date', f).lte('protocols.date', t).range(0, 4999),
     // Pay rate and earnings limit live in app_user_private; the old columns in app_users are empty
-    supabaseClient.from('app_users').select('id, full_name, role, app_user_private(hourly_rate_conni, income_limit)')
+    supabaseClient.from('app_users').select('id, full_name, role, employment_type, is_fest, app_user_private(hourly_rate_conni, income_limit)')
   ]);
   var err = res[0].error || res[1].error || res[2].error;
   if (err) throw err;
