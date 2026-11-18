@@ -55,16 +55,16 @@ function mcIndexRows(rows) {
 function mcBase(item, by, phase) {
   if (phase === 'abbau') {
     var up = by['aufbau|' + item.key];
-    if (up && up.qty != null) return Number(up.qty);
+    if (up && up.qty != null) return Number(up.qty); // taken back at Aufbau → the Soll again
   }
   return item.soll == null ? null : Number(item.soll);
 }
 
-// One line per position: base, Ist (null = not ticked yet), Fehlmenge, note and who changed it
+// One line per position: base, Ist (null = not ticked yet or taken back), Fehlmenge, note and who changed it
 function mcLines(items, by, phase) {
   return (items || []).map(function(it) {
     var r = by[phase + '|' + it.key] || null, base = mcBase(it, by, phase);
-    var ist = r ? Number(r.qty) : null;
+    var ist = r && r.qty != null ? Number(r.qty) : null;
     var fehlt = ist != null && base != null && ist < base ? base - ist : 0;
     return { item: it, base: base, ist: ist, fehlt: fehlt, note: r ? (r.note || '') : '', by: r ? r.updated_by : null, at: r ? r.updated_at : null };
   });
@@ -345,7 +345,7 @@ function _mcRender() {
     var who = l.by ? _mcUserName(l.by) : '', at = l.at ? new Date(l.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
     var idx = _mc.items.indexOf(it);
     body += '<div class="mc-row' + (l.ist != null ? (l.fehlt > 0 ? ' mc-short' : ' mc-done') : '') + '">' +
-      '<button type="button" class="mc-check" aria-label="' + _mcEsc(it.name + ' vollständig') + '"' + (write ? ' onclick="mcTick(' + idx + ')"' : ' disabled') + '>' +
+      '<button type="button" class="mc-check" aria-label="' + _mcEsc(it.name + (l.ist != null && l.fehlt === 0 ? ' zurücknehmen' : ' vollständig')) + '"' + (write ? ' onclick="mcTick(' + idx + ')"' : ' disabled') + '>' +
         (l.ist != null && l.fehlt === 0 ? '✓' : '') + '</button>' +
       '<div class="mc-main"><div class="mc-name">' + _mcEsc(it.name) + '</div>' +
         '<div class="mc-meta">' + (_mc.phase === 'abbau' ? 'aufgebaut ' : 'Soll ') + (l.base == null ? '?' : l.base) +
@@ -378,7 +378,8 @@ function mcTick(idx) {
   if (!_mc) return;
   var l = _mcLines()[idx];
   if (!l) return;
-  if (l.ist != null && l.fehlt === 0) return; // already complete; a correction goes through the number field
+  // Complete → tap again takes the tick back (position open again, note stays)
+  if (l.ist != null && l.fehlt === 0) { _mcWrite(idx, null, l.note); return; }
   if (l.base == null) { var f = document.getElementById('mc-ist-' + idx); if (f) f.focus(); return; }
   _mcWrite(idx, l.base, l.note);
 }
@@ -386,7 +387,8 @@ function mcTick(idx) {
 function mcSetQty(idx, v) {
   if (!_mc) return;
   var n = Number(v);
-  if (v === '' || !isFinite(n) || n < 0 || n >= 100000) { _mcRender(); return; }
+  if (v === '' || v == null) { if ((_mcLines()[idx] || {}).ist != null) _mcWrite(idx, null, (_mcLines()[idx] || {}).note || ''); return; } // emptied → open again
+  if (!isFinite(n) || n < 0 || n >= 100000) { _mcRender(); return; }
   _mcWrite(idx, n, (_mcLines()[idx] || {}).note || '');
 }
 
@@ -431,7 +433,7 @@ async function _mcFlush() {
   } catch (e) {
     console.error('Material: senden', e);
     // A row the server refuses for good (no right, bad value) would block the queue forever
-    if (e && (e.code === '42501' || e.code === '23514' || e.code === '22P02')) {
+    if (e && (e.code === '42501' || e.code === '23514' || e.code === '22P02' || e.code === '23502')) {
       _mcSaveQueue([]);
       if (typeof showToast === 'function') showToast('Änderung abgelehnt: keine Berechtigung für diese Liste.', 'error');
     }

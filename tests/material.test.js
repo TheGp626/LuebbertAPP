@@ -65,6 +65,19 @@ test('shortages for the protocol: missing quantities and notes of ticked positio
   assert.deepEqual(M.mcShortages(items, [], 'abbau'), []);
 });
 
+test('a tick taken back (qty null) is open again: not counted, no shortage, Abbau starts from the Soll', () => {
+  const items = M.mcJobItems(job);
+  const rows = [{ phase: 'aufbau', item_key: '0.0', qty: null, note: 'kommt nach', updated_by: 'u1' }];
+  const by = M.mcIndexRows(rows);
+  const l = M.mcLines(items, by, 'aufbau')[0];
+  assert.equal(l.ist, null);
+  assert.equal(l.fehlt, 0);
+  assert.equal(l.note, 'kommt nach');
+  assert.equal(M.mcSummary(M.mcLines(items, by, 'aufbau')).text, '0 von 3 abgehakt');
+  assert.deepEqual(M.mcShortages(items, rows, 'aufbau'), []);
+  assert.equal(M.mcBase(items[0], by, 'abbau'), 10);
+});
+
 test('offline queue: newest change per position, pending wins over older server rows', () => {
   let q = M.mcQueuePut([], { list_key: 'job:1', phase: 'aufbau', item_key: 'a', qty: 1, changed_at: '2026-11-18T10:00:00Z' });
   q = M.mcQueuePut(q, { list_key: 'job:1', phase: 'aufbau', item_key: 'a', qty: 2, changed_at: '2026-11-18T10:01:00Z' });
