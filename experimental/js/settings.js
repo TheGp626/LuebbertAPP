@@ -85,7 +85,7 @@ function validPersonnelRates(v) {
 }
 
 // Abteilungs-Mails: protocol area → department; the addresses are fixed on the server (mirrors the RPC)
-var DEPARTMENT_AREAS = [['logistik', 'Lager / Logistik'], ['mobiliar', 'Mobiliar'], ['tischlerei', 'Tischlerei'], ['stoffe', 'Stoffe (mit Hussen-Rücklauf)'], ['floristik', 'Floristik']];
+var DEPARTMENT_AREAS = [['logistik', 'Lager / Logistik'], ['mobiliar', 'Mobiliar'], ['tischlerei', 'Tischlerei'], ['stoffe', 'Stoffe und Hussen'], ['floristik', 'Floristik']];
 var DEPARTMENT_OPTIONS = [['', 'keine Mail'], ['lager', 'Lager (lager@)'], ['stoffe', 'Stoffe (Stoffe@)'], ['floristik', 'Floristik (Florist@)']];
 function validDepartmentRoutes(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
