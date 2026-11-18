@@ -17,6 +17,9 @@ var APP_SETTINGS_DEFAULTS = {
   mail_test_mode: true,
   billing_cutoff: 20,
   availability_for_all: false,
+  department_mail_enabled: true,
+  department_mail_test_mode: true,
+  department_routes: { logistik: 'lager', mobiliar: 'lager', tischlerei: '', stoffe: 'stoffe', floristik: 'floristik' },
   vehicle_rates: (typeof PROT_VEHICLE_RATES !== 'undefined') ? PROT_VEHICLE_RATES : {}, // js/formulas.js
   personnel_rates: (typeof PERSONNEL_RATE_DEFAULTS !== 'undefined') ? PERSONNEL_RATE_DEFAULTS : {} // js/formulas.js
 };
@@ -32,7 +35,8 @@ function _settingsMerge(obj) {
   Object.keys(obj || {}).forEach(function(k) {
     if (k in APP_SETTINGS_DEFAULTS && typeof obj[k] === typeof APP_SETTINGS_DEFAULTS[k]
         && (k !== 'vehicle_rates' || validVehicleRates(obj[k]))
-        && (k !== 'personnel_rates' || validPersonnelRates(obj[k]))) out[k] = obj[k];
+        && (k !== 'personnel_rates' || validPersonnelRates(obj[k]))
+        && (k !== 'department_routes' || validDepartmentRoutes(obj[k]))) out[k] = k === 'department_routes' ? Object.assign({}, APP_SETTINGS_DEFAULTS.department_routes, obj[k]) : obj[k];
   });
   return out;
 }
@@ -80,6 +84,15 @@ function validPersonnelRates(v) {
   });
 }
 
+// Abteilungs-Mails: protocol area → department; the addresses are fixed on the server (mirrors the RPC)
+var DEPARTMENT_AREAS = [['logistik', 'Lager / Logistik'], ['mobiliar', 'Mobiliar'], ['tischlerei', 'Tischlerei'], ['stoffe', 'Stoffe (mit Hussen-Rücklauf)'], ['floristik', 'Floristik']];
+var DEPARTMENT_OPTIONS = [['', 'keine Mail'], ['lager', 'Lager (lager@)'], ['stoffe', 'Stoffe (Stoffe@)'], ['floristik', 'Floristik (Florist@)']];
+function validDepartmentRoutes(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  var areas = DEPARTMENT_AREAS.map(function(a) { return a[0]; }), deps = DEPARTMENT_OPTIONS.map(function(o) { return o[0]; });
+  return Object.keys(v).every(function(k) { return areas.indexOf(k) !== -1 && typeof v[k] === 'string' && deps.indexOf(v[k]) !== -1; });
+}
+
 // First invalid key (unknown key, wrong type or out of range) or null; mirrors the RPC's checks
 function validateSettings(changes) {
   var keys = Object.keys(changes || {});
@@ -91,6 +104,7 @@ function validateSettings(changes) {
     if (k === 'billing_cutoff' && (v !== Math.floor(v) || v < 1 || v > 31)) return k;
     if (k === 'vehicle_rates' && !validVehicleRates(v)) return k;
     if (k === 'personnel_rates' && !validPersonnelRates(v)) return k;
+    if (k === 'department_routes' && !validDepartmentRoutes(v)) return k;
   }
   return null;
 }
@@ -136,7 +150,9 @@ var SETTINGS_SWITCHES = [
   ] },
   { group: 'Protokoll-Mails', items: [
     { key: 'protocol_mail_enabled', label: 'Mails an die PL', hint: 'Fertige und geänderte Protokolle gehen als PDF an die PL' },
-    { key: 'mail_test_mode', label: 'Testmodus', hint: 'Alle Mails gehen an die Testadresse (Supabase-Secret TEST_RECIPIENT) statt an die PL' }
+    { key: 'mail_test_mode', label: 'Testmodus', hint: 'Alle Mails gehen an die Testadresse (Supabase-Secret TEST_RECIPIENT) statt an die PL' },
+    { key: 'department_mail_enabled', label: 'Mails an die Abteilungen', hint: 'Lager, Stoffe und Floristik bekommen eine kurze Mail, wenn ihr Bereich im Protokoll Schäden, Fehlmengen oder Bemerkungen hat' },
+    { key: 'department_mail_test_mode', label: 'Abteilungs-Mails im Testmodus', hint: 'Abteilungs-Mails gehen an die Testadresse, auch wenn der Testmodus oben aus ist' }
   ] }
 ];
 
@@ -157,6 +173,14 @@ async function renderSettingsTab() {
           '<input type="checkbox" class="set-switch" id="set-' + it.key + '"' + (appSetting(it.key) ? ' checked' : '') + '></label>';
       }).join('') + '</div>';
   }).join('');
+  var routes = appSetting('department_routes') || {};
+  html += '<div class="set-group"><div class="set-group-title">Abteilungs-Mails: wer bekommt welchen Bereich</div>' +
+    DEPARTMENT_AREAS.map(function(a) {
+      return '<label class="set-row"><span class="set-text"><b>' + _settingsEsc(a[1]) + '</b></span>' +
+        '<select class="meta-input set-dep" data-area="' + a[0] + '" aria-label="' + _settingsEsc('Abteilung für ' + a[1]) + '">' +
+        DEPARTMENT_OPTIONS.map(function(o) { return '<option value="' + o[0] + '"' + ((routes[a[0]] || '') === o[0] ? ' selected' : '') + '>' + _settingsEsc(o[1]) + '</option>'; }).join('') +
+        '</select></label>';
+    }).join('') + '</div>';
   html += '<div class="set-group"><div class="set-group-title">Abrechnung</div>' +
     '<label class="set-row"><span class="set-text"><b>Abrechnungsstichtag</b><small>Tag im Monat, ab dem Stunden zum nächsten Abrechnungsmonat zählen (gilt auf allen Geräten)</small></span>' +
     '<input type="number" min="1" max="31" step="1" id="set-billing_cutoff" class="meta-input set-num" value="' + appSetting('billing_cutoff') + '"></label></div>';
@@ -205,6 +229,9 @@ function _readSettingsForm() {
     var val = function(f) { return row.querySelector('[data-f="' + f + '"]').value; };
     return { name: val('name'), wk: val('wk'), sa: val('sa'), so: val('so') };
   }));
+  var deps = Array.from(document.querySelectorAll('select.set-dep'));
+  if (deps.length) changes.department_routes = {};
+  deps.forEach(function(sel) { changes.department_routes[sel.dataset.area] = sel.value; });
   var pInputs = Array.from(document.querySelectorAll('#set-personnel input[data-type]'));
   if (pInputs.length) changes.personnel_rates = {}; // table not rendered → leave the setting out
   pInputs.forEach(function(inp) {
@@ -246,7 +273,8 @@ function addVehicleRateRow() {
 
 var SETTINGS_LABELS = { evening_push_hour: 'Uhrzeit Abend-Push', billing_cutoff: 'Abrechnungsstichtag (1–31)',
   vehicle_rates: 'Fahrzeugsätze (jeder Name einmal, alle Beträge 0–100000 €)',
-  personnel_rates: 'Stundensätze nach Beschäftigungsart (alle Felder 0–1000 €)' };
+  personnel_rates: 'Stundensätze nach Beschäftigungsart (alle Felder 0–1000 €)',
+  department_routes: 'Abteilungs-Mails (Bereich → Abteilung)' };
 
 async function saveSettingsTab() {
   var err = document.getElementById('set-error'), btn = document.getElementById('set-save-btn');
@@ -326,6 +354,6 @@ async function sendTestPush() {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { APP_SETTINGS_DEFAULTS: APP_SETTINGS_DEFAULTS, appSetting: appSetting, appSettingsFromCache: appSettingsFromCache,
     validateSettings: validateSettings, changedSettings: changedSettings, testPushMessage: testPushMessage,
-    validVehicleRates: validVehicleRates, readVehicleRates: readVehicleRates, validPersonnelRates: validPersonnelRates,
+    validVehicleRates: validVehicleRates, validDepartmentRoutes: validDepartmentRoutes, readVehicleRates: readVehicleRates, validPersonnelRates: validPersonnelRates,
     SETTINGS_SWITCHES: SETTINGS_SWITCHES };
 }

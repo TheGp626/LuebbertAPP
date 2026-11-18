@@ -13,7 +13,7 @@
 
 
   <link rel="stylesheet" href="css/style.css?v=41">
-  <link rel="stylesheet" href="css/ui.css?v=38">
+  <link rel="stylesheet" href="css/ui.css?v=39">
 </head>
 
 <body>
@@ -159,10 +159,10 @@
             <label class="ui-field"><span>Einsatzort / Location</span>
               <input type="text" id="prot-location" placeholder="Ort" oninput="saveProtDraft()" /></label>
             <label class="ui-field"><span>Projektnummer (optional)</span>
-              <input type="text" id="prot-job" placeholder="z. B. 26-0447" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12" oninput="saveProtDraft()" /></label>
+              <input type="text" id="prot-job" placeholder="z. B. 26-0447" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12" oninput="saveProtDraft()" onchange="refreshProtShortages()" /></label>
             <div class="prot-date-row">
               <label class="ui-field"><span>Datum</span>
-                <input type="date" id="prot-date" onchange="saveProtDraft(); calcProtCosts(); protRefreshDriverHints(); if (protSideOn()) protRefreshSide()" /></label>
+                <input type="date" id="prot-date" onchange="saveProtDraft(); calcProtCosts(); protRefreshDriverHints(); if (protSideOn()) protRefreshSide(); refreshProtShortages()" /></label>
               <label class="prot-switch-label"><input type="checkbox" class="ui-switch" id="prot-isholiday" onchange="saveProtDraft(); calcProtCosts()" /> Feiertag</label>
             </div>
             <div class="ui-field"><span>Aktion</span>
@@ -210,6 +210,8 @@
             <div class="ui-section-head"><span class="ui-label">Equipment für Anlieferung &amp; Rücklauf</span></div>
             <div class="ui-sub" style="margin:-4px 2px 8px;">Kategorien ausschalten, falls nicht vorhanden</div>
             <div id="prot-categories-list"></div>
+            <div id="prot-shortages"></div>
+            <button type="button" class="ui-add-row" onclick="openProtMaterialCheck()">Material abhaken</button>
           </section>
 
           <!-- Section: Personal -->
@@ -903,9 +905,9 @@
   <script src="js/utils.js?v=24"></script>
   <script src="js/ui.js?v=5"></script>
   <script src="js/changelog.js?v=1"></script>
-  <script src="js/settings.js?v=11"></script>
+  <script src="js/settings.js?v=12"></script>
   <script src="js/stundenzettel.js?v=29"></script>
-  <script src="js/protokoll.js?v=54"></script>
+  <script src="js/protokoll.js?v=55"></script>
   <script src="js/erinnerung.js?v=14"></script>
   <script src="js/plan-pdf.js?v=3"></script>
   <script src="js/plan-parser.js?v=26"></script>
@@ -913,8 +915,9 @@
   <script src="js/order-slots.js?v=5"></script>
   <script src="js/planer.js?v=10"></script>
   <script src="js/auftraege.js?v=13"></script>
-  <script src="js/wochenplan.js?v=37"></script>
-  <script src="js/home.js?v=9"></script>
+  <script src="js/wochenplan.js?v=38"></script>
+  <script src="js/material.js?v=1"></script>
+  <script src="js/home.js?v=10"></script>
   <script src="js/dashboard.js?v=55"></script>
   <script src="js/produkte.js?v=21"></script>
   <script src="js/ordner.js?v=34"></script>

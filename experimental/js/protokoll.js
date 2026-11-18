@@ -257,6 +257,7 @@ function protRowToEntry(r) {
     createdBy: r.created_by || null,
     jobNo: r.job_no || '',
     sideOf: r.side_of || null,
+    shortages: Array.isArray(r.shortages) ? r.shortages : null,
     totalCost: (Number(r.total_cost) || 0).toFixed(2).replace('.', ',') + ' €',
     transports: (r.protocol_transports || []).map(function(t) {
       // hours stays null for rows saved before driver hours existed → no driver cost on recalc
@@ -1094,6 +1095,37 @@ function setProtAction(v) {
   sel.value = v;
   sel.dispatchEvent(new Event('change'));
   syncProtActionSeg();
+  if (protState.shortages !== null && protState.shortages !== undefined) refreshProtShortages();
+}
+
+// ── Fehlmengen laut Auftrag (from Material abhaken, js/material.js) ──
+// protState.shortages: null = not looked at yet, [] = nothing missing, else [{name, soll, ist, fehlt, note}]
+function renderProtShortages() {
+  var box = typeof document !== 'undefined' && document.getElementById && document.getElementById('prot-shortages');
+  if (!box) return;
+  var list = protState.shortages;
+  box.innerHTML = Array.isArray(list) && list.length
+    ? '<div class="ui-card"><div class="ui-row-title">Fehlmengen laut Auftrag</div>' +
+        (protState.shortagesSource ? '<div class="ui-sub">aus ' + escapeHtml(protState.shortagesSource) + ', wird mit dem Protokoll gespeichert</div>' : '') +
+        list.map(function(s) { return '<div class="prot-shortage-line">' + escapeHtml(mcShortageText(s)) + '</div>'; }).join('') + '</div>'
+    : (Array.isArray(list) ? '<div class="ui-sub" style="margin:2px 2px 8px;">Keine Fehlmengen aus „Material abhaken“.</div>' : '');
+}
+
+var _protShortSeq = 0;
+async function refreshProtShortages(timeoutMs) {
+  if (typeof mcLoadShortages !== 'function') return;
+  var val = function(id) { return ((document.getElementById(id) || {}).value || '').trim(); };
+  var seq = ++_protShortSeq;
+  var load = mcLoadShortages(protJobNo(val('prot-job')), val('prot-date'), val('prot-event'), mcPhaseOf(val('prot-action')));
+  var res = timeoutMs ? await Promise.race([load, new Promise(function(r) { setTimeout(function() { r(null); }, timeoutMs); })]) : await load;
+  if (seq !== _protShortSeq || !res) return;
+  protState.shortages = res.items;
+  protState.shortagesSource = res.source;
+  renderProtShortages();
+}
+
+function openProtMaterialCheck() {
+  if (typeof openMaterialCheckForProtocol === 'function') openMaterialCheckForProtocol();
 }
 
 // Textareas grow with their content
@@ -1152,8 +1184,9 @@ function protDraftOwner() {
 
 // Empties the form state and fields without touching localStorage (used when a foreign draft is discarded)
 function resetProtFormState() {
-  protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null, editingId: null, editingLocalId: null, signature: null, sideOf: null };
+  protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null, editingId: null, editingLocalId: null, signature: null, sideOf: null, shortages: null };
   protOpenRows = {};
+  renderProtShortages();
   ['prot-event', 'prot-location', 'prot-job', 'prot-date', 'prot-damages', 'prot-incidents', 'prot-feedback', 'prot-al', 'prot-pl'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.value = '';
@@ -1320,6 +1353,9 @@ async function saveProtokoll() {
     totalCost: document.getElementById('prot-total-cost').textContent + ' €'
   };
   data = protApplySide(data, side);
+  // "Fehlmengen laut Auftrag": taken over from Material abhaken; not looked at yet → look now (short wait at most)
+  if (protState.shortages === null || protState.shortages === undefined) await refreshProtShortages(6000);
+  if (Array.isArray(protState.shortages)) data.shortages = protState.shortages;
 
   showToast('Speichere & Sende an Server...', 'info');
   var btn = document.querySelector('#page-protokoll .ui-actionbar .ui-btn-primary');
@@ -1348,6 +1384,7 @@ async function saveProtokoll() {
     plId: data.plId || null,
     jobNo: data.jobNo || '',
     sideOf: data.sideOf || null,
+    shortages: data.shortages || null,
     // Author stays as first saved; an edit by someone else does not take it over
     createdBy: (protState.editingLocalId && (archive.find(x => x.id === protState.editingLocalId) || {}).createdBy) ||
       (!isUpdate && typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null),
@@ -1502,6 +1539,8 @@ async function syncProtokollToSupabase(data, targetId, out) {
     // Only when the caller knows the number (a retry of an entry saved before the field existed must not clear it)
     if (data.jobNo !== undefined) protPayload.job_no = (protJobNoValid(data.jobNo) && protJobNo(data.jobNo)) || null;
     if (data.sideOf !== undefined) protPayload.side_of = data.sideOf || null;
+    // Only when known: a retry of an older entry must not clear what is stored
+    if (Array.isArray(data.shortages)) protPayload.shortages = data.shortages.length ? data.shortages : null;
 
     // Server signatures are not kept in localStorage (see mergeProtHistory): an edit loaded without one
     // must not overwrite the stored signature with null
@@ -1513,6 +1552,11 @@ async function syncProtokollToSupabase(data, targetId, out) {
       var { data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', editId).select('id');
       if (upErr && /side_of/.test(upErr.message || '') && !protPayload.side_of) {
         delete protPayload.side_of;
+        ({ data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', editId).select('id'));
+      }
+      // Column not migrated yet: save without the shortages rather than lose the edit
+      if (upErr && /shortages/.test(upErr.message || '')) {
+        delete protPayload.shortages;
         ({ data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', editId).select('id'));
       }
       if (upErr) throw upErr;
@@ -1533,6 +1577,10 @@ async function syncProtokollToSupabase(data, targetId, out) {
       // Column not migrated yet: save without it rather than lose the protocol
       if (protError && /side_of/.test(protError.message || '') && !insPayload.side_of) {
         delete insPayload.side_of;
+        ({ data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single());
+      }
+      if (protError && /shortages/.test(protError.message || '')) {
+        delete insPayload.shortages;
         ({ data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single());
       }
       if (protError && /created_by/.test(protError.message || '')) {
@@ -1973,6 +2021,8 @@ function loadProtFromHistory(id) {
 
   // Hydrate state
   protState.transports = (entry.transports || []).map(function(t) { return Object.assign({}, t); });
+  protState.shortages = Array.isArray(entry.shortages) ? entry.shortages : null;
+  renderProtShortages();
   protState.personnel  = (entry.personnel  || []).map(function(p) { return Object.assign({}, p); });
   protOpenRows = {};
   protState.categories = JSON.parse(JSON.stringify(entry.categories || {}));
@@ -2077,6 +2127,7 @@ function buildProtPdfDoc(entry, opts) {
     categories: entry.categories || {},
     totalCost: pdfStr(entry.totalCost, '0,00 €'),
     jobNo: entry.jobNo || '',
+    shortages: Array.isArray(entry.shortages) ? entry.shortages : [],
     side: entry.sideOf ? pdfStr((opts && opts.sideLabel) || protSideLabel(entry.sideOf, JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]')), 'Hauptprotokoll') : ''
   };
   var savedProtState = protState;
@@ -2156,6 +2207,15 @@ function buildProtPdfDoc(entry, opts) {
     }
     y += 7; if (y > 270) { doc.addPage(); y = 20; }
   }); y += 4;
+  if (data.shortages.length) {
+    if (y > 260) { doc.addPage(); y = 20; }
+    doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Fehlmengen laut Auftrag', ml, y); y += 6;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    data.shortages.forEach(function(s) {
+      doc.splitTextToSize(pdfStr(mcShortageText(s), '—'), cw - 5).forEach(function(line) { if (y > 280) { doc.addPage(); y = 20; } doc.text(line, ml + 2, y); y += 4.5; });
+    });
+    y += 4;
+  }
 
   // Personnel
   if (!data.side) {
