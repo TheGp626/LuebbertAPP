@@ -515,3 +515,4 @@ button.opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .mc-note-btn { font-size: 12px; padding: 4px 0; }
 .mc-ist { flex: none; width: 72px; text-align: right; }
 .prot-shortage-line { font-size: 13px; padding: 4px 0; border-bottom: 0.5px solid var(--border); }
+.set-dep { flex: 0 0 auto; width: 170px; max-width: 50%; margin: 0; padding: 6px 8px; font-size: 14px; }
