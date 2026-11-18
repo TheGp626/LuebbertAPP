@@ -15,6 +15,7 @@ test('personPayRate / personCostRate: rate for the function, else general, else 
   assert.equal(ctx.personPayRate(u, 'AL Midijob'), 20);
   assert.equal(ctx.personPayRate(u, 'MA Minijob'), 16); // old entry "MA frei" applies to the paid types
   assert.equal(ctx.personPayRate(u, 'Fahrer Midijob'), 17);
+  assert.equal(ctx.personPayRate(u, 'AL Minijob'), 20); // same function, older type
   assert.equal(ctx.personCostRate(u, 'AL Midijob'), 25);
   assert.equal(ctx.personCostRate(u, 'MA Minijob'), 21.5);
   assert.equal(ctx.personPayRate({ role_rates: [] }, 'MA Minijob'), null);
