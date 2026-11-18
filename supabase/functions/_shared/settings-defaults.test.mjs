@@ -7,6 +7,8 @@ test('defaults match the spec', () => {
   assert.deepEqual(SETTINGS_DEFAULTS, {
     reminders_enabled: true, plan_reminders_enabled: false, evening_push_enabled: false, evening_push_hour: 18,
     plan_change_push_enabled: true, folder_push_enabled: true, folder_autodelete_enabled: true, protocol_mail_enabled: true, mail_test_mode: true, billing_cutoff: 20,
+    department_mail_enabled: true, department_mail_test_mode: true,
+    department_routes: { logistik: 'lager', mobiliar: 'lager', tischlerei: '', stoffe: 'stoffe', floristik: 'floristik' },
   });
 });
 

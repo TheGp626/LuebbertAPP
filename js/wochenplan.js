@@ -476,7 +476,7 @@ function wpRow(s, opts) {
       wpTeamLine(s) +
       wpDetails(s) +
       (s._orders || []).map(function(o) { return wpOrderBlock(o, s); }).join('') +
-      wpProtButton(s) + wpInterestBlock(s) + wpCancelBlock(s) +
+      wpProtButton(s) + (typeof mcButtonHtml === 'function' ? mcButtonHtml(s) : '') + wpInterestBlock(s) + wpCancelBlock(s) +
     '</div>' +
   '</div>';
 }
@@ -509,7 +509,7 @@ function wpHero(s) {
       (s.ap ? '<div class="wp-sub">PL ' + wpEsc(s.ap) + '</div>' : '') +
       '<div class="wp-more">Details ' + WP_ICON.chevron + '</div>' +
       wpDetails(s) +
-      wpProtButton(s, 'primary wp-prot-wide') +
+      wpProtButton(s, 'primary wp-prot-wide') + (typeof mcButtonHtml === 'function' ? mcButtonHtml(s, 'wp-prot-wide') : '') +
       wpCancelBlock(s) +
     '</div>';
 }

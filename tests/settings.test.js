@@ -100,7 +100,7 @@ test('saveSettingsTab: a network exception from the rpc shows an error instead o
     console: { log() {}, warn() {}, error() {} },
     localStorage: global.localStorage,
     document: { getElementById: id => id === 'set-error' ? err : id === 'set-save-btn' ? btn : id === 'set-evening_push_hour' ? { value: '18' } : id === 'set-billing_cutoff' ? { value: '21' } : { checked: false },
-      querySelectorAll: sel => /set-personnel/.test(sel) ? [] : [{ querySelector: sel => ({ value: /name/.test(sel) ? 'PKW' : '20' }) }] },
+      querySelectorAll: sel => /set-personnel|set-dep/.test(sel) ? [] : [{ querySelector: sel => ({ value: /name/.test(sel) ? 'PKW' : '20' }) }] },
     showToast() {},
     supabaseClient: { rpc: () => Promise.reject(new TypeError('Failed to fetch')) },
   });
@@ -127,4 +127,22 @@ test('validPersonnelRates: exactly the 4 types × MA/AL/Fahrer, numbers 0–1000
 test('availability_for_all: default off, listed as a switch', () => {
   assert.equal(S.APP_SETTINGS_DEFAULTS.availability_for_all, false);
   assert.ok(S.SETTINGS_SWITCHES.some(g => g.items.some(i => i.key === 'availability_for_all')));
+});
+
+test('department mail settings: defaults, validation, merge keeps unknown areas out', () => {
+  assert.equal(S.appSetting('department_mail_enabled'), true);
+  assert.equal(S.appSetting('department_mail_test_mode'), true);
+  assert.equal(S.appSetting('department_routes').mobiliar, 'lager');
+  assert.equal(S.appSetting('department_routes').tischlerei, '');
+  assert.equal(S.validateSettings({ department_routes: { tischlerei: 'lager', mobiliar: '' } }), null);
+  assert.equal(S.validateSettings({ department_routes: { mobiliar: 'x@evil.test' } }), 'department_routes');
+  assert.equal(S.validateSettings({ department_routes: { kueche: 'lager' } }), 'department_routes');
+  assert.equal(S.validateSettings({ department_mail_enabled: 'ja' }), 'department_mail_enabled');
+  store.luebbert_app_settings = JSON.stringify({ department_routes: { tischlerei: 'lager' } });
+  S.appSettingsFromCache();
+  assert.equal(S.appSetting('department_routes').tischlerei, 'lager');
+  assert.equal(S.appSetting('department_routes').stoffe, 'stoffe');
+  store.luebbert_app_settings = JSON.stringify({ department_routes: { stoffe: 'evil' } });
+  S.appSettingsFromCache();
+  assert.equal(S.appSetting('department_routes').stoffe, 'stoffe');
 });

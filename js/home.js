@@ -91,7 +91,7 @@ function homeTodayHtml(s) {
       (maps ? '<a class="ui-btn dash-small-btn" href="' + escapeHtml(maps) + '" target="_blank" rel="noopener">Route</a>' : '') + '</div>' : '') +
     (s.ap ? '<div class="ui-sub">PL ' + escapeHtml(s.ap) + '</div>' : '') +
     wpDetails(s) +
-    '<div class="home-today-actions">' + wpProtButton(s, 'primary') +
+    '<div class="home-today-actions">' + wpProtButton(s, 'primary') + (typeof mcButtonHtml === 'function' ? mcButtonHtml(s) : '') +
       '<button type="button" class="ord-textbtn" onclick="selectMode(\'wochenplan\')">Im Wochenplan öffnen</button></div>' +
   '</div>';
 }
