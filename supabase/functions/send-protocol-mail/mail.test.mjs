@@ -53,3 +53,14 @@ test('safePdfBase64 keeps real PDFs only', () => {
   assert.equal(safePdfBase64(null), null);
   assert.equal(safePdfBase64(42), null);
 });
+
+test('buildBody: a Zusatzauftrag names its main protocol instead of "Personal: 0"', () => {
+  const p = { date: '2026-11-18', action: 'Aufbau', projects: { name: 'KKJ', location: 'Estrel' }, al: { full_name: 'Paul' },
+    side_of: 'x', main: { projects: { name: 'Breko' } }, shifts: [] };
+  const { text, html } = buildBody(p);
+  assert.match(text, /Zusatzauftrag: im Zuge von Breko/);
+  assert.doesNotMatch(text, /Personal:/);
+  assert.match(html, /im Zuge von Breko/);
+  const plain = buildBody(Object.assign({}, p, { side_of: null, main: null, shifts: [{}, {}] })).text;
+  assert.match(plain, /Personal: 2/);
+});

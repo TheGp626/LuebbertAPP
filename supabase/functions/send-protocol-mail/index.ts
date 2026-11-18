@@ -34,7 +34,8 @@ Deno.serve(async (req) => {
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const { data: p, error } = await db
     .from('protocols')
-    .select(`id, date, action, notes_damages, notes_incidents, notes_feedback, al_name_fallback, pl_name_fallback, pl_id, mailed_at,
+    .select(`id, date, action, notes_damages, notes_incidents, notes_feedback, al_name_fallback, pl_name_fallback, pl_id, mailed_at, side_of,
+      main:protocols!protocols_side_of_fkey(projects(name)),
       projects(name, location),
       al:app_users!protocols_al_id_fkey(full_name),
       pl:app_users!protocols_pl_id_fkey(full_name, app_user_private(email)),

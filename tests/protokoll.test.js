@@ -1050,3 +1050,53 @@ test('protKeepOnLogout: only what is not on the server yet stays on a shared pho
   assert.deepEqual(plain(keep([])), []);
   assert.deepEqual(plain(keep(null)), []);
 });
+
+test('Zusatzauftrag: saves without crew, vehicles and cost, with side_of', () => {
+  const d = run(`protApplySide(${JSON.stringify(protData({ personnel: [{ pos: 'MA', name: 'Paul', start: '11:00', end: '15:00' }], transports: [{ type: 'Hängerzug' }], totalCost: '171,38 €' }))}, 'p-main')`);
+  assert.deepEqual(plain(d.personnel), []);
+  assert.deepEqual(plain(d.transports), []);
+  assert.equal(d.totalCost, '0,00 €');
+  assert.equal(d.sideOf, 'p-main');
+  const normal = run(`protApplySide({ personnel: [1], totalCost: '5 €' }, null)`);
+  assert.equal(normal.sideOf, null);
+  assert.deepEqual(plain(normal.personnel), [1]);
+});
+
+test('Zusatzauftrag: sync writes side_of, and no shifts or transports', async () => {
+  const d = run(`protApplySide(${JSON.stringify(protData({ personnel: [{ pos: 'MA', name: 'Paul', userId: 'u-p', start: '11:00', end: '15:00', pause: '0' }], transports: [{ type: 'Hängerzug' }] }))}, 'p-main')`);
+  ctx.__d = d;
+  const id = await run('syncProtokollToSupabase(__d, null)');
+  assert.ok(id);
+  const ins = sb.calls.find(c => c.table === 'protocols' && c.op === 'insert');
+  assert.equal(ins.payload.side_of, 'p-main');
+  assert.equal(ins.payload.total_cost, 0);
+  assert.ok(!sb.calls.some(c => c.table === 'shifts' && c.op === 'insert'), 'no shifts');
+  assert.ok(!sb.calls.some(c => c.table === 'protocol_transports' && c.op === 'insert'), 'no transports');
+});
+
+test('Zusatzauftrag: before the column exists, a normal protocol still saves (side_of dropped)', async () => {
+  sb.fail['protocols.insert'] = { message: 'column "side_of" of relation "protocols" does not exist' };
+  let calls = 0;
+  const orig = sb.from;
+  sb.from = t => { const b = orig(t); if (t === 'protocols') { const ins = b.insert; b.insert = p => { calls++; if (calls > 1) delete sb.fail['protocols.insert']; return ins(p); }; } return b; };
+  ctx.__d = run(`protApplySide(${JSON.stringify(protData())}, null)`);
+  const id = await run('syncProtokollToSupabase(__d, null)');
+  assert.ok(id);
+  const ins = sb.calls.filter(c => c.table === 'protocols' && c.op === 'insert');
+  assert.equal(ins.length, 2);
+  assert.ok(!('side_of' in ins[1].payload));
+});
+
+test('Zusatzauftrag: main protocol candidates are same day, not a Zusatz, not the edited one; label falls back', () => {
+  const list = [
+    { supabaseId: 'a', date: '2026-11-18', event: 'Breko' },
+    { supabaseId: 'b', date: '2026-11-18', event: 'vitroconnect', sideOf: 'a' },
+    { supabaseId: 'c', date: '2026-11-17', event: 'Hagebau' },
+    { supabaseId: 'd', date: '2026-11-18', event: 'KKJ' },
+    { supabaseId: 'a', date: '2026-11-18', event: 'Breko' },
+  ];
+  assert.deepEqual(plain(run(`protSideCandidates(${JSON.stringify(list)}, '2026-11-18', 'd')`)).map(e => e.supabaseId), ['a']);
+  assert.equal(run(`protSideLabel('a', ${JSON.stringify(list)})`), 'Breko');
+  assert.equal(run(`protSideLabel('zz', [])`), 'Hauptprotokoll');
+  assert.equal(run(`protSideLabel(null, [])`), '');
+});

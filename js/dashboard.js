@@ -3,6 +3,11 @@
  */
 
 let dashboardProtocols = [];
+// Name of the main protocol of a Zusatzauftrag (protocols.side_of), from the loaded list
+function dashSideLabel(id) {
+  const m = dashboardProtocols.find(function(x) { return x.id === id; });
+  return (m && m.projects && m.projects.name) || 'Hauptprotokoll';
+}
 let dashboardWorkers = [];
 let dashboardCurrentWorker = null;
 let dashboardCurrentShifts = [];
@@ -818,7 +823,8 @@ function renderDashboardTable() {
     const alName = p.al ? p.al.full_name : (p.al_name_fallback || '—');
     const plName = p.pl ? p.pl.full_name : (p.pl_name_fallback || '');
     const costStr = (p.total_cost || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €';
-    const holidayTag = p.is_holiday ? ' <span class="ui-pill ui-pill-warn">Feiertag</span>' : '';
+    const holidayTag = (p.is_holiday ? ' <span class="ui-pill ui-pill-warn">Feiertag</span>' : '') +
+      (p.side_of ? ' <span class="ui-pill">Zusatz zu ' + escapeHtml(dashSideLabel(p.side_of)) + '</span>' : '');
     const plLine = plName ? `<div class="ui-sub">PL ${escapeHtml(plName)}</div>` : '';
 
     tr.innerHTML = `
@@ -2442,7 +2448,7 @@ async function exportDashProtPDF(pId) {
     else if (sigRow) signature = sigRow.signature_text || null;
 
     const entry = dashProtToEntry(p, signature);
-    buildProtPdfDoc(entry, { costs: canSeeCosts(currentUser) }).save(protPdfFileName(entry));
+    buildProtPdfDoc(entry, { costs: canSeeCosts(currentUser), sideLabel: entry.sideOf ? dashSideLabel(entry.sideOf) : '' }).save(protPdfFileName(entry));
   } catch (err) {
     console.error('exportDashProtPDF error:', err);
     if (typeof showToast === 'function') showToast('PDF konnte nicht erstellt werden', 'danger');

@@ -38,6 +38,7 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - live-kostenkalkulation während du tippst
 - nach dem speichern geht das protokoll als PDF per mail an die zuständige PL
 - vertippt? im verlauf bearbeiten und neu abschicken
+- zusatzauftrag: lief ein kleiner auftrag beim auf/abbau eines anderen mit (gleiches team, gleicher LKW), schalte unter basis "zusatzauftrag" an und wähl das hauptprotokoll. dann gibts nur bereiche, bemerkungen und unterschrift, personal, transport und kosten zählen einmal im hauptprotokoll. die PL des zusatzauftrags kriegt trotzdem ihre mail
 - alles wird lokal gespeichert während du tippst, handy weggelegt ist egal
 - nachträgliche protokolle funktionieren, datum ist frei wählbar
 
