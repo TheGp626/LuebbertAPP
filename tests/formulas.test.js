@@ -9,6 +9,18 @@ const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/formulas.js'), 'utf8'), ctx);
 const calc = (...a) => JSON.parse(JSON.stringify(ctx.calcSplitShiftCosts(...a)));
 
+test('personPayRate / personCostRate: rate for the function, else general, else default', () => {
+  const u = { hourly_rate_conni: '17', hourly_rate_internal: '21.5', role_rates: [
+    { role: 'AL Midijob', rate_conni: 20, rate_internal: 25 }, { role: 'MA frei', rate_conni: 16, rate_internal: null }] };
+  assert.equal(ctx.personPayRate(u, 'AL Midijob'), 20);
+  assert.equal(ctx.personPayRate(u, 'MA Minijob'), 16); // old entry "MA frei" applies to the paid types
+  assert.equal(ctx.personPayRate(u, 'Fahrer Midijob'), 17);
+  assert.equal(ctx.personCostRate(u, 'AL Midijob'), 25);
+  assert.equal(ctx.personCostRate(u, 'MA Minijob'), 21.5);
+  assert.equal(ctx.personPayRate({ role_rates: [] }, 'MA Minijob'), null);
+  assert.equal(ctx.personCostRate({}, 'AL Minijob'), 25); // default table
+});
+
 // 2026-10-28 is a Wednesday, 2026-11-01 a Sunday
 test('Zenjob on a holiday is billed with the Zenjob Feiertag rate', () => {
   const r = calc('Zenjob', '2026-10-28', true, 8 * 60, 16 * 60, 0);

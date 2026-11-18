@@ -12,7 +12,7 @@
 
 
   <link rel="stylesheet" href="css/style.css?v=41">
-  <link rel="stylesheet" href="css/ui.css?v=41">
+  <link rel="stylesheet" href="css/ui.css?v=42">
 </head>
 
 <body>
@@ -300,42 +300,39 @@
                 <input type="search" id="dash-worker-search" placeholder="Mitarbeiter suchen" oninput="renderDashWorkerList()">
               </div>
               <select id="dash-worker-filter" class="meta-input mit-filter" aria-label="Liste filtern" onchange="renderDashWorkerList()">
-                <option value="">Alle</option>
+                <option value="">Alle Mitarbeiter</option>
                 <option value="nosurname">Ohne Nachname</option>
                 <option value="nophoto">Ohne Profilbild</option>
               </select>
-              <details id="dash-close-panel" class="dash-close" hidden open>
-                <summary class="ui-label" style="cursor:pointer;">Monatsabschluss</summary>
-                <div class="dash-close-body">
-                  <label class="ui-field"><span>Abrechnungsmonat</span><select id="dash-close-month"></select></label>
-                  <div class="dash-close-btns">
-                    <button type="button" class="ui-btn dash-small-btn" onclick="exportDashMonthClose('pdf')">PDF mit allen Stundenzetteln</button>
-                    <button type="button" class="ui-btn dash-small-btn" onclick="exportDashMonthClose('csv')">CSV für Excel</button>
+              <div class="dash-panels">
+                <details id="dash-close-panel" class="dash-close" hidden open>
+                  <summary class="dash-panel-sum">Monatsabschluss</summary>
+                  <div class="dash-close-body">
+                    <label class="ui-field"><span>Abrechnungsmonat</span><select id="dash-close-month"></select></label>
+                    <div class="dash-close-btns">
+                      <button type="button" class="ui-btn dash-small-btn" onclick="exportDashMonthClose('pdf')">PDF mit allen Stundenzetteln</button>
+                      <button type="button" class="ui-btn dash-small-btn" onclick="exportDashMonthClose('csv')">CSV für Excel</button>
+                    </div>
+                    <div class="ui-sub">PDF: vorne die Übersicht aller mit App-Konto, dahinter für jede Person ihr Stundenzettel mit Zeiten, Ort, AL und Unterschriften. CSV: nur die Übersicht. Zenjob und Rockit stehen nicht drin.</div>
                   </div>
-                  <div class="ui-sub">PDF: vorne die Übersicht aller mit App-Konto, dahinter für jede Person ihr Stundenzettel mit Zeiten, Ort, AL und Unterschriften. CSV: nur die Übersicht. Zenjob und Rockit stehen nicht drin.</div>
-                </div>
-              </details>
-              <div id="dash-bees"></div>
-              <details id="dash-inactive-panel">
-                <summary class="ui-label" style="cursor:pointer;" id="dash-inactive-title">Seit 4 Wochen kein Einsatz</summary>
-                <div id="dash-inactive-list" class="ui-list"></div>
-              </details>
-              <details id="dash-unknown-panel" hidden>
-                <summary class="ui-label" style="cursor:pointer;" id="dash-unknown-title">Unbekannte Namen</summary>
-                <div id="dash-unknown-list" class="ui-list"></div>
-              </details>
-              <details id="dash-idle-panel" hidden>
-                <summary class="ui-label" style="cursor:pointer;" id="dash-idle-title">Lange kein Einsatz</summary>
-                <div id="dash-idle-list" class="ui-list"></div>
-              </details>
-              <details id="dash-minor-panel" hidden>
-                <summary class="ui-label" style="cursor:pointer;" id="dash-minor-title">Unter 18: Einsätze prüfen</summary>
-                <div id="dash-minor-list" class="ui-list"></div>
-              </details>
-              <details id="dash-night-panel">
-                <summary class="ui-label" style="cursor:pointer;" id="dash-night-title">Nachtschichten · Kalenderjahr</summary>
-                <div id="dash-night-ranking" class="ui-list"></div>
-              </details>
+                </details>
+                <details id="dash-unknown-panel" hidden>
+                  <summary class="dash-panel-sum" id="dash-unknown-title">Unbekannte Namen</summary>
+                  <div id="dash-unknown-list" class="ui-list"></div>
+                </details>
+                <details id="dash-idle-panel" hidden>
+                  <summary class="dash-panel-sum" id="dash-idle-title">Lange kein Einsatz</summary>
+                  <div id="dash-idle-list" class="ui-list"></div>
+                </details>
+                <details id="dash-minor-panel" hidden>
+                  <summary class="dash-panel-sum" id="dash-minor-title">Unter 18: Einsätze prüfen</summary>
+                  <div id="dash-minor-list" class="ui-list"></div>
+                </details>
+                <details id="dash-night-panel">
+                  <summary class="dash-panel-sum" id="dash-night-title">Nachtschichten · Kalenderjahr</summary>
+                  <div id="dash-night-ranking" class="ui-list"></div>
+                </details>
+              </div>
               <div class="ui-label">Alle Mitarbeiter</div>
               <div id="dash-worker-list" class="ui-list"></div>
               <!-- data source for the selection (read by the dashboard code) -->
@@ -932,13 +929,13 @@
   <script src="js/supabase-config.js?v=10"></script>
   <script src="js/auth.js?v=42"></script>
   <script src="js/logo.js?v=9"></script>
-  <script src="js/formulas.js?v=16"></script>
+  <script src="js/formulas.js?v=17"></script>
   <script src="js/utils.js?v=25"></script>
   <script src="js/ui.js?v=5"></script>
   <script src="js/changelog.js?v=1"></script>
   <script src="js/settings.js?v=14"></script>
-  <script src="js/mitarbeiter.js?v=1"></script>
-  <script src="js/stundenzettel.js?v=29"></script>
+  <script src="js/mitarbeiter.js?v=2"></script>
+  <script src="js/stundenzettel.js?v=30"></script>
   <script src="js/protokoll.js?v=56"></script>
   <script src="js/erinnerung.js?v=14"></script>
   <script src="js/plan-pdf.js?v=3"></script>
@@ -950,7 +947,7 @@
   <script src="js/wochenplan.js?v=39"></script>
   <script src="js/material.js?v=2"></script>
   <script src="js/home.js?v=10"></script>
-  <script src="js/dashboard.js?v=56"></script>
+  <script src="js/dashboard.js?v=57"></script>
   <script src="js/produkte.js?v=21"></script>
   <script src="js/ordner.js?v=34"></script>
   <script src="js/app.js?v=27"></script>

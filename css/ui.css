@@ -500,6 +500,16 @@ button.opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset:
 
 /* Dashboard: Monatsabschluss */
 .dash-close-body { display: grid; gap: 8px; padding: 4px 0 12px; }
+/* Personal: the collapsible boxes as one card with rows */
+.dash-panels { background: var(--bg2); border-radius: var(--r-card); margin: 10px 0 16px; overflow: hidden; }
+.dash-panels > details { padding: 0 14px; }
+.dash-panels > details:not([hidden]) ~ details { border-top: 0.5px solid var(--border2); } /* a line between visible rows only */
+.dash-panel-sum { list-style: none; display: flex; align-items: center; gap: 8px; padding: 14px 0; font-size: 15px; font-weight: 600; color: var(--text); cursor: pointer; }
+.dash-panel-sum::-webkit-details-marker { display: none; }
+.dash-panel-sum::after { content: ''; margin-left: auto; width: 7px; height: 7px; border-right: 2px solid var(--text3); border-bottom: 2px solid var(--text3); transform: rotate(-45deg); transition: transform .15s; }
+.dash-panels > details[open] > .dash-panel-sum::after { transform: rotate(45deg); }
+.dash-count { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 99px; background: var(--accent-bg); color: var(--accent-text); }
+.dash-count-zero { background: var(--bg3); color: var(--text3); }
 .dash-close-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* Einsätze ohne Protokoll: "Kein Protokoll nötig" under the title, marked ones struck through */

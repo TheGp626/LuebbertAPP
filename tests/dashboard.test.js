@@ -815,6 +815,22 @@ test('dashMonthSummary: per person shifts, open ones, hours and pay of one billi
   assert.deepEqual([out.total.shifts, out.total.open, out.total.mins, out.total.pay], [4, 2, 1320, 203]);
 });
 
+test('dashMonthSummary: MA and AL hours with different pay', () => {
+  ctx.__sh = [
+    { user_id: 'a', shift_date: '2026-11-03', start_time: '08:00:00', end_time: '14:00:00', pause_mins: 0, position_role: 'MA Midijob' },
+    { user_id: 'a', shift_date: '2026-11-04', start_time: '08:00:00', end_time: '14:00:00', pause_mins: 0, position_role: 'AL Midijob' },
+  ];
+  ctx.__users = [{ id: 'a', full_name: 'Max Muster', role: 'AL', hourly_rate_conni: '17', income_limit: '2000',
+    role_rates: [{ role: 'MA Midijob', rate_conni: 17 }, { role: 'AL Midijob', rate_conni: 20 }] }];
+  const out = JSON.parse(run("JSON.stringify(dashMonthSummary(__sh, __users, '2026-11', 20))"));
+  assert.equal(out.rows[0].pay, 222); // 6 × 17 + 6 × 20
+  assert.equal(out.rows[0].rate, 18.5);
+  const w = JSON.parse(run("JSON.stringify(dashWorkerMoney(__sh, __users[0]))"));
+  assert.equal(w.pay, 222);
+  assert.deepEqual(w.payRates, [17, 20]);
+  assert.equal(w.byPos, 'MA 6 h · AL 6 h');
+});
+
 test('dashMonthCsv: semicolons, decimal commas, a header and a total line, safe against formulas', () => {
   const csv = run("dashMonthCsv({ rows: [{ name: '=Zora; Alt', role: 'MA', shifts: 2, open: 1, mins: 840, rate: 14.5, pay: 203, limit: 556, limitPct: 37 }, { name: 'Bert', role: 'AL', shifts: 1, open: 0, mins: 90, rate: null, pay: null, limit: null, limitPct: null }], total: { shifts: 3, open: 1, mins: 930, pay: 203 } }, 'November 2026')");
   const lines = csv.replace(/^﻿/, '').trim().split('\r\n');

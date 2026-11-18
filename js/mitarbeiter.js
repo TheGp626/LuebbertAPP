@@ -368,19 +368,22 @@ var _mit = { idle: [], unknown: [], minorIssues: [], workers: [], months: 3, pen
 
 // Called by loadDashInsights with all shifts that have a person
 async function mitLoadAdminBoxes(allShifts) {
-  var panels = ['dash-idle-panel', 'dash-unknown-panel', 'dash-minor-panel'];
-  panels.forEach(function(id) { var el = document.getElementById(id); if (el) el.hidden = !mitIsAdmin(); });
-  if (!mitIsAdmin()) return;
+  // „Lange kein Einsatz“ for everyone who manages staff; names and unter 18 only for Admin
+  var manage = typeof dashMayManageStaff === 'function' && dashMayManageStaff(typeof userRole !== 'undefined' ? userRole : null);
+  var show = { 'dash-idle-panel': manage, 'dash-unknown-panel': mitIsAdmin(), 'dash-minor-panel': mitIsAdmin() };
+  Object.keys(show).forEach(function(id) { var el = document.getElementById(id); if (el) el.hidden = !show[id]; });
+  if (!manage) return;
+  var admin = mitIsAdmin(), none = Promise.resolve({ data: [] });
   var today = localDateStr(), months = appSetting('inactive_months') || 3, workers = dashboardWorkers || [];
   _mit.workers = workers;
   _mit.months = months;
   var res = await Promise.all([
     supabaseClient.from('plan_assignments').select('user_id, plan_shifts!inner(date)').not('user_id', 'is', null)
       .gte('plan_shifts.date', mitAddMonths(today, months + 1)).range(0, 4999),
-    supabaseClient.from('shifts').select('id, temp_worker_name, position_role, start_time, end_time, pause_mins, status, shift_date, protocols(date, al_name_fallback, projects(name))')
-      .is('user_id', null).not('temp_worker_name', 'is', null).range(0, 4999),
-    supabaseClient.from('worker_name_aliases').select('alias, user_id'),
-    supabaseClient.from('staff_minors').select('user_id')
+    admin ? supabaseClient.from('shifts').select('id, temp_worker_name, position_role, start_time, end_time, pause_mins, status, shift_date, protocols(date, al_name_fallback, projects(name))')
+      .is('user_id', null).not('temp_worker_name', 'is', null).range(0, 4999) : none,
+    admin ? supabaseClient.from('worker_name_aliases').select('alias, user_id') : none,
+    admin ? supabaseClient.from('staff_minors').select('user_id') : none
   ]);
   res.forEach(function(r, i) { if (r.error) console.warn('Personal-Kästen (' + i + '):', r.error); });
   var ok = function(r) { return r.error ? [] : (r.data || []); };
@@ -391,11 +394,13 @@ async function mitLoadAdminBoxes(allShifts) {
   mitRenderAdminBoxes();
 }
 
+function mitCount(n) { return '<span class="dash-count' + (n ? '' : ' dash-count-zero') + '">' + n + '</span>'; }
+
 function mitWorkerName(id) { var w = (_mit.workers || []).find(function(x) { return x.id === id; }); return w ? w.full_name : 'Unbekannt'; }
 
 function mitRenderAdminBoxes() {
   var el;
-  if ((el = document.getElementById('dash-idle-title'))) el.textContent = 'Lange kein Einsatz (' + _mit.idle.length + ')';
+  if ((el = document.getElementById('dash-idle-title'))) el.innerHTML = 'Lange kein Einsatz' + mitCount(_mit.idle.length);
   if ((el = document.getElementById('dash-idle-list'))) {
     el.innerHTML = _mit.idle.length ? _mit.idle.map(function(r) {
       var when = r.last ? 'letzter Einsatz ' + mitDe(r.last) : 'noch nie im Einsatz, angelegt ' + mitDe(r.since);
@@ -404,7 +409,7 @@ function mitRenderAdminBoxes() {
         '<button type="button" class="ui-btn dash-small-btn ui-btn-danger" onclick="mitDeactivate(\'' + jsAttrArg(r.id) + '\')">Inaktiv setzen</button></div></div>';
     }).join('') : '<div class="ui-sub" style="padding:6px 2px;">Alle Minijobber waren in den letzten ' + _mit.months + ' Monaten im Einsatz.</div>';
   }
-  if ((el = document.getElementById('dash-unknown-title'))) el.textContent = 'Unbekannte Namen (' + _mit.unknown.length + ')';
+  if ((el = document.getElementById('dash-unknown-title'))) el.innerHTML = 'Unbekannte Namen' + mitCount(_mit.unknown.length);
   if ((el = document.getElementById('dash-unknown-list'))) {
     var active = (_mit.workers || []).filter(function(w) { return w.role !== 'Gast'; }), a = _mit.lastAssign;
     var last = a ? '<div class="mit-item"><div class="ui-sub">„' + mitEsc(a.g.name) + '“ → ' + mitEsc(mitWorkerName(a.userId)) + ' (' + a.n + (a.n === 1 ? ' Schicht' : ' Schichten') + ')</div>' +
@@ -425,7 +430,7 @@ function mitRenderAdminBoxes() {
           '<button type="button" class="ui-btn dash-small-btn" onclick="mitForeign(' + i + ')">Ist eine Fremdkraft</button></div></div>';
     }).join('') : '<div class="ui-sub" style="padding:6px 2px;">Keine unbekannten Namen in den Protokollen.</div>');
   }
-  if ((el = document.getElementById('dash-minor-title'))) el.textContent = 'Unter 18: Einsätze prüfen (' + _mit.minorIssues.length + ')';
+  if ((el = document.getElementById('dash-minor-title'))) el.innerHTML = 'Unter 18: Einsätze prüfen' + mitCount(_mit.minorIssues.length);
   if ((el = document.getElementById('dash-minor-list'))) {
     el.innerHTML = _mit.minorIssues.length ? _mit.minorIssues.map(function(r) {
       return dashPersonBtn(r.user_id, mitEsc(mitWorkerName(r.user_id)), mitEsc(mitDe(r.date) + ' · ' + r.start + '–' + r.end),

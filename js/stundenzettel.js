@@ -1691,7 +1691,9 @@ function drawPDFContent(doc, data, ml, cw) {
   });
   y += 8; doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Gesamtstunden:', ml, y); doc.setTextColor(24, 95, 165); doc.text(data.total + ' h', ml + 38, y);
   doc.setTextColor(0);
-  var rateC = window.currentUserRateConni || 0;
+  // A page is one department: the person's pay for that function (MA / AL can differ), else the general rate
+  var rUser = window._pdfRateUser || (typeof currentUser !== 'undefined' ? currentUser : null);
+  var rateC = (rUser && data.abt && personPayRate(rUser, shiftSyncRole(data.abt, rUser.employment_type))) || window.currentUserRateConni || 0;
   if (rateC > 0 && parseFloat(data.total) > 0) {
     var earnings = (parseFloat(data.total) * rateC).toFixed(2).replace('.', ',');
     y += 7; doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
