@@ -127,6 +127,86 @@ function protScopeSegHtml(scope, setFn) {
 }
 
 // Server protocol row (with joins) → history entry shape. Shared by the history re-sync and the dashboard PDF.
+// ── ZUSATZAUFTRAG ──
+// A small job the crew does alongside a bigger one ("im Zuge Aufbau Breko"): its own protocol for the PL and the
+// trades, but without personnel, transport and costs, so nobody's hours count twice. protocols.side_of = main protocol.
+function protSideLabel(sideOf, list) {
+  if (!sideOf) return '';
+  var m = (list || []).find(function(e) { return e && (e.supabaseId === sideOf || e.id === sideOf); });
+  return m ? (m.event && m.event !== '—' ? m.event : 'Hauptprotokoll') : 'Hauptprotokoll';
+}
+// Main protocols to choose from: same date, not a Zusatz itself, not the one being edited
+function protSideCandidates(list, date, editingId) {
+  var seen = {};
+  return (list || []).filter(function(e) {
+    if (!e || !e.supabaseId || e.date !== date || e.sideOf || e.supabaseId === editingId || seen[e.supabaseId]) return false;
+    seen[e.supabaseId] = true;
+    return true;
+  });
+}
+// What a Zusatz saves: no crew, no vehicles, no cost
+function protApplySide(data, sideOf) {
+  if (!sideOf) return Object.assign({}, data, { sideOf: null });
+  return Object.assign({}, data, { sideOf: sideOf, personnel: [], transports: [], totalCost: '0,00 €' });
+}
+
+function protSideOn() { var el = document.getElementById('prot-side-on'); return !!(el && el.checked); }
+
+// Shows the switch state: picker visible, Personal/Transport/Kosten hidden on a Zusatz
+function renderProtSide() {
+  var on = !!protState.sideOf || protSideOn();
+  var sw = document.getElementById('prot-side-on');
+  if (sw) sw.checked = on;
+  var pick = document.getElementById('prot-side-pick');
+  if (pick) pick.hidden = !on;
+  var page = document.getElementById('page-protokoll');
+  if (page) page.classList.toggle('prot-side-mode', on);
+  if (on) protRefreshSide();
+  if (typeof renderProtSectionNav === 'function') renderProtSectionNav();
+}
+
+function toggleProtSide(on) {
+  if (!on) protState.sideOf = null;
+  var sw = document.getElementById('prot-side-on');
+  if (sw) sw.checked = !!on;
+  renderProtSide();
+  saveProtDraft();
+  calcProtCosts();
+}
+
+function setProtSideOf(id) {
+  protState.sideOf = id || null;
+  saveProtDraft();
+}
+
+// Fills the "Läuft mit bei" picker: protocols of the form's date from the history and the server
+var _protSideList = [];
+async function protRefreshSide() {
+  var sel = document.getElementById('prot-side-of');
+  if (!sel) return;
+  var date = (document.getElementById('prot-date') || {}).value || '';
+  var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
+  var list = archive.slice();
+  if (date && typeof supabaseClient !== 'undefined' && navigator.onLine !== false) {
+    try {
+      var res = await supabaseClient.from('protocols').select('*, projects(name), al:app_users!protocols_al_id_fkey(full_name)').eq('date', date);
+      if (!res.error) (res.data || []).forEach(function(r) {
+        list.push({ supabaseId: r.id, date: r.date, sideOf: r.side_of || null, event: (r.projects && r.projects.name) || '—', al: (r.al && r.al.full_name) || r.al_name_fallback || '' });
+      });
+    } catch (e) { console.warn('Hauptprotokolle nicht geladen:', e); }
+  }
+  _protSideList = list;
+  var cands = protSideCandidates(list, date, protState.editingId);
+  var cur = protState.sideOf;
+  if (cur && !cands.some(function(c) { return c.supabaseId === cur; }))
+    cands.unshift({ supabaseId: cur, event: protSideLabel(cur, list), al: '' });
+  sel.innerHTML = '<option value="">' + (date ? (cands.length ? '— Hauptprotokoll wählen —' : 'Kein Protokoll an diesem Tag') : 'Erst das Datum eintragen') + '</option>' +
+    cands.map(function(c) {
+      return '<option value="' + escapeHtml(c.supabaseId) + '"' + (c.supabaseId === cur ? ' selected' : '') + '>' +
+        escapeHtml(c.event || '—') + (c.al ? ' · AL ' + escapeHtml(c.al) : '') + '</option>';
+    }).join('');
+}
+
 function protRowToEntry(r) {
   var catMap = {};
   (r.protocol_equipments || []).forEach(function(eq) {
@@ -176,6 +256,7 @@ function protRowToEntry(r) {
     plId: r.pl_id || null,
     createdBy: r.created_by || null,
     jobNo: r.job_no || '',
+    sideOf: r.side_of || null,
     totalCost: (Number(r.total_cost) || 0).toFixed(2).replace('.', ',') + ' €',
     transports: (r.protocol_transports || []).map(function(t) {
       // hours stays null for rows saved before driver hours existed → no driver cost on recalc
@@ -965,9 +1046,9 @@ function protSectionStatus(state, basis, opened) {
   var cats = state.categories || {};
   return {
     basis: !!(basis.event && basis.date && basis.alId),
-    transport: (state.transports || []).length > 0 || !!opened.transport,
+    transport: !!state.sideOf || (state.transports || []).length > 0 || !!opened.transport,
     equipment: Object.keys(cats).every(function(k) { return !cats[k].active || !!cats[k].status; }),
-    personal: (state.personnel || []).some(function(p) { return p.start && p.end; }),
+    personal: !!state.sideOf || (state.personnel || []).some(function(p) { return p.start && p.end; }),
     vorkommnisse: true,
     unterschrift: !!state.signature
   };
@@ -982,7 +1063,8 @@ function renderProtSectionNav() {
   var nav = document.getElementById('prot-section-nav');
   if (!nav) return;
   var st = protSectionStatus(protState, protBasisValues(), { transport: protTransportOpened });
-  nav.innerHTML = PROT_SECTIONS.map(function(s) {
+  var side = !!protState.sideOf || protSideOn();
+  nav.innerHTML = PROT_SECTIONS.filter(function(s) { return !side || (s[0] !== 'transport' && s[0] !== 'personal'); }).map(function(s) {
     return '<button type="button" class="ui-chip' + (st[s[0]] ? ' ui-chip-on' : '') + '" onclick="scrollProtSection(\'' + s[0] + '\')">' +
       (st[s[0]] ? uiIcon('check') : '') + s[1] + '</button>';
   }).join('');
@@ -1052,6 +1134,7 @@ function saveProtDraft() {
     signature: protState.signature,
     editingId: protState.editingId || null,
     editingLocalId: protState.editingLocalId || null,
+    sideOf: protState.sideOf || null,
     savedAt: new Date().toISOString()
   };
   localStorage.setItem('luebbert_protokoll_draft', JSON.stringify(data));
@@ -1069,7 +1152,7 @@ function protDraftOwner() {
 
 // Empties the form state and fields without touching localStorage (used when a foreign draft is discarded)
 function resetProtFormState() {
-  protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null, editingId: null, editingLocalId: null, signature: null };
+  protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null, editingId: null, editingLocalId: null, signature: null, sideOf: null };
   protOpenRows = {};
   ['prot-event', 'prot-location', 'prot-job', 'prot-date', 'prot-damages', 'prot-incidents', 'prot-feedback', 'prot-al', 'prot-pl'].forEach(function(id) {
     var el = document.getElementById(id);
@@ -1114,6 +1197,8 @@ function loadProtDraft() {
     protState.signature = data.signature || null;
     protState.editingId = data.editingId || null;
     protState.editingLocalId = data.editingLocalId || null;
+    protState.sideOf = data.sideOf || null;
+    renderProtSide();
     return true;
   } catch(e) { console.error("Error loading draft", e); return false; }
 }
@@ -1145,6 +1230,10 @@ function clearProtForm(skipConfirm) {
   calcProtCosts();
   protState.editingId = null;
   protState.editingLocalId = null;
+  protState.sideOf = null;
+  var sideSw = document.getElementById('prot-side-on');
+  if (sideSw) sideSw.checked = false;
+  renderProtSide();
 }
 
 // Rows that Senden would skip (no start or no end) although someone filled them in; untouched blank rows don't count
@@ -1179,12 +1268,14 @@ function protLongerThanAl(personnel, alId) {
 
 // ── PROTOKOLL SAVE (replaces PDF Export) ──
 async function saveProtokoll() {
-  var missing = protIncompleteNames(protState.personnel);
+  var side = protState.sideOf || null;
+  if (protSideOn() && !side) { showToast('Bitte das Hauptprotokoll auswählen, bei dem dieser Zusatzauftrag mitlief.', 'danger'); return; }
+  var missing = side ? [] : protIncompleteNames(protState.personnel);
   if (missing.length && !confirm('Ohne Start- oder Endzeit: ' + missing.join(', ') + '.\n\n' +
       (missing.length === 1 ? 'Diese Person wird' : 'Diese Personen werden') + ' nicht mitgespeichert und fehlen bei den Stunden. Trotzdem senden?')) return;
   // Reason goes into "Vorkommnisse" (mail, PDF, dashboard); once there, a resend doesn't ask again
   var incEl = document.getElementById('prot-incidents');
-  var longer = protLongerThanAl(protState.personnel,
+  var longer = side ? [] : protLongerThanAl(protState.personnel,
     protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, appUsers.length > 0));
   if (longer.length && incEl && (incEl.value || '').indexOf(PROT_LONGER_THAN_AL) === -1) {
     var why = prompt(longer.join(', ') + (longer.length === 1 ? ' hat' : ' haben') +
@@ -1228,6 +1319,7 @@ async function saveProtokoll() {
     categories: protState.categories,
     totalCost: document.getElementById('prot-total-cost').textContent + ' €'
   };
+  data = protApplySide(data, side);
 
   showToast('Speichere & Sende an Server...', 'info');
   var btn = document.querySelector('#page-protokoll .ui-actionbar .ui-btn-primary');
@@ -1255,6 +1347,7 @@ async function saveProtokoll() {
     alId: data.alId || null,
     plId: data.plId || null,
     jobNo: data.jobNo || '',
+    sideOf: data.sideOf || null,
     // Author stays as first saved; an edit by someone else does not take it over
     createdBy: (protState.editingLocalId && (archive.find(x => x.id === protState.editingLocalId) || {}).createdBy) ||
       (!isUpdate && typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null),
@@ -1408,6 +1501,7 @@ async function syncProtokollToSupabase(data, targetId, out) {
     };
     // Only when the caller knows the number (a retry of an entry saved before the field existed must not clear it)
     if (data.jobNo !== undefined) protPayload.job_no = (protJobNoValid(data.jobNo) && protJobNo(data.jobNo)) || null;
+    if (data.sideOf !== undefined) protPayload.side_of = data.sideOf || null;
 
     // Server signatures are not kept in localStorage (see mergeProtHistory): an edit loaded without one
     // must not overwrite the stored signature with null
@@ -1417,6 +1511,10 @@ async function syncProtokollToSupabase(data, targetId, out) {
     var protId = null;
     if (editId) {
       var { data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', editId).select('id');
+      if (upErr && /side_of/.test(upErr.message || '') && !protPayload.side_of) {
+        delete protPayload.side_of;
+        ({ data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', editId).select('id'));
+      }
       if (upErr) throw upErr;
       // RLS can silently match 0 rows instead of erroring — treat that as a failure
       if (!upData || upData.length === 0) throw new Error('Update abgelehnt – fehlende Berechtigung auf dem Server (protocols).');
@@ -1433,6 +1531,10 @@ async function syncProtokollToSupabase(data, targetId, out) {
       var insPayload = Object.assign({ created_by: data.createdBy || ((typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null) }, protPayload);
       var { data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single();
       // Column not migrated yet: save without it rather than lose the protocol
+      if (protError && /side_of/.test(protError.message || '') && !insPayload.side_of) {
+        delete insPayload.side_of;
+        ({ data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single());
+      }
       if (protError && /created_by/.test(protError.message || '')) {
         delete insPayload.created_by;
         ({ data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single());
@@ -1793,6 +1895,7 @@ function renderProtHistoryList() {
     var d = /^(\d{4})-(\d{2})-(\d{2})/.exec(e.date || '');
     var id = jsAttrArg(e.id);
     var pills = '<span class="ui-pill ui-pill-info">' + escapeHtml(e.action || '—') + '</span>' +
+      (e.sideOf ? ' <span class="ui-pill">Zusatz zu ' + escapeHtml(protSideLabel(e.sideOf, archive)) + '</span>' : '') +
       (e.synced === false || !e.synced
         ? ' <span class="ui-pill ui-pill-warn" role="button" title="Tippen zum Synchronisieren" onclick="event.stopPropagation();retrySyncAllProtocols()">nicht synchronisiert</span>'
         : (e.mailed === false ? ' <span class="ui-pill ui-pill-warn">Mail ausstehend</span>' : ''));
@@ -1917,6 +2020,8 @@ function loadProtFromHistory(id) {
   
   protState.editingLocalId = id;
   protState.editingId = entry.supabaseId || null;
+  protState.sideOf = entry.sideOf || null;
+  renderProtSide();
   if (document.getElementById('prot-job')) document.getElementById('prot-job').value = entry.jobNo || '';
 
   saveProtDraft();
@@ -1970,7 +2075,9 @@ function buildProtPdfDoc(entry, opts) {
     feedback: pdfStr(entry.feedback, '—'),
     transports: entry.transports || [], personnel: entry.personnel || [],
     categories: entry.categories || {},
-    totalCost: pdfStr(entry.totalCost, '0,00 €')
+    totalCost: pdfStr(entry.totalCost, '0,00 €'),
+    jobNo: entry.jobNo || '',
+    side: entry.sideOf ? pdfStr((opts && opts.sideLabel) || protSideLabel(entry.sideOf, JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]')), 'Hauptprotokoll') : ''
   };
   var savedProtState = protState;
   protState = { transports: data.transports, personnel: data.personnel, categories: data.categories, signature: entry.signature || null };
@@ -1995,7 +2102,15 @@ function buildProtPdfDoc(entry, opts) {
   doc.setFont('helvetica','bold'); doc.text('PL:', ml+80, y+24); doc.setFont('helvetica','normal'); doc.text(data.pl, ml+100, y+24);
   if (pdfJob) { doc.setFont('helvetica','bold'); doc.text('Projekt-Nr.:', ml+4, y+30); doc.setFont('helvetica','normal'); doc.text(pdfJob, ml+25, y+30); }
   y += pdfJob ? 46 : 40;
+  if (data.side) {
+    doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text('Zusatzauftrag im Zuge von ' + data.side, ml, y);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(110);
+    doc.text('Personal, Transport und Kosten stehen im Hauptprotokoll.', ml, y + 5); doc.setTextColor(0);
+    y += 13;
+  }
 
+  if (!data.side) {
   // Transports
   doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Logistik & Transport', ml, y); y += 6;
   if (!data.transports.length) {
@@ -2010,6 +2125,7 @@ function buildProtPdfDoc(entry, opts) {
     }); y += 4;
   }
 
+  } // end transports (not on a Zusatz)
   // Categories
   doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Equipment & Gewerke', ml, y); y += 6;
   var activeCats = PROT_CATEGORIES_CONFIG.filter(function(c){return data.categories[c.id] && data.categories[c.id].active;});
@@ -2042,6 +2158,7 @@ function buildProtPdfDoc(entry, opts) {
   }); y += 4;
 
   // Personnel
+  if (!data.side) {
   doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Personal', ml, y); y += 6;
   if (!data.personnel.length) {
     doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Keine Personaldaten.', ml, y); y += 8;
@@ -2061,6 +2178,7 @@ function buildProtPdfDoc(entry, opts) {
       y+=8; if(y>270){doc.addPage();y=20;}
     }); y += 4;
   }
+  } // end personnel (not on a Zusatz)
 
   // Incidents (free text → wrapped, can span pages)
   y += 4; if (y > 260) { doc.addPage(); y = 20; }
@@ -2070,7 +2188,7 @@ function buildProtPdfDoc(entry, opts) {
   y = pdfWrappedRow(doc, 'Vorkommnisse:', data.incidents, ml, ml+40, cw-40, y, 4.5, 280);
   y = pdfWrappedRow(doc, 'Feedback:', data.feedback, ml, ml+40, cw-40, y, 4.5, 280); y += 6;
 
-  if (!opts || opts.costs !== false) {
+  if ((!opts || opts.costs !== false) && !data.side) {
   // Costs, itemized with the same rules as calcProtCosts (custom rates, holiday) so the lines add up to the total
   if (y > 250) { doc.addPage(); y = 20; }
   doc.setDrawColor(24,95,165); doc.setLineWidth(0.5); doc.line(ml,y,ml+cw,y); y += 8;

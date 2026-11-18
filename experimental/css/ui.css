@@ -485,3 +485,10 @@ button.opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset:
 /* Einsätze ohne Protokoll: "Kein Protokoll nötig" under the title, marked ones struck through */
 .dash-waive-link { padding: 4px 0 0; font-size: 12px; text-align: left; }
 .dash-waived-title { text-decoration: line-through; opacity: 0.7; }
+
+/* Zusatzauftrag: switch under AL/PL; on a Zusatz the crew, transport and cost parts are not filled in */
+.prot-side { margin-top: 12px; }
+.prot-side #prot-side-pick { margin-top: 8px; }
+#page-protokoll.prot-side-mode #prot-sec-transport,
+#page-protokoll.prot-side-mode #prot-sec-personal,
+#page-protokoll.prot-side-mode .ui-actionbar-info { display: none; }
