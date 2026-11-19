@@ -211,6 +211,7 @@ function ordnerGoBack() {
 function closeOrdnerDetail() {
   aktuellerOrdner = null;
   ordnerFiles = [];
+  _pdfWarm = { folder: null, files: {}, ready: {} };
   var listView = document.getElementById('ordner-list-view');
   var detailView = document.getElementById('ordner-detail-view');
   if (listView) listView.style.display = 'block';
@@ -257,6 +258,65 @@ async function fetchOrdnerFiles(folderId) {
   if (error) { console.error('Files fetch:', error); showToast('Fehler beim Laden.', 'danger'); return; }
   ordnerFiles = data || [];
   renderOrdnerFiles(ordnerFiles);
+  ordnerWarmPdfs(folderId, ordnerFiles);
+}
+
+// ── PDF warm-up ──
+// Drawing a page of a big Aufbauplan takes seconds on a phone (the drawing itself, not its size), so the PDFs of the opened
+// folder are downloaded and page 1 is drawn in the background; a tap then shows it at once. Memory only (private files
+// never go to the disk cache), only the current folder, at most 3 files of up to 3 MB, never with "Datensparen".
+var ORDNER_WARM_MAX = 3, ORDNER_WARM_BYTES = 3 * 1024 * 1024;
+var _pdfWarm = { folder: null, files: {}, ready: {} };
+
+// Which files to warm: PDFs within the size limit, plans first ("Aufbau", "Plan", "Skizze"), then by list order
+function ordnerWarmPick(files, max, maxBytes) {
+  var pdfs = (files || []).filter(function(f) {
+    return ordnerViewerKind(f.file_type, f.name) === 'pdf' && (!f.file_size_bytes || f.file_size_bytes <= maxBytes);
+  });
+  var plan = function(f) { return /aufbau|plan|skizze|grundriss|bestuhlung/i.test(f.name || '') ? 0 : 1; };
+  return pdfs.map(function(f, i) { return { f: f, i: i }; })
+    .sort(function(a, b) { return plan(a.f) - plan(b.f) || a.i - b.i; })
+    .slice(0, max).map(function(x) { return x.f; });
+}
+
+// Width of the page bitmap: twice the fit width at screen density (drawing costs the same, zoom up to 2x needs no redraw)
+function ordnerPdfRenderWidth(fitW, zoom, dpr) {
+  var need = Math.min(fitW * zoom * Math.min(dpr || 1, 2), 3000);
+  return { need: Math.floor(need), draw: Math.floor(Math.min(Math.max(need, fitW * Math.min(dpr || 1, 2) * 2), 3000)) };
+}
+
+function ordnerWarmPdfs(folderId, files) {
+  var conn = navigator.connection;
+  if (conn && conn.saveData) return;
+  if (_pdfWarm.folder !== folderId) _pdfWarm = { folder: folderId, files: {}, ready: {} };
+  var warm = _pdfWarm, chain = Promise.resolve();
+  ordnerWarmPick(files, ORDNER_WARM_MAX, ORDNER_WARM_BYTES).forEach(function(f) {
+    if (warm.files[f.id]) return;
+    // one after the other: the first plan is ready soonest and the phone is not flooded
+    warm.files[f.id] = chain = chain.then(function() { return _pdfWarm === warm ? ordnerWarmOne(f) : null; })
+      .then(function(v) { if (v) warm.ready[f.id] = v; });
+  });
+}
+
+async function ordnerWarmOne(f) {
+  try {
+    var url = await signedProjectFileUrl(f.file_url);
+    if (!url) return null;
+    var res = await fetch(url);
+    if (!res.ok) return null;
+    var buf = await res.arrayBuffer();
+    var pdfjs = await loadPdfJs();
+    var pdf = await pdfjs.getDocument({ data: buf.slice(0) }).promise; // the worker takes over the copy it gets
+    var page = await pdf.getPage(1);
+    var fitW = Math.max(200, Math.min(window.innerWidth || 390, 1000) - 16);
+    var w = Math.min(ordnerPdfRenderWidth(fitW, 1, window.devicePixelRatio).draw, 2000); // up to 3 kept in memory: phone size is enough, a wide screen redraws once
+    var vp = page.getViewport({ scale: w / page.getViewport({ scale: 1 }).width });
+    var c = document.createElement('canvas');
+    c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+    await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+    pdf.destroy();
+    return { url: url, buf: buf, preview: c };
+  } catch (e) { console.warn('PDF vorladen:', e); return null; }
 }
 
 function renderOrdnerFiles(list) {
@@ -888,9 +948,10 @@ async function openOrdnerFileById(id) {
   if (!f || _ordnerOpening) return;
   _ordnerOpening = true;
   try {
-    var url = await signedProjectFileUrl(f.file_url);
+    var warm = _pdfWarm.ready[id] || null; // still loading: open the normal way instead of waiting behind the queue
+    var url = warm ? warm.url : await signedProjectFileUrl(f.file_url);
     if (!url) { showToast('Datei konnte nicht geöffnet werden'); return; }
-    openFileViewer(url, f.name, f.file_type || '');
+    openFileViewer(url, f.name, f.file_type || '', warm);
   } finally { _ordnerOpening = false; }
 }
 
@@ -903,7 +964,7 @@ function ordnerViewerKind(mimeType, url) {
   return 'file';
 }
 
-function openFileViewer(url, name, mimeType) {
+function openFileViewer(url, name, mimeType, warm) {
   var modal = document.getElementById('produkt-viewer-modal');
   var titleEl = document.getElementById('viewer-title');
   var subtitleEl = document.getElementById('viewer-subtitle');
@@ -928,7 +989,7 @@ function openFileViewer(url, name, mimeType) {
     if (isImage) {
       mountZoomViewer(body, { kind: 'image', url: url });
     } else if (isPdf) {
-      mountZoomViewer(body, { kind: 'pdf', url: url });
+      mountZoomViewer(body, { kind: 'pdf', url: url, data: warm && warm.buf ? warm.buf.slice(0) : null, preview: warm && warm.preview });
     } else {
       body.innerHTML = '<div style="color:#fff;padding:40px;text-align:center;">' +
         '<div style="font-size:64px;margin-bottom:16px;">' + fileIcon(mimeType, name) + '</div>' +
@@ -1057,8 +1118,17 @@ function mountZoomViewer(body, opts) {
 
   // PDF
   setFitWidth();
+  // A warmed-up copy: page 1 shows its finished drawing at once, the file is not downloaded again
+  if (opts.preview) {
+    var pre = document.createElement('canvas');
+    pre.style.cssText = 'width:100%;height:auto;display:block;margin:0 0 8px;background:#fff;';
+    pre.width = opts.preview.width; pre.height = opts.preview.height;
+    pre.getContext('2d').drawImage(opts.preview, 0, 0);
+    content.appendChild(pre);
+    status.style.display = 'none';
+  }
   loadPdfJs().then(function(pdfjs) {
-    return pdfjs.getDocument({ url: opts.url }).promise;
+    return pdfjs.getDocument(opts.data ? { data: opts.data } : { url: opts.url }).promise;
   }).then(function(pdf) {
     if (!alive()) return;
     status.style.display = 'none';
@@ -1067,24 +1137,24 @@ function mountZoomViewer(body, opts) {
       (function(num) {
         chain = chain.then(function() { return pdf.getPage(num); }).then(function(page) {
           if (!alive()) return;
+          if (num === 1 && pre) { zv.pages.push({ page: page, canvas: pre, drawnW: pre.width }); return; }
           var canvas = document.createElement('canvas');
           canvas.style.cssText = 'width:100%;height:auto;display:block;margin:0 0 8px;background:#fff;';
           content.appendChild(canvas);
-          zv.pages.push({ page: page, canvas: canvas });
+          zv.pages.push({ page: page, canvas: canvas, drawnW: 0 });
         });
       })(n);
     }
     zv.rerender = function() {
       var gen = ++zv.renderGen;
-      var dpr = Math.min(window.devicePixelRatio || 1, 2);
-      var cssW = zv.fitW * zv.zoom;
-      // cap backing-store width to keep memory sane on phones
-      var targetW = Math.min(cssW * dpr, 3000);
+      // cap backing-store width to keep memory sane on phones; a page drawn sharp enough already is not drawn again
+      var w = ordnerPdfRenderWidth(zv.fitW, zv.zoom, window.devicePixelRatio);
       zv.pages.reduce(function(p, item) {
         return p.then(function() {
           if (!alive() || gen !== zv.renderGen) return;
+          if (item.drawnW >= w.need) return;
           var vp0 = item.page.getViewport({ scale: 1 });
-          var vp = item.page.getViewport({ scale: targetW / vp0.width });
+          var vp = item.page.getViewport({ scale: w.draw / vp0.width });
           var c = item.canvas;
           // render offscreen first so the old bitmap stays visible (no flicker)
           var off = document.createElement('canvas');
@@ -1093,6 +1163,7 @@ function mountZoomViewer(body, opts) {
             if (!alive() || gen !== zv.renderGen) return;
             c.width = off.width; c.height = off.height;
             c.getContext('2d').drawImage(off, 0, 0);
+            item.drawnW = off.width;
           });
         });
       }, Promise.resolve());

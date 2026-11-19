@@ -1,4 +1,6 @@
-const CACHE = 'stundenzettel-exp-59e33f1';
+const CACHE = 'stundenzettel-exp-6970874';
+// Product media, shared by the live app and /experimental/ (same origin, same files)
+const MEDIA_CACHE = 'luebbert-media-v1';
 // Loaded by the app only when needed (utils.js loadLib), so index.html doesn't name them: precached here for offline use
 const LAZY_ASSETS = ['vendor/jspdf-2.5.1.umd.min.js', 'vendor/pdfjs-3.11.174/pdf.min.js', 'vendor/pdfjs-3.11.174/pdf.worker.min.js',
   'vendor/chart-4.6.1.umd.min.js'];
@@ -50,7 +52,7 @@ self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys => {
       // The /experimental/ test build (own SW, same origin) keeps its 'stundenzettel-exp-*' cache: never delete it here
-      const oldCaches = keys.filter(k => k !== CACHE && k.startsWith('stundenzettel-exp-'));
+      const oldCaches = keys.filter(k => k !== CACHE && k.startsWith('stundenzettel-exp-') && k !== MEDIA_CACHE);
       return Promise.all(oldCaches.map(k => caches.delete(k)))
         .then(() => self.clients.claim())
         .then(() => {
@@ -96,6 +98,18 @@ self.addEventListener('fetch', e => {
     return;
   }
 
+  // Product photos and Aufbau-Dateien (public buckets, a new upload gets a new file name): kept across app versions,
+  // so the product list doesn't download them again on every visit. Private project files (signed links) never.
+  if (e.request.method === 'GET' && /\/storage\/v1\/object\/public\/product-(images|pdfs)\//.test(e.request.url)) {
+    // <img> asks without CORS (opaque, unreadable, padded to megabytes in the cache): fetch it with CORS instead
+    const key = e.request.url;
+    e.respondWith(caches.open(MEDIA_CACHE).then(c => c.match(key).then(hit => hit || fetch(key, { mode: 'cors', credentials: 'omit' }).then(res => {
+      if (res.ok) c.put(key, res.clone()).then(() => trimMedia(c));
+      return res;
+    }, () => fetch(e.request)))));
+    return;
+  }
+
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;
@@ -122,6 +136,12 @@ self.addEventListener('fetch', e => {
     })
   );
 });
+
+// shortcut: drops the oldest entries by insertion order once over 150 files (~60 MB), no LRU; enough for one product catalogue
+const MEDIA_MAX = 150;
+function trimMedia(c) {
+  return c.keys().then(keys => Promise.all(keys.slice(0, Math.max(0, keys.length - MEDIA_MAX)).map(k => c.delete(k))));
+}
 
 self.addEventListener('message', e => {
   if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
