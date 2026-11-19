@@ -330,3 +330,15 @@ test('ordnerPdfRenderWidth: draws twice the fit width, so zoom up to 2x needs no
   assert.deepEqual(plain(ctx.ordnerPdfRenderWidth(390, 3, 3)), { need: 2340, draw: 2340 }); // dpr capped at 2
   assert.equal(ctx.ordnerPdfRenderWidth(1000, 6, 2).draw, 3000);
 });
+
+test('zvTap / zvIsDoubleTap: only two short, unmoved taps close together zoom; swipes while panning never do', () => {
+  const t = (x, y, t0, extra) => Object.assign({ x, y, t: t0, moved: false, multi: false }, extra);
+  const a = ctx.zvTap(t(100, 100, 0), 80), b = ctx.zvTap(t(105, 102, 200), 260);
+  assert.ok(ctx.zvIsDoubleTap(a, b));
+  assert.equal(ctx.zvTap(t(100, 100, 0, { moved: true }), 80), null);   // a swipe is no tap
+  assert.equal(ctx.zvTap(t(100, 100, 0, { multi: true }), 80), null);   // end of a pinch
+  assert.equal(ctx.zvTap(t(100, 100, 0), 500), null);                   // held too long
+  assert.ok(!ctx.zvIsDoubleTap(a, ctx.zvTap(t(100, 100, 400), 450)));   // too late
+  assert.ok(!ctx.zvIsDoubleTap(a, ctx.zvTap(t(300, 100, 150), 200)));   // too far apart
+  assert.ok(!ctx.zvIsDoubleTap(null, b));
+});
