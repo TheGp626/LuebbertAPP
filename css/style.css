@@ -1192,10 +1192,11 @@ canvas#historyChart {
 .wp-time span { font-size: 11px; color: var(--text2); margin-top: 2px; line-height: 1.25; overflow-wrap: anywhere; hyphens: auto; }
 .wp-time-fuzzy b { font-size: 13px; font-weight: 600; color: var(--text2); line-height: 1.25; overflow-wrap: anywhere; hyphens: auto; }
 .wp-main { flex: 1; min-width: 0; }
-.wp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
-.wp-venue { font-size: 15px; font-weight: 600; line-height: 1.3; min-width: 0; overflow-wrap: anywhere; }
+/* A long "geändert: …" pill must not squeeze the venue to one letter per line: the venue keeps ~9em, the badges wrap below */
+.wp-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 4px 8px; }
+.wp-venue { flex: 1 1 9em; font-size: 15px; font-weight: 600; line-height: 1.3; min-width: 0; overflow-wrap: break-word; }
 .wp-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; box-shadow: 0 0 0 0.5px var(--border2); }
-.wp-badges { display: flex; align-items: center; gap: 4px; flex-shrink: 0; color: var(--text2); }
+.wp-badges { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; max-width: 100%; color: var(--text2); }
 .wp-sub { font-size: 13px; color: var(--text2); margin-top: 2px; line-height: 1.4; }
 .wp-sub .wp-ico { width: 14px; height: 14px; vertical-align: -2px; }
 .wp-sub-inline { font-size: 13px; font-weight: 400; color: var(--text2); }
