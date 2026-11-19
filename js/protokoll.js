@@ -50,6 +50,7 @@ async function fetchAppUsers() {
     });
     renderProtPersonnel();
     populateAlPlSelects();
+    if (typeof loadMinorIds === 'function') loadMinorIds(appUsers.map(function(u) { return u.id; }));
     // A restored draft was calculated before the rates were known
     calcProtCosts();
   }
@@ -641,7 +642,7 @@ function protPlanPersonnel(shift, users) {
       name: u ? (u.full_name || u.email) : p.name, start: start, end: end, pause: '0', rating: null, isStar: false };
     if (u) row.fest = !!u.is_fest;
     var a = timeToMins(start), b = timeToMins(end);
-    if (a !== null && b !== null) row.pause = String(autoPause((b < a ? b + 1440 : b) - a));
+    if (a !== null && b !== null) row.pause = String(autoPause((b < a ? b + 1440 : b) - a, protMinor(row.userId)));
     return row;
   });
   return rows.filter(function(r) { return r.pos === 'AL'; }).concat(rows.filter(function(r) { return r.pos !== 'AL'; }));
@@ -908,25 +909,25 @@ function updateProtPersonnel(idx, field, val) {
   }
   if (field === 'pos' || field === 'isTemp') renderProtPersonnel();
 
-  // Auto-pause calculation
-  if (field === 'start' || field === 'end') {
+  // Auto-pause calculation (another person may be under 18 → other break)
+  if (field === 'start' || field === 'end' || field === 'userId') {
     var v = timeToMins(protState.personnel[idx].start);
     var b = timeToMins(protState.personnel[idx].end);
     var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
     if (v !== null && b !== null && effB > v) {
-      protState.personnel[idx].pause = autoPause(effB - v);
+      protState.personnel[idx].pause = autoPause(effB - v, protMinor(protState.personnel[idx].userId));
       renderProtPersonnelAfterPicker();
     }
     
     // Time sync: if AL (index 0) changes, update others if they are empty or matched old AL time
-    if (idx === 0) {
+    if (idx === 0 && field !== 'userId') {
       protState.personnel.forEach(function(p, i) {
         if (i === 0) return;
         if (!p.start || (field === 'start' && p.start === oldStart)) p.start = protState.personnel[0].start;
         if (!p.end || (field === 'end' && p.end === oldEnd)) p.end = protState.personnel[0].end;
         var pv = timeToMins(p.start), pb = timeToMins(p.end);
         var effPb = (pb !== null && pv !== null && pb < pv) ? pb + 1440 : pb;
-        if (pv !== null && pb !== null && effPb > pv) p.pause = autoPause(effPb - pv);
+        if (pv !== null && pb !== null && effPb > pv) p.pause = autoPause(effPb - pv, protMinor(p.userId));
       });
       renderProtPersonnelAfterPicker();
     }
@@ -1305,6 +1306,18 @@ function protIncompleteNames(personnel) {
 // People who end later than the AL's own row (rule: the AL must explain why). No AL row or AL time → nobody.
 // An end before the start counts as the next day (over midnight); a row starting more than 12 h before the AL's
 // start belongs to the night after it (AL 18:00–02:00, MA 00:30–03:00).
+// Person under 18 (utils.js, loaded with the users)
+function protMinor(userId) { return typeof isMinorUser === 'function' && isMinorUser(userId); }
+
+// Rows of people under 18 that break Jenni's rules (6–20 Uhr, at most 8 h, break) → ['Name: nach 20 Uhr, …']
+function protMinorWarnings(personnel) {
+  if (typeof minorShiftIssues !== 'function') return [];
+  return (personnel || []).filter(function(p) { return p.userId && !p.isTemp && protMinor(p.userId) && p.start && p.end; }).map(function(p) {
+    var issues = minorShiftIssues(p.start, p.end, parseInt(p.pause, 10) || 0);
+    return issues.length ? (p.name || 'Unbekannt') + ': ' + issues.join(', ') : null;
+  }).filter(Boolean);
+}
+
 var PROT_LONGER_THAN_AL = 'Länger als AL';
 function protLongerThanAl(personnel, alId) {
   var alStart = null;
@@ -1342,6 +1355,8 @@ async function saveProtokoll() {
     incEl.value = PROT_LONGER_THAN_AL + ' (' + longer.join(', ') + '): ' + why.trim() +
       (incEl.value.trim() && incEl.value.trim() !== 'nein' ? '\n' + incEl.value.trim() : '');
   }
+  var minorWarn = protMinorWarnings(protState.personnel);
+  if (minorWarn.length && !confirm('Unter 18:\n' + minorWarn.join('\n') + '\n\nErlaubt sind nur 6–20 Uhr und höchstens 8 Std am Tag. Trotzdem senden?')) return;
   var jobNo = protJobNo((document.getElementById('prot-job') || {}).value);
   if (!protJobNoValid(jobNo)) { showToast('Die Projektnummer sieht so aus: 26-0447 (oder mit Auftrag: 26-0447.01). Bitte korrigieren oder leer lassen.', 'danger'); return; }
   calcProtCosts(); // the shown total may be stale (restored draft, rates loaded late)

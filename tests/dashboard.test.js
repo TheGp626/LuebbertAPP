@@ -860,3 +860,12 @@ test('dashShiftNetMins: start equal to end is no shift (no 3 h floor), short shi
   assert.equal(ctx.dashShiftNetMins({ start_time: '08:00', end_time: '09:00', pause_mins: 0 }), 180);
   assert.equal(ctx.dashShiftNetMins({ start_time: '22:00', end_time: '06:00', pause_mins: 30 }), 450);
 });
+
+test('autoInternalRate: Minijob/Midijob +25 %, others none', () => {
+  const f = run('autoInternalRate');
+  assert.equal(f('20', 'Minijob'), 25);
+  assert.equal(f(17.5, 'Midijob'), 21.88);
+  assert.equal(f('20', 'Fest'), null);
+  assert.equal(f('20', 'Rechnung'), null);
+  assert.equal(f('', 'Minijob'), null);
+});

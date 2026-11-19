@@ -201,7 +201,7 @@ test('login refreshes the Stundenzettel name label (shared device: no stale name
 
 // ── Bug round 2026-10-30 ──
 test('weekToEditorState: a stored Mo–Mi week fills the editor (buildDays must not start empty)', () => {
-  const { weekToEditorState } = load(['weekToEditorState', 'editorDept'], ['timeToMins', 'autoPause']);
+  const { weekToEditorState } = load(['weekToEditorState', 'editorDept', 'ownIsMinor'], ['timeToMins', 'autoPause']);
   const w = week('MA frei', [[sh('08:00', '16:00', 'MA frei', { sig: 'SIG', ort: 'Halle' })], [sh('09:00', '17:00', 'MA frei')], [sh('10:00', '14:00', undefined), sh('15:00', '18:00', 'AL frei', { isProtocol: true, protocolId: 'p1' })], [], [], [], []]);
   const st = weekToEditorState(w, 'MA frei');
   assert.equal(st.shiftCounts[0], 1);
@@ -309,7 +309,7 @@ test('weekIsBlind: a local save made without having seen the server', () => {
 });
 
 test('weekToEditorState: shifts of a mixed-dept week come back sorted by start time, signatures follow', () => {
-  const { weekToEditorState, mergeWeekParts, buildWeekEntries } = load(['weekToEditorState', 'editorDept', 'mergeWeekParts', 'buildWeekEntries', 'splitWeekByDepts', 'weekPartKey'], ['timeToMins', 'autoPause']);
+  const { weekToEditorState, mergeWeekParts, buildWeekEntries } = load(['weekToEditorState', 'editorDept', 'ownIsMinor', 'mergeWeekParts', 'buildWeekEntries', 'splitWeekByDepts', 'weekPartKey'], ['timeToMins', 'autoPause']);
   const w = week('AL frei', [[sh('12:00', '18:00', 'AL frei', { sig: 'S-AL' }), sh('07:00', '10:00', 'Lager')], [], [], [], [], [], []]);
   const st = weekToEditorState(mergeWeekParts(buildWeekEntries(w), '2026-W44'), 'MA frei');
   assert.deepEqual(st.shiftValues[0].map(s => [s.von, s.dept]), [['07:00', 'Lager'], ['12:00', 'AL frei']]);
@@ -331,7 +331,7 @@ test('weekToEditorState: old "MA frei" and new "AL Rechnung" show as function on
   const vm = require('vm'), c = vm.createContext({});
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/formulas.js'), 'utf8'), c);
   global.splitPosition = c.splitPosition;
-  const { weekToEditorState } = load(['weekToEditorState', 'editorDept'], ['timeToMins', 'autoPause']);
+  const { weekToEditorState } = load(['weekToEditorState', 'editorDept', 'ownIsMinor'], ['timeToMins', 'autoPause']);
   const st = weekToEditorState(week('MA frei', [[sh('08:00', '12:00', 'MA frei'), sh('13:00', '17:00', 'AL Rechnung'), sh('18:00', '20:00', 'Lager')], [], [], [], [], [], []]), 'MA');
   assert.deepEqual(st.shiftValues[0].map(s => s.dept), ['MA', 'AL', 'Lager']);
   delete global.splitPosition;
@@ -390,7 +390,7 @@ test('weekBillingSplit: pay per billing month, split day by day at the cutoff li
 });
 
 test('serverShiftPause: the stored pause wins (also 0), automatic pause only when none is stored', () => {
-  const f = new Function(gu('timeToMins') + gu('autoPause') + gs('serverShiftPause') + '; return serverShiftPause;')();
+  const f = new Function(gu('timeToMins') + gu('autoPause') + gs('serverShiftPause') + gs('ownIsMinor') + '; return serverShiftPause;')();
   assert.equal(f({ start_time: '16:00:00', end_time: '23:00:00', pause_mins: 0 }), '0');   // AL wrote no pause in the protocol
   assert.equal(f({ start_time: '08:00:00', end_time: '12:00:00', pause_mins: 15 }), '15');
   assert.equal(f({ start_time: '16:00:00', end_time: '23:00:00', pause_mins: null }), '30');

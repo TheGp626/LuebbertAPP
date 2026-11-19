@@ -18,7 +18,7 @@ var APP_SETTINGS_DEFAULTS = {
   billing_cutoff: 20,
   income_limit_minijob: 603,   // default Verdienstgrenze per month by Art der Anstellung (own limit on the person wins)
   income_limit_midijob: 2000,
-  inactive_months: 3,          // „Lange kein Einsatz“: Minijobber without a shift for this many months
+  inactive_months: 2,          // „Lange kein Einsatz“: everyone but Fest without a shift for this many months
   availability_for_all: false,
   department_mail_enabled: true,
   department_mail_test_mode: true,

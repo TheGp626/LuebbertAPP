@@ -180,7 +180,7 @@ function weekToEditorState(w, fallbackDept) {
     st.shiftValues[i] = shs.map(function (sh, s) {
       if (sh.sig) st.shiftSigData[i + '-' + s] = sh.sig;
       var _v = timeToMins(sh.von || ''), _b = timeToMins(sh.bis || '');
-      var _p = (_v !== null && _b !== null) ? autoPause(_b < _v ? _b + 1440 - _v : _b - _v) : 0;
+      var _p = (_v !== null && _b !== null) ? autoPause(_b < _v ? _b + 1440 - _v : _b - _v, ownIsMinor()) : 0;
       return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: _p.toString(), dept: editorDept(sh.dept || fallbackDept), protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
     });
   });
@@ -807,7 +807,7 @@ function calcDay(dayIdx) {
     var von = timeToMins(vonEl.value), bis = timeToMins(bisEl.value);
     var effB = (bis < von) ? bis + 1440 : bis;
     if (von !== null && bis !== null && effB > von) {
-      var raw = effB - von, pause = autoPause(raw), net = Math.max(180, raw - pause);
+      var raw = effB - von, pause = autoPause(raw, ownIsMinor()), net = Math.max(180, raw - pause);
       if (pauseEl) pauseEl.value = pause;
       if (badge) badge.textContent = shiftSummaryLine(vonEl.value, bisEl.value, pause);
       totalMins += net;
@@ -1340,8 +1340,11 @@ function serverShiftPause(sh) {
   if (!isNaN(p) && p >= 0) return String(p);
   var v = timeToMins(((sh && sh.start_time) || '').substring(0, 5)), b = timeToMins(((sh && sh.end_time) || '').substring(0, 5));
   if (v === null || b === null) return '0';
-  return autoPause(b < v ? b + 1440 - v : b - v).toString();
+  return autoPause(b < v ? b + 1440 - v : b - v, ownIsMinor()).toString();
 }
+
+// Logged-in person is under 18 (i_am_minor after the login, mitarbeiter.js)
+function ownIsMinor() { return typeof window !== 'undefined' && !!window.currentUserIsMinor; }
 
 async function syncWeekNow(data, quiet) {
   if (typeof supabaseClient === 'undefined' || !currentUser) return;

@@ -387,6 +387,7 @@ function openEditWorker() {
   document.getElementById('edit-worker-can-drive').checked = !!worker.can_drive;
   document.getElementById('edit-worker-avail').checked = !!worker.availability_enabled;
   loadEditWorkerPlansWeek(worker.id);
+  dashSyncInternal('edit');
   if (typeof mitLoadEditExtras === 'function') mitLoadEditExtras(worker);
   document.getElementById('edit-worker-modal').classList.add('open');
 }
@@ -408,17 +409,38 @@ function dashShiftSaveRole(selected, original, workerType) {
   return positionKey(selected, workerType);
 }
 
+// Minijob/Midijob: Satz intern follows Lohn Conni (+25 %, autoInternalRate) and is not typed. Without a Lohn Conni the
+// stored value stays editable (clearing it would lose it on save). prefix 'edit' = edit sheet, 'new' = add form
+function dashSyncInternal(prefix) {
+  var p = prefix === 'new' ? 'new-user-' : 'edit-worker-';
+  var c = document.getElementById(p + 'rate-conni'), i = document.getElementById(p + 'rate-internal'), t = document.getElementById(p + 'type');
+  if (!c || !i || !t) return;
+  var auto = autoInternalRate(c.value, t.value);
+  i.readOnly = auto !== null;
+  i.title = auto !== null ? 'Automatisch: Lohn Conni + 25 %' : '';
+  if (auto !== null) i.value = auto.toFixed(2);
+  if (prefix !== 'new') renderRoleRatesList();
+}
+
+// Automatic Satz intern of a personal rate row; old "MA frei" rows take the person's type
+function dashRoleRowAuto(r) {
+  var p = splitPosition(r.role), t = p.type || (p.legacy === 'frei' ? (document.getElementById('edit-worker-type') || {}).value : null);
+  return autoInternalRate(r.rate_conni, t);
+}
+
 function renderRoleRatesList() {
   var c = document.getElementById('edit-worker-role-rates');
   if (!c) return;
   c.innerHTML = _editWorkerRoleRates.map(function(r, i) {
+    var auto = dashRoleRowAuto(r);
+    if (auto !== null) r.rate_internal = auto;
     var opts = dashRoleOptions(r.role).map(function(o) {
       return '<option value="' + o + '"' + (r.role === o ? ' selected' : '') + '>' + o + '</option>';
     }).join('');
     return '<div style="display:flex;gap:5px;align-items:center;margin-bottom:4px;">' +
       '<select onchange="updateRoleRateRow(' + i + ',\'role\',this.value)" class="meta-input" style="flex:2;padding:5px 6px;font-size:12px;">' + opts + '</select>' +
       '<input type="number" step="0.5" min="0" placeholder="Conni €/h" value="' + (r.rate_conni || '') + '" oninput="updateRoleRateRow(' + i + ',\'rate_conni\',this.value)" class="meta-input" style="flex:1;padding:5px 6px;font-size:12px;">' +
-      '<input type="number" step="0.5" min="0" placeholder="Intern €/h" value="' + (r.rate_internal || '') + '" oninput="updateRoleRateRow(' + i + ',\'rate_internal\',this.value)" class="meta-input" style="flex:1;padding:5px 6px;font-size:12px;">' +
+      '<input type="number" step="0.5" min="0" placeholder="Intern €/h" id="rr-int-' + i + '" value="' + (r.rate_internal || '') + '"' + (auto !== null ? ' readonly title="Automatisch: Conni + 25 %"' : '') + ' oninput="updateRoleRateRow(' + i + ',\'rate_internal\',this.value)" class="meta-input" style="flex:1;padding:5px 6px;font-size:12px;">' +
       '<button onclick="removeRoleRateRow(' + i + ')" style="color:var(--danger);background:none;border:none;cursor:pointer;font-size:16px;padding:0 4px;">✕</button>' +
     '</div>';
   }).join('');
@@ -437,6 +459,12 @@ function removeRoleRateRow(i) {
 function updateRoleRateRow(i, field, val) {
   if (!_editWorkerRoleRates[i]) return;
   _editWorkerRoleRates[i][field] = (field === 'role') ? val : (parseFloat(val) || null);
+  if (field === 'role') { renderRoleRatesList(); return; }
+  if (field !== 'rate_conni') return;
+  // Typing Lohn Conni: update only the intern field (a re-render would close the keyboard)
+  var auto = dashRoleRowAuto(_editWorkerRoleRates[i]), el = document.getElementById('rr-int-' + i);
+  if (auto !== null) _editWorkerRoleRates[i].rate_internal = auto;
+  if (el) { el.readOnly = auto !== null; if (auto !== null) el.value = auto; }
 }
 
 async function deactivateWorker() {
@@ -479,6 +507,8 @@ async function saveEditWorker() {
   const email = document.getElementById('edit-worker-email').value.trim();
   // Gmail rejects malformed recipients → the protocol mail would be retried forever
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Bitte eine gültige E-Mail-Adresse eingeben.', 'danger'); return; }
+  var extrasErr = typeof mitEditExtrasError === 'function' ? mitEditExtrasError() : null;
+  if (extrasErr) { showToast(extrasErr, 'danger'); return; }
 
   const payload = {
     full_name:          fullName,
@@ -1530,7 +1560,7 @@ async function saveShiftEdit() {
   const endVal   = document.getElementById('shift-edit-end').value;
   const ortVal   = (document.getElementById('shift-edit-ort') || {}).value || '';
   const rawMins  = (timeToMins(endVal) || 0) - (timeToMins(startVal) || 0);
-  let pause      = autoPause(rawMins < 0 ? rawMins + 1440 : rawMins);
+  let pause      = autoPause(rawMins < 0 ? rawMins + 1440 : rawMins, typeof isMinorUser === 'function' && !!dashboardCurrentWorker && isMinorUser(dashboardCurrentWorker.id));
 
   if (!dateVal || !startVal || !endVal) {
     if (typeof showToast === 'function') showToast('Bitte Datum, Von und Bis ausfüllen.', 'danger');
@@ -2231,7 +2261,7 @@ function updateDashPeShift(idx, field, val) {
   // A new row suggests the break from its length until the break was typed by hand
   if ((field === 'start' || field === 'end') && !r.id && !r.pauseTouched && r.start && r.end) {
     var raw = (timeToMins(r.end) || 0) - (timeToMins(r.start) || 0);
-    r.pause = autoPause(raw < 0 ? raw + 1440 : raw);
+    r.pause = autoPause(raw < 0 ? raw + 1440 : raw, typeof isMinorUser === 'function' && isMinorUser(r.userId));
     var el = document.getElementById('pe-sh-pause-' + idx);
     if (el) el.value = r.pause;
   }
