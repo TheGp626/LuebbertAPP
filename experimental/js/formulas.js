@@ -110,6 +110,13 @@ function personCostRate(user, pos) {
     (pos ? personnelRate(pos) || null : null);
 }
 
+// Minijob/Midijob: Satz intern is always Lohn Conni + 25 % (the social security Lübbert pays on top). Other types: null
+var INTERNAL_AUTO_TYPES = ['Minijob', 'Midijob'];
+function autoInternalRate(conni, type) {
+  var c = parseFloat(conni);
+  return INTERNAL_AUTO_TYPES.indexOf(type) !== -1 && c > 0 ? Math.round(c * 125) / 100 : null;
+}
+
 function personnelRate(key) {
   var p = splitPosition(key);
   if (!p.type) return PROT_PERSONNEL_RATES[key] || 0;

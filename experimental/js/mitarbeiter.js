@@ -1,10 +1,11 @@
 /**
  * Mitarbeiter pflegen, Verdienstgrenzen und unter 18 (Spec of 18.11.2026).
- * A: Minijobber without a shift for months → list „Lange kein Einsatz“ (Admin decides: inaktiv / behalten), no push.
+ * A: everyone but Fest without a shift for months (setting, 2) → list „Lange kein Einsatz“ (Admin decides: inaktiv / behalten), no push.
  * B: free-text names from protocols → „Unbekannte Namen“ (zuordnen, neu anlegen, Fremdkraft), remembered spellings.
  * C: default Verdienstgrenze from the Art der Anstellung (settings), own limit wins.
  * D: own Profilbild (voluntary, consent), shown instead of initials; one hint after login, then a dot.
- * E: Haken „unter 18“ (staff_minors): no „Ich kann“ / Annehmen on night work, Admin box for long or late shifts.
+ * E: Haken „unter 18“ (staff_minors + birthday; the server ends it on the 18th birthday): always Minijob, no „Ich kann“ /
+ *    Annehmen on night work, breaks per JArbSchG, warning in the protocol, Admin box for late, long or 40+ h weeks.
  * F: share of the limit next to Meldungen (server: income_shares, no euros), „wenig gearbeitet zuerst“.
  * Pure helpers are exported for tests/mitarbeiter.test.js.
  */
@@ -46,12 +47,12 @@ function mitLastActivity(shifts, planRows, today) {
   return last;
 }
 
-// Active Minijobber (never Gast) whose last activity, or creation day if they never worked, lies before today − months.
-// „Behalten“ (keep_until in the future) keeps someone off the list. Longest ago first.
-function mitInactiveMinijobbers(workers, last, today, months) {
+// Active people paid per Einsatz (every type but Fest, never Gast) whose last activity, or creation day if they never
+// worked, lies before today − months. „Behalten“ (keep_until in the future) keeps someone off the list. Longest ago first.
+function mitInactiveWorkers(workers, last, today, months) {
   var limit = mitAddMonths(today, months);
   return (workers || []).filter(function(w) {
-    return w.is_active !== false && w.role !== 'Gast' && mitType(w) === 'Minijob' && !(w.keep_until && w.keep_until >= today);
+    return w.is_active !== false && w.role !== 'Gast' && mitType(w) !== 'Fest' && !(w.keep_until && w.keep_until >= today);
   }).map(function(w) {
     var l = last[w.id] || null;
     return { id: w.id, name: w.full_name || 'Unbekannt', last: l, since: l || (w.created_at || '').slice(0, 10) || null };
@@ -148,22 +149,52 @@ function mitNightForMinor(start, end, text) {
   return e > 1200;
 }
 
-// Booked shifts of people with the tick that break a rule: before 6 / after 20 Uhr, more than 8 h, too short a pause.
-// → [{ id, user_id, date, start, end, issues: [] }], newest first
+// Rules for someone under 18 (Jenni, JArbSchG): only 6–20 Uhr, at most 8 h work a day, break 30 min over 4,5 h and
+// 60 min over 6 h. → list of problems ('vor 6 Uhr', 'nach 20 Uhr', 'über 8 Std', 'Pause zu kurz'), [] = fine
+function minorShiftIssues(start, end, pause) {
+  var a = mitTimeMins(start), b = mitTimeMins(end), issues = [];
+  if (a === null || b === null) return issues;
+  if (b <= a) b += 1440;
+  var p = pause || 0, net = b - a - p;
+  if (a < 360) issues.push('vor 6 Uhr');
+  if (b > 1200) issues.push('nach 20 Uhr');
+  if (net > 480) issues.push('über 8 Std');
+  if ((net > 360 && p < 60) || (net > 270 && p < 30)) issues.push('Pause zu kurz');
+  return issues;
+}
+
+// Monday of the week of an ISO date
+function mitWeekStart(iso) {
+  var d = new Date(iso + 'T12:00:00Z'), back = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - back);
+  return d.toISOString().slice(0, 10);
+}
+
+// Booked shifts of people with the tick that break a rule (minorShiftIssues), and every shift of a week (Mo–So) with
+// more than 40 h. → [{ id, user_id, date, start, end, issues: [] }], newest first
 function mitMinorIssues(shifts, minorIds, since) {
-  var minor = {};
+  var minor = {}, week = {};
   (minorIds || []).forEach(function(id) { minor[id] = true; });
-  return (shifts || []).filter(function(s) { return minor[s.user_id] && mitShiftDate(s) >= since; }).map(function(s) {
-    var a = mitTimeMins(s.start_time), b = mitTimeMins(s.end_time), issues = [];
-    if (a === null || b === null) return null;
-    if (b <= a) b += 1440;
-    var gross = b - a, pause = s.pause_mins || 0, net = gross - pause;
-    if (a < 360) issues.push('vor 6 Uhr');
-    if (b > 1200) issues.push('nach 20 Uhr');
-    if (net > 480) issues.push('über 8 Std');
-    if ((net > 360 && pause < 60) || (net > 270 && pause < 30)) issues.push('Pause zu kurz');
+  var list = (shifts || []).filter(function(s) {
+    return minor[s.user_id] && mitShiftDate(s) >= since && mitTimeMins(s.start_time) !== null && mitTimeMins(s.end_time) !== null;
+  });
+  list.forEach(function(s) {
+    var a = mitTimeMins(s.start_time), b = mitTimeMins(s.end_time), k = s.user_id + '|' + mitWeekStart(mitShiftDate(s));
+    week[k] = (week[k] || 0) + (b <= a ? b + 1440 : b) - a - (s.pause_mins || 0);
+  });
+  return list.map(function(s) {
+    var issues = minorShiftIssues(s.start_time, s.end_time, s.pause_mins);
+    if (week[s.user_id + '|' + mitWeekStart(mitShiftDate(s))] > 2400) issues.push('Woche über 40 Std');
     return issues.length ? { id: s.id, user_id: s.user_id, date: mitShiftDate(s), start: s.start_time.slice(0, 5), end: s.end_time.slice(0, 5), issues: issues } : null;
   }).filter(Boolean).sort(function(x, y) { return y.date.localeCompare(x.date); });
+}
+
+// The 18th birthday (ISO) has come by `today`
+function mitIsAdult(birth, today) {
+  if (!birth) return false;
+  var p = birth.split('-').map(Number);
+  var b18 = (p[0] + 18) + '-' + String(p[1]).padStart(2, '0') + '-' + String(p[2]).padStart(2, '0');
+  return b18 <= today;
 }
 
 // ── F: Anteil der Grenze ──
@@ -374,7 +405,7 @@ async function mitLoadAdminBoxes(allShifts) {
   Object.keys(show).forEach(function(id) { var el = document.getElementById(id); if (el) el.hidden = !show[id]; });
   if (!manage) return;
   var admin = mitIsAdmin(), none = Promise.resolve({ data: [] });
-  var today = localDateStr(), months = appSetting('inactive_months') || 3, workers = dashboardWorkers || [];
+  var today = localDateStr(), months = appSetting('inactive_months') || 2, workers = dashboardWorkers || [];
   _mit.workers = workers;
   _mit.months = months;
   var res = await Promise.all([
@@ -383,14 +414,15 @@ async function mitLoadAdminBoxes(allShifts) {
     admin ? supabaseClient.from('shifts').select('id, temp_worker_name, position_role, start_time, end_time, pause_mins, status, shift_date, protocols(date, al_name_fallback, projects(name))')
       .is('user_id', null).not('temp_worker_name', 'is', null).range(0, 4999) : none,
     admin ? supabaseClient.from('worker_name_aliases').select('alias, user_id') : none,
-    admin ? supabaseClient.from('staff_minors').select('user_id') : none
+    // under 18 for the breaks in the shift editor (Buchhaltung too) and the Admin box; the server leaves out the 18-year-olds
+    loadMinorIds(workers.map(function(w) { return w.id; })).then(function() { return { data: [] }; })
   ]);
   res.forEach(function(r, i) { if (r.error) console.warn('Personal-Kästen (' + i + '):', r.error); });
   var ok = function(r) { return r.error ? [] : (r.data || []); };
   var plan = ok(res[0]).map(function(a) { return { user_id: a.user_id, date: a.plan_shifts && a.plan_shifts.date }; });
-  _mit.idle = mitInactiveMinijobbers(workers, mitLastActivity(allShifts, plan, today), today, months);
+  _mit.idle = mitInactiveWorkers(workers, mitLastActivity(allShifts, plan, today), today, months);
   _mit.unknown = mitUnknownNames(ok(res[1]), ok(res[2]));
-  _mit.minorIssues = mitMinorIssues(allShifts, ok(res[3]).map(function(m) { return m.user_id; }), mitAddMonths(today, 2));
+  _mit.minorIssues = admin ? mitMinorIssues(allShifts, Object.keys(minorUserIds), mitAddMonths(today, 2)) : [];
   mitRenderAdminBoxes();
 }
 
@@ -407,7 +439,7 @@ function mitRenderAdminBoxes() {
       return '<div class="mit-item"><div><b>' + mitEsc(r.name) + '</b><div class="ui-sub">' + mitEsc(when) + '</div></div>' +
         '<div class="mit-acts"><button type="button" class="ui-btn dash-small-btn" onclick="mitKeep(\'' + jsAttrArg(r.id) + '\')">Behalten</button>' +
         '<button type="button" class="ui-btn dash-small-btn ui-btn-danger" onclick="mitDeactivate(\'' + jsAttrArg(r.id) + '\')">Inaktiv setzen</button></div></div>';
-    }).join('') : '<div class="ui-sub" style="padding:6px 2px;">Alle Minijobber waren in den letzten ' + _mit.months + ' Monaten im Einsatz.</div>';
+    }).join('') : '<div class="ui-sub" style="padding:6px 2px;">Alle (außer Festangestellte) waren in den letzten ' + _mit.months + ' Monaten im Einsatz.</div>';
   }
   if ((el = document.getElementById('dash-unknown-title'))) el.innerHTML = 'Unbekannte Namen' + mitCount(_mit.unknown.length);
   if ((el = document.getElementById('dash-unknown-list'))) {
@@ -515,7 +547,19 @@ async function mitForeign(i) {
 }
 
 // ── Edit sheet (Admin): Haken „unter 18“, delete someone's photo ──
-var _mitMinorLoaded = null; // tick as loaded; null = not shown
+var _mitMinorLoaded = null, _mitBirthLoaded = ''; // tick and birthday as loaded; null = not shown
+
+// Tick „unter 18“: birthday field, and the person is always Minijob (the type cannot be changed while ticked)
+function mitMinorToggle() {
+  var box = document.getElementById('edit-worker-minor'), birth = document.getElementById('edit-worker-birth-field');
+  var type = document.getElementById('edit-worker-type'), on = !!(box && box.checked && _mitMinorLoaded !== null);
+  if (birth) birth.style.display = on ? '' : 'none';
+  if (!type) return;
+  if (on && type.value !== 'Minijob') { type.value = 'Minijob'; if (typeof dashSyncInternal === 'function') dashSyncInternal('edit'); }
+  type.disabled = on;
+  type.title = on ? 'Unter 18: immer Minijob' : '';
+}
+
 async function mitLoadEditExtras(worker) {
   var field = document.getElementById('edit-worker-minor-field'), box = document.getElementById('edit-worker-minor');
   var photo = document.getElementById('edit-worker-photo-btn');
@@ -523,19 +567,36 @@ async function mitLoadEditExtras(worker) {
   if (photo) photo.style.display = mitIsAdmin() && worker.photo_path ? '' : 'none';
   if (!field || !box) return;
   field.style.display = 'none';
+  box.checked = false;
+  mitMinorToggle();
   if (!mitIsAdmin()) return;
-  var r = await supabaseClient.from('staff_minors').select('user_id').eq('user_id', worker.id);
+  var r = await supabaseClient.from('staff_minors').select('user_id, birth_date').eq('user_id', worker.id);
   if (r.error || !dashboardCurrentWorker || dashboardCurrentWorker.id !== worker.id) return;
-  _mitMinorLoaded = !!(r.data && r.data.length);
+  var row = r.data && r.data[0];
+  _mitMinorLoaded = !!row && !mitIsAdult(row.birth_date, localDateStr()); // turned 18 today, before the nightly cleanup
+  _mitBirthLoaded = (row && row.birth_date) || '';
   box.checked = _mitMinorLoaded;
+  var birth = document.getElementById('edit-worker-birth');
+  if (birth) { birth.value = _mitBirthLoaded; birth.max = localDateStr(); }
   field.style.display = '';
+  mitMinorToggle();
+}
+
+// Checked before anything is saved: a birthday that is already 18 years ago cannot go with the tick
+function mitEditExtrasError() {
+  var box = document.getElementById('edit-worker-minor'), birth = document.getElementById('edit-worker-birth');
+  if (_mitMinorLoaded === null || !box || !box.checked || !birth || !birth.value) return null;
+  return mitIsAdult(birth.value, localDateStr()) ? 'Laut Geburtstag schon 18 – Haken „unter 18“ bitte rausnehmen.' : null;
 }
 
 async function mitSaveEditExtras(workerId) {
-  var box = document.getElementById('edit-worker-minor');
-  if (_mitMinorLoaded === null || !box || box.checked === _mitMinorLoaded) return;
-  var r = box.checked ? await supabaseClient.from('staff_minors').insert({ user_id: workerId }).select('user_id')
-    : await supabaseClient.from('staff_minors').delete().eq('user_id', workerId).select('user_id');
+  var box = document.getElementById('edit-worker-minor'), birthEl = document.getElementById('edit-worker-birth');
+  var birth = (birthEl && birthEl.value) || null;
+  if (_mitMinorLoaded === null || !box) return;
+  if (box.checked === _mitMinorLoaded && (!box.checked || (birth || '') === _mitBirthLoaded)) return;
+  var t = supabaseClient.from('staff_minors'), r;
+  if (!box.checked) r = await t.delete().eq('user_id', workerId).select('user_id');
+  else r = await t.upsert({ user_id: workerId, birth_date: birth }).select('user_id');
   if (r.error) throw r.error;
   if (!r.data || !r.data.length) throw new Error('Haken „unter 18“ nicht gespeichert – keine Berechtigung');
 }
@@ -554,7 +615,7 @@ async function mitAdminDeletePhoto() {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { mitDefaultLimit: mitDefaultLimit, mitAddMonths: mitAddMonths, mitLastActivity: mitLastActivity,
-    mitInactiveMinijobbers: mitInactiveMinijobbers, mitNameKey: mitNameKey, mitNoSurname: mitNoSurname, mitUnknownNames: mitUnknownNames,
+    mitInactiveWorkers: mitInactiveWorkers, mitNameKey: mitNameKey, mitNoSurname: mitNoSurname, mitUnknownNames: mitUnknownNames,
     mitSuggest: mitSuggest, mitTextTimes: mitTextTimes, mitNightForMinor: mitNightForMinor, mitMinorIssues: mitMinorIssues,
-    mitShareTone: mitShareTone, mitShareHtml: mitShareHtml, mitShareSort: mitShareSort, mitBillingParams: mitBillingParams };
+    minorShiftIssues: minorShiftIssues, mitWeekStart: mitWeekStart, mitIsAdult: mitIsAdult, mitShareTone: mitShareTone, mitShareHtml: mitShareHtml, mitShareSort: mitShareSort, mitBillingParams: mitBillingParams };
 }

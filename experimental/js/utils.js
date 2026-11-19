@@ -74,10 +74,32 @@ function timeToMins(t) {
   return parseInt(p[0]) * 60 + parseInt(p[1]);
 }
 
-function autoPause(rawMins) {
+// Break from the shift length (start to end). Adults (ArbZG): over 6 h 30 min, over 9 h 45 min.
+// minor = unter 18 (JArbSchG §11: over 4,5 h work 30 min, over 6 h work 60 min) → from the length: over 4:30 h 30, over 6:30 h 60
+function autoPause(rawMins, minor) {
+  if (minor) return rawMins > 390 ? 60 : rawMins > 270 ? 30 : 0;
   if (rawMins > 540) return 45;
   if (rawMins > 360) return 30;
   return 0;
+}
+
+// People under 18 (staff_minors, ended by the 18th birthday on the server). The office learns it for the people it
+// loaded (RPC minors_among), the person itself through i_am_minor (window.currentUserIsMinor, mitarbeiter.js).
+var minorUserIds = {};
+function isMinorUser(id) {
+  if (!id) return false;
+  if (minorUserIds[id]) return true;
+  return typeof window !== 'undefined' && !!window.currentUserIsMinor && typeof currentUser !== 'undefined' && !!currentUser && currentUser.id === id;
+}
+async function loadMinorIds(ids) {
+  if (typeof supabaseClient === 'undefined' || !ids || !ids.length) return;
+  try {
+    var r = await supabaseClient.rpc('minors_among', { p_ids: ids });
+    if (r.error) { console.warn('Unter 18:', r.error); return; }
+    var next = {};
+    (r.data || []).forEach(function(x) { next[typeof x === 'string' ? x : x.minors_among] = true; });
+    minorUserIds = next;
+  } catch (e) { /* offline: keep what is known */ }
 }
 
 var MONTHS_DE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
