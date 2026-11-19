@@ -89,3 +89,30 @@ test('uiComboHtml: data-source only when given', () => {
   assert.match(U.uiComboHtml('i', '', 'p', 'f', '', 'pinResetUsers'), /data-source="pinResetUsers"/);
   assert.doesNotMatch(U.uiComboHtml('i', '', 'p', 'f', ''), /data-source/);
 });
+
+test('uiGuardTap: a repeated tap waits for the running action, code calls pass through', async () => {
+  let calls = 0; const rel = [];
+  const fn = async (a) => { calls++; await new Promise(r => rel.push(r)); return a; };
+  let ev = { type: 'click', target: null };
+  const g = U.uiGuardTap(fn, 'save', () => ev, 50);
+  const p1 = g(1), p2 = g(1);
+  assert.equal(calls, 1);          // second tap ignored
+  assert.equal(p1, p2);
+  g(2);                            // other arguments: another action
+  assert.equal(calls, 2);
+  ev = null; g(1);                 // not from a tap
+  assert.equal(calls, 3);
+  rel[0](); await p1;
+  ev = { type: 'click', target: null };
+  g(1);                            // finished: a new tap runs again
+  assert.equal(calls, 4);
+  rel.forEach(r => r());
+});
+
+test('uiGuardTap: sync throw and non-promise results are passed on', () => {
+  const g = U.uiGuardTap(() => 5, 'f', () => ({ type: 'click' }));
+  assert.equal(g(), 5);
+  const h = U.uiGuardTap(() => { throw new Error('x'); }, 'h', () => ({ type: 'click' }));
+  assert.throws(() => h(), /x/);
+  assert.equal(h.length, 0);
+});

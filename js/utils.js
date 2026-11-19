@@ -348,6 +348,19 @@ async function needLib(name) {
   }
 }
 
+// All rows of a query, page by page: PostgREST answers at most 1000 rows per request and cuts the rest off without an error.
+// makeQuery() builds a fresh query each time and must order it by a unique column, so pages neither overlap nor skip rows.
+async function sbFetchAll(makeQuery, page) {
+  page = page || 1000;
+  var all = [];
+  for (var from = 0; ; from += page) {
+    var r = await makeQuery().range(from, from + page - 1);
+    if (r.error) return { data: null, error: r.error };
+    all = all.concat(r.data || []);
+    if (!r.data || r.data.length < page) return { data: all, error: null };
+  }
+}
+
 // Every PDF of the app goes through this once after "new jsPDF": text, wrapping and measuring see the same letters
 function pdfPatch(doc) {
   var fix = function(v) { return Array.isArray(v) ? v.map(pdfText) : pdfText(v); };

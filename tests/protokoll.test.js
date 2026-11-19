@@ -1100,3 +1100,24 @@ test('Zusatzauftrag: main protocol candidates are same day, not a Zusatz, not th
   assert.equal(run(`protSideLabel('zz', [])`), 'Hauptprotokoll');
   assert.equal(run(`protSideLabel(null, [])`), '');
 });
+
+test('protSaveArchive: full storage drops server-known signatures, then older server-known entries, never unsynced ones', () => {
+  let saved = null, limit = 0;
+  ctx.localStorage = { getItem: () => null, setItem(k, v) { if (v.length > limit) throw new Error('QuotaExceededError'); saved = JSON.parse(v); } };
+  const sig = 'x'.repeat(500);
+  const arch = [{ id: 'a', synced: false, signature: sig }, { id: 'b', synced: true, supabaseId: 1, mailed: true, signature: sig },
+    { id: 'c', synced: true, supabaseId: 2, mailed: false, signature: sig }];
+  limit = 1300; // fits once b's signature is gone
+  assert.equal(ctx.protSaveArchive(arch), true);
+  assert.equal(saved.find(e => e.id === 'b').signature, null);
+  assert.equal(saved.find(e => e.id === 'a').signature, sig);   // unsynced keeps its signature
+  assert.equal(saved.find(e => e.id === 'c').signature, sig);   // mail still pending keeps it
+  assert.equal(arch[1].signature, sig);                         // the caller's list is untouched
+  const many = Array.from({ length: 30 }, (_, i) => ({ id: 's' + i, synced: true, supabaseId: i + 1, mailed: true })).concat([{ id: 'u', synced: false }]);
+  limit = 900;
+  assert.equal(ctx.protSaveArchive(many), true);
+  assert.equal(saved.length, 11);
+  assert.ok(saved.some(e => e.id === 'u'));
+  limit = 5;
+  assert.equal(ctx.protSaveArchive(arch), false);
+});

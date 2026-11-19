@@ -313,7 +313,7 @@ const baseProt = (over) => Object.assign({ id: 'p1', date: '2026-10-28', is_holi
 test('refreshDashboard: a refresh requested while one runs is rerun afterwards (no stale snapshot)', async () => {
   let loads = 0, release;
   const gate = new Promise(r => { release = r; });
-  ctx.supabaseClient = { from: () => ({ select() { return this; }, order() { loads++; const n = loads; return n === 1 ? gate.then(() => ({ data: [{ id: 'old' }], error: null })) : Promise.resolve({ data: [{ id: 'new' }], error: null }); } }) };
+  ctx.supabaseClient = { from: () => ({ select() { return this; }, order() { return this; }, range() { loads++; const n = loads; return n === 1 ? gate.then(() => ({ data: [{ id: 'old' }], error: null })) : Promise.resolve({ data: [{ id: 'new' }], error: null }); } }) };
   ctx.showToast = () => {};
   run('ensureRateUsers = async function() {}');
   const first = run('refreshDashboard()');
@@ -502,7 +502,7 @@ test('renderWorkerShifts: a slower answer for a previously selected employee is 
   const sel = { value: 'w1' }, cont = { innerHTML: '' };
   ctx.document.getElementById = id => (id === 'dash-worker-select' ? sel : id === 'worker-shifts-container' ? cont : null);
   let release;
-  ctx.supabaseClient = { from: () => ({ select() { return this; }, eq() { return new Promise(r => { release = () => r({ data: [{ id: 's1', start_time: '08:00', end_time: '16:00' }], error: null }); }); } }) };
+  ctx.supabaseClient = { from: () => ({ select() { return this; }, eq() { return this; }, order() { return this; }, range() { return new Promise(r => { release = () => r({ data: [{ id: 's1', start_time: '08:00', end_time: '16:00' }], error: null }); }); } }) };
   run("dashboardWorkers = [{ id: 'w1', full_name: 'A' }, { id: 'w2', full_name: 'B' }]; populateDashboardMonthFilter = function() {}");
   const pending = run('renderWorkerShifts()');
   sel.value = 'w2'; // user clicked another person meanwhile
@@ -853,4 +853,10 @@ test('Monatsabschluss reads pay rate and earnings limit from app_user_private, n
   const body = src.slice(src.indexOf('async function dashLoadMonthSummary'), src.indexOf('function dashSummaryFromMonths'));
   assert.match(body, /app_user_private\(hourly_rate_conni, income_limit\)/);
   assert.doesNotMatch(body, /select\('id, full_name, role, hourly_rate_conni, income_limit'\)/);
+});
+
+test('dashShiftNetMins: start equal to end is no shift (no 3 h floor), short shifts still get the floor', () => {
+  assert.equal(ctx.dashShiftNetMins({ start_time: '08:00:00', end_time: '08:00:00', pause_mins: 0 }), 0);
+  assert.equal(ctx.dashShiftNetMins({ start_time: '08:00', end_time: '09:00', pause_mins: 0 }), 180);
+  assert.equal(ctx.dashShiftNetMins({ start_time: '22:00', end_time: '06:00', pause_mins: 30 }), 450);
 });

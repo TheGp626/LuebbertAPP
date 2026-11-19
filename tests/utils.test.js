@@ -227,3 +227,13 @@ test('diffEinsaetze: Auftrag tag (job_no/phase) is written on insert and counts 
   assert.deepEqual(d.update, [{ id: 'a', date: '2026-10-20', action: 'Aufbau', al_id: 'X', cancelled: false, job_no: '26-0447.01', phase: 'setup' }]);
   assert.deepEqual(d.insert, [{ date: '2026-10-25', action: 'Abbau', al_id: 'X', cancelled: false, job_no: '26-0447.01', phase: 'teardown' }]);
 });
+
+test('sbFetchAll: reads page by page until a short page, stops on an error', async () => {
+  const sbFetchAll = new Function('async ' + grab('sbFetchAll') + '; return sbFetchAll;')();
+  const rows = Array.from({ length: 5 }, (_, i) => i);
+  const q = () => ({ range: async (a, b) => ({ data: rows.slice(a, b + 1), error: null }) });
+  assert.deepEqual((await sbFetchAll(q, 2)).data, rows);
+  assert.deepEqual((await sbFetchAll(q, 5)).data, rows); // full last page: one more empty request
+  const bad = () => ({ range: async () => ({ data: null, error: { message: 'x' } }) });
+  assert.equal((await sbFetchAll(bad)).error.message, 'x');
+});

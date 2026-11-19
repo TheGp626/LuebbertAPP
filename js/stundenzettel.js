@@ -335,14 +335,16 @@ async function fetchShiftsNow() {
       }
     }
 
-    var { data, error } = await supabaseClient
+    // Paged: a cut-off answer would look like deleted shifts and drop synced local weeks
+    var { data, error } = await sbFetchAll(() => supabaseClient
       .from('shifts')
       .select(`
         id, start_time, end_time, pause_mins, position_role, status, shift_date, protocol_id, ort,
         protocols ( date, al_name_fallback, pl_name_fallback, projects ( name, location ) )
       `)
       .eq('user_id', currentUser.id)
-      .in('status', ['offen', 'eingetragen']);
+      .in('status', ['offen', 'eingetragen'])
+      .order('id'));
 
     if (error) throw error;
     if (!sameUser()) { setTimeout(fetchSupabaseShifts, 0); return; } // the new user gets their own sync
