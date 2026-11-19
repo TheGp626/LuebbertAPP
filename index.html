@@ -12,7 +12,7 @@
 
 
   <link rel="stylesheet" href="css/style.css?v=41">
-  <link rel="stylesheet" href="css/ui.css?v=44">
+  <link rel="stylesheet" href="css/ui.css?v=45">
 </head>
 
 <body>
@@ -265,7 +265,7 @@
         <!-- DASHBOARD TABS -->
         <div class="ui-seg dash-tabs" role="tablist" style="display: none;">
           <button type="button" id="dash-tab-prot" class="active" onclick="switchDashTab('prot')">Protokolle</button>
-          <button type="button" id="dash-tab-work" onclick="switchDashTab('work')">Buchhaltung</button>
+          <button type="button" id="dash-tab-work" onclick="switchDashTab('work')">Personal</button>
           <button type="button" id="dash-tab-settings" style="display: none;" onclick="switchDashTab('settings')">Einstellungen</button>
         </div>
 
@@ -299,13 +299,19 @@
                 <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
                 <input type="search" id="dash-worker-search" placeholder="Mitarbeiter suchen" oninput="renderDashWorkerList()">
               </div>
+              <div class="ui-seg dash-group-tabs" role="tablist" aria-label="Gruppe">
+                <button type="button" role="tab" id="dash-group-aus" class="active" onclick="setDashWorkerGroup('aus')">Aushilfen</button>
+                <button type="button" role="tab" id="dash-group-fest" onclick="setDashWorkerGroup('fest')">Fest</button>
+                <button type="button" role="tab" id="dash-group-inaktiv" onclick="setDashWorkerGroup('inaktiv')">Deaktiviert</button>
+              </div>
               <select id="dash-worker-filter" class="meta-input mit-filter" aria-label="Liste filtern" onchange="renderDashWorkerList()">
                 <option value="">Alle Mitarbeiter</option>
                 <option value="nosurname">Ohne Nachname</option>
                 <option value="nophoto">Ohne Profilbild</option>
               </select>
+              <div id="dash-worker-list" class="ui-list"></div>
               <div class="dash-panels">
-                <details id="dash-close-panel" class="dash-close" hidden open>
+                <details id="dash-close-panel" class="dash-close" hidden>
                   <summary class="dash-panel-sum">Monatsabschluss</summary>
                   <div class="dash-close-body">
                     <label class="ui-field"><span>Abrechnungsmonat</span><select id="dash-close-month"></select></label>
@@ -337,15 +343,13 @@
                   <div id="dash-night-ranking" class="ui-list"></div>
                 </details>
               </div>
-              <div class="ui-label">Alle Mitarbeiter</div>
-              <div id="dash-worker-list" class="ui-list"></div>
               <!-- data source for the selection (read by the dashboard code) -->
               <select id="dash-worker-select" hidden onchange="renderWorkerShifts(); updateEditWorkerBtn();">
                 <option value="">-- Mitarbeiter wählen --</option>
               </select>
             </aside>
             <section class="dash-work-detail">
-              <button type="button" class="stunden-link dash-work-back" onclick="closeDashWorker()">‹ Alle Mitarbeiter</button>
+              <button type="button" class="stunden-link dash-work-back" onclick="closeDashWorker()">‹ Personal</button>
               <div class="dash-worker-top">
                 <div class="dash-worker-head" id="dash-worker-head"></div>
                 <button id="edit-worker-btn" type="button" class="ui-btn dash-small-btn" style="display:none;" onclick="openEditWorker()">Bearbeiten</button>
@@ -942,7 +946,7 @@
   <script src="js/ui.js?v=6"></script>
   <script src="js/changelog.js?v=1"></script>
   <script src="js/settings.js?v=15"></script>
-  <script src="js/mitarbeiter.js?v=3"></script>
+  <script src="js/mitarbeiter.js?v=4"></script>
   <script src="js/stundenzettel.js?v=33"></script>
   <script src="js/protokoll.js?v=58"></script>
   <script src="js/erinnerung.js?v=14"></script>
@@ -954,11 +958,11 @@
   <script src="js/auftraege.js?v=14"></script>
   <script src="js/wochenplan.js?v=39"></script>
   <script src="js/material.js?v=2"></script>
-  <script src="js/home.js?v=10"></script>
-  <script src="js/dashboard.js?v=61"></script>
+  <script src="js/home.js?v=11"></script>
+  <script src="js/dashboard.js?v=62"></script>
   <script src="js/produkte.js?v=22"></script>
   <script src="js/ordner.js?v=37"></script>
-  <script src="js/app.js?v=27"></script>
+  <script src="js/app.js?v=28"></script>
 </body>
 
 </html>

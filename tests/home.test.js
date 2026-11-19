@@ -19,7 +19,7 @@ test('firstName', () => {
 
 test('homeTiles follow the role rules of auth.js', () => {
   const labels = r => H.homeTiles(r, allowed).map(t => t.label);
-  const office = ['Protokoll-Übersicht', 'Buchhaltung'];
+  const office = ['Protokoll-Übersicht', 'Personal'];
   assert.deepEqual(labels('MA'), ['Stundenzettel', 'Wochenplan', 'Produktdatenbank', 'Projektordner']);
   assert.deepEqual(labels('Gast'), ['Produktdatenbank', 'Projektordner']);
   assert.deepEqual(labels('AL'), ['Stundenzettel', 'Protokoll schreiben', 'Wochenplan', 'Produktdatenbank', 'Projektordner'].concat(office));

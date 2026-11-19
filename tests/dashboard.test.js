@@ -869,3 +869,11 @@ test('autoInternalRate: Minijob/Midijob +25 %, others none', () => {
   assert.equal(f('20', 'Rechnung'), null);
   assert.equal(f('', 'Minijob'), null);
 });
+
+test('dashWorkerList: groups Aushilfen and Fest', () => {
+  const w = [{ id: 'a', full_name: 'Max', employment_type: 'Minijob' }, { id: 'b', full_name: 'Lena', employment_type: 'Fest' },
+    { id: 'c', full_name: 'Tom', is_fest: true }, { id: 'd', full_name: 'Zenjob', role: 'Gast' }];
+  assert.deepEqual(plain(ctx.dashWorkerList(w, {}, '', '', 'aus')).map(x => x.id), ['a', 'd']);
+  assert.deepEqual(plain(ctx.dashWorkerList(w, {}, '', '', 'fest')).map(x => x.id).sort(), ['b', 'c']);
+  assert.equal(plain(ctx.dashWorkerList(w, {}, '')).length, 4);
+});

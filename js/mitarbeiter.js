@@ -486,6 +486,7 @@ async function mitDeactivate(id) {
   if (!confirm('„' + mitWorkerName(id) + '“ inaktiv setzen?\nDie Person kann sich nicht mehr anmelden. Alte Schichten und Protokolle bleiben. Rückgängig über „aktiv“.')) return;
   var r = await supabaseClient.from('app_users').update({ is_active: false }).eq('id', id).select('id');
   if (r.error || !r.data || !r.data.length) { console.error('Inaktiv setzen:', r.error); showToast('Nicht gespeichert.', 'danger'); return; }
+  if (typeof dashInactiveWorkers !== 'undefined') dashInactiveWorkers = null;
   showToast('Inaktiv gesetzt');
   loadDashboardWorkers();
 }

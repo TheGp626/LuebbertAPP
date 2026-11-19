@@ -84,10 +84,14 @@ function toggleAddUserForm() {
   m.classList.toggle('open');
 }
 
-// Employee list: people with new hours first, then by name; filtered by a name search
-function dashWorkerList(workers, pendingMap, query, filter) {
+// Festangestellte (own staff) vs. Aushilfen (everyone else, also Gast logins)
+function dashIsFest(w) { return (w.employment_type || (w.is_fest ? 'Fest' : 'Minijob')) === 'Fest'; }
+
+// Employee list: people with new hours first, then by name; filtered by a name search and the group ('aus' | 'fest')
+function dashWorkerList(workers, pendingMap, query, filter, group) {
   var q = String(query || '').trim().toLowerCase();
   return (workers || [])
+    .filter(function(w) { return !group || (group === 'fest') === dashIsFest(w); })
     .filter(function(w) { return !q || String(w.full_name || '').toLowerCase().indexOf(q) !== -1; }) // real names only, not the placeholder
     .filter(function(w) { return filter === 'nosurname' ? mitNoSurname(w) : filter === 'nophoto' ? !w.photo_path && w.role !== 'Gast' : true; })
     .map(function(w) { return { id: w.id, name: w.full_name || 'Unbekannt', role: w.role || '', pending: (pendingMap || {})[w.id] || 0 }; })
@@ -98,7 +102,7 @@ var dashPendingMap = {};
 
 function dashWorkerRowHtml(w, selectedId) {
   return '<button type="button" class="ui-row dash-worker-row' + (w.id === selectedId ? ' ui-row-me' : '') + '" onclick="selectDashWorker(\'' + jsAttrArg(w.id) + '\')">' +
-    '<span class="ui-row-main"><span class="ui-row-title">' + escapeHtml(w.name) + '</span><span class="ui-sub">' + escapeHtml(w.role) + '</span></span>' +
+    '<span class="ui-row-title">' + escapeHtml(w.name) + '</span><span class="ui-sub dash-worker-role">' + escapeHtml(w.role) + '</span>' +
     (w.pending ? '<span class="ui-pill ui-pill-info" title="Neue Stunden">' + w.pending + '</span>' : '') +
   '</button>';
 }
@@ -111,8 +115,62 @@ function renderDashWorkerList() {
   if (!listEl) return;
   var selected = (document.getElementById('dash-worker-select') || {}).value || '';
   var query = (document.getElementById('dash-worker-search') || {}).value || '';
-  var rows = dashWorkerList(dashboardWorkers, dashPendingMap, query, (document.getElementById('dash-worker-filter') || {}).value || '');
+  var filterEl = document.getElementById('dash-worker-filter'), filter = (filterEl || {}).value || '';
+  var all = dashboardWorkers || [], fest = all.filter(dashIsFest).length;
+  dashGroupLabel('aus', 'Aushilfen', all.length - fest);
+  dashGroupLabel('fest', 'Fest', fest);
+  dashGroupLabel('inaktiv', 'Deaktiviert', dashInactiveWorkers ? dashInactiveWorkers.length : null);
+  if (filterEl) filterEl.hidden = _dashWorkerGroup === 'inaktiv';
+  if (_dashWorkerGroup === 'inaktiv') { listEl.innerHTML = dashInactiveHtml(query); return; }
+  var rows = dashWorkerList(all, dashPendingMap, query, filter, _dashWorkerGroup);
   listEl.innerHTML = rows.length ? rows.map(function(w) { return dashWorkerRowHtml(w, selected); }).join('') : uiEmptyHtml('Niemand gefunden', '');
+}
+
+// ── Groups of the list: Aushilfen, Festangestellte, Deaktiviert (loaded when first opened) ──
+var _dashWorkerGroup = 'aus', dashInactiveWorkers = null;
+
+function dashGroupLabel(g, text, n) {
+  var b = document.getElementById('dash-group-' + g);
+  if (!b) return;
+  b.textContent = text + (n === null || n === undefined ? '' : ' ' + n);
+  b.classList.toggle('active', _dashWorkerGroup === g);
+  b.setAttribute('aria-selected', _dashWorkerGroup === g ? 'true' : 'false');
+}
+
+function setDashWorkerGroup(g) {
+  _dashWorkerGroup = g;
+  renderDashWorkerList();
+  if (g === 'inaktiv' && dashInactiveWorkers === null) loadDashInactiveWorkers();
+}
+
+async function loadDashInactiveWorkers() {
+  var r = await supabaseClient.from('app_users').select('id, full_name, role, employment_type, is_fest').eq('is_active', false).order('full_name');
+  if (r.error) { console.error('Deaktivierte:', r.error); showToast('Deaktivierte konnten nicht geladen werden.', 'danger'); return; }
+  dashInactiveWorkers = r.data || [];
+  renderDashWorkerList();
+}
+
+function dashInactiveHtml(query) {
+  if (dashInactiveWorkers === null) return '<div class="ui-sub" style="padding:8px 2px;">Lädt…</div>';
+  var q = String(query || '').trim().toLowerCase(), may = dashMayManageStaff(typeof userRole !== 'undefined' ? userRole : null);
+  var rows = dashInactiveWorkers.filter(function(w) { return !q || String(w.full_name || '').toLowerCase().indexOf(q) !== -1; });
+  if (!rows.length) return uiEmptyHtml(q ? 'Niemand gefunden' : 'Niemand deaktiviert', '');
+  return rows.map(function(w) {
+    return '<div class="ui-row dash-worker-row dash-worker-off"><span class="ui-row-title">' + escapeHtml(w.full_name || 'Unbekannt') + '</span>' +
+      '<span class="ui-sub dash-worker-role">' + escapeHtml(w.role || '') + '</span>' +
+      (may ? '<button type="button" class="ui-btn dash-small-btn" onclick="reactivateDashWorker(\'' + jsAttrArg(w.id) + '\')">Aktivieren</button>' : '') + '</div>';
+  }).join('');
+}
+
+async function reactivateDashWorker(id) {
+  var w = (dashInactiveWorkers || []).find(function(x) { return x.id === id; });
+  if (!w || !confirm('„' + (w.full_name || '') + '“ wieder aktivieren?\nDie Person kann sich wieder anmelden und steht wieder in allen Listen.')) return;
+  var r = await supabaseClient.from('app_users').update({ is_active: true }).eq('id', id).select('id');
+  if (r.error || !r.data || !r.data.length) { console.error('Aktivieren:', r.error); showToast('Nicht gespeichert.', 'danger'); return; }
+  dashInactiveWorkers = dashInactiveWorkers.filter(function(x) { return x.id !== id; });
+  showToast('Wieder aktiv');
+  await loadDashboardWorkers();
+  if (typeof dashRefreshRateUsers === 'function') await dashRefreshRateUsers();
 }
 
 // Selecting a person: the hidden select stays the source the rest of the dashboard reads
@@ -477,6 +535,7 @@ async function deactivateWorker() {
     // RLS answers with 0 rows instead of an error
     if (!rows || rows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung');
     closeEditWorker();
+    dashInactiveWorkers = null; // reloaded when the tab opens
     showToast('Mitarbeiter deaktiviert.');
     // The person is gone from the list: close the detail and refresh the rate source (their old shifts keep their rate)
     const sel = document.getElementById('dash-worker-select');
