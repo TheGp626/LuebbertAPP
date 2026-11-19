@@ -388,3 +388,12 @@ test('weekBillingSplit: pay per billing month, split day by day at the cutoff li
   assert.equal(p['2026-11'].eur, 3 * 20 + 4 * 15);
   ['MONTHS_DE', 'pad', 'billingCutoff', 'getDeptWage'].forEach(k => delete global[k]);
 });
+
+test('serverShiftPause: the stored pause wins (also 0), automatic pause only when none is stored', () => {
+  const f = new Function(gu('timeToMins') + gu('autoPause') + gs('serverShiftPause') + '; return serverShiftPause;')();
+  assert.equal(f({ start_time: '16:00:00', end_time: '23:00:00', pause_mins: 0 }), '0');   // AL wrote no pause in the protocol
+  assert.equal(f({ start_time: '08:00:00', end_time: '12:00:00', pause_mins: 15 }), '15');
+  assert.equal(f({ start_time: '16:00:00', end_time: '23:00:00', pause_mins: null }), '30');
+  assert.equal(f({ start_time: '20:00:00', end_time: '06:00:00' }), '45');                 // over midnight, 10 h
+  assert.equal(f({ start_time: null, end_time: null }), '0');
+});

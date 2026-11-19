@@ -107,7 +107,7 @@ test('dashWorkerList: people with new hours first, then by name; search by name'
 
 test('incomeLimitShare: share of the income limit, null without pay or limit', () => {
   assert.deepEqual(plain(ctx.incomeLimitShare(390, 520)), { pct: 75, over: false });
-  assert.deepEqual(plain(ctx.incomeLimitShare(600, 520)), { pct: 100, over: true });
+  assert.deepEqual(plain(ctx.incomeLimitShare(600, 520)), { pct: 115, over: true });
   assert.deepEqual(plain(ctx.incomeLimitShare(520, 520)), { pct: 100, over: false });
   assert.deepEqual(plain(ctx.incomeLimitShare(0, 520)), { pct: 0, over: false });
   assert.equal(ctx.incomeLimitShare(null, 520), null);

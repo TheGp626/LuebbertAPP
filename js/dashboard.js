@@ -135,7 +135,8 @@ function closeDashWorker() {
 // Share of the income limit: {pct 0–100, over}; null without pay or without a limit
 function incomeLimitShare(earned, limit) {
   if (earned === null || earned === undefined || !limit || limit <= 0) return null;
-  return { pct: Math.min(100, Math.round(earned / limit * 100)), over: earned > limit };
+  // pct is the real share (111 % when over, as in Aufträge); only the bar width stops at 100
+  return { pct: Math.round(earned / limit * 100), over: earned > limit };
 }
 
 // Net minutes of one booked shift, same rules as the table (overnight, minimum booking floor)
@@ -1387,7 +1388,7 @@ function dashRenderWorkerMonth() {
     (money.pay !== null ? `<div class="ui-stat cost-only"><span>Lohn${rateLabel(money.payRates)}</span><b>${hrs > 0 ? eur(money.pay) : '—'}</b>${money.byPos ? '<div class="ui-sub">' + escapeHtml(money.byPos) + '</div>' : ''}${money.unpaid ? '<div class="ui-sub">' + money.unpaid + ' Schicht(en) ohne Lohnsatz</div>' : ''}</div>` : '') +
     (money.cost !== null ? `<div class="ui-stat cost-only"><span>Intern${rateLabel(money.costRates)}</span><b>${hrs > 0 ? eur(money.cost) : '—'}</b></div>` : '') +
     (share ? `<div class="ui-stat cost-only"><span>Grenze ${eur(parseFloat(worker.income_limit))}</span><b>${share.pct} %</b>` +
-      `<div class="ui-bar${share.over ? ' ui-bar-over' : share.pct >= 80 ? ' ui-bar-warn' : ''}"><i style="width:${share.pct}%"></i></div></div>` : '') +
+      `<div class="ui-bar${share.over ? ' ui-bar-over' : share.pct >= 80 ? ' ui-bar-warn' : ''}"><i style="width:${Math.min(100, share.pct)}%"></i></div></div>` : '') +
     '</div>';
 
   const actions = (canEdit ? `<button type="button" class="ui-btn dash-small-btn" onclick="openAddShift()">+ Schicht</button>` : '') +

@@ -413,7 +413,7 @@ async function fetchShiftsNow() {
         dayMatch.shifts.push({
            von: (sh.start_time || '').substring(0,5),
            bis: (sh.end_time || '').substring(0,5),
-           pause: (function() { var v = timeToMins((sh.start_time||'').substring(0,5)), b = timeToMins((sh.end_time||'').substring(0,5)); if (v===null||b===null) return '0'; var r = b<v ? b+1440-v : b-v; return autoPause(r).toString(); })(),
+           pause: serverShiftPause(sh),
            ort: (prot.projects && (prot.projects.location || prot.projects.name)) ? [prot.projects.location, prot.projects.name].filter(Boolean).join(', ') : (sh.ort || ''),
            al: prot.al_name_fallback || prot.pl_name_fallback || '',
            dept: sh.position_role || 'MA',
@@ -1330,6 +1330,17 @@ function syncWeekToSupabase(data, quiet) {
     if (!currentUser || currentUser.id !== uid) return;
     return syncWeekNow(data, quiet);
   });
+}
+
+// Pause of a server shift for the local week: the stored pause_mins (set by the AL in the protocol or by the office),
+// the automatic pause only when none is stored. Recomputing it always made hours differ from the dashboard and
+// pushed the automatic value back over an office correction on the next save.
+function serverShiftPause(sh) {
+  var p = parseInt(sh && sh.pause_mins, 10);
+  if (!isNaN(p) && p >= 0) return String(p);
+  var v = timeToMins(((sh && sh.start_time) || '').substring(0, 5)), b = timeToMins(((sh && sh.end_time) || '').substring(0, 5));
+  if (v === null || b === null) return '0';
+  return autoPause(b < v ? b + 1440 - v : b - v).toString();
 }
 
 async function syncWeekNow(data, quiet) {
