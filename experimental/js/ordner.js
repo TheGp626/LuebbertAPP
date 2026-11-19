@@ -1006,6 +1006,16 @@ function openFileViewer(url, name, mimeType, warm) {
 // content width = fit-width * zoom; pinch + buttons + double-tap change `zoom`.
 var _zv = null; // current zoom viewer state
 
+// A finished touch → a tap { x, y, t } when it was short, did not move and had no second finger; else null
+function zvTap(touch, endT) {
+  if (!touch || touch.moved || touch.multi || endT - touch.t > 300) return null;
+  return { x: touch.x, y: touch.y, t: endT };
+}
+// Two taps make a double tap when they are close in time (under 300 ms) and place (under 40 px)
+function zvIsDoubleTap(prev, tap) {
+  return !!prev && !!tap && tap.t - prev.t < 300 && Math.hypot(tap.x - prev.x, tap.y - prev.y) < 40;
+}
+
 // pdf.js loads on first use (utils.js loadLib, shipped with the app, no CDN)
 function loadPdfJs() { return loadLib('pdfjs'); }
 
@@ -1065,24 +1075,20 @@ function mountZoomViewer(body, opts) {
     });
   });
 
-  // Pinch zoom + double-tap
-  var pinch = null, lastTap = 0;
+  // Pinch zoom + double-tap. A tap is a short touch that did not move and was not part of a pinch: only two of those
+  // count as a double tap (two quick swipes while panning used to reset the zoom to the whole page)
+  var pinch = null, touch = null, lastTap = null;
   function dist(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); }
   scroll.addEventListener('touchstart', function(e) {
     if (e.touches.length === 2) {
       pinch = { d: dist(e.touches), z: zv.zoom };
+      if (touch) touch.multi = true;
     } else if (e.touches.length === 1) {
-      var now = Date.now();
-      if (now - lastTap < 300) {
-        var r = scroll.getBoundingClientRect();
-        var t = e.touches[0];
-        applyZoom(zv.zoom > 1.2 ? 1 : 2.5, t.clientX - r.left, t.clientY - r.top);
-        e.preventDefault();
-      }
-      lastTap = now;
-    }
+      touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), moved: false, multi: false };
+    } else if (touch) touch.multi = true;
   }, { passive: false });
   scroll.addEventListener('touchmove', function(e) {
+    if (touch && e.touches.length === 1 && Math.hypot(e.touches[0].clientX - touch.x, e.touches[0].clientY - touch.y) > 10) touch.moved = true;
     if (pinch && e.touches.length === 2) {
       e.preventDefault();
       var r = scroll.getBoundingClientRect();
@@ -1091,7 +1097,19 @@ function mountZoomViewer(body, opts) {
       applyZoom(pinch.z * dist(e.touches) / pinch.d, cx, cy);
     }
   }, { passive: false });
-  scroll.addEventListener('touchend', function(e) { if (e.touches.length < 2) pinch = null; });
+  scroll.addEventListener('touchend', function(e) {
+    if (e.touches.length < 2) pinch = null;
+    if (e.touches.length || !touch) return;
+    var tap = zvTap(touch, Date.now());
+    touch = null;
+    if (!tap) { lastTap = null; return; }
+    if (zvIsDoubleTap(lastTap, tap)) {
+      lastTap = null;
+      var r = scroll.getBoundingClientRect();
+      applyZoom(zv.zoom > 1.2 ? 1 : 2.5, tap.x - r.left, tap.y - r.top);
+      e.preventDefault();
+    } else lastTap = tap;
+  }, { passive: false });
   // Ctrl+wheel / trackpad pinch on desktop
   scroll.addEventListener('wheel', function(e) {
     if (!e.ctrlKey) return;
