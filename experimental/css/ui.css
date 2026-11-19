@@ -546,3 +546,6 @@ button.opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .mc-ist { flex: none; width: 72px; text-align: right; }
 .prot-shortage-line { font-size: 13px; padding: 4px 0; border-bottom: 0.5px solid var(--border); }
 .set-dep { flex: 0 0 auto; width: 170px; max-width: 50%; margin: 0; padding: 6px 8px; font-size: 14px; }
+
+/* Running tap action (ui.js uiGuardTap): the button waits until it is done */
+button[aria-busy="true"], .ui-btn[aria-busy="true"] { opacity: .6; pointer-events: none; cursor: progress; }

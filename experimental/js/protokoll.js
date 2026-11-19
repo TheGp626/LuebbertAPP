@@ -647,6 +647,24 @@ function protPlanPersonnel(shift, users) {
   return rows.filter(function(r) { return r.pos === 'AL'; }).concat(rows.filter(function(r) { return r.pos !== 'AL'; }));
 }
 
+// Protocol history → localStorage. When the phone's storage is full (signature images add up), first the signatures of
+// entries the server has (synced and mailed; protServerSignature loads them again) are left out, then older such entries.
+// Entries the server does not have yet are never dropped. false = not even that fits.
+function protArchiveShrink(archive, step) {
+  var done = function(e) { return e && e.synced === true && !!e.supabaseId && e.mailed !== false; };
+  if (step === 1) return archive.map(function(e) { return done(e) && e.signature ? Object.assign({}, e, { signature: null }) : e; });
+  var kept = 0;
+  return archive.filter(function(e) { return !done(e) || ++kept <= 10; });
+}
+function protSaveArchive(archive) {
+  var list = archive || [];
+  for (var step = 0; step < 3; step++) {
+    if (step) list = protArchiveShrink(list, step);
+    try { localStorage.setItem('luebbert_protokoll_history', JSON.stringify(list)); return true; } catch (e) { console.warn('Protokoll-Verlauf speichern:', e); }
+  }
+  return false;
+}
+
 // On logout from a shared phone: the protocol history keeps only entries the server does not have yet (not synced,
 // or the mail to the PL still pending); everything else is loaded from the server again at the next login
 function protKeepOnLogout(archive) {
@@ -655,7 +673,7 @@ function protKeepOnLogout(archive) {
 function protLogoutCleanup() {
   try {
     var all = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]'), kept = protKeepOnLogout(all);
-    if (kept.length) localStorage.setItem('luebbert_protokoll_history', JSON.stringify(kept));
+    if (kept.length) protSaveArchive(kept);
     else localStorage.removeItem('luebbert_protokoll_history');
     return kept.length;
   } catch (e) { return 0; }
@@ -1428,7 +1446,15 @@ async function saveProtokoll() {
   }
 
   if (archive.length > 50) archive = archive.slice(0, 50);
-  localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
+  if (!protSaveArchive(archive)) {
+    if (!isSynced) {
+      // Neither on the server nor on the phone: keep the form filled so nothing is lost
+      if (btn) { btn.disabled = false; btn.textContent = 'Senden'; }
+      showToast('Speicher dieses Handys ist voll und keine Verbindung: Protokoll nicht gesichert. Bitte mit Internet erneut senden.', 'danger');
+      return;
+    }
+    showToast('Gespeichert. Der Verlauf auf diesem Handy ist voll, das Protokoll steht aber auf dem Server.', 'info');
+  }
   
   if (btn) { btn.disabled = false; btn.textContent = 'Senden'; }
   // Mail in the background so Senden never waits on SMTP (registered as in-flight before the history retry runs)
@@ -1755,7 +1781,7 @@ async function retrySyncAllProtocolsRun() {
         if (done.synced && !cur.synced) { cur.synced = true; cur.mailed = false; }
       }
     });
-    localStorage.setItem('luebbert_protokoll_history', JSON.stringify(current));
+    protSaveArchive(current);
   }
   if (successCount > 0) {
     showToast(`✅ ${successCount} Protokolle erfolgreich synchronisiert!`);
@@ -1790,7 +1816,7 @@ function markProtMailed(supabaseId) {
   archive.forEach(function(x) {
     if (x.supabaseId === supabaseId && x.mailed === false) { x.mailed = true; changed = true; }
   });
-  if (changed) localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
+  if (changed) protSaveArchive(archive);
 }
 
 // Quietly retries mails of synced protocols whose mail failed (runs on every history render).
@@ -1911,7 +1937,7 @@ async function renderProtHistory() {
         mergeProtHistory(archive, rows.map(protRowToEntry), PROT_HIST_FETCH_LIMIT);
         archive.sort(function(a, b) { return new Date(b.savedAt) - new Date(a.savedAt); });
         if (archive.length > 100) archive = archive.slice(0, 100);
-        localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
+        protSaveArchive(archive);
       }
     } catch(e) { console.warn('Verlauf Supabase fetch failed:', e); }
     retryPendingMails(); // fire-and-forget
@@ -2003,7 +2029,7 @@ async function deleteProtHistory(id) {
   }
 
   archive = archive.filter(function(e) { return e.id !== id; });
-  localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
+  protSaveArchive(archive);
   renderProtHistory();
   showToast(supabaseId ? '✅ Protokoll und alle Schichten gelöscht.' : 'Aus Verlauf entfernt.');
 }

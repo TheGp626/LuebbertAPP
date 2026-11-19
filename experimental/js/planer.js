@@ -246,7 +246,7 @@ function plCandidates(row, rows, users, avail, applied, tracked) {
   var on = {}, busy = {};
   ((row && row.people) || []).forEach(function(p) { if (p.user_id) on[p.user_id] = true; });
   (rows || []).forEach(function(r) {
-    if (r === row || r.id === row.id || r.date !== row.date) return;
+    if (r === row || (row.id && r.id === row.id) || r.date !== row.date) return;
     (r.people || []).forEach(function(p) { if (p.user_id) busy[p.user_id] = true; });
   });
   var list = (users || []).filter(function(u) {

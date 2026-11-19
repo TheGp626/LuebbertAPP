@@ -135,7 +135,8 @@ function closeDashWorker() {
 // Share of the income limit: {pct 0–100, over}; null without pay or without a limit
 function incomeLimitShare(earned, limit) {
   if (earned === null || earned === undefined || !limit || limit <= 0) return null;
-  return { pct: Math.min(100, Math.round(earned / limit * 100)), over: earned > limit };
+  // pct is the real share (111 % when over, as in Aufträge); only the bar width stops at 100
+  return { pct: Math.round(earned / limit * 100), over: earned > limit };
 }
 
 // Net minutes of one booked shift, same rules as the table (overnight, minimum booking floor)
@@ -146,6 +147,7 @@ function dashShiftNetMins(s) {
   if (isNaN(a[0]) || isNaN(b[0])) return 0;
   var startMins = a[0] * 60 + a[1], endMins = b[0] * 60 + b[1];
   if (endMins < startMins) endMins += 1440;
+  if (endMins === startMins) return 0; // no duration: no floor either (same as the table and shiftNetHours)
   var net = endMins - startMins - (s.pause_mins || 0);
   if (BUCHHALTUNG_MIN_HOURS_ENABLED) net = Math.max(BUCHHALTUNG_MIN_HOURS * 60, net);
   return net > 0 ? net : 0;
@@ -635,7 +637,7 @@ async function refreshDashboardOnce() {
         protocol_equipments(*),
         worker_ratings(temp_worker_name, rating, is_star)
       `;
-    const load = (withCreator) => supabaseClient.from('protocols').select(protSelect(withCreator)).order('date', { ascending: false });
+    const load = (withCreator) => sbFetchAll(() => supabaseClient.from('protocols').select(protSelect(withCreator)).order('date', { ascending: false }).order('id'));
     let { data: protocols, error: protError } = await load(true);
     // created_by not migrated yet: load without it (everything then counts via AL/PL)
     if (protError && /created_by/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(false));
@@ -1020,10 +1022,11 @@ async function loadDashboardWorkers() {
     if (uErr) throw uErr;
     
     // Fetch all open shifts to highlight workers
-    const { data: pendingShifts } = await supabaseClient
+    const { data: pendingShifts } = await sbFetchAll(() => supabaseClient
       .from('shifts')
-      .select('user_id')
-      .eq('status', 'offen');
+      .select('id, user_id')
+      .eq('status', 'offen')
+      .order('id'));
 
     const pendingMap = {};
     (pendingShifts || []).forEach(s => {
@@ -1067,13 +1070,14 @@ async function renderWorkerShifts() {
   cont.innerHTML = '<div class="ui-sub" style="padding:20px 2px;">Schichten werden geladen…</div>';
 
   try {
-    const { data: shifts, error } = await supabaseClient
+    const { data: shifts, error } = await sbFetchAll(() => supabaseClient
       .from('shifts')
       .select(`
         *, shift_date,
         protocols(date, projects(name))
       `)
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .order('id'));
 
     // Another person was selected while this one loaded: drop the late answer
     if (document.getElementById('dash-worker-select').value !== userId) return;
@@ -1384,7 +1388,7 @@ function dashRenderWorkerMonth() {
     (money.pay !== null ? `<div class="ui-stat cost-only"><span>Lohn${rateLabel(money.payRates)}</span><b>${hrs > 0 ? eur(money.pay) : '—'}</b>${money.byPos ? '<div class="ui-sub">' + escapeHtml(money.byPos) + '</div>' : ''}${money.unpaid ? '<div class="ui-sub">' + money.unpaid + ' Schicht(en) ohne Lohnsatz</div>' : ''}</div>` : '') +
     (money.cost !== null ? `<div class="ui-stat cost-only"><span>Intern${rateLabel(money.costRates)}</span><b>${hrs > 0 ? eur(money.cost) : '—'}</b></div>` : '') +
     (share ? `<div class="ui-stat cost-only"><span>Grenze ${eur(parseFloat(worker.income_limit))}</span><b>${share.pct} %</b>` +
-      `<div class="ui-bar${share.over ? ' ui-bar-over' : share.pct >= 80 ? ' ui-bar-warn' : ''}"><i style="width:${share.pct}%"></i></div></div>` : '') +
+      `<div class="ui-bar${share.over ? ' ui-bar-over' : share.pct >= 80 ? ' ui-bar-warn' : ''}"><i style="width:${Math.min(100, share.pct)}%"></i></div></div>` : '') +
     '</div>';
 
   const actions = (canEdit ? `<button type="button" class="ui-btn dash-small-btn" onclick="openAddShift()">+ Schicht</button>` : '') +
@@ -2704,13 +2708,14 @@ async function exportDashboardMonthlyPDFRun() {
   const workerName = dashboardCurrentWorker.full_name || 'Mitarbeiter';
   showToast('PDF wird erstellt…');
 
-  const { data: shifts, error } = await supabaseClient
+  const { data: shifts, error } = await sbFetchAll(() => supabaseClient
     .from('shifts')
     .select(`
       id, start_time, end_time, pause_mins, position_role, status, shift_date, ort,
       protocols(date, al_name_fallback, pl_name_fallback, signature_text, projects(name, location))
     `)
-    .eq('user_id', dashboardCurrentWorker.id);
+    .eq('user_id', dashboardCurrentWorker.id)
+    .order('id'));
 
   if (error || !shifts || !shifts.length) { showToast('Keine Daten gefunden.'); return; }
   const m = dashBuildMonthWeeks(shifts, mKey, workerName);
