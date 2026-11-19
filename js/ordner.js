@@ -264,8 +264,9 @@ async function fetchOrdnerFiles(folderId) {
 // ── PDF warm-up ──
 // Drawing a page of a big Aufbauplan takes seconds on a phone (the drawing itself, not its size), so the PDFs of the opened
 // folder are downloaded and page 1 is drawn in the background; a tap then shows it at once. Memory only (private files
-// never go to the disk cache), only the current folder, at most 3 files of up to 3 MB, never with "Datensparen".
-var ORDNER_WARM_MAX = 3, ORDNER_WARM_BYTES = 3 * 1024 * 1024;
+// never go to the disk cache), only the current folder, never with "Datensparen". Every PDF up to 15 MB is downloaded;
+// page 1 is drawn for the first 3 only (a drawn page holds ~10 MB of memory), the others draw on open without a download.
+var ORDNER_WARM_MAX = 50, ORDNER_WARM_DRAW = 3, ORDNER_WARM_BYTES = 15 * 1024 * 1024;
 var _pdfWarm = { folder: null, files: {}, ready: {} };
 
 // Which files to warm: PDFs within the size limit, plans first ("Aufbau", "Plan", "Skizze"), then by list order
@@ -290,21 +291,22 @@ function ordnerWarmPdfs(folderId, files) {
   if (conn && conn.saveData) return;
   if (_pdfWarm.folder !== folderId) _pdfWarm = { folder: folderId, files: {}, ready: {} };
   var warm = _pdfWarm, chain = Promise.resolve();
-  ordnerWarmPick(files, ORDNER_WARM_MAX, ORDNER_WARM_BYTES).forEach(function(f) {
+  ordnerWarmPick(files, ORDNER_WARM_MAX, ORDNER_WARM_BYTES).forEach(function(f, i) {
     if (warm.files[f.id]) return;
     // one after the other: the first plan is ready soonest and the phone is not flooded
-    warm.files[f.id] = chain = chain.then(function() { return _pdfWarm === warm ? ordnerWarmOne(f) : null; })
+    warm.files[f.id] = chain = chain.then(function() { return _pdfWarm === warm ? ordnerWarmOne(f, i < ORDNER_WARM_DRAW) : null; })
       .then(function(v) { if (v) warm.ready[f.id] = v; });
   });
 }
 
-async function ordnerWarmOne(f) {
+async function ordnerWarmOne(f, draw) {
   try {
     var url = await signedProjectFileUrl(f.file_url);
     if (!url) return null;
     var res = await fetch(url);
     if (!res.ok) return null;
     var buf = await res.arrayBuffer();
+    if (!draw) return { url: url, buf: buf, preview: null };
     var pdfjs = await loadPdfJs();
     var pdf = await pdfjs.getDocument({ data: buf.slice(0) }).promise; // the worker takes over the copy it gets
     var page = await pdf.getPage(1);
