@@ -101,16 +101,16 @@ function renderProdukte(list) {
       var first = images[0];
       if (first.media_type === 'video') {
         preview = '<div class="produkt-video-thumb-wrap" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')">' +
-          '<video src="' + escHtml(first.image_url) + '" muted preload="metadata" playsinline></video>' +
+          '<video src="' + escHtml(first.image_url) + '" muted preload="none" playsinline></video>' +
           '<div class="produkt-video-play-icon"></div>' +
           '</div>';
       } else {
-        preview = '<img src="' + escHtml(first.image_url) + '" class="produkt-thumb" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')" />';
+        preview = '<img src="' + escHtml(first.image_url) + '" class="produkt-thumb" loading="lazy" decoding="async" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')" />';
       }
     } else if (p.pdf_url) {
       var pdfKind = aufbauFileKind(p.pdf_url);
       if (pdfKind === 'image') {
-        preview = '<img src="' + escHtml(p.pdf_url) + '" class="produkt-thumb" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')" />';
+        preview = '<img src="' + escHtml(p.pdf_url) + '" class="produkt-thumb" loading="lazy" decoding="async" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')" />';
       } else if (pdfKind === 'pdf') {
         preview = '<canvas class="produkt-thumb produkt-pdf-canvas" data-url="' + escHtml(p.pdf_url) + '" data-id="' + p.id + '" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')"></canvas>';
       } else {

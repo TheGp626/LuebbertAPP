@@ -312,3 +312,21 @@ test('ordnerAbRows: further days of the day plan are plain rows, once; a job pha
   ]);
   assert.equal(rows[2].al_id, 'u1');
 });
+
+test('ordnerWarmPick: PDFs within the size limit, plans first, at most max', () => {
+  const f = (id, name, type, size) => ({ id, name, file_type: type, file_size_bytes: size });
+  const files = [f(1, 'Rechnung.pdf', 'application/pdf', 1000), f(2, 'Foto.jpg', 'image/jpeg', 1000),
+    f(3, 'Aufbauplan Saal.pdf', 'application/pdf', 2000), f(4, 'Riesig.pdf', 'application/pdf', 9e6), f(5, 'Liste.pdf', '', 500),
+    f(6, 'Bestuhlungsplan.PDF', 'application/pdf', null)];
+  assert.deepEqual(ctx.ordnerWarmPick(files, 3, 3e6).map(x => x.id), [3, 6, 1]);
+  assert.deepEqual(ctx.ordnerWarmPick(files, 9, 3e6).map(x => x.id), [3, 6, 1, 5]);
+  assert.deepEqual(ctx.ordnerWarmPick([], 3, 3e6), []);
+});
+
+test('ordnerPdfRenderWidth: draws twice the fit width, so zoom up to 2x needs no redraw; capped at 3000', () => {
+  const plain = o => JSON.parse(JSON.stringify(o));
+  assert.deepEqual(plain(ctx.ordnerPdfRenderWidth(390, 1, 2)), { need: 780, draw: 1560 });
+  assert.ok(ctx.ordnerPdfRenderWidth(390, 2, 2).need <= 1560);       // zoom 2: still sharp from the first drawing
+  assert.deepEqual(plain(ctx.ordnerPdfRenderWidth(390, 3, 3)), { need: 2340, draw: 2340 }); // dpr capped at 2
+  assert.equal(ctx.ordnerPdfRenderWidth(1000, 6, 2).draw, 3000);
+});
