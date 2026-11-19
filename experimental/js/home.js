@@ -12,7 +12,7 @@ var HOME_TILES = [
   { mode: 'ordner', label: 'Projektordner', icon: 'folder' },
   // The office dashboard is two tiles: same module (role guard), different view
   { mode: 'dashboard', view: 'prot', id: 'dashboard-prot', label: 'Protokoll-Übersicht', icon: 'file' },
-  { mode: 'dashboard', view: 'work', id: 'dashboard-work', label: 'Buchhaltung', icon: 'chart' }
+  { mode: 'dashboard', view: 'work', id: 'dashboard-work', label: 'Personal', icon: 'chart' }
 ];
 
 // Stored dashboard view ('prot' | 'work'); the old single "dashboard" mode has none → protocols
