@@ -1,5 +1,20 @@
 // "Was ist neu" popup. Newest entry first. lastIsHint: render the last item as a highlighted line instead of a list step.
+// bullets: a list of news instead of numbered steps.
 const CHANGELOG = [{
+  version: '2026-11-release',
+  title: 'Neu in der App',
+  bullets: true,
+  lastIsHint: true,
+  items: [
+    'Startseite: Die Karte „Heute“ zeigt Adresse, Route, Team und Material für deinen Einsatz.',
+    'Wochenplan: Fehlen bei einer Schicht noch Leute, tippe „Ich kann“. Du siehst dann, ob du angenommen wurdest.',
+    'Doch keine Zeit? Tippe „Ich kann doch nicht“ und sag bitte kurz deinem AL Bescheid.',
+    'Material abhaken: beim Aufbau und Abbau direkt an deiner Schicht im Wochenplan.',
+    'Profilbild (freiwillig): oben rechts „…“ → Optionen → Profilbild.',
+    'Aufbaupläne und Produktbilder öffnen jetzt viel schneller.',
+    'Etwas klappt nicht oder du hast eine Frage? Sag deinem AL oder PL Bescheid.'
+  ]
+}, {
   version: '2026-11-pin',
   title: 'Neu: deine eigene PIN',
   lastIsHint: true,
@@ -27,7 +42,7 @@ function showChangelogIfNew() {
     const steps = e.lastIsHint ? e.items.slice(0, -1) : e.items;
     const hint = e.lastIsHint ? e.items[e.items.length - 1] : '';
     return '<h4 style="margin:12px 0 6px;font-size:15px;">' + esc(e.title) + '</h4>' +
-      '<ol style="margin:0 0 8px;padding-left:20px;line-height:1.5;">' + steps.map(t => '<li>' + esc(t) + '</li>').join('') + '</ol>' +
+      '<' + (e.bullets ? 'ul' : 'ol') + ' style="margin:0 0 8px;padding-left:20px;line-height:1.5;">' + steps.map(t => '<li>' + esc(t) + '</li>').join('') + '</' + (e.bullets ? 'ul' : 'ol') + '>' +
       (hint ? '<div style="margin-top:10px;padding:10px 12px;border-radius:var(--r-control);background:var(--bg3);font-weight:500;">' + esc(hint) + '</div>' : '');
   }).join('');
   const m = document.createElement('div');
