@@ -1,8 +1,8 @@
-// pin-login: personal PIN login. Account id = app_users.id, email/password derived server-side from the PIN.
+// pin-login: personal PIN login. Account id = app_users.id, password derived server-side from the PIN, login email random per account.
 // Gast has no PIN (password = GAST_LOGIN_SECRET, no lockout). Others: 5 wrong PINs lock the user for 15 min.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import {
-  PIN_LOCK_MIN, PIN_MAX_FAILS, firstPinNeedsAdminPin, isValidPin, isUuid, isWrongCredentials, lockoutRemainingMin, pinEmail, pinPassword,
+  PIN_LOCK_MIN, PIN_MAX_FAILS, firstPinNeedsAdminPin, isLegacyPinEmail, isValidPin, isUuid, isWrongCredentials, lockoutRemainingMin, newPinEmail, pinPassword,
 } from '../_shared/pin.mjs';
 
 const CORS = {
@@ -54,9 +54,16 @@ Deno.serve(async (req) => {
     if (mins > 0) return json({ error: 'locked', minutes: mins });
   }
 
-  const email = pinEmail(id);
   let created = false;
   const { data: existing } = await admin.auth.admin.getUserById(id);
+  let email = existing?.user?.email || newPinEmail();
+  if (existing?.user && isLegacyPinEmail(id, email)) {
+    // an account the migration missed: move it to a random email before anything else
+    const fresh = newPinEmail();
+    const { error: mErr } = await admin.auth.admin.updateUserById(id, { email: fresh, email_confirm: true });
+    if (mErr) { console.error('pin-login: move legacy email failed', mErr); return serverError(); }
+    email = fresh;
+  }
   // client view of has_pin may be stale: never create an account unless the client is explicitly setting a PIN
   if (!isGast && !existing?.user && input.set !== true) return json({ error: 'pin_not_set' });
   if (!isGast && existing?.user && input.set === true) return json({ error: 'pin_already_set' });

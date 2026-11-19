@@ -87,6 +87,36 @@ function roleRateMatches(entryRole, key) {
   return e.legacy === 'fest' ? k.type === 'Fest' : k.type !== 'Fest';
 }
 
+// The person's own rate entry (app_users.role_rates) for a position, field 'rate_conni' or 'rate_internal': exact role,
+// then an old "MA frei"/"MA fest" entry, then any entry of the same function (an old "MA Minijob" shift after the
+// person became Midijob still gets their MA rate)
+function personRoleRate(user, pos, field) {
+  var list = user && Array.isArray(user.role_rates) ? user.role_rates : [], fn = splitPosition(pos).func;
+  var ok = function(r) { return parseFloat(r[field]) > 0; };
+  var hit = list.find(function(r) { return r.role === pos && ok(r); }) ||
+    list.find(function(r) { return roleRateMatches(r.role, pos) && ok(r); }) ||
+    list.find(function(r) { return splitPosition(r.role).func === fn && ok(r); });
+  return hit ? parseFloat(hit[field]) : null;
+}
+
+// Pay per hour (Lohn Conni) for a shift in this position: the rate for that function, else the general Lohn; null = none
+function personPayRate(user, pos) {
+  return personRoleRate(user, pos, 'rate_conni') || (user && parseFloat(user.hourly_rate_conni) > 0 ? parseFloat(user.hourly_rate_conni) : null);
+}
+
+// Cost per hour (intern): the rate for that function, else the general internal rate, else the default for type and function
+function personCostRate(user, pos) {
+  return personRoleRate(user, pos, 'rate_internal') || (user && parseFloat(user.hourly_rate_internal) > 0 ? parseFloat(user.hourly_rate_internal) : null) ||
+    (pos ? personnelRate(pos) || null : null);
+}
+
+// Minijob/Midijob: Satz intern is always Lohn Conni + 25 % (the social security Lübbert pays on top). Other types: null
+var INTERNAL_AUTO_TYPES = ['Minijob', 'Midijob'];
+function autoInternalRate(conni, type) {
+  var c = parseFloat(conni);
+  return INTERNAL_AUTO_TYPES.indexOf(type) !== -1 && c > 0 ? Math.round(c * 125) / 100 : null;
+}
+
 function personnelRate(key) {
   var p = splitPosition(key);
   if (!p.type) return PROT_PERSONNEL_RATES[key] || 0;

@@ -201,7 +201,49 @@ function openTopbarMenu() {
   openUiMenu(topbarMenuItems(typeof activeModule !== 'undefined' ? activeModule : null));
 }
 
+// ── Double-tap guard ──
+// An async action started by a tap (onclick/onsubmit) ignores the same tap (same function, same arguments) until it has
+// finished: a double tap on "Speichern" on a phone no longer saves twice or runs into its own conflict check.
+// Calls from code (not from a tap) and calls nested in the tap's handler pass straight through.
+var _uiTapDepth = 0;
+function uiGuardTap(fn, name, getEvent, maxMs) {
+  var running = {};
+  return function() {
+    var ev = getEvent && getEvent();
+    if (_uiTapDepth || !ev || (ev.type !== 'click' && ev.type !== 'submit')) return fn.apply(this, arguments);
+    var key = name, el = ev.target && ev.target.closest ? ev.target.closest('button, [onclick], form') : null;
+    try { key += JSON.stringify([].slice.call(arguments)); } catch (e) {}
+    if (running[key]) return running[key];
+    var p;
+    _uiTapDepth++;
+    try { p = fn.apply(this, arguments); } finally { _uiTapDepth--; }
+    if (!p || typeof p.then !== 'function') return p;
+    if (el && el.setAttribute) el.setAttribute('aria-busy', 'true');
+    // safety: a promise that never settles must not lock the button for good
+    var timer = setTimeout(done, maxMs || 60000);
+    function done() { clearTimeout(timer); if (running[key] === p) delete running[key]; if (el && el.removeAttribute) el.removeAttribute('aria-busy'); }
+    running[key] = p;
+    p.then(done, done);
+    return p;
+  };
+}
+
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  // After every script has run: wrap each global async function (they are the ones that save, load or delete)
+  document.addEventListener('DOMContentLoaded', function() {
+    Object.keys(window).forEach(function(k) {
+      var f;
+      try { f = window[k]; } catch (e) { return; }
+      if (typeof f === 'function' && f.constructor && f.constructor.name === 'AsyncFunction' && !f._uiGuarded) {
+        var g = uiGuardTap(f, k, function() { return window.event; });
+        g._uiGuarded = true;
+        window[k] = g;
+      }
+    });
+  });
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { UI_ICONS: UI_ICONS, uiIcon: uiIcon, uiEmptyHtml: uiEmptyHtml, uiMenuHtml: uiMenuHtml,
+  module.exports = { uiGuardTap: uiGuardTap, UI_ICONS: UI_ICONS, uiIcon: uiIcon, uiEmptyHtml: uiEmptyHtml, uiMenuHtml: uiMenuHtml,
     UI_TOPBAR_ITEMS: UI_TOPBAR_ITEMS, topbarMenuItems: topbarMenuItems, uiComboMatches: uiComboMatches, uiComboHtml: uiComboHtml, uiComboKeyAction: uiComboKeyAction };
 }

@@ -17,6 +17,9 @@ test('moduleAllowedForRole: same guards as selectMode', () => {
   assert.equal(ok('stunden', 'Gast'), false);
   assert.equal(ok('ordner', 'Gast'), true);
   assert.equal(ok('produkte', 'Gast'), true);
+  assert.equal(ok('auftraege', 'Admin'), true);
+  assert.equal(ok('auftraege', 'PL'), true);
+  for (const r of ['MA', 'AL', 'Buchhaltung', 'Gast']) assert.equal(ok('auftraege', r), false, r);
 });
 
 test('parseCachedUsers: offline user list from localStorage, junk → []', () => {
@@ -150,4 +153,24 @@ test('authSessionChanged: a changed employment type or extra roles also re-run t
   const cachedOld = { id: 'a', full_name: 'Anna', role: 'AL', default_dept: 'AL', hourly_rate_conni: 15, hourly_rate_internal: 14 };
   assert.equal(changed(cachedOld, u), true, 'profile cached before the update lacks the new fields');
   assert.equal(changed(u, Object.assign({}, u)), false);
+});
+
+test('authSessionChanged: Wochenplan flags (Verfügbarkeit, sees interest) re-run the session', () => {
+  const changed = load('authSessionChanged');
+  const u = { full_name: 'A', role: 'Admin' };
+  assert.equal(changed(u, { ...u, availability_enabled: true }), true);       // old cache had no field yet
+  assert.equal(changed({ ...u, plan_interest_viewer: false }, { ...u, plan_interest_viewer: true }), true);
+  assert.equal(changed({ ...u, availability_enabled: true }, { ...u, availability_enabled: true }), false);
+});
+
+test('moduleAllowedForRole: auftraege for Admin/PL, others only with „Sieht Bewerbungen“, Gast never', () => {
+  const ok = load('moduleAllowedForRole');
+  globalThis.window = { currentUserSeesInterest: false };
+  assert.equal(ok('auftraege', 'PL'), true);
+  assert.equal(ok('auftraege', 'Admin'), true);
+  assert.equal(ok('auftraege', 'AL'), false);
+  window.currentUserSeesInterest = true;
+  assert.equal(ok('auftraege', 'AL'), true);
+  assert.equal(ok('auftraege', 'Gast'), false);
+  delete globalThis.window;
 });

@@ -198,12 +198,12 @@ test('showToast: honours type, clears the previous timer', () => {
 
 test('flattenPrivate: object, array, missing; no mutation', () => {
   const priv = { hourly_rate_conni: 15, income_limit: 556, email: 'x@y' };
-  const want = { id: 'a', full_name: 'X', hourly_rate_conni: 15, income_limit: 556, email: 'x@y' };
+  const want = { id: 'a', full_name: 'X', hourly_rate_conni: 15, income_limit_own: 556, income_limit: 556, email: 'x@y' };
   const row = { id: 'a', full_name: 'X', app_user_private: priv };
   assert.deepEqual(flattenPrivate(row), want);
   assert.deepEqual(row, { id: 'a', full_name: 'X', app_user_private: priv });
   assert.deepEqual(flattenPrivate({ id: 'a', full_name: 'X', app_user_private: [priv] }), want);
-  const none = { id: 'a', full_name: 'X', hourly_rate_conni: null, income_limit: null, email: null };
+  const none = { id: 'a', full_name: 'X', hourly_rate_conni: null, income_limit_own: null, income_limit: null, email: null };
   assert.deepEqual(flattenPrivate({ id: 'a', full_name: 'X', app_user_private: null }), none);
   assert.deepEqual(flattenPrivate({ id: 'a', full_name: 'X', app_user_private: [] }), none);
   assert.deepEqual(flattenPrivate({ id: 'a', full_name: 'X' }), none);
@@ -218,4 +218,34 @@ test('canSeeCosts: PL, Buchhaltung, Admin (also as extra role) — not AL/MA/Gas
   assert.equal(f({ role: 'MA' }), false);
   assert.equal(f({ role: 'AL', role_rates: [{ role: 'PL' }] }), true);
   assert.equal(f(null), false);
+});
+test('diffEinsaetze: Auftrag tag (job_no/phase) is written on insert and counts as a change', () => {
+  const d = diffEinsaetze(ex, [
+    { id: 'a', date: '2026-10-20', action: 'Aufbau', al_id: 'X', cancelled: false, job_no: '26-0447.01', phase: 'setup' },
+    { date: '2026-10-25', action: 'Abbau', al_id: 'X', cancelled: false, job_no: '26-0447.01', phase: 'teardown' },
+  ]);
+  assert.deepEqual(d.update, [{ id: 'a', date: '2026-10-20', action: 'Aufbau', al_id: 'X', cancelled: false, job_no: '26-0447.01', phase: 'setup' }]);
+  assert.deepEqual(d.insert, [{ date: '2026-10-25', action: 'Abbau', al_id: 'X', cancelled: false, job_no: '26-0447.01', phase: 'teardown' }]);
+});
+
+test('sbFetchAll: reads page by page until a short page, stops on an error', async () => {
+  const sbFetchAll = new Function('async ' + grab('sbFetchAll') + '; return sbFetchAll;')();
+  const rows = Array.from({ length: 5 }, (_, i) => i);
+  const q = () => ({ range: async (a, b) => ({ data: rows.slice(a, b + 1), error: null }) });
+  assert.deepEqual((await sbFetchAll(q, 2)).data, rows);
+  assert.deepEqual((await sbFetchAll(q, 5)).data, rows); // full last page: one more empty request
+  const bad = () => ({ range: async () => ({ data: null, error: { message: 'x' } }) });
+  assert.equal((await sbFetchAll(bad)).error.message, 'x');
+});
+
+test('autoPause: adults vs. unter 18 (JArbSchG)', () => {
+  const autoPause = new Function(grab('autoPause') + '; return autoPause;')();
+  assert.equal(autoPause(360), 0); assert.equal(autoPause(361), 30); assert.equal(autoPause(541), 45);
+  assert.equal(autoPause(270, true), 0); assert.equal(autoPause(271, true), 30);
+  assert.equal(autoPause(390, true), 30); assert.equal(autoPause(391, true), 60);
+  // net work never breaks the rule: over 4,5 h net → 30, over 6 h net → 60
+  for (let raw = 0; raw <= 900; raw++) {
+    const p = autoPause(raw, true), net = raw - p;
+    assert.ok(!(net > 360 && p < 60) && !(net > 270 && p < 30), 'raw ' + raw);
+  }
 });

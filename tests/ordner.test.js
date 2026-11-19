@@ -16,7 +16,7 @@ beforeEach(() => {
     setTimeout: () => 0,
   });
   ctx.window = ctx;
-  for (const f of ['utils.js', 'ui.js', 'ordner.js']) {
+  for (const f of ['utils.js', 'ui.js', 'order-parser.js', 'ordner.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../js', f), 'utf8'), ctx, { filename: f });
   }
 });
@@ -221,4 +221,124 @@ test('renderOrdnerEinsaetze: AL name from directory; protocols queried for offic
     assert.equal(calls.find(c => c.table === 'einsaetze').select.includes('app_users'), false);
     assert.match(box.innerHTML, /AL Anna AL/, role);
   }
+});
+
+// ── Auftragsbestätigung im Ordner-Formular ──
+const ALS = [
+  { id: 'u1', full_name: 'Max Mustermann', role: 'AL', is_active: true },
+  { id: 'u2', full_name: 'Ana Lopez', role: 'MA', role_rates: [{ role: 'AL' }], is_active: true },
+  { id: 'u3', full_name: 'Ben Alt', role: 'AL', is_active: false },
+  { id: 'u4', full_name: 'Max Muster', role: 'MA', is_active: true },
+];
+test('ordnerMatchAl: exact name, all words, AL role (also via role_rates), active only, first fitting part', () => {
+  assert.equal(ctx.ordnerMatchAl('Max Mustermann', ALS), 'u1');
+  assert.equal(ctx.ordnerMatchAl('  ana   LOPEZ ', ALS), 'u2');
+  assert.equal(ctx.ordnerMatchAl('Lopez', ALS), 'u2');
+  assert.equal(ctx.ordnerMatchAl('Herr Krause, Ana Lopez', ALS), 'u2');
+  assert.equal(ctx.ordnerMatchAl('Max Muster', ALS), '');      // u4 is no AL; "Muster" ≠ "Mustermann"
+  assert.equal(ctx.ordnerMatchAl('Ben Alt', ALS), '');         // inactive
+  assert.equal(ctx.ordnerMatchAl('', ALS), '');
+});
+
+test('ordnerAbRows: one Aufbau and one Abbau row per job, skips phases already in the form', () => {
+  const parsed = { jobs: [
+    { jobNo: '26-0447.01', lead: 'Max Mustermann', setup: { start: '2026-11-11T09:00' }, event: { start: '2026-11-12' }, teardown: { start: '2026-11-13T08:00' } },
+    { jobNo: '26-0447.02', lead: '', setup: { start: '2026-11-11' }, teardown: null },
+  ] };
+  const rows = plain(ctx.ordnerAbRows(parsed, ALS, { '26-0447.01|teardown': true }));
+  assert.deepEqual(rows, [
+    { date: '2026-11-11', action: 'Aufbau', al_id: 'u1', job_no: '26-0447.01', phase: 'setup' },
+    { date: '2026-11-11', action: 'Aufbau', al_id: '', job_no: '26-0447.02', phase: 'setup' },
+  ]);
+});
+
+test('ordnerStaffRows: MA numbers per job from tagged rows; untagged ignored, empty = null, earliest row wins', () => {
+  const rows = plain(ctx.ordnerStaffRows([
+    { job_no: '26-0447.01', phase: 'setup', staff: '3', date: '2026-11-11' },
+    { job_no: '26-0447.01', phase: 'teardown', staff: '', date: '2026-11-13' },
+    { job_no: '26-0447.01', phase: 'setup', staff: '5', date: '2026-11-12' },
+    { job_no: null, phase: null, staff: '9', date: '2026-11-01' },
+  ]));
+  assert.deepEqual(rows, [{ job_no: '26-0447.01', staff_setup: 3, staff_teardown: null }]);
+});
+
+test('ordnerAbRows: shared Abbau of several jobs is one row (also_jobs), Umbau from the job name', () => {
+  const T = { start: '2026-11-05T01:00', end: '2026-11-05T06:00' };
+  const parsed = { jobs: [
+    { jobNo: '26-0394.01', name: 'CH II // Aufbau 01.11.', lead: '', setup: { start: '2026-11-01T17:00' }, teardown: T },
+    { jobNo: '26-0394.02', name: 'CH II // Deko für 02.11.', lead: '', setup: { start: '2026-11-02T08:00' }, teardown: T },
+    { jobNo: '26-0394.03', name: 'CH II // 04.11. Umbau AVA', lead: '', setup: { start: '2026-11-04T16:00' }, teardown: T },
+  ] };
+  const rows = plain(ctx.ordnerAbRows(parsed, ALS, {}));
+  assert.deepEqual(rows.map(r => [r.date, r.action, r.job_no, r.phase, (r.also_jobs || []).join()]), [
+    ['2026-11-01', 'Aufbau', '26-0394.01', 'setup', ''],
+    ['2026-11-02', 'Aufbau', '26-0394.02', 'setup', ''],
+    ['2026-11-04', 'Umbau', '26-0394.03', 'setup', ''],
+    ['2026-11-05', 'Abbau', '26-0394.01', 'teardown', '26-0394.02,26-0394.03'],
+  ]);
+});
+
+test('ordnerStaffRows: jobs that share a phase get 0 MA for it, so it shows up once', () => {
+  const rows = plain(ctx.ordnerStaffRows([
+    { job_no: '26-0394.01', phase: 'teardown', staff: '4', date: '2026-11-05', also_jobs: ['26-0394.02'] },
+    { job_no: '26-0394.02', phase: 'setup', staff: '2', date: '2026-11-02' },
+  ]));
+  assert.deepEqual(rows, [
+    { job_no: '26-0394.02', staff_setup: 2, staff_teardown: 0 },
+    { job_no: '26-0394.01', staff_teardown: 4 },
+  ]);
+});
+
+test('ordnerAbRows: further days of the day plan are plain rows, once; a job phase on the same day covers them', () => {
+  const days = [
+    { date: '2026-10-11', action: 'Aufbau' }, { date: '2026-10-12', action: 'Aufbau' }, { date: '2026-10-13', action: 'Aufbau' },
+    { date: '2026-10-14', action: 'Umbau' }, { date: '2026-10-16', action: 'Abbau' }, { date: '2026-10-18', action: 'Abbau' },
+  ];
+  const plan = { setup: { start: '2026-10-11', end: null }, teardown: { start: '2026-10-16', end: '2026-10-18' }, days };
+  const parsed = { jobs: [
+    Object.assign({ jobNo: '26-0193.01', name: 'Rotunde', lead: 'Max Mustermann' }, plan),
+    Object.assign({ jobNo: '26-0193.02', name: 'Catering', lead: '' }, plan),
+    { jobNo: '26-0193.03', name: 'Lounge', lead: '', setup: { start: '2026-10-12T14:00' }, teardown: { start: '2026-10-16T14:00' } },
+  ] };
+  const rows = plain(ctx.ordnerAbRows(parsed, ALS, {}));
+  assert.deepEqual(rows.map(r => [r.date, r.action, r.job_no || '-']), [
+    ['2026-10-11', 'Aufbau', '26-0193.01'],
+    ['2026-10-12', 'Aufbau', '26-0193.03'],
+    ['2026-10-13', 'Aufbau', '-'],
+    ['2026-10-14', 'Umbau', '-'],
+    ['2026-10-16', 'Abbau', '26-0193.01'],
+    ['2026-10-16', 'Abbau', '26-0193.03'],
+    ['2026-10-18', 'Abbau', '-'],
+  ]);
+  assert.equal(rows[2].al_id, 'u1');
+});
+
+test('ordnerWarmPick: PDFs within the size limit, plans first, at most max', () => {
+  const f = (id, name, type, size) => ({ id, name, file_type: type, file_size_bytes: size });
+  const files = [f(1, 'Rechnung.pdf', 'application/pdf', 1000), f(2, 'Foto.jpg', 'image/jpeg', 1000),
+    f(3, 'Aufbauplan Saal.pdf', 'application/pdf', 2000), f(4, 'Riesig.pdf', 'application/pdf', 9e6), f(5, 'Liste.pdf', '', 500),
+    f(6, 'Bestuhlungsplan.PDF', 'application/pdf', null)];
+  assert.deepEqual(ctx.ordnerWarmPick(files, 3, 3e6).map(x => x.id), [3, 6, 1]);
+  assert.deepEqual(ctx.ordnerWarmPick(files, 9, 3e6).map(x => x.id), [3, 6, 1, 5]);
+  assert.deepEqual(ctx.ordnerWarmPick([], 3, 3e6), []);
+});
+
+test('ordnerPdfRenderWidth: draws twice the fit width, so zoom up to 2x needs no redraw; capped at 3000', () => {
+  const plain = o => JSON.parse(JSON.stringify(o));
+  assert.deepEqual(plain(ctx.ordnerPdfRenderWidth(390, 1, 2)), { need: 780, draw: 1560 });
+  assert.ok(ctx.ordnerPdfRenderWidth(390, 2, 2).need <= 1560);       // zoom 2: still sharp from the first drawing
+  assert.deepEqual(plain(ctx.ordnerPdfRenderWidth(390, 3, 3)), { need: 2340, draw: 2340 }); // dpr capped at 2
+  assert.equal(ctx.ordnerPdfRenderWidth(1000, 6, 2).draw, 3000);
+});
+
+test('zvTap / zvIsDoubleTap: only two short, unmoved taps close together zoom; swipes while panning never do', () => {
+  const t = (x, y, t0, extra) => Object.assign({ x, y, t: t0, moved: false, multi: false }, extra);
+  const a = ctx.zvTap(t(100, 100, 0), 80), b = ctx.zvTap(t(105, 102, 200), 260);
+  assert.ok(ctx.zvIsDoubleTap(a, b));
+  assert.equal(ctx.zvTap(t(100, 100, 0, { moved: true }), 80), null);   // a swipe is no tap
+  assert.equal(ctx.zvTap(t(100, 100, 0, { multi: true }), 80), null);   // end of a pinch
+  assert.equal(ctx.zvTap(t(100, 100, 0), 500), null);                   // held too long
+  assert.ok(!ctx.zvIsDoubleTap(a, ctx.zvTap(t(100, 100, 400), 450)));   // too late
+  assert.ok(!ctx.zvIsDoubleTap(a, ctx.zvTap(t(300, 100, 150), 200)));   // too far apart
+  assert.ok(!ctx.zvIsDoubleTap(null, b));
 });

@@ -12,6 +12,10 @@ export const SETTINGS_DEFAULTS = Object.freeze({
   protocol_mail_enabled: true,
   mail_test_mode: true,
   billing_cutoff: 20,
+  department_mail_enabled: true,
+  department_mail_test_mode: true,
+  // protocol area → department (lager | stoffe | floristik | '' = no mail); addresses are fixed in send-protocol-mail
+  department_routes: Object.freeze({ logistik: 'lager', mobiliar: 'lager', tischlerei: '', stoffe: 'stoffe', floristik: 'floristik' }),
 });
 
 // rows: [{key, value}] from app_settings, or null when the read failed.

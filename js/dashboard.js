@@ -3,6 +3,11 @@
  */
 
 let dashboardProtocols = [];
+// Name of the main protocol of a Zusatzauftrag (protocols.side_of), from the loaded list
+function dashSideLabel(id) {
+  const m = dashboardProtocols.find(function(x) { return x.id === id; });
+  return (m && m.projects && m.projects.name) || 'Hauptprotokoll';
+}
 let dashboardWorkers = [];
 let dashboardCurrentWorker = null;
 let dashboardCurrentShifts = [];
@@ -66,17 +71,29 @@ function switchDashTab(tab) {
   if (tab === 'work') loadDashboardWorkers();
 }
 
+// Adding and editing people: PL, Buchhaltung, Admin (as the database allows). An AL only looks.
+function dashMayManageStaff(role) { return ['PL', 'Buchhaltung', 'Admin'].indexOf(role) !== -1; }
+// Marking shifts as "eingetragen": Buchhaltung and Admin
+function dashMayBook(role) { return role === 'Buchhaltung' || role === 'Admin'; }
+
 // Opens/closes the "Mitarbeiter hinzufügen" sheet (name kept: addDashboardUser closes it after saving)
 function toggleAddUserForm() {
   const m = document.getElementById('add-user-modal');
-  if (m) m.classList.toggle('open');
+  if (!m) return;
+  if (!m.classList.contains('open') && !dashMayManageStaff(typeof userRole !== 'undefined' ? userRole : null)) return;
+  m.classList.toggle('open');
 }
 
-// Employee list: people with new hours first, then by name; filtered by a name search
-function dashWorkerList(workers, pendingMap, query) {
+// Festangestellte (own staff) vs. Aushilfen (everyone else, also Gast logins)
+function dashIsFest(w) { return (w.employment_type || (w.is_fest ? 'Fest' : 'Minijob')) === 'Fest'; }
+
+// Employee list: people with new hours first, then by name; filtered by a name search and the group ('aus' | 'fest')
+function dashWorkerList(workers, pendingMap, query, filter, group) {
   var q = String(query || '').trim().toLowerCase();
   return (workers || [])
+    .filter(function(w) { return !group || (group === 'fest') === dashIsFest(w); })
     .filter(function(w) { return !q || String(w.full_name || '').toLowerCase().indexOf(q) !== -1; }) // real names only, not the placeholder
+    .filter(function(w) { return filter === 'nosurname' ? mitNoSurname(w) : filter === 'nophoto' ? !w.photo_path && w.role !== 'Gast' : true; })
     .map(function(w) { return { id: w.id, name: w.full_name || 'Unbekannt', role: w.role || '', pending: (pendingMap || {})[w.id] || 0 }; })
     .sort(function(a, b) { return (b.pending > 0) - (a.pending > 0) || a.name.localeCompare(b.name, 'de'); });
 }
@@ -85,24 +102,75 @@ var dashPendingMap = {};
 
 function dashWorkerRowHtml(w, selectedId) {
   return '<button type="button" class="ui-row dash-worker-row' + (w.id === selectedId ? ' ui-row-me' : '') + '" onclick="selectDashWorker(\'' + jsAttrArg(w.id) + '\')">' +
-    '<span class="ui-row-main"><span class="ui-row-title">' + escapeHtml(w.name) + '</span><span class="ui-sub">' + escapeHtml(w.role) + '</span></span>' +
+    '<span class="ui-row-title">' + escapeHtml(w.name) + '</span><span class="ui-sub dash-worker-role">' + escapeHtml(w.role) + '</span>' +
     (w.pending ? '<span class="ui-pill ui-pill-info" title="Neue Stunden">' + w.pending + '</span>' : '') +
   '</button>';
 }
 
 function renderDashWorkerList() {
+  renderDashClosePanel();
+  const addBtn = document.getElementById('dash-add-user-btn');
+  if (addBtn) addBtn.style.display = dashMayManageStaff(typeof userRole !== 'undefined' ? userRole : null) ? '' : 'none';
   var listEl = document.getElementById('dash-worker-list');
   if (!listEl) return;
   var selected = (document.getElementById('dash-worker-select') || {}).value || '';
   var query = (document.getElementById('dash-worker-search') || {}).value || '';
-  var rows = dashWorkerList(dashboardWorkers, dashPendingMap, query);
+  var filterEl = document.getElementById('dash-worker-filter'), filter = (filterEl || {}).value || '';
+  var all = dashboardWorkers || [], fest = all.filter(dashIsFest).length;
+  dashGroupLabel('aus', 'Aushilfen', all.length - fest);
+  dashGroupLabel('fest', 'Fest', fest);
+  dashGroupLabel('inaktiv', 'Deaktiviert', dashInactiveWorkers ? dashInactiveWorkers.length : null);
+  if (filterEl) filterEl.hidden = _dashWorkerGroup === 'inaktiv';
+  if (_dashWorkerGroup === 'inaktiv') { listEl.innerHTML = dashInactiveHtml(query); return; }
+  var rows = dashWorkerList(all, dashPendingMap, query, filter, _dashWorkerGroup);
   listEl.innerHTML = rows.length ? rows.map(function(w) { return dashWorkerRowHtml(w, selected); }).join('') : uiEmptyHtml('Niemand gefunden', '');
-  var panel = document.getElementById('pending-workers-panel'), chips = document.getElementById('pending-workers-chips');
-  var pending = rows.filter(function(w) { return w.pending > 0; });
-  if (panel && chips) {
-    panel.style.display = pending.length && !query.trim() ? 'block' : 'none';
-    chips.innerHTML = pending.map(function(w) { return dashWorkerRowHtml(w, selected); }).join('');
-  }
+}
+
+// ── Groups of the list: Aushilfen, Festangestellte, Deaktiviert (loaded when first opened) ──
+var _dashWorkerGroup = 'aus', dashInactiveWorkers = null;
+
+function dashGroupLabel(g, text, n) {
+  var b = document.getElementById('dash-group-' + g);
+  if (!b) return;
+  b.textContent = text + (n === null || n === undefined ? '' : ' ' + n);
+  b.classList.toggle('active', _dashWorkerGroup === g);
+  b.setAttribute('aria-selected', _dashWorkerGroup === g ? 'true' : 'false');
+}
+
+function setDashWorkerGroup(g) {
+  _dashWorkerGroup = g;
+  renderDashWorkerList();
+  if (g === 'inaktiv' && dashInactiveWorkers === null) loadDashInactiveWorkers();
+}
+
+async function loadDashInactiveWorkers() {
+  var r = await supabaseClient.from('app_users').select('id, full_name, role, employment_type, is_fest').eq('is_active', false).order('full_name');
+  if (r.error) { console.error('Deaktivierte:', r.error); showToast('Deaktivierte konnten nicht geladen werden.', 'danger'); return; }
+  dashInactiveWorkers = r.data || [];
+  renderDashWorkerList();
+}
+
+function dashInactiveHtml(query) {
+  if (dashInactiveWorkers === null) return '<div class="ui-sub" style="padding:8px 2px;">Lädt…</div>';
+  var q = String(query || '').trim().toLowerCase(), may = dashMayManageStaff(typeof userRole !== 'undefined' ? userRole : null);
+  var rows = dashInactiveWorkers.filter(function(w) { return !q || String(w.full_name || '').toLowerCase().indexOf(q) !== -1; });
+  if (!rows.length) return uiEmptyHtml(q ? 'Niemand gefunden' : 'Niemand deaktiviert', '');
+  return rows.map(function(w) {
+    return '<div class="ui-row dash-worker-row dash-worker-off"><span class="ui-row-title">' + escapeHtml(w.full_name || 'Unbekannt') + '</span>' +
+      '<span class="ui-sub dash-worker-role">' + escapeHtml(w.role || '') + '</span>' +
+      (may ? '<button type="button" class="ui-btn dash-small-btn" onclick="reactivateDashWorker(\'' + jsAttrArg(w.id) + '\')">Aktivieren</button>' : '') + '</div>';
+  }).join('');
+}
+
+async function reactivateDashWorker(id) {
+  var w = (dashInactiveWorkers || []).find(function(x) { return x.id === id; });
+  if (!w || !confirm('„' + (w.full_name || '') + '“ wieder aktivieren?\nDie Person kann sich wieder anmelden und steht wieder in allen Listen.')) return;
+  var r = await supabaseClient.from('app_users').update({ is_active: true }).eq('id', id).select('id');
+  if (r.error || !r.data || !r.data.length) { console.error('Aktivieren:', r.error); showToast('Nicht gespeichert.', 'danger'); return; }
+  dashInactiveWorkers = dashInactiveWorkers.filter(function(x) { return x.id !== id; });
+  showToast('Wieder aktiv');
+  await loadDashboardWorkers();
+  if (typeof dashRefreshRateUsers === 'function') await dashRefreshRateUsers();
 }
 
 // Selecting a person: the hidden select stays the source the rest of the dashboard reads
@@ -125,7 +193,8 @@ function closeDashWorker() {
 // Share of the income limit: {pct 0–100, over}; null without pay or without a limit
 function incomeLimitShare(earned, limit) {
   if (earned === null || earned === undefined || !limit || limit <= 0) return null;
-  return { pct: Math.min(100, Math.round(earned / limit * 100)), over: earned > limit };
+  // pct is the real share (111 % when over, as in Aufträge); only the bar width stops at 100
+  return { pct: Math.round(earned / limit * 100), over: earned > limit };
 }
 
 // Net minutes of one booked shift, same rules as the table (overnight, minimum booking floor)
@@ -136,9 +205,158 @@ function dashShiftNetMins(s) {
   if (isNaN(a[0]) || isNaN(b[0])) return 0;
   var startMins = a[0] * 60 + a[1], endMins = b[0] * 60 + b[1];
   if (endMins < startMins) endMins += 1440;
+  if (endMins === startMins) return 0; // no duration: no floor either (same as the table and shiftNetHours)
   var net = endMins - startMins - (s.pause_mins || 0);
   if (BUCHHALTUNG_MIN_HOURS_ENABLED) net = Math.max(BUCHHALTUNG_MIN_HOURS * 60, net);
   return net > 0 ? net : 0;
+}
+
+// Minutes of a shift between 22:00 and 6:00 (gross, pause not subtracted), over midnight
+function dashShiftNightMins(s) {
+  var st = timeToMins(s.start_time ? s.start_time.substring(0, 5) : null), en = timeToMins(s.end_time ? s.end_time.substring(0, 5) : null);
+  if (st === null || en === null || isNaN(st) || isNaN(en)) return 0;
+  if (en <= st) en += 1440;
+  var n = 0;
+  for (var m = st; m < en; m++) { var d = m % 1440; if (d >= 1320 || d < 360) n++; }
+  return n;
+}
+// Night shift = more than 2 h between 22 and 6 (Nachtarbeit as in §2 ArbZG)
+function dashIsNightShift(s) { return dashShiftNightMins(s) > 120; }
+
+// Who takes night shifts most: active workers with ≥1 night shift, most nights first, then the higher share
+function dashNightRanking(shifts, workers) {
+  var by = {};
+  (shifts || []).forEach(function(s) {
+    if (!s.user_id) return;
+    var r = by[s.user_id] || (by[s.user_id] = { nights: 0, total: 0 });
+    r.total++;
+    if (dashIsNightShift(s)) r.nights++;
+  });
+  return (workers || []).filter(function(w) { return by[w.id] && by[w.id].nights > 0; }).map(function(w) {
+    var r = by[w.id];
+    return { id: w.id, name: w.full_name || 'Unbekannt', nights: r.nights, total: r.total, share: Math.round(r.nights / r.total * 100) };
+  }).sort(function(a, b) { return b.nights - a.nights || b.share - a.share || a.name.localeCompare(b.name, 'de'); });
+}
+
+// ── Auswertung (PL): night shifts per year, people without work for 4+ weeks, busiest bees of the month ──
+var DASH_PAGE = 1000;          // PostgREST answers at most 1000 rows per request
+var DASH_INACTIVE_DAYS = 28;   // "seit vier Wochen nicht im Einsatz"
+var DASH_INACTIVE_ALERT = 56;  // from 8 weeks: Minijob deregistration may be due
+var dashInsights = { year: null, nights: [], noNight: [], inactive: [], bees: [], beesLabel: '' };
+
+// People the evaluations are about: active, never Gast; MA/AL always, other roles only once they worked a shift
+function dashEligible(workers, shifts) {
+  var worked = {};
+  (shifts || []).forEach(function(s) { if (s.user_id) worked[s.user_id] = true; });
+  return (workers || []).filter(function(w) {
+    return w.is_active !== false && w.role !== 'Gast' && (w.role === 'MA' || w.role === 'AL' || worked[w.id]);
+  });
+}
+
+// Eligible people with no night shift among the given shifts, by name
+function dashNoNight(shifts, workers) {
+  var night = {};
+  (shifts || []).forEach(function(s) { if (s.user_id && dashIsNightShift(s)) night[s.user_id] = true; });
+  return dashEligible(workers, shifts).filter(function(w) { return !night[w.id]; })
+    .map(function(w) { return { id: w.id, name: w.full_name || 'Unbekannt' }; })
+    .sort(function(a, b) { return a.name.localeCompare(b.name, 'de'); });
+}
+
+// Eligible people whose last shift is minDays+ before today (or who never worked): never first, then longest ago
+function dashInactive(shifts, workers, today, minDays) {
+  var last = {};
+  (shifts || []).forEach(function(s) {
+    var d = dashShiftDate(s);
+    if (s.user_id && d && d <= today && (!last[s.user_id] || d > last[s.user_id])) last[s.user_id] = d;
+  });
+  var dayNo = function(iso) { var p = iso.split('-').map(Number); return Date.UTC(p[0], p[1] - 1, p[2]) / 86400000; };
+  return dashEligible(workers, shifts).map(function(w) {
+    var l = last[w.id] || null;
+    return { id: w.id, name: w.full_name || 'Unbekannt', last: l, days: l ? dayNo(today) - dayNo(l) : null };
+  }).filter(function(r) { return r.days === null || r.days >= minDays; })
+    .sort(function(a, b) { return (b.days === null) - (a.days === null) || b.days - a.days || a.name.localeCompare(b.name, 'de'); });
+}
+
+// Top 3 by net hours in one billing month
+function dashBees(shifts, workers, key, cutoff) {
+  var mins = {};
+  dashShiftsInMonth(shifts, key, cutoff).forEach(function(s) { if (s.user_id) mins[s.user_id] = (mins[s.user_id] || 0) + dashShiftNetMins(s); });
+  return dashEligible(workers, shifts).filter(function(w) { return mins[w.id] > 0; })
+    .map(function(w) { return { id: w.id, name: w.full_name || 'Unbekannt', mins: mins[w.id] }; })
+    .sort(function(a, b) { return b.mins - a.mins || a.name.localeCompare(b.name, 'de'); }).slice(0, 3);
+}
+
+// All shifts, page by page; a failure only leaves the evaluations empty, never the worker list
+// shortcut: loads every shift ever (≈1000/year), add a date filter if the dashboard gets slow
+async function loadDashInsights() {
+  var all = [], today = localDateStr(), year = today.slice(0, 4), cutoff = dashBillingCutoff();
+  var month = getBillingKeyForDate(new Date(), cutoff);
+  try {
+    for (var from = 0; ; from += DASH_PAGE) {
+      const { data, error } = await supabaseClient
+        .from('shifts')
+        .select('id, user_id, start_time, end_time, pause_mins, shift_date, created_at, protocols(date)')
+        .not('user_id', 'is', null)
+        .order('id')
+        .range(from, from + DASH_PAGE - 1);
+      if (error) throw error;
+      all = all.concat(data || []);
+      if (!data || data.length < DASH_PAGE) break;
+    }
+    var yearShifts = all.filter(function(s) { return dashShiftDate(s).slice(0, 4) === year; });
+    dashInsights = {
+      year: year,
+      nights: dashNightRanking(yearShifts, dashboardWorkers),
+      noNight: dashNoNight(yearShifts, dashEligible(dashboardWorkers, all)),
+      inactive: dashInactive(all, dashboardWorkers, today, DASH_INACTIVE_DAYS),
+      bees: dashBees(all, dashboardWorkers, month.key, cutoff),
+      beesLabel: month.label
+    };
+  } catch (err) {
+    console.error('Auswertung laden:', err);
+    dashInsights = { year: year, nights: [], noNight: [], inactive: [], bees: [], beesLabel: month.label };
+  }
+  renderDashInsights();
+  if (typeof mitLoadAdminBoxes === 'function') mitLoadAdminBoxes(all).catch(function(e) { console.error('Personal-Kästen:', e); });
+}
+
+function dashPersonBtn(id, title, sub, end) {
+  return '<button type="button" class="ui-row dash-worker-row" onclick="selectDashWorker(\'' + jsAttrArg(id) + '\')">' +
+    '<span class="ui-row-main"><span class="ui-row-title">' + title + '</span>' + (sub ? '<span class="ui-sub">' + sub + '</span>' : '') + '</span>' + (end || '') + '</button>';
+}
+
+function renderDashInsights() {
+  var I = dashInsights, el;
+  if ((el = document.getElementById('dash-bees-panel'))) el.hidden = !I.bees.length; // collapsed row, opened on tap
+  if ((el = document.getElementById('dash-bees-title'))) el.textContent = '🐝 Fleißigste Bienen · ' + I.beesLabel;
+  if ((el = document.getElementById('dash-bees'))) {
+    var medals = ['🥇', '🥈', '🥉'];
+    el.innerHTML = I.bees.length ? '<div class="dash-bees">' +
+      I.bees.map(function(b, i) {
+        return '<button type="button" class="dash-bee" onclick="selectDashWorker(\'' + jsAttrArg(b.id) + '\')">' +
+          '<span class="dash-bee-medal" aria-label="Platz ' + (i + 1) + '">' + medals[i] + '</span><span class="dash-bee-name">' + escapeHtml(b.name) + '</span>' +
+          '<span class="dash-bee-h">' + (b.mins / 60).toFixed(1).replace('.', ',') + ' h</span></button>';
+      }).join('') + '</div>' : '';
+  }
+  if ((el = document.getElementById('dash-night-title'))) el.textContent = 'Nachtschichten · ' + I.year;
+  if ((el = document.getElementById('dash-night-ranking'))) {
+    el.innerHTML = (I.nights.length ? I.nights.map(function(r, i) {
+      return dashPersonBtn(r.id, (i + 1) + '. ' + escapeHtml(r.name), r.share + ' % der Schichten (' + r.nights + ' von ' + r.total + ')',
+        '<span class="ui-pill ui-pill-info" title="Nachtschichten">' + r.nights + '</span>');
+    }).join('') : '<div class="ui-sub" style="padding:6px 2px;">Keine Nachtschichten in ' + I.year + '.</div>') +
+      (I.noNight.length ? '<div class="dash-insight-note"><b>Noch keine Nachtschicht (' + I.noNight.length + '):</b> ' +
+        I.noNight.map(function(w) { return escapeHtml(w.name); }).join(', ') + '</div>' : '');
+  }
+  if ((el = document.getElementById('dash-inactive-title'))) el.textContent = 'Seit 4 Wochen kein Einsatz (' + I.inactive.length + ')';
+  if ((el = document.getElementById('dash-inactive-list'))) {
+    el.innerHTML = I.inactive.length ? I.inactive.map(function(r) {
+      var alert = r.days === null || r.days >= DASH_INACTIVE_ALERT;
+      var when = r.last ? 'letzter Einsatz ' + r.last.slice(8, 10) + '.' + r.last.slice(5, 7) + '.' + r.last.slice(0, 4) : 'noch nie im Einsatz';
+      var pill = r.days === null ? 'nie' : 'vor ' + Math.floor(r.days / 7) + ' Wo.';
+      return dashPersonBtn(r.id, escapeHtml(r.name), when + (alert ? ' · Abmeldung prüfen' : ''),
+        '<span class="ui-pill ' + (alert ? 'ui-pill-danger' : 'ui-pill-warn') + '">' + pill + '</span>');
+    }).join('') : '<div class="ui-sub" style="padding:6px 2px;">Alle waren in den letzten 4 Wochen im Einsatz.</div>';
+  }
 }
 
 function dashWorkerHeadHtml(w) {
@@ -153,14 +371,60 @@ function updateEditWorkerBtn() {
   const btn = document.getElementById('edit-worker-btn');
   if (!btn) return;
   const selected = document.getElementById('dash-worker-select').value;
-  btn.style.display = selected ? 'inline-flex' : 'none';
+  const role = typeof userRole !== 'undefined' ? userRole : null;
+  btn.style.display = selected && dashMayManageStaff(role) ? 'inline-flex' : 'none';
+  const add = document.getElementById('dash-add-user-btn');
+  if (add) add.style.display = dashMayManageStaff(role) ? '' : 'none';
+  // PIN reset sits with the person it is for; shown only where the reset rules allow it (auth.js, same matrix as the server)
+  const reset = document.getElementById('reset-worker-pin-btn'), w = dashSelectedWorker();
+  if (reset) reset.style.display = selected && dashMayResetPin(typeof userRole !== 'undefined' ? userRole : null, currentUser && currentUser.id, w) ? 'inline-flex' : 'none';
+}
+
+// Admin resets everyone, PL resets AL and MA, AL resets MA; never one's own, never a deactivated account
+function dashMayResetPin(callerRole, callerId, worker) {
+  return !!worker && !!worker.id && worker.id !== callerId && worker.is_active !== false &&
+    typeof mayResetPinClient === 'function' && mayResetPinClient(callerRole, worker.role);
+}
+
+// The person picked in the list (the hidden select is the source, see selectDashWorker)
+function dashSelectedWorker() {
+  const sel = document.getElementById('dash-worker-select'), id = sel ? sel.value : '';
+  return (id && (dashboardWorkers || []).find(function(w) { return w.id === id; })) || null;
+}
+
+function dashResetWorkerPin() {
+  const w = dashSelectedWorker();
+  if (!dashMayResetPin(userRole, currentUser && currentUser.id, w)) return;
+  pinResetUsers = [{ id: w.id, full_name: w.full_name, role: w.role }]; // confirmPinReset looks the person up here
+  confirmPinReset(w.id);
 }
 
 var _editWorkerRoleRates = [];
+var _editWorkerPlansWeek = null; // "Plant den Wochenplan" as loaded; null = not shown (no Admin, or the column does not exist yet)
+
+// What to save for the switch: true/false when an Admin changed it, null when there is nothing to save
+function dashPlansWeekChange(loaded, checked) {
+  return loaded === null || loaded === undefined || !!loaded === !!checked ? null : !!checked;
+}
+
+// Own query instead of a column in the worker list: the list keeps loading before the migration is applied
+async function loadEditWorkerPlansWeek(workerId) {
+  var field = document.getElementById('edit-worker-plans-week-field'), box = document.getElementById('edit-worker-plans-week');
+  _editWorkerPlansWeek = null;
+  if (!field || !box) return;
+  field.style.display = 'none';
+  if (typeof userRole === 'undefined' || userRole !== 'Admin') return;
+  var r;
+  try { r = await supabaseClient.from('app_users').select('plans_week').eq('id', workerId).maybeSingle(); } catch (e) { r = { error: e }; }
+  if (r.error || !r.data || !dashboardCurrentWorker || dashboardCurrentWorker.id !== workerId) return;
+  _editWorkerPlansWeek = !!r.data.plans_week;
+  box.checked = _editWorkerPlansWeek;
+  field.style.display = '';
+}
 
 function openEditWorker() {
   const worker = dashboardCurrentWorker;
-  if (!worker) return;
+  if (!worker || !dashMayManageStaff(typeof userRole !== 'undefined' ? userRole : null)) return;
   const nameParts = (worker.full_name || '').trim().split(' ');
   const lastName  = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
   const firstName = nameParts[0] || '';
@@ -170,13 +434,19 @@ function openEditWorker() {
   document.getElementById('edit-worker-dept').value          = worker.default_dept || '';
   document.getElementById('edit-worker-rate-conni').value    = worker.hourly_rate_conni || '';
   document.getElementById('edit-worker-rate-internal').value = worker.hourly_rate_internal || '';
-  document.getElementById('edit-worker-income-limit').value  = worker.income_limit || '';
+  document.getElementById('edit-worker-income-limit').value  = worker.income_limit_own || '';
+  var defLimit = typeof mitDefaultLimit === 'function' ? mitDefaultLimit(worker) : null;
+  document.getElementById('edit-worker-income-limit').placeholder = defLimit ? 'Standard wäre ' + defLimit + ' €' : 'keine Grenze';
   document.getElementById('edit-worker-email').value         = worker.email || '';
   _editWorkerRoleRates = Array.isArray(worker.role_rates) ? JSON.parse(JSON.stringify(worker.role_rates)) : [];
   renderRoleRatesList();
   document.getElementById('edit-worker-type').value = worker.employment_type || (worker.is_fest ? 'Fest' : 'Minijob');
   document.getElementById('edit-worker-sees-interest').checked = !!worker.plan_interest_viewer;
   document.getElementById('edit-worker-can-drive').checked = !!worker.can_drive;
+  document.getElementById('edit-worker-avail').checked = !!worker.availability_enabled;
+  loadEditWorkerPlansWeek(worker.id);
+  dashSyncInternal('edit');
+  if (typeof mitLoadEditExtras === 'function') mitLoadEditExtras(worker);
   document.getElementById('edit-worker-modal').classList.add('open');
 }
 
@@ -197,17 +467,38 @@ function dashShiftSaveRole(selected, original, workerType) {
   return positionKey(selected, workerType);
 }
 
+// Minijob/Midijob: Satz intern follows Lohn Conni (+25 %, autoInternalRate) and is not typed. Without a Lohn Conni the
+// stored value stays editable (clearing it would lose it on save). prefix 'edit' = edit sheet, 'new' = add form
+function dashSyncInternal(prefix) {
+  var p = prefix === 'new' ? 'new-user-' : 'edit-worker-';
+  var c = document.getElementById(p + 'rate-conni'), i = document.getElementById(p + 'rate-internal'), t = document.getElementById(p + 'type');
+  if (!c || !i || !t) return;
+  var auto = autoInternalRate(c.value, t.value);
+  i.readOnly = auto !== null;
+  i.title = auto !== null ? 'Automatisch: Lohn Conni + 25 %' : '';
+  if (auto !== null) i.value = auto.toFixed(2);
+  if (prefix !== 'new') renderRoleRatesList();
+}
+
+// Automatic Satz intern of a personal rate row; old "MA frei" rows take the person's type
+function dashRoleRowAuto(r) {
+  var p = splitPosition(r.role), t = p.type || (p.legacy === 'frei' ? (document.getElementById('edit-worker-type') || {}).value : null);
+  return autoInternalRate(r.rate_conni, t);
+}
+
 function renderRoleRatesList() {
   var c = document.getElementById('edit-worker-role-rates');
   if (!c) return;
   c.innerHTML = _editWorkerRoleRates.map(function(r, i) {
+    var auto = dashRoleRowAuto(r);
+    if (auto !== null) r.rate_internal = auto;
     var opts = dashRoleOptions(r.role).map(function(o) {
       return '<option value="' + o + '"' + (r.role === o ? ' selected' : '') + '>' + o + '</option>';
     }).join('');
     return '<div style="display:flex;gap:5px;align-items:center;margin-bottom:4px;">' +
       '<select onchange="updateRoleRateRow(' + i + ',\'role\',this.value)" class="meta-input" style="flex:2;padding:5px 6px;font-size:12px;">' + opts + '</select>' +
       '<input type="number" step="0.5" min="0" placeholder="Conni €/h" value="' + (r.rate_conni || '') + '" oninput="updateRoleRateRow(' + i + ',\'rate_conni\',this.value)" class="meta-input" style="flex:1;padding:5px 6px;font-size:12px;">' +
-      '<input type="number" step="0.5" min="0" placeholder="Intern €/h" value="' + (r.rate_internal || '') + '" oninput="updateRoleRateRow(' + i + ',\'rate_internal\',this.value)" class="meta-input" style="flex:1;padding:5px 6px;font-size:12px;">' +
+      '<input type="number" step="0.5" min="0" placeholder="Intern €/h" id="rr-int-' + i + '" value="' + (r.rate_internal || '') + '"' + (auto !== null ? ' readonly title="Automatisch: Conni + 25 %"' : '') + ' oninput="updateRoleRateRow(' + i + ',\'rate_internal\',this.value)" class="meta-input" style="flex:1;padding:5px 6px;font-size:12px;">' +
       '<button onclick="removeRoleRateRow(' + i + ')" style="color:var(--danger);background:none;border:none;cursor:pointer;font-size:16px;padding:0 4px;">✕</button>' +
     '</div>';
   }).join('');
@@ -226,6 +517,12 @@ function removeRoleRateRow(i) {
 function updateRoleRateRow(i, field, val) {
   if (!_editWorkerRoleRates[i]) return;
   _editWorkerRoleRates[i][field] = (field === 'role') ? val : (parseFloat(val) || null);
+  if (field === 'role') { renderRoleRatesList(); return; }
+  if (field !== 'rate_conni') return;
+  // Typing Lohn Conni: update only the intern field (a re-render would close the keyboard)
+  var auto = dashRoleRowAuto(_editWorkerRoleRates[i]), el = document.getElementById('rr-int-' + i);
+  if (auto !== null) _editWorkerRoleRates[i].rate_internal = auto;
+  if (el) { el.readOnly = auto !== null; if (auto !== null) el.value = auto; }
 }
 
 async function deactivateWorker() {
@@ -238,6 +535,7 @@ async function deactivateWorker() {
     // RLS answers with 0 rows instead of an error
     if (!rows || rows.length === 0) throw new Error('Update abgelehnt – keine Berechtigung');
     closeEditWorker();
+    dashInactiveWorkers = null; // reloaded when the tab opens
     showToast('Mitarbeiter deaktiviert.');
     // The person is gone from the list: close the detail and refresh the rate source (their old shifts keep their rate)
     const sel = document.getElementById('dash-worker-select');
@@ -268,6 +566,8 @@ async function saveEditWorker() {
   const email = document.getElementById('edit-worker-email').value.trim();
   // Gmail rejects malformed recipients → the protocol mail would be retried forever
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Bitte eine gültige E-Mail-Adresse eingeben.', 'danger'); return; }
+  var extrasErr = typeof mitEditExtrasError === 'function' ? mitEditExtrasError() : null;
+  if (extrasErr) { showToast(extrasErr, 'danger'); return; }
 
   const payload = {
     full_name:          fullName,
@@ -279,6 +579,7 @@ async function saveEditWorker() {
     is_fest:              document.getElementById('edit-worker-type').value === 'Fest', // old cached clients still read it
     plan_interest_viewer: document.getElementById('edit-worker-sees-interest').checked,
     can_drive:            document.getElementById('edit-worker-can-drive').checked,
+    availability_enabled: document.getElementById('edit-worker-avail').checked,
   };
 
   try {
@@ -291,6 +592,14 @@ async function saveEditWorker() {
       income_limit:      parseFloat(document.getElementById('edit-worker-income-limit').value) || null,
       email:             email || null,
     });
+    if (typeof mitSaveEditExtras === 'function') await mitSaveEditExtras(worker.id);
+    var plansBox = document.getElementById('edit-worker-plans-week');
+    var plans = dashPlansWeekChange(_editWorkerPlansWeek, plansBox && plansBox.checked);
+    if (plans !== null) {
+      var pw = await supabaseClient.from('app_users').update({ plans_week: plans }).eq('id', worker.id).select('id');
+      if (pw.error) throw pw.error;
+      if (!pw.data || !pw.data.length) throw new Error('„Plant den Wochenplan“ nicht gespeichert – keine Berechtigung');
+    }
     showToast('Mitarbeiter gespeichert!');
     closeEditWorker();
     await loadDashboardWorkers();
@@ -322,8 +631,9 @@ async function addDashboardUser() {
   const role = document.getElementById('new-user-role').value;
   const dept = document.getElementById('new-user-dept').value.trim();
 
-  if (!fullName || !dept) {
-    if (typeof showToast === 'function') showToast('Bitte Vor- und Nachname sowie Abteilung ausfüllen.', 'danger');
+  const type = (document.getElementById('new-user-type') || {}).value || '';
+  if (!firstName || !lastName || !dept || !type) {
+    if (typeof showToast === 'function') showToast('Bitte Vor- und Nachname, Abteilung und Art der Anstellung ausfüllen.', 'danger');
     return;
   }
 
@@ -335,7 +645,7 @@ async function addDashboardUser() {
 
     const { data: created, error } = await supabaseClient
       .from('app_users')
-      .insert({ full_name: fullName, role: role, default_dept: dept, hourly_rate_internal: rateInternal })
+      .insert({ full_name: fullName, role: role, default_dept: dept, hourly_rate_internal: rateInternal, employment_type: type, is_fest: type === 'Fest' })
       .select('id');
 
     if (error) throw error;
@@ -343,6 +653,8 @@ async function addDashboardUser() {
     if (rateConni || incomeLimit) await saveWorkerPrivate(created[0].id, { hourly_rate_conni: rateConni, income_limit: incomeLimit, email: null });
 
     if (typeof showToast === 'function') showToast('Mitarbeiter erfolgreich hinzugefügt!');
+    if (typeof mitAfterUserCreated === 'function') await mitAfterUserCreated(created[0].id); // „Neu anlegen“ from Unbekannte Namen
+    if (document.getElementById('new-user-type')) document.getElementById('new-user-type').value = '';
 
     // Clear form and reload
     if (document.getElementById('new-user-firstname')) document.getElementById('new-user-firstname').value = '';
@@ -402,7 +714,7 @@ async function refreshDashboardOnce() {
   try {
     await ensureRateUsers();
     const protSelect = (withCreator) => `
-        id, date, action, is_holiday, total_cost, al_id, pl_id,${withCreator ? ' created_by,' : ''}
+        id, date, action, is_holiday, total_cost, al_id, pl_id, job_no,${withCreator ? ' created_by,' : ''}
         notes_damages, notes_incidents, notes_feedback,
         al_name_fallback, pl_name_fallback, created_at, mailed_at,
         projects(name, location),
@@ -414,13 +726,19 @@ async function refreshDashboardOnce() {
         protocol_equipments(*),
         worker_ratings(temp_worker_name, rating, is_star)
       `;
-    const load = (withCreator) => supabaseClient.from('protocols').select(protSelect(withCreator)).order('date', { ascending: false });
+    const load = (withCreator) => sbFetchAll(() => supabaseClient.from('protocols').select(protSelect(withCreator)).order('date', { ascending: false }).order('id'));
     let { data: protocols, error: protError } = await load(true);
     // created_by not migrated yet: load without it (everything then counts via AL/PL)
     if (protError && /created_by/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(false));
     if (protError) throw protError;
 
     dashboardProtocols = protocols;
+    // MA geplant per Auftrag for the Nachkalkulation; only Admin/PL may read it, for everyone else it just stays empty
+    try {
+      const st = await supabaseClient.from('order_staffing').select('job_no, staff_setup, staff_teardown');
+      _dashStaffing = {};
+      (st.data || []).forEach(function(r) { _dashStaffing[r.job_no] = r; });
+    } catch (stErr) { _dashStaffing = {}; }
     renderDashboardTable();
     loadDashMissing();
   } catch (err) {
@@ -431,6 +749,8 @@ async function refreshDashboardOnce() {
 
 // ── Einsätze ohne Protokoll: plan shifts of the last 14 days that no protocol covers yet ──
 var _dashPlanRows = [];      // plan_shifts rows (with plan_assignments) of the window
+var _dashWaivers = [];       // protocol_waivers of the window: "Kein Protokoll nötig"
+var _dashWaivedOpen = false; // the list of marked ones is folded away by default
 var _dashMissingAll = false; // list collapsed to 5 entries by default
 var DASH_MISSING_DAYS = 14, DASH_MISSING_COLLAPSED = 5;
 
@@ -441,6 +761,10 @@ async function loadDashMissing() {
     .gte('date', wpAddDays(today, -DASH_MISSING_DAYS)).lte('date', today);
   if (error) { console.error('Einsätze ohne Protokoll:', error); return; }
   _dashPlanRows = data || [];
+  // Table missing (live app before the migration) or no right to read: nothing counts as marked
+  var w = await supabaseClient.from('protocol_waivers').select('date, event_key, event_label, created_by')
+    .gte('date', wpAddDays(today, -DASH_MISSING_DAYS));
+  _dashWaivers = w.error ? [] : (w.data || []);
   renderDashMissing();
 }
 
@@ -451,22 +775,84 @@ function renderDashMissing() {
   var rowsById = {};
   var shifts = _dashPlanRows.map(function(r) { var s = planShiftFromDb(r); rowsById[s.id] = r; return s; });
   var protocols = dashboardProtocols.map(function(p) { return { date: p.date, event: p.projects && p.projects.name }; });
-  var open = planWithoutProtocol(shifts, protocols, wpAddDays(today, -DASH_MISSING_DAYS), today);
-  if (!open.length) { box.innerHTML = ''; return; }
+  var split = planSplitWaived(planWithoutProtocol(shifts, protocols, wpAddDays(today, -DASH_MISSING_DAYS), today), _dashWaivers);
+  var open = split.open;
+  if (!open.length && !split.waived.length) { box.innerHTML = ''; return; }
   var canWrite = typeof moduleAllowedForRole === 'function' && moduleAllowedForRole('protokoll', userRole);
+  var canWaive = dashMayWaive(userRole);
   var shown = (_dashMissingAll || open.length <= DASH_MISSING_COLLAPSED) ? open : open.slice(0, DASH_MISSING_COLLAPSED);
-  box.innerHTML = '<div class="ui-label">Einsätze ohne Protokoll</div><div class="ui-list" style="margin-bottom:14px;">' +
-    shown.map(function(s) {
-      var ev = planEventName(s);
-      return '<div class="ui-row"><div class="ui-row-main"><div class="ui-row-title">' + escapeHtml(shortDateDE(s.date)) + ' ' + escapeHtml(s.venue || '—') +
-        (ev && ev !== s.venue ? ' · ' + escapeHtml(ev) : '') + '</div>' +
-        (s.count > 1 ? '<div class="ui-sub">' + s.count + ' Aufträge</div>' : '') + '</div>' +
+  var title = function(s) {
+    var ev = planEventName(s);
+    return escapeHtml(shortDateDE(s.date)) + ' ' + escapeHtml(s.venue || '—') + (ev && ev !== s.venue ? ' · ' + escapeHtml(ev) : '');
+  };
+  var html = '<div class="ui-label">Einsätze ohne Protokoll</div>';
+  if (open.length) {
+    html += '<div class="ui-list" style="margin-bottom:14px;">' + shown.map(function(s) {
+      return '<div class="ui-row"><div class="ui-row-main"><div class="ui-row-title">' + title(s) + '</div>' +
+        (s.count > 1 ? '<div class="ui-sub">' + s.count + ' Aufträge</div>' : '') +
+        (canWaive ? '<button type="button" class="stunden-link dash-waive-link" onclick="dashWaiveMissing(' + uiArg(s.id) + ')">Kein Protokoll nötig</button>' : '') +
+        '</div>' +
         (canWrite ? '<div class="ui-row-end"><button type="button" class="ui-btn dash-small-btn" onclick="dashStartProtokollFromPlan(' + uiArg(s.id) + ')">Protokoll anlegen</button></div>' : '') +
         '</div>';
     }).join('') + '</div>' +
     (open.length > DASH_MISSING_COLLAPSED
       ? '<button type="button" class="stunden-link" style="margin:-6px 0 14px;" onclick="toggleDashMissing()">' + (_dashMissingAll ? 'Weniger zeigen' : 'Alle zeigen (' + open.length + ')') + '</button>'
       : '');
+  } else {
+    html += '<p class="ui-sub" style="margin:0 0 8px;">Alles erledigt.</p>';
+  }
+  if (split.waived.length) {
+    html += '<button type="button" class="stunden-link" style="margin:-6px 0 10px;" onclick="toggleDashWaived()">' +
+      (_dashWaivedOpen ? 'Ausblenden' : split.waived.length + ' ohne Protokoll markiert') + '</button>';
+    if (_dashWaivedOpen) {
+      html += '<div class="ui-list" style="margin-bottom:14px;">' + split.waived.map(function(s) {
+        var w = _dashWaivers.find(function(x) { return x.date === s.date && x.event_key === planEventKey(s); });
+        var mayUndo = w && (w.created_by === (currentUser && currentUser.id) || ['PL', 'Admin'].indexOf(userRole) !== -1);
+        return '<div class="ui-row"><div class="ui-row-main"><div class="ui-row-title dash-waived-title">' + title(s) + '</div>' +
+          '<div class="ui-sub">Kein Protokoll nötig' + (w && w.created_by ? ', markiert von ' + escapeHtml(dashUserName(w.created_by)) : '') + '</div></div>' +
+          (mayUndo ? '<div class="ui-row-end"><button type="button" class="ui-btn dash-small-btn" onclick="dashUnwaiveMissing(' + uiArg(s.date) + ',' + uiArg(planEventKey(s)) + ')">Zurückholen</button></div>' : '') +
+          '</div>';
+      }).join('') + '</div>';
+    }
+  }
+  box.innerHTML = html;
+}
+
+// "Kein Protokoll nötig" (abgesagt, nur Lieferung, …): who may write protocols may say there won't be one
+function dashMayWaive(role) { return ['AL', 'PL', 'Admin'].indexOf(role) !== -1; }
+
+function dashUserName(id) {
+  var u = (typeof allUsers !== 'undefined' ? allUsers : []).find(function(x) { return x.id === id; });
+  return u ? u.full_name : 'jemandem';
+}
+
+function toggleDashWaived() {
+  _dashWaivedOpen = !_dashWaivedOpen;
+  renderDashMissing();
+}
+
+// Marks the whole event of that day (all its rooms) as "no protocol": hidden here for everyone, and the
+// reminder pushes/mails for it stop (send-reminders skips the plan keys stored with it)
+async function dashWaiveMissing(shiftId) {
+  var row = _dashPlanRows.find(function(r) { return r.id === shiftId; });
+  if (!row || !dashMayWaive(userRole)) return;
+  var s = planShiftFromDb(row), key = planEventKey(s);
+  var keys = _dashPlanRows.filter(function(r) { return r.date === row.date && planEventKey(planShiftFromDb(r)) === key; })
+    .map(function(r) { return r.key; }).filter(Boolean);
+  var res = await supabaseClient.from('protocol_waivers')
+    .upsert({ date: s.date, event_key: key, event_label: planEventName(s) || s.venue || '', shift_keys: keys, created_by: currentUser.id },
+      { onConflict: 'date,event_key', ignoreDuplicates: true });
+  if (res.error) { console.error('Kein Protokoll:', res.error); showToast('Konnte nicht gespeichert werden.', 'danger'); return; }
+  _dashWaivers.push({ date: s.date, event_key: key, event_label: planEventName(s), created_by: currentUser.id });
+  renderDashMissing();
+  showToast('Ausgeblendet. Unten bei „ohne Protokoll markiert“ zurückholbar.');
+}
+
+async function dashUnwaiveMissing(date, key) {
+  var res = await supabaseClient.from('protocol_waivers').delete().eq('date', date).eq('event_key', key).select('date');
+  if (res.error || !(res.data || []).length) { showToast('Konnte nicht zurückgeholt werden.', 'danger'); return; }
+  _dashWaivers = _dashWaivers.filter(function(w) { return !(w.date === date && w.event_key === key); });
+  renderDashMissing();
 }
 
 function toggleDashMissing() {
@@ -488,7 +874,7 @@ function dashStartProtokollFromPlan(shiftId) {
   openProtokollPrefilled({
     event: event, date: p.date, action: planGuessAction(p.wann),
     alId: planAlUserId(row) || group.map(planAlUserId).filter(Boolean)[0] || null,
-    location: [p.venue].concat(p.location.slice(0, 1)).filter(Boolean).join(', '), shift: p
+    location: planPlace(p), shift: p
   });
 }
 
@@ -514,7 +900,7 @@ function dashMergePlanPeople(shifts, main) {
 function dashProtMatches(p, term) {
   const iso = (p.date || '').toLowerCase();
   const shown = iso.length === 10 ? iso.slice(8) + '.' + iso.slice(5, 7) + '.' + iso.slice(0, 4) : '';
-  return [(p.projects?.name || ''), (p.al?.full_name || p.al_name_fallback || ''), (p.location || p.projects?.location || '')]
+  return [(p.projects?.name || ''), (p.al?.full_name || p.al_name_fallback || ''), (p.location || p.projects?.location || ''), (p.job_no || '')]
     .some(s => s.toLowerCase().includes(term)) || iso.includes(term) || shown.includes(term);
 }
 
@@ -527,6 +913,7 @@ function renderDashboardTable() {
 
   // "Meine" by default; the search works within the current scope
   const scoped = dashScopedProtocols();
+  renderDashNachkalk();
   const scopeBox = document.getElementById('dash-scope');
   if (scopeBox) scopeBox.innerHTML = protScopeSegHtml(protScopeGet(DASH_SCOPE_KEY), 'setDashProtScope');
 
@@ -538,7 +925,8 @@ function renderDashboardTable() {
     const alName = p.al ? p.al.full_name : (p.al_name_fallback || '—');
     const plName = p.pl ? p.pl.full_name : (p.pl_name_fallback || '');
     const costStr = (p.total_cost || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €';
-    const holidayTag = p.is_holiday ? ' <span class="ui-pill ui-pill-warn">Feiertag</span>' : '';
+    const holidayTag = (p.is_holiday ? ' <span class="ui-pill ui-pill-warn">Feiertag</span>' : '') +
+      (p.side_of ? ' <span class="ui-pill">Zusatz zu ' + escapeHtml(dashSideLabel(p.side_of)) + '</span>' : '');
     const plLine = plName ? `<div class="ui-sub">PL ${escapeHtml(plName)}</div>` : '';
 
     tr.innerHTML = `
@@ -572,6 +960,105 @@ function dashScopedProtocols() {
 function setDashProtScope(scope) {
   protScopeSet(DASH_SCOPE_KEY, scope);
   renderDashboardTable();
+}
+
+// ── Nachkalkulation: what the protocols of one project (Projektnummer of the Auftragsbestätigung) add up to, against the MA the PL planned ──
+var _dashStaffing = {}; // job_no → order_staffing row
+var DASH_NK_PHASES = [['setup', 'Aufbau'], ['teardown', 'Abbau'], ['other', 'Sonstiges']];
+
+// protocols = dashboard rows (with shifts and protocol_transports), staffing = { job_no: { staff_setup, staff_teardown } },
+// transportCost(p) = € of the protocol's vehicles and drivers. → one entry per Auftrag, newest first:
+// { jobNo, name, from, to, phases: { setup|teardown|other: agg }, total: agg, protocols: [{ id, date, action }] }
+// agg = { count, people, mins, cost, transport, planned }; people are counted once per phase and once in the total
+function dashNachkalk(protocols, staffing, transportCost) {
+  var jobs = {};
+  var blank = function() { return { count: 0, people: 0, mins: 0, cost: 0, transport: 0, planned: null, _who: {} }; };
+  (protocols || []).forEach(function(p) {
+    var no = protProjectNo(p.job_no); // "26-0394.02" counts for project 26-0394
+    if (!no) return;
+    var j = jobs[no] = jobs[no] || { jobNo: no, name: '', from: p.date, to: p.date,
+      phases: { setup: blank(), teardown: blank(), other: blank() }, total: blank(), protocols: [] };
+    if (!j.name && p.projects && p.projects.name) j.name = p.projects.name;
+    if (p.date < j.from) j.from = p.date;
+    if (p.date > j.to) j.to = p.date;
+    j.protocols.push({ id: p.id, date: p.date, action: p.action || '' });
+    var ph = j.phases[protPhaseOfAction(p.action) || 'other'];
+    var cost = Number(p.total_cost) || 0, tr = Math.min(cost, Math.max(0, Number(transportCost ? transportCost(p) : 0) || 0));
+    [ph, j.total].forEach(function(a) {
+      a.count++; a.cost += cost; a.transport += tr;
+      (p.shifts || []).forEach(function(s) {
+        a.mins += dashShiftNetMins(s);
+        var who = s.user_id || ('n:' + String(s.temp_worker_name || '').trim().toLowerCase());
+        if (who !== 'n:' && !a._who[who]) { a._who[who] = true; a.people++; }
+      });
+    });
+  });
+  return Object.keys(jobs).map(function(k) {
+    var j = jobs[k];
+    // MA geplant of every job of the project together (null while none of them has a number yet)
+    ['setup', 'teardown'].forEach(function(ph) {
+      var sum = null;
+      Object.keys(staffing || {}).forEach(function(jn) {
+        var n = staffing[jn] && staffing[jn]['staff_' + ph];
+        if (protProjectNo(jn) === k && n != null) sum = (sum || 0) + Number(n);
+      });
+      j.phases[ph].planned = sum;
+    });
+    [j.phases.setup, j.phases.teardown, j.phases.other, j.total].forEach(function(a) { delete a._who; });
+    j.protocols.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    return j;
+  }).sort(function(a, b) { return a.to < b.to ? 1 : a.to > b.to ? -1 : a.jobNo.localeCompare(b.jobNo); });
+}
+
+function dashNkTransportCost(p) {
+  return calcDashProtTotal(p.date, !!p.is_holiday, dashTransportsFromRows(p.protocol_transports), []);
+}
+
+function dashNkEuro(n) { return (Number(n) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
+function dashNkHours(mins) { return (Math.round((mins || 0) / 6) / 10).toLocaleString('de-DE') + ' h'; }
+
+// One phase as a labelled grid (a table would collapse into unlabelled cards on a phone)
+function dashNkRowHtml(label, a, strong) {
+  var over = a.planned != null && a.people > a.planned;
+  var people = a.people + (a.planned != null ? ' <span class="' + (over ? 'dash-nk-over' : 'ui-sub') + '">/ ' + a.planned + ' geplant</span>' : '');
+  var cell = function(name, value, cost) { return '<div' + (cost ? ' class="cost-only"' : '') + '><dt>' + name + '</dt><dd>' + value + '</dd></div>'; };
+  return '<div class="dash-nk-ph' + (strong ? ' dash-nk-sum' : '') + '"><div class="dash-nk-ph-title">' + label + '</div><dl class="dash-nk-grid">' +
+    cell('Protokolle', a.count) + cell('Leute', people) + cell('Stunden', dashNkHours(a.mins)) +
+    cell('Personal', dashNkEuro(a.cost - a.transport), true) + cell('Transport', dashNkEuro(a.transport), true) +
+    cell('Gesamt', '<b>' + dashNkEuro(a.cost) + '</b>', true) + '</dl></div>';
+}
+
+// links: buttons that open the protocol (dashboard); without them the days are listed as text (Aufträge tab)
+function dashNkJobHtml(j, links) {
+  var day = function(iso) { return iso.slice(8) + '.' + iso.slice(5, 7) + '.'; };
+  var range = j.from === j.to ? day(j.from) : day(j.from) + ' – ' + day(j.to);
+  return '<details class="dash-nk-job"><summary><span><b>' + escapeHtml(j.jobNo) + '</b> · ' + escapeHtml(j.name || 'Ohne Projekt') + '</span>' +
+    '<span class="ui-sub">' + range + ' · ' + j.total.people + (j.total.people === 1 ? ' Person' : ' Personen') + ' · ' + dashNkHours(j.total.mins) +
+    '<span class="cost-only"> · ' + dashNkEuro(j.total.cost) + '</span></span></summary>' +
+    DASH_NK_PHASES.filter(function(ph) { return ph[0] !== 'other' || j.phases.other.count; })
+      .map(function(ph) { return dashNkRowHtml(ph[1], j.phases[ph[0]], false); }).join('') +
+    dashNkRowHtml('Gesamt', j.total, true) +
+    (links === false
+      ? '<div class="dash-nk-prots ui-sub">Protokolle: ' + j.protocols.map(function(p) { return day(p.date) + ' ' + escapeHtml(p.action || 'Protokoll'); }).join(' · ') + '</div>'
+      : '<div class="dash-nk-prots">' + j.protocols.map(function(p) {
+          return '<button type="button" class="ui-btn dash-small-btn" onclick="openDashDetail(\'' + jsAttrArg(p.id) + '\')">' + day(p.date) + ' ' + escapeHtml(p.action || 'Protokoll') + '</button>';
+        }).join('') + '</div>') + '</details>';
+}
+
+function renderDashNachkalk() {
+  var box = document.getElementById('dash-nachkalk');
+  if (!box) return;
+  // Its home is the Aufträge tab, where Admin and PL see it; here it only shows for the others (Buchhaltung, AL)
+  if (typeof userRole !== 'undefined' && (userRole === 'Admin' || userRole === 'PL')) { box.innerHTML = ''; return; }
+  var wasOpen = !!(box.querySelector('details.dash-nk') || {}).open, openJobs = {};
+  box.querySelectorAll('details.dash-nk-job[open] summary b').forEach(function(b) { openJobs[b.textContent] = true; });
+  var jobs = dashNachkalk(dashboardProtocols, _dashStaffing, dashNkTransportCost);
+  box.innerHTML = '<details class="dash-nk"' + (wasOpen ? ' open' : '') + '><summary>Nachkalkulation pro Projekt<span class="ui-sub"> · ' +
+    jobs.length + (jobs.length === 1 ? ' Projekt' : ' Projekte') + '</span></summary>' +
+    (jobs.length ? jobs.map(function(j) { return dashNkJobHtml(j); }).join('')
+      : '<p class="ui-sub dash-nk-empty">Noch kein Protokoll mit Projektnummer. Die Nummer kommt von selbst mit, wenn ein Protokoll aus dem Wochenplan oder der Erinnerung gestartet wird, oder du trägst sie beim Bearbeiten ein.</p>') +
+    '</details>';
+  box.querySelectorAll('details.dash-nk-job').forEach(function(d) { if (openJobs[(d.querySelector('summary b') || {}).textContent]) d.open = true; });
 }
 
 // Protocols and costs of the calendar month of `now`
@@ -618,16 +1105,17 @@ async function loadDashboardWorkers() {
   try {
     const { data: users, error: uErr } = await supabaseClient
       .from('app_users')
-      .select('id, full_name, role, default_dept, hourly_rate_internal, role_rates, is_active, is_fest, employment_type, plan_interest_viewer, can_drive, app_user_private(hourly_rate_conni, income_limit, email)')
+      .select('id, full_name, role, default_dept, hourly_rate_internal, role_rates, is_active, is_fest, employment_type, plan_interest_viewer, can_drive, availability_enabled, keep_until, photo_path, created_at, app_user_private(hourly_rate_conni, income_limit, email)')
       .eq('is_active', true)
       .order('full_name');
     if (uErr) throw uErr;
     
     // Fetch all open shifts to highlight workers
-    const { data: pendingShifts } = await supabaseClient
+    const { data: pendingShifts } = await sbFetchAll(() => supabaseClient
       .from('shifts')
-      .select('user_id')
-      .eq('status', 'offen');
+      .select('id, user_id')
+      .eq('status', 'offen')
+      .order('id'));
 
     const pendingMap = {};
     (pendingShifts || []).forEach(s => {
@@ -635,6 +1123,7 @@ async function loadDashboardWorkers() {
     });
     dashboardWorkers = (users || []).map(flattenPrivate);
     dashPendingMap = pendingMap;
+    loadDashInsights();
 
     const sel = document.getElementById('dash-worker-select');
     const prevSelected = sel.value; // the rebuild below would drop the open employee
@@ -656,7 +1145,7 @@ async function loadDashboardWorkers() {
 async function renderWorkerShifts() {
   const userId = document.getElementById('dash-worker-select').value;
   const cont = document.getElementById('worker-shifts-container');
-  
+
   const head = document.getElementById('dash-worker-head');
   if (!userId) {
     if (head) head.innerHTML = '';
@@ -668,145 +1157,341 @@ async function renderWorkerShifts() {
   dashboardCurrentWorker = dashboardWorkers.find(w => w.id === userId);
   if (head) head.innerHTML = dashWorkerHeadHtml(dashboardCurrentWorker);
   cont.innerHTML = '<div class="ui-sub" style="padding:20px 2px;">Schichten werden geladen…</div>';
-  
+
   try {
-    const { data: shifts, error } = await supabaseClient
+    const { data: shifts, error } = await sbFetchAll(() => supabaseClient
       .from('shifts')
       .select(`
         *, shift_date,
         protocols(date, projects(name))
       `)
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .order('id'));
 
     // Another person was selected while this one loaded: drop the late answer
     if (document.getElementById('dash-worker-select').value !== userId) return;
-
-    // Sort by date descending (protocol date → shift_date → created_at)
-    if (shifts) {
-      shifts.sort((a, b) => {
-        const da = a.protocols?.date || a.shift_date || a.created_at?.slice(0, 10) || '';
-        const db = b.protocols?.date || b.shift_date || b.created_at?.slice(0, 10) || '';
-        return db.localeCompare(da);
-      });
-    }
-      
     if (error) throw error;
-    dashboardCurrentShifts = shifts || [];
-    
-    const canEdit = (typeof userRole !== 'undefined') && (userRole === 'Buchhaltung' || userRole === 'Admin');
 
-    if (dashboardCurrentShifts.length === 0) {
-      cont.innerHTML = uiEmptyHtml('Keine Schichten', 'Für diese Person sind noch keine Schichten erfasst.',
-        canEdit ? '<button type="button" class="ui-btn" onclick="openAddShift()">+ Schicht hinzufügen</button>' : '');
-      populateDashboardMonthFilter([]);
-      return;
-    }
-    let html = `<table class="ui-table dash-shift-table">
-      <thead>
-        <tr>
-          <th>Datum / Projekt</th>
-          <th>Rolle</th>
-          <th>Zeiten</th>
-          <th>Netto</th>
-          <th>Verbucht</th>
-          ${canEdit ? '<th></th>' : ''}
-        </tr>
-      </thead>
-      <tbody>`;
-
-    dashboardCurrentShifts.forEach(s => {
-      let dateLabel = "Unbekannt";
-      let projLabel = "Manuell erfasst";
-
-      if (s.protocols) {
-        dateLabel = s.protocols.date ? new Date(s.protocols.date).toLocaleDateString('de-DE') : '—';
-        projLabel = s.protocols.projects ? s.protocols.projects.name : '—';
-      } else if (s.shift_date) {
-        dateLabel = new Date(s.shift_date).toLocaleDateString('de-DE');
-      } else if (s.created_at) {
-        dateLabel = new Date(s.created_at).toLocaleDateString('de-DE');
-      }
-
-      const st = s.start_time ? s.start_time.substring(0, 5) : '—';
-      const en = s.end_time ? s.end_time.substring(0, 5) : '—';
-      const timeStr = st !== '—' ? `${st}–${en}` + (s.pause_mins ? ` · ${s.pause_mins} min` : '') : '—';
-      const netMins = dashShiftNetMins(s);
-      const netStr = netMins > 0 ? (netMins / 60).toFixed(2).replace('.', ',') + ' h' : '—';
-
-      const isBooked = s.status === 'eingetragen';
-      const checkboxHtml = `<input type="checkbox" ${isBooked ? 'checked' : ''} data-shift-id="${escapeHtml(s.id)}" class="shift-booked-cb ui-switch" aria-label="Verbucht">`;
-
-      html += `<tr>
-        <td data-label="Datum / Projekt"><div class="dash-num"><b>${escapeHtml(dateLabel)}</b></div><div class="ui-sub">${escapeHtml(projLabel)}</div></td>
-        <td data-label="Rolle">${escapeHtml(s.position_role || '—')}</td>
-        <td data-label="Zeiten" class="dash-num">${escapeHtml(timeStr)}</td>
-        <td data-label="Netto" class="dash-num"><b>${escapeHtml(netStr)}</b></td>
-        <td data-label="Verbucht">${checkboxHtml}</td>
-        ${canEdit ? `<td data-label="" class="dash-actions"><button type="button" class="ui-icon-btn" onclick="openShiftEdit('${escapeHtml(s.id)}')" aria-label="Schicht bearbeiten">${uiIcon('edit')}</button></td>` : ''}
-      </tr>`;
-    });
-
-    html += `</tbody></table>`;
-
-    // Key figures: total net hours (all shifts), pay, and the income limit of the current billing period
-    let totalNetMins = 0;
-    dashboardCurrentShifts.forEach(s => { totalNetMins += dashShiftNetMins(s); });
-    const totalH = Math.floor(totalNetMins / 60);
-    const totalM = totalNetMins % 60;
-    const totalNetStr = totalNetMins > 0 ? (totalM > 0 ? `${totalH} h ${totalM} min` : `${totalH} h`) : '—';
-    const worker = dashboardCurrentWorker;
-    const rateConni = worker && worker.hourly_rate_conni ? parseFloat(worker.hourly_rate_conni) : null;
-    const rateInternal = worker && worker.hourly_rate_internal ? parseFloat(worker.hourly_rate_internal) : null;
-    const totalNetHrs = totalNetMins / 60;
-    const eur = n => n.toFixed(2).replace('.', ',') + ' €';
-    const cutoff = (typeof billingCutoff !== 'undefined') ? billingCutoff : 20;
-    const periodKey = getBillingKeyForDate(new Date(), cutoff);
-    let periodMins = 0;
-    dashboardCurrentShifts.forEach(s => {
-      const d = s.protocols?.date || s.shift_date || (s.created_at || '').slice(0, 10);
-      if (d && getBillingKeyForDate(new Date(d + 'T12:00:00'), cutoff).key === periodKey.key) periodMins += dashShiftNetMins(s);
-    });
-    const share = incomeLimitShare(rateConni ? periodMins / 60 * rateConni : null, worker && worker.income_limit ? parseFloat(worker.income_limit) : null);
-    let statsHtml = '<div class="ui-stats">' +
-      `<div class="ui-stat"><span>Netto-Stunden gesamt</span><b>${totalNetStr}</b></div>` +
-      (rateConni ? `<div class="ui-stat cost-only"><span>Lohn (${rateConni.toFixed(2).replace('.', ',')} €/h)</span><b>${totalNetHrs > 0 ? eur(totalNetHrs * rateConni) : '—'}</b></div>` : '') +
-      (rateInternal ? `<div class="ui-stat cost-only"><span>Intern (${rateInternal.toFixed(2).replace('.', ',')} €/h)</span><b>${totalNetHrs > 0 ? eur(totalNetHrs * rateInternal) : '—'}</b></div>` : '') +
-      (share ? `<div class="ui-stat cost-only"><span>Grenze ${eur(parseFloat(worker.income_limit))} · ${escapeHtml(periodKey.label)}</span>` +
-        `<b>${eur(periodMins / 60 * rateConni)}</b>` +
-        `<div class="ui-bar${share.over ? ' ui-bar-over' : share.pct >= 80 ? ' ui-bar-warn' : ''}"><i style="width:${share.pct}%"></i></div></div>` : '') +
-      '</div>';
-
-    // Actions above the table
-    const pendingCount = dashboardCurrentShifts.filter(s => s.status !== 'eingetragen').length;
-    statsHtml += `<div class="dash-shift-actions">`;
-    if (canEdit) {
-      statsHtml += `<button type="button" class="ui-btn dash-small-btn" onclick="openAddShift()">+ Schicht hinzufügen</button>`;
-    }
-    if (pendingCount > 0) {
-      statsHtml += `<button type="button" class="ui-btn ui-btn-primary dash-small-btn" data-action="mark-all" data-user-id="${escapeHtml(userId)}">Alle offenen (${escapeHtml(String(pendingCount))}) verbuchen</button>`;
-    }
-    statsHtml += `</div>`;
-
-    cont.innerHTML = statsHtml + html;
+    // Newest first (protocol date → shift_date → created_at), same day by start time
+    dashboardCurrentShifts = (shifts || []).slice().sort((a, b) =>
+      dashShiftDate(b).localeCompare(dashShiftDate(a)) || String(a.start_time || '').localeCompare(String(b.start_time || '')));
     populateDashboardMonthFilter(dashboardCurrentShifts);
-
-    // Delegate change events for shift booking checkboxes
-    cont.querySelectorAll('.shift-booked-cb').forEach(function(cb) {
-      cb.addEventListener('change', function() {
-        toggleShiftBooked(this.dataset.shiftId, this.checked);
-      });
-    });
-    // Delegate click for mark-all button
-    const markAllBtn = cont.querySelector('[data-action="mark-all"]');
-    if (markAllBtn) {
-      markAllBtn.addEventListener('click', function() {
-        markAllShiftsBooked(this.dataset.userId);
-      });
-    }
+    dashRenderWorkerMonth();
   } catch (err) {
     console.error("Shift load err:", err);
     cont.innerHTML = `<div class="empty-state" style="color:var(--danger)">Fehler beim Laden der Schichten.</div>`;
   }
+}
+
+// Pay and internal cost of a person's shifts, each with the rate for its position → { pay, cost (null = no rate at all),
+// payRates, costRates (distinct, sorted), byPos ('MA 6 h · AL 10,5 h' when more than one function), unpaid (shifts without pay rate) }
+function dashWorkerMoney(shifts, worker) {
+  var pay = 0, cost = 0, anyPay = false, anyCost = false, unpaid = 0, pr = {}, cr = {}, pos = {};
+  (shifts || []).forEach(function(s) {
+    var m = dashShiftNetMins(s), p = personPayRate(worker, s.position_role), c = personCostRate(worker, s.position_role);
+    var fn = splitPosition(s.position_role).func || '—';
+    pos[fn] = (pos[fn] || 0) + m;
+    if (p) { anyPay = true; pay += m / 60 * p; pr[p] = true; } else unpaid++;
+    if (c) { anyCost = true; cost += m / 60 * c; cr[c] = true; }
+  });
+  var nums = function(o) { return Object.keys(o).map(Number).sort(function(a, b) { return a - b; }); };
+  var fns = Object.keys(pos);
+  return { pay: anyPay ? Math.round(pay * 100) / 100 : null, cost: anyCost ? Math.round(cost * 100) / 100 : null,
+    payRates: nums(pr), costRates: nums(cr), unpaid: anyPay ? unpaid : 0,
+    byPos: fns.length > 1 ? fns.map(function(f) { return f + ' ' + String(Math.round(pos[f] / 6) / 10).replace('.', ',') + ' h'; }).join(' · ') : '' };
+}
+
+// Day a shift belongs to: protocol date → shift_date → creation day
+function dashShiftDate(s) {
+  return (s.protocols && s.protocols.date) || s.shift_date || (s.created_at || '').slice(0, 10);
+}
+
+function dashBillingCutoff() { return (typeof billingCutoff !== 'undefined') ? billingCutoff : 20; }
+
+// Shifts of one billing month (key from getBillingKeyForDate); shifts without any date never match
+function dashShiftsInMonth(shifts, key, cutoff) {
+  return (shifts || []).filter(function(s) {
+    var d = dashShiftDate(s);
+    return !!d && getBillingKeyForDate(new Date(d + 'T12:00:00'), cutoff).key === key;
+  });
+}
+
+// ── Monatsabschluss: hours and pay of everyone with an account for one billing month, as PDF and CSV (Buchhaltung) ──
+// The days a billing month covers: cutoff C → from day C of the month before to the day before C (getBillingKeyForDate)
+function dashBillingRange(key, cutoff) {
+  var p = String(key).split('-').map(Number), iso = function(d) { return d.toISOString().slice(0, 10); };
+  if (cutoff > 1 && cutoff < 31)
+    return { from: iso(new Date(Date.UTC(p[0], p[1] - 2, cutoff))), to: iso(new Date(Date.UTC(p[0], p[1] - 1, cutoff - 1))) };
+  return { from: iso(new Date(Date.UTC(p[0], p[1] - 1, 1))), to: iso(new Date(Date.UTC(p[0], p[1], 0))) };
+}
+
+// shifts (user_id, shift_date or protocols.date, times, pause, status), users (id, full_name, role, hourly_rate_conni, income_limit).
+// Agency and other people without an account are invoiced elsewhere and stay out. Hours follow dashShiftNetMins
+// (the same numbers as the person's month in the dashboard). → { rows: [{ id, name, role, shifts, open, mins, rate, pay, limit, limitPct }], total }
+function dashMonthSummary(shifts, users, key, cutoff) {
+  var byId = {}, rows = {};
+  (users || []).forEach(function(u) { byId[u.id] = u; });
+  dashShiftsInMonth((shifts || []).filter(function(s) { return s.user_id; }), key, cutoff).forEach(function(s) {
+    var u = byId[s.user_id];
+    var r = rows[s.user_id] = rows[s.user_id] || { id: s.user_id, name: u ? u.full_name : 'Unbekannt (' + s.user_id + ')', role: u ? u.role || '' : '',
+      shifts: 0, open: 0, mins: 0, rate: null, payAcc: 0, rated: false,
+      limit: u && parseFloat(u.income_limit) > 0 ? parseFloat(u.income_limit) : null };
+    var m = dashShiftNetMins(s), rate = u ? personPayRate(u, s.position_role) : null; // MA and AL hours can have different pay
+    r.shifts++;
+    if (s.status !== 'eingetragen') r.open++;
+    r.mins += m;
+    if (rate) { r.rated = true; r.payAcc += m / 60 * rate; }
+  });
+  var list = Object.keys(rows).map(function(k) {
+    var r = rows[k];
+    // Average pay per hour of the month (one number when all shifts share a rate)
+    r.rate = r.rated && r.mins ? Math.round(r.payAcc / r.mins * 60 * 10000) / 10000 : null;
+    delete r.payAcc; delete r.rated;
+    r.pay = r.rate !== null ? Math.round(r.mins / 60 * r.rate * 100) / 100 : null;
+    var share = incomeLimitShare(r.pay, r.limit);
+    r.limitPct = share ? share.pct : null;
+    return r;
+  }).sort(function(a, b) { return a.name.localeCompare(b.name, 'de'); });
+  var total = { shifts: 0, open: 0, mins: 0, pay: 0 };
+  list.forEach(function(r) { total.shifts += r.shifts; total.open += r.open; total.mins += r.mins; total.pay += r.pay || 0; });
+  total.pay = Math.round(total.pay * 100) / 100;
+  return { rows: list, total: total };
+}
+
+function dashDe(n) { return (Number(n) || 0).toFixed(2).replace('.', ','); }
+
+// CSV for Excel in German: semicolons, decimal commas, UTF-8 with BOM; a cell starting with = + - @ gets a ' so it is never a formula
+function dashMonthCsv(sum, label) {
+  var cell = function(v) {
+    var t = v == null ? '' : String(v);
+    if (/^[=+\-@]/.test(t)) t = "'" + t;
+    return /[;"\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  };
+  var lines = [['Name', 'Rolle', 'Schichten', 'davon offen', 'Stunden', 'Stundenlohn', 'Lohn', 'Verdienstgrenze', 'Anteil Grenze']];
+  sum.rows.forEach(function(r) {
+    lines.push([r.name, r.role, r.shifts, r.open, dashDe(r.mins / 60), r.rate !== null ? dashDe(r.rate) : '', r.pay !== null ? dashDe(r.pay) : '',
+      r.limit !== null ? dashDe(r.limit) : '', r.limitPct !== null ? r.limitPct + ' %' : '']);
+  });
+  lines.push(['Summe ' + label, '', sum.total.shifts, sum.total.open, dashDe(sum.total.mins / 60), '', dashDe(sum.total.pay), '', '']);
+  return '\uFEFF' + lines.map(function(l) { return l.map(cell).join(';'); }).join('\r\n') + '\r\n';
+}
+
+function dashCloseKeys(now, cutoff, n) {
+  var out = [], d = new Date(now.getTime());
+  var cur = getBillingKeyForDate(d, cutoff).key, p = cur.split('-').map(Number);
+  for (var i = 0; i < n; i++) {
+    var y = p[0], m = p[1] - i;
+    while (m < 1) { m += 12; y--; }
+    out.push(y + '-' + ('0' + m).slice(-2));
+  }
+  return out;
+}
+
+function renderDashClosePanel() {
+  var box = document.getElementById('dash-close-panel');
+  if (!box) return;
+  var allowed = dashMayBook(typeof userRole !== 'undefined' ? userRole : null);
+  box.hidden = !allowed;
+  var sel = document.getElementById('dash-close-month');
+  if (!allowed || !sel || sel.options.length) return;
+  // The month that just ended is what the Buchhaltung closes: preselected; the current one is still running
+  var keys = dashCloseKeys(new Date(), dashBillingCutoff(), 7);
+  sel.innerHTML = keys.map(function(k, i) { return '<option value="' + k + '"' + (i === 1 ? ' selected' : '') + '>' + monthLabelFromKey(k) + (i === 0 ? ' (läuft noch)' : '') + '</option>'; }).join('');
+}
+
+async function dashLoadMonthSummary() {
+  var key = (document.getElementById('dash-close-month') || {}).value, cutoff = dashBillingCutoff();
+  if (!key) return null;
+  var r = dashBillingRange(key, cutoff);
+  // A margin of a few days each side; dashShiftsInMonth does the exact cut. Shifts without their own date carry the protocol's.
+  var from = new Date(r.from + 'T12:00:00Z'); from.setUTCDate(from.getUTCDate() - 3);
+  var to = new Date(r.to + 'T12:00:00Z'); to.setUTCDate(to.getUTCDate() + 3);
+  var f = from.toISOString().slice(0, 10), t = to.toISOString().slice(0, 10);
+  // Everything the Stundenzettel pages need: times, place, AL and the signature of the protocol
+  var base = 'id, user_id, start_time, end_time, pause_mins, position_role, status, shift_date, created_at, ort, ';
+  var prot = '(date, al_name_fallback, pl_name_fallback, signature_text, projects(name, location))';
+  var res = await Promise.all([
+    supabaseClient.from('shifts').select(base + 'protocols' + prot).not('user_id', 'is', null).gte('shift_date', f).lte('shift_date', t).range(0, 4999),
+    supabaseClient.from('shifts').select(base + 'protocols!inner' + prot)
+      .not('user_id', 'is', null).is('shift_date', null).gte('protocols.date', f).lte('protocols.date', t).range(0, 4999),
+    // Pay rate and earnings limit live in app_user_private; the old columns in app_users are empty
+    supabaseClient.from('app_users').select('id, full_name, role, employment_type, is_fest, role_rates, app_user_private(hourly_rate_conni, income_limit)')
+  ]);
+  var err = res[0].error || res[1].error || res[2].error;
+  if (err) throw err;
+  var seen = {}, shifts = [], users = (res[2].data || []).map(flattenPrivate), userById = {};
+  users.forEach(function(u) { userById[u.id] = u; });
+  (res[0].data || []).concat(res[1].data || []).forEach(function(s) { if (!seen[s.id]) { seen[s.id] = true; shifts.push(s); } });
+  var sum = dashMonthSummary(shifts, users, key, cutoff), months = {};
+  // Each person's Stundenzettel, built like the single PDF in the dashboard; its hours are the ones in the overview
+  // (a protocol shift replaces a self-entered one at the same time there), so overview, CSV and pages agree
+  sum.rows.forEach(function(r) {
+    months[r.id] = dashBuildMonthWeeks(shifts.filter(function(s) { return s.user_id === r.id; }), key, r.name);
+  });
+  dashSummaryFromMonths(sum, months);
+  return { key: key, label: monthLabelFromKey(key), range: r, sum: sum, months: months, users: userById };
+}
+
+// Overview hours (and pay, share of the limit, totals) from the built Stundenzettel months
+function dashSummaryFromMonths(sum, months) {
+  sum.total.mins = 0; sum.total.pay = 0;
+  sum.rows.forEach(function(r) {
+    var m = months[r.id];
+    if (m) r.mins = Math.round((m.mTot || 0) * 60);
+    r.pay = r.rate !== null ? Math.round(r.mins / 60 * r.rate * 100) / 100 : null;
+    var share = incomeLimitShare(r.pay, r.limit);
+    r.limitPct = share ? share.pct : null;
+    sum.total.mins += r.mins;
+    sum.total.pay += r.pay || 0;
+  });
+  sum.total.pay = Math.round(sum.total.pay * 100) / 100;
+  return sum;
+}
+
+function dashDownload(blob, name) {
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function() { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+async function exportDashMonthClose(kind) {
+  if (!dashMayBook(typeof userRole !== 'undefined' ? userRole : null)) return;
+  var data;
+  try { data = await dashLoadMonthSummary(); } catch (err) { console.error('Monatsabschluss:', err); showToast('Daten konnten nicht geladen werden.', 'danger'); return; }
+  if (!data) return;
+  if (!data.sum.rows.length) { showToast('In ' + data.label + ' gibt es keine Schichten.', 'info'); return; }
+  var file = 'Monatsabschluss_' + data.key;
+  if (kind === 'csv') { dashDownload(new Blob([dashMonthCsv(data.sum, data.label)], { type: 'text/csv;charset=utf-8' }), file + '.csv'); return; }
+  if (!(await needLib('jspdf'))) return;
+  showToast('PDF wird erstellt, das dauert bei vielen Unterschriften einen Moment…');
+  var doc = pdfPatch(new jspdf.jsPDF({ orientation: 'l', unit: 'mm', format: 'a4' })), ml = 14, y = 18;
+  var day = function(iso) { return iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.' + iso.slice(0, 4); };
+  if (typeof LOGO_BASE64 !== 'undefined') {
+    try { var lw = 30, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100; doc.addImage(LOGO_BASE64, 'PNG', 253, 10, lw, lh); } catch (e) { /* no logo */ }
+  }
+  var people = data.sum.rows.filter(function(r) { return data.months[r.id] && data.months[r.id].monthW.length; }).length;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text('Monatsabschluss ' + data.label + ' · Übersicht', ml, y);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(110);
+  doc.text('Abrechnungszeitraum ' + day(data.range.from) + ' bis ' + day(data.range.to) + ' · erstellt am ' + new Date().toLocaleDateString('de-DE') +
+    ' · Stunden wie in den Stundenzetteln dahinter (mit Mindeststunden)', ml, y + 7);
+  doc.setTextColor(0); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+  doc.text('Ab Seite 2: ' + people + ' Stundenzettel mit Zeiten, Ort, AL und Unterschriften', ml, y + 14);
+  doc.setFont('helvetica', 'normal'); y += 6;
+  var cols = [['Name', 70], ['Rolle', 28], ['Schichten', 22], ['offen', 18], ['Stunden', 24], ['€/h', 22], ['Lohn', 30], ['Grenze', 26], ['Anteil', 20]];
+  var x0 = ml, rowH = 7;
+  y += 18;
+  var head = function() {
+    doc.setFillColor(240, 239, 236); doc.rect(ml, y - 5, 260, rowH, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
+    var x = x0;
+    cols.forEach(function(c, i) { doc.text(c[0], i >= 2 ? x + c[1] - 2 : x + 1, y, i >= 2 ? { align: 'right' } : undefined); x += c[1]; });
+    doc.setFont('helvetica', 'normal'); y += rowH;
+  };
+  head();
+  var line = function(vals, bold) {
+    if (y > 195) { doc.addPage(); y = 18; head(); }
+    doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(9);
+    var x = x0;
+    vals.forEach(function(v, i) {
+      var t = String(v == null ? '' : v);
+      if (i === 0) t = doc.splitTextToSize(t, cols[0][1] - 2)[0];
+      doc.text(t, i >= 2 ? x + cols[i][1] - 2 : x + 1, y, i >= 2 ? { align: 'right' } : undefined);
+      x += cols[i][1];
+    });
+    doc.setDrawColor(225); doc.line(ml, y + 2, ml + 260, y + 2);
+    y += rowH;
+  };
+  data.sum.rows.forEach(function(r) {
+    line([r.name, r.role, r.shifts, r.open || '', dashDe(r.mins / 60), r.rate !== null ? dashDe(r.rate) : '', r.pay !== null ? dashDe(r.pay) + ' €' : '',
+      r.limit !== null ? dashDe(r.limit) + ' €' : '', r.limitPct !== null ? r.limitPct + ' %' : '']);
+  });
+  line(['Summe', '', data.sum.total.shifts, data.sum.total.open || '', dashDe(data.sum.total.mins / 60), '', dashDe(data.sum.total.pay) + ' €', '', ''], true);
+  y += 4;
+  doc.setFontSize(9); doc.setTextColor(110);
+  if (data.sum.total.open) { doc.text(data.sum.total.open + (data.sum.total.open === 1 ? ' Schicht ist' : ' Schichten sind') + ' noch nicht verbucht (Spalte „offen“).', ml, y); y += 5; }
+  doc.text('Danach folgt für jede Person ihr Stundenzettel des Monats mit Zeiten, Ort, AL und Unterschrift, in der Reihenfolge dieser Liste.', ml, y);
+  doc.setTextColor(0);
+  for (var i = 0; i < data.sum.rows.length; i++) {
+    var r = data.sum.rows[i], m = data.months[r.id];
+    if (!m || !m.monthW.length) continue;
+    await dashCompressSigs(m.monthW);
+    dashDrawMonth(doc, m, data.key, r.name, r.rate || 0, false, data.users[r.id]);
+  }
+  doc.save(file + '.pdf');
+  showToast('Gespeichert: Übersicht und ' + people + ' Stundenzettel (' + doc.getNumberOfPages() + ' Seiten).', 'success');
+}
+
+// "Do 5.11." for the shift rows
+function dashShortDay(iso) {
+  if (!iso) return 'Ohne Datum';
+  var p = iso.split('-').map(Number), d = new Date(p[0], p[1] - 1, p[2]);
+  return ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][d.getDay()] + ' ' + p[2] + '.' + p[1] + '.';
+}
+
+function dashShiftRowHtml(s, canEdit) {
+  const booked = s.status === 'eingetragen';
+  const st = s.start_time ? s.start_time.substring(0, 5) : '';
+  const en = s.end_time ? s.end_time.substring(0, 5) : '';
+  const netMins = dashShiftNetMins(s);
+  const place = s.protocols ? ((s.protocols.projects && s.protocols.projects.name) || 'Protokoll') : (s.ort || 'Manuell erfasst');
+  const meta = [st ? st + '–' + (en || '?') : 'ohne Zeiten', s.pause_mins ? s.pause_mins + ' min Pause' : '',
+    netMins > 0 ? (netMins / 60).toFixed(2).replace('.', ',') + ' h' : '', s.position_role || ''].filter(Boolean).join(' · ');
+  const night = dashIsNightShift(s) ? ' <span class="ui-pill ui-pill-info" title="Mehr als 2 h zwischen 22 und 6 Uhr">Nacht</span>' : '';
+  const body = `<span class="dash-shift-top"><b>${escapeHtml(dashShortDay(dashShiftDate(s)))}</b> · ${escapeHtml(place)}</span>` +
+    `<span class="ui-sub">${escapeHtml(meta)}${night}</span>`;
+  const main = canEdit
+    ? `<button type="button" class="dash-shift-main" onclick="openShiftEdit('${escapeHtml(s.id)}')" aria-label="Schicht ${escapeHtml(dashShortDay(dashShiftDate(s)))} bearbeiten">${body}</button>`
+    : `<div class="dash-shift-main">${body}</div>`;
+  return `<div class="dash-shift${s.status === 'eingetragen' ? ' dash-shift-booked' : ''}">${main}` +
+    (canEdit
+      ? `<input type="checkbox" ${booked ? 'checked' : ''} data-shift-id="${escapeHtml(s.id)}" class="shift-booked-cb ui-switch" aria-label="Verbucht">`
+      : `<span class="ui-pill${booked ? ' ui-pill-ok' : ''}">${booked ? 'verbucht' : 'offen'}</span>`) + '</div>';
+}
+
+// Stats, actions and shift rows of the month picked in #dash-month-filter (re-rendered from cache, no reload)
+function dashRenderWorkerMonth() {
+  const cont = document.getElementById('worker-shifts-container');
+  const worker = dashboardCurrentWorker;
+  if (!cont || !worker) return;
+  const canEdit = dashMayBook(typeof userRole !== 'undefined' ? userRole : null);
+  const cutoff = dashBillingCutoff();
+  const sel = document.getElementById('dash-month-filter');
+  const key = (sel && sel.value) || getBillingKeyForDate(new Date(), cutoff).key;
+  const label = sel && sel.selectedIndex >= 0 && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
+  const list = dashShiftsInMonth(dashboardCurrentShifts, key, cutoff);
+  const open = list.filter(s => s.status !== 'eingetragen').length;
+
+  const mins = list.reduce((n, s) => n + dashShiftNetMins(s), 0);
+  const hrs = mins / 60;
+  const eur = n => n.toFixed(2).replace('.', ',') + ' €';
+  // Pay and cost per shift with the rate for its function (MA / AL / Fahrer can differ)
+  const money = dashWorkerMoney(list, worker);
+  const rateLabel = r => !r.length ? '' : ' (' + (r.length === 1 ? r[0].toFixed(2).replace('.', ',') : r.map(x => String(x).replace('.', ',')).join(' / ')) + ' €/h)';
+  const share = incomeLimitShare(money.pay, worker.income_limit ? parseFloat(worker.income_limit) : null);
+  let html = '<div class="ui-stats">' +
+    `<div class="ui-stat"><span>Netto-Stunden</span><b>${mins > 0 ? hrs.toFixed(2).replace('.', ',') + ' h' : '—'}</b></div>` +
+    `<div class="ui-stat"><span>Schichten</span><b>${list.length}</b><div class="ui-sub">${open ? open + ' offen' : list.length ? 'alle verbucht' : ''}</div></div>` +
+    (money.pay !== null ? `<div class="ui-stat cost-only"><span>Lohn${rateLabel(money.payRates)}</span><b>${hrs > 0 ? eur(money.pay) : '—'}</b>${money.byPos ? '<div class="ui-sub">' + escapeHtml(money.byPos) + '</div>' : ''}${money.unpaid ? '<div class="ui-sub">' + money.unpaid + ' Schicht(en) ohne Lohnsatz</div>' : ''}</div>` : '') +
+    (money.cost !== null ? `<div class="ui-stat cost-only"><span>Intern${rateLabel(money.costRates)}</span><b>${hrs > 0 ? eur(money.cost) : '—'}</b></div>` : '') +
+    (share ? `<div class="ui-stat cost-only"><span>Grenze ${eur(parseFloat(worker.income_limit))}</span><b>${share.pct} %</b>` +
+      `<div class="ui-bar${share.over ? ' ui-bar-over' : share.pct >= 80 ? ' ui-bar-warn' : ''}"><i style="width:${Math.min(100, share.pct)}%"></i></div></div>` : '') +
+    '</div>';
+
+  const actions = (canEdit ? `<button type="button" class="ui-btn dash-small-btn" onclick="openAddShift()">+ Schicht</button>` : '') +
+    (open && canEdit ? `<button type="button" class="ui-btn ui-btn-primary dash-small-btn" onclick="markAllShiftsBooked('${escapeHtml(worker.id)}')">${open} offene verbuchen</button>` : '');
+  if (actions) html += `<div class="dash-shift-actions">${actions}</div>`;
+
+  html += list.length
+    ? `<div class="dash-shift-list">${list.map(s => dashShiftRowHtml(s, canEdit)).join('')}</div>`
+    : uiEmptyHtml('Keine Schichten', label ? 'Im Abrechnungsmonat ' + label + ' ist nichts erfasst.' : 'Für diese Person sind noch keine Schichten erfasst.');
+  cont.innerHTML = html;
+
+  cont.querySelectorAll('.shift-booked-cb').forEach(function(cb) {
+    cb.addEventListener('change', function() { toggleShiftBooked(this.dataset.shiftId, this.checked); });
+  });
 }
 
 async function toggleShiftBooked(shiftId, checked) {
@@ -826,6 +1511,7 @@ async function toggleShiftBooked(shiftId, checked) {
     // Update local state without full rerender to avoid jumpiness
     const st = dashboardCurrentShifts.find(x => x.id === shiftId);
     if (st) st.status = newStat;
+    dashRenderWorkerMonth(); // counts and "offene verbuchen" follow
     loadDashboardWorkers(); // Update dropdown highlights silently
   } catch (err) {
     console.error("Update shift err", err);
@@ -835,11 +1521,18 @@ async function toggleShiftBooked(shiftId, checked) {
 }
 
 async function markAllShiftsBooked(userId) {
-  if (!confirm("Alle offenen Schichten dieses Mitarbeiters als eingetragen markieren?")) return;
+  const sel = document.getElementById('dash-month-filter');
+  const key = (sel && sel.value) || getBillingKeyForDate(new Date(), dashBillingCutoff()).key;
+  const ids = dashShiftsInMonth(dashboardCurrentShifts, key, dashBillingCutoff())
+    .filter(function(s) { return s.user_id === userId && s.status !== 'eingetragen'; }).map(function(s) { return s.id; });
+  if (!ids.length) { if (typeof showToast === 'function') showToast('Keine offenen Schichten zum Verbuchen.', 'info'); return; }
+  const label = sel && sel.selectedIndex >= 0 && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : 'diesem Monat';
+  if (!confirm(ids.length + ' offene Schicht' + (ids.length === 1 ? '' : 'en') + ' im Abrechnungsmonat ' + label + ' als eingetragen markieren?')) return;
   try {
     const { data: rows, error } = await supabaseClient
       .from('shifts')
       .update({ status: 'eingetragen' })
+      .in('id', ids)
       .eq('user_id', userId)
       .neq('status', 'eingetragen')
       .select('id');
@@ -926,7 +1619,7 @@ async function saveShiftEdit() {
   const endVal   = document.getElementById('shift-edit-end').value;
   const ortVal   = (document.getElementById('shift-edit-ort') || {}).value || '';
   const rawMins  = (timeToMins(endVal) || 0) - (timeToMins(startVal) || 0);
-  let pause      = autoPause(rawMins < 0 ? rawMins + 1440 : rawMins);
+  let pause      = autoPause(rawMins < 0 ? rawMins + 1440 : rawMins, typeof isMinorUser === 'function' && !!dashboardCurrentWorker && isMinorUser(dashboardCurrentWorker.id));
 
   if (!dateVal || !startVal || !endVal) {
     if (typeof showToast === 'function') showToast('Bitte Datum, Von und Bis ausfüllen.', 'danger');
@@ -1244,7 +1937,11 @@ function openDashDetail(id) {
     <div>
       <div class="stat-label">Projektleiter (PL)</div>
       <div style="font-weight:600;">${escapeHtml(plName)}</div>
-    </div>
+    </div>${p.job_no ? `
+    <div>
+      <div class="stat-label">Projektnummer</div>
+      <div style="font-weight:600;">${escapeHtml(p.job_no)}</div>
+    </div>` : ''}
     <div class="cost-only">
       <div class="stat-label">Gesamtkosten (Schätzung)</div>
       <div style="font-weight:600; color:var(--accent);">${escapeHtml((p.total_cost || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 }))} €</div>
@@ -1493,6 +2190,7 @@ function openDashProtEdit() {
   // AL/PL: picking a name from the list resolves to the user id on save (dashResolvePerson); free text stays a name
   document.getElementById('pe-al-wrap').innerHTML = uiComboHtml('pe-al', p.al ? p.al.full_name : (p.al_name_fallback || ''), 'Name wählen oder eingeben', '', '');
   document.getElementById('pe-pl-wrap').innerHTML = uiComboHtml('pe-pl', p.pl ? p.pl.full_name : (p.pl_name_fallback || ''), 'Name wählen oder eingeben', '', '');
+  if (document.getElementById('pe-job')) document.getElementById('pe-job').value = p.job_no || '';
   document.getElementById('pe-damages').value  = p.notes_damages || '';
   document.getElementById('pe-incidents').value = p.notes_incidents || '';
   document.getElementById('pe-feedback').value  = p.notes_feedback || '';
@@ -1622,7 +2320,7 @@ function updateDashPeShift(idx, field, val) {
   // A new row suggests the break from its length until the break was typed by hand
   if ((field === 'start' || field === 'end') && !r.id && !r.pauseTouched && r.start && r.end) {
     var raw = (timeToMins(r.end) || 0) - (timeToMins(r.start) || 0);
-    r.pause = autoPause(raw < 0 ? raw + 1440 : raw);
+    r.pause = autoPause(raw < 0 ? raw + 1440 : raw, typeof isMinorUser === 'function' && isMinorUser(r.userId));
     var el = document.getElementById('pe-sh-pause-' + idx);
     if (el) el.value = r.pause;
   }
@@ -1761,6 +2459,11 @@ async function saveDashProtEdit() {
     notes_incidents: document.getElementById('pe-incidents').value.trim() || null,
     notes_feedback:  document.getElementById('pe-feedback').value.trim()  || null,
   };
+  const jobEl = document.getElementById('pe-job');
+  if (jobEl) {
+    if (!protJobNoValid(jobEl.value)) { showToast('Die Projektnummer sieht so aus: 26-0447 (oder mit Auftrag: 26-0447.01). Bitte korrigieren oder leer lassen.', 'danger'); return; }
+    protPayload.job_no = protJobNo(jobEl.value) || null;
+  }
   // Same formula as the app, from the edited transports and the edited personnel (not the stored ones)
   if (costChanged) protPayload.total_cost = calcDashProtTotal(newDate, isHoliday, _editProtTransports,
     _editProtShifts.map(function(r) { return dashShiftRowToDb(r, rateUsers); }));
@@ -1861,9 +2564,7 @@ async function saveDashProtEdit() {
 async function exportDashProtPDF(pId) {
   const p = dashboardProtocols.find(x => x.id === pId);
   if (!p) return;
-  if (!window.jspdf || !window.jspdf.jsPDF) {
-    alert("PDF Engine nicht geladen!"); return;
-  }
+  if (!(await needLib('jspdf'))) return;
 
   if (typeof showToast === 'function') showToast('Generiere Protokoll-PDF...');
   try {
@@ -1876,7 +2577,7 @@ async function exportDashProtPDF(pId) {
     else if (sigRow) signature = sigRow.signature_text || null;
 
     const entry = dashProtToEntry(p, signature);
-    buildProtPdfDoc(entry, { costs: canSeeCosts(currentUser) }).save(protPdfFileName(entry));
+    buildProtPdfDoc(entry, { costs: canSeeCosts(currentUser), sideLabel: entry.sideOf ? dashSideLabel(entry.sideOf) : '' }).save(protPdfFileName(entry));
   } catch (err) {
     console.error('exportDashProtPDF error:', err);
     if (typeof showToast === 'function') showToast('PDF konnte nicht erstellt werden', 'danger');
@@ -1898,6 +2599,8 @@ function populateDashboardMonthFilter(shifts) {
   if (!sel || !btn) return;
 
   const months = {};
+  const cur = getBillingKeyForDate(new Date(), billingCutoff);
+  if ((shifts || []).length) months[cur.key] = cur.label;
   (shifts || []).forEach(function(s) {
     const dStr = (s.protocols && s.protocols.date) || s.shift_date;
     if (!dStr) return;
@@ -1907,11 +2610,11 @@ function populateDashboardMonthFilter(shifts) {
   });
 
   const sortedKeys = Object.keys(months).sort().reverse();
-  sel.innerHTML = '<option value="">-- Monat --</option>' +
-    sortedKeys.map(function(k) { return '<option value="' + k + '">' + months[k] + '</option>'; }).join('');
+  const keep = sel.value;
+  sel.innerHTML = sortedKeys.map(function(k) { return '<option value="' + k + '">' + months[k] + '</option>'; }).join('');
 
   if (sortedKeys.length > 0) {
-    sel.value = sortedKeys[0];
+    sel.value = sortedKeys.indexOf(keep) !== -1 ? keep : cur.key;
     sel.style.display = '';
     btn.style.display = '';
   } else {
@@ -1929,23 +2632,9 @@ async function exportDashboardMonthlyPDF() {
   }
 }
 
-async function exportDashboardMonthlyPDFRun() {
-  const mKey = (document.getElementById('dash-month-filter') || {}).value;
-  if (!mKey || !dashboardCurrentWorker) return;
-
-  const workerName = dashboardCurrentWorker.full_name || 'Mitarbeiter';
-  showToast('PDF wird erstellt…');
-
-  const { data: shifts, error } = await supabaseClient
-    .from('shifts')
-    .select(`
-      id, start_time, end_time, pause_mins, position_role, status, shift_date, ort,
-      protocols(date, al_name_fallback, pl_name_fallback, signature_text, projects(name, location))
-    `)
-    .eq('user_id', dashboardCurrentWorker.id);
-
-  if (error || !shifts || !shifts.length) { showToast('Keine Daten gefunden.'); return; }
-
+// One person's month as week buckets (the Stundenzettel of the dashboard): shifts with protocols(date, al/pl fallback,
+// signature_text, projects(name, location)) and ort. → { monthW, mTot, mLab }; monthW empty when nothing falls in the month.
+function dashBuildMonthWeeks(shifts, mKey, workerName) {
   // Group shifts into week buckets, keeping only the selected month
   const userWeeks = {};
   shifts.forEach(function(s) {
@@ -2020,8 +2709,10 @@ async function exportDashboardMonthlyPDFRun() {
     return w;
   });
 
-  if (!monthW.length) { showToast('Keine Schichten in diesem Monat.'); return; }
+  return { monthW: monthW, mTot: mTot, mLab: mLab || monthLabelFromKey(mKey) };
+}
 
+async function dashCompressSigs(monthW) {
   // Compress signatures before embedding
   const sigComprP = [];
   monthW.forEach(function(w) {
@@ -2034,9 +2725,15 @@ async function exportDashboardMonthlyPDFRun() {
     });
   });
   await Promise.all(sigComprP);
+}
 
+// Draws one person's Monatsübersicht plus a page per week (with times and signatures) into doc.
+// first = the person starts on the doc's first page; everyone after starts on a new page.
+function dashDrawMonth(doc, m, mKey, workerName, rateConni, first, rateUser) {
+  var monthW = m.monthW, mTot = m.mTot, mLab = m.mLab;
   // Build PDF — same layout as exportMonthlyPDF
-  const doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+  if (!first) doc.addPage('a4', 'p');
+  doc.setTextColor(0); doc.setDrawColor(0); doc.setFont('helvetica', 'normal'); // the page before may have left grey text
   const ml = 20, cw = 170;
 
   if (typeof LOGO_BASE64 !== 'undefined') {
@@ -2080,12 +2777,41 @@ async function exportDashboardMonthlyPDFRun() {
 
   // Set rate for drawPDFContent earnings line, then restore
   const prevRate = window.currentUserRateConni;
-  window.currentUserRateConni = dashboardCurrentWorker.hourly_rate_conni ? parseFloat(dashboardCurrentWorker.hourly_rate_conni) : 0;
-  monthW.forEach(function(w) {
-    splitWeekByDepts(w).forEach(function(pageData) { doc.addPage(); drawPDFContent(doc, pageData, ml, cw); });
-  });
-  window.currentUserRateConni = prevRate;
+  window.currentUserRateConni = rateConni || 0;
+  window._pdfRateUser = rateUser || null; // each department page uses the person's pay for that function
+  try {
+    monthW.forEach(function(w) {
+      splitWeekByDepts(w).forEach(function(pageData) { doc.addPage(); drawPDFContent(doc, pageData, ml, cw); });
+    });
+  } finally {
+    window.currentUserRateConni = prevRate;
+    window._pdfRateUser = null;
+  }
+}
 
+async function exportDashboardMonthlyPDFRun() {
+  const mKey = (document.getElementById('dash-month-filter') || {}).value;
+  if (!mKey || !dashboardCurrentWorker) return;
+  if (!(await needLib('jspdf'))) return;
+
+  const workerName = dashboardCurrentWorker.full_name || 'Mitarbeiter';
+  showToast('PDF wird erstellt…');
+
+  const { data: shifts, error } = await sbFetchAll(() => supabaseClient
+    .from('shifts')
+    .select(`
+      id, start_time, end_time, pause_mins, position_role, status, shift_date, ort,
+      protocols(date, al_name_fallback, pl_name_fallback, signature_text, projects(name, location))
+    `)
+    .eq('user_id', dashboardCurrentWorker.id)
+    .order('id'));
+
+  if (error || !shifts || !shifts.length) { showToast('Keine Daten gefunden.'); return; }
+  const m = dashBuildMonthWeeks(shifts, mKey, workerName);
+  if (!m.monthW.length) { showToast('Keine Schichten in diesem Monat.'); return; }
+  await dashCompressSigs(m.monthW);
+  const doc = pdfPatch(new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }));
+  dashDrawMonth(doc, m, mKey, workerName, dashboardCurrentWorker.hourly_rate_conni ? parseFloat(dashboardCurrentWorker.hourly_rate_conni) : 0, true, dashboardCurrentWorker);
   const fN = 'stundennachweis_' + mKey.replace('-', '_') + '_' + workerName.replace(/\s+/g, '_') + '.pdf';
   doc.save(fN); showToast('📄 Monats-PDF gespeichert!');
 }

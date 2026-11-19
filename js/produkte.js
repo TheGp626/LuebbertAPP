@@ -49,8 +49,21 @@ async function fetchProdukte() {
     return;
   }
 
-  alleProdukte = data || [];
+  alleProdukte = (data || []).map(produktSafeRow);
   filterProdukte(); // keeps an active search text applied (renders everything when empty)
+}
+
+// Media links come from the database, which ALs can write to directly: only https links are used as
+// src/href, so a stored "javascript:" link or a quote that breaks out of the attribute can't run in a viewer's browser
+function produktSafeUrl(u) {
+  var s = String(u == null ? '' : u).trim();
+  return /^https:\/\/[^\s"'<>]+$/i.test(s) ? s : '';
+}
+function produktSafeRow(p) {
+  if (!p) return p;
+  var imgs = (p.product_images || []).map(function(i) { return Object.assign({}, i, { image_url: produktSafeUrl(i.image_url) }); })
+    .filter(function(i) { return i.image_url; });
+  return Object.assign({}, p, { pdf_url: produktSafeUrl(p.pdf_url) || null, product_images: imgs });
 }
 
 // Row payload for products; created_by is set on insert only (an edit must not take over authorship)
@@ -80,12 +93,6 @@ function renderProdukte(list) {
   if (empty) empty.style.display = 'none';
   var canUpload = typeof userRole !== 'undefined' && ['AL', 'PL', 'Admin'].includes(userRole);
 
-  // Configure PDF.js worker once
-  if (typeof pdfjsLib !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  }
-
   grid.innerHTML = list.map(function(p) {
     // Thumbnail priority: 1) first product_image/video, 2) pdf_url image, 3) pdf canvas, 4) placeholder
     var images = (p.product_images || []).slice().sort(function(a, b) { return a.sort_order - b.sort_order; });
@@ -94,16 +101,16 @@ function renderProdukte(list) {
       var first = images[0];
       if (first.media_type === 'video') {
         preview = '<div class="produkt-video-thumb-wrap" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')">' +
-          '<video src="' + escHtml(first.image_url) + '" muted preload="metadata" playsinline></video>' +
+          '<video src="' + escHtml(first.image_url) + '" muted preload="none" playsinline></video>' +
           '<div class="produkt-video-play-icon"></div>' +
           '</div>';
       } else {
-        preview = '<img src="' + escHtml(first.image_url) + '" class="produkt-thumb" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')" />';
+        preview = '<img src="' + escHtml(first.image_url) + '" class="produkt-thumb" loading="lazy" decoding="async" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')" />';
       }
     } else if (p.pdf_url) {
       var pdfKind = aufbauFileKind(p.pdf_url);
       if (pdfKind === 'image') {
-        preview = '<img src="' + escHtml(p.pdf_url) + '" class="produkt-thumb" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')" />';
+        preview = '<img src="' + escHtml(p.pdf_url) + '" class="produkt-thumb" loading="lazy" decoding="async" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')" />';
       } else if (pdfKind === 'pdf') {
         preview = '<canvas class="produkt-thumb produkt-pdf-canvas" data-url="' + escHtml(p.pdf_url) + '" data-id="' + p.id + '" onclick="event.stopPropagation();openProduktViewer(\'' + p.id + '\')"></canvas>';
       } else {
@@ -133,8 +140,9 @@ function renderProdukte(list) {
 }
 
 async function renderPdfThumbnails() {
-  if (typeof pdfjsLib === 'undefined') return;
   var canvases = document.querySelectorAll('.produkt-pdf-canvas');
+  if (!canvases.length) return;
+  try { await loadLib('pdfjs'); } catch (e) { console.error('pdfjs', e); return; }
   for (var i = 0; i < canvases.length; i++) {
     var canvas = canvases[i];
     var url = canvas.dataset.url;
@@ -558,10 +566,8 @@ function aufbauDateiInlineHtml(url, kind) {
 
 // Draws the PDF pages into the viewer. Stops quietly when the viewer was closed or switched meanwhile.
 async function renderAufbauPdfPages(box) {
-  if (!box || typeof pdfjsLib === 'undefined') return;
-  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  }
+  if (!box) return;
+  try { await loadLib('pdfjs'); } catch (e) { console.error('pdfjs', e); return; }
   var pdf = null;
   try {
     pdf = await pdfjsLib.getDocument({ url: box.dataset.url }).promise;
@@ -724,10 +730,10 @@ function lightboxRender() {
   if (oldVideo) { oldVideo.pause(); oldVideo.src = ''; }
 
   if (item.type === 'video') {
-    wrap.innerHTML = '<video src="' + item.url + '" controls autoplay playsinline ' +
+    wrap.innerHTML = '<video src="' + escHtml(produktSafeUrl(item.url)) + '" controls autoplay playsinline ' +
       'style="max-width:92vw;max-height:88vh;border-radius:6px;outline:none;display:block;"></video>';
   } else {
-    wrap.innerHTML = '<img src="' + item.url + '" alt="" />';
+    wrap.innerHTML = '<img src="' + escHtml(produktSafeUrl(item.url)) + '" alt="" />';
   }
 
   if (counter) {
@@ -777,8 +783,8 @@ var PRODUKT_EXT_MIME = {
   webp: 'image/webp', svg: 'image/svg+xml', heic: 'image/heic', heif: 'image/heif', tif: 'image/tiff',
   tiff: 'image/tiff', bmp: 'image/bmp', mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm'
 };
-// MIME types the product-images bucket accepts
-var PRODUKT_BUCKET_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+// MIME types the product-images bucket accepts (no SVG: it can carry script and the bucket is public)
+var PRODUKT_BUCKET_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 var PRODUKT_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 
 // Extension from the file name if it looks like a real one, otherwise from the MIME type; '' if unknown.
@@ -973,5 +979,6 @@ if (typeof module !== 'undefined' && module.exports) {
     contentTypeFor: contentTypeFor, isPdfMagic: isPdfMagic, isBucketImageType: isBucketImageType,
     uploadErrorMessage: uploadErrorMessage, aufbauFileKind: aufbauFileKind, storagePathFromUrl: storagePathFromUrl,
     produktCoverOrder: produktCoverOrder, produktNextSortOrder: produktNextSortOrder, aufbauPageScale: aufbauPageScale,
-    produktBadges: produktBadges, produktMenuItems: produktMenuItems, produktPayload: produktPayload };
+    produktBadges: produktBadges, produktMenuItems: produktMenuItems, produktPayload: produktPayload,
+    produktSafeUrl: produktSafeUrl, produktSafeRow: produktSafeRow };
 }

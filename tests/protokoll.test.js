@@ -76,7 +76,7 @@ const plain = v => JSON.parse(JSON.stringify(v));
 function protData(extra) {
   return Object.assign({
     event: 'Gala', location: 'Estrel', date: '2026-10-28', action: 'Aufbau',
-    alId: 'u-al', plId: 'u-pl', al: 'Anna', pl: 'Paul',
+    alId: 'u-al', plId: 'u-pl', al: 'Anna', pl: 'Pius',
     damages: 'nein', incidents: 'nein', feedback: '—',
     transports: [{ type: 'Sprinter', driver: 'Tom', punctuality: 'pünktlich', delay: '' }],
     personnel: [{ pos: 'MA', userId: 'u-ma', name: 'Max', start: '08:00', end: '16:00', pause: '30' }],
@@ -423,13 +423,13 @@ test('protPlanPersonnel: one row per named person, AL first, start from Wann, en
 
 test('protPlanPersonnel: personal and agency times win over the shift time', () => {
   const rows = plain(run('protPlanPersonnel')(planShift({ people: [
-    { name: 'Milan', role: 'MA', note: 'ab 14 Uhr', userId: null },
-    { name: 'Feli', role: 'Deko', note: 'bis 13 Uhr', userId: null },
+    { name: 'Mats', role: 'MA', note: 'ab 14 Uhr', userId: null },
+    { name: 'Frida', role: 'Deko', note: 'bis 13 Uhr', userId: null },
     { name: 'Carla Muster', role: 'Zenjob', note: '8.30 - 16.30 Uhr', userId: null },
   ] }), users));
   assert.deepEqual(rows.map(r => [r.name, r.start, r.end, r.pause]), [
-    ['Milan', '14:00', '', '0'],
-    ['Feli', '08:00', '13:00', '0'],
+    ['Mats', '14:00', '', '0'],
+    ['Frida', '08:00', '13:00', '0'],
     ['Carla Muster', '08:30', '16:30', '30'],
   ]);
 });
@@ -486,6 +486,34 @@ test('saveProtokoll: incomplete rows → asks first; "Abbrechen" sends nothing',
   await run('saveProtokoll()');
   assert.match(asked, /Bert/);
   assert.equal(sb.calls.length, 0);
+});
+
+test('protLongerThanAl: names ending after the AL row, over midnight; no AL row → nobody', () => {
+  const rows = [
+    { userId: 'al', name: 'Ali', start: '18:00', end: '23:00' },
+    { name: 'Bert', start: '18:00', end: '22:30' },
+    { name: 'Cem', start: '18:00', end: '00:30' },
+    { isTemp: true, tempName: 'Zoe', start: '19:00', end: '23:15' },
+    { name: 'Dora', start: '18:00', end: '' },
+  ];
+  assert.deepEqual(plain(run('protLongerThanAl')(rows, 'al')), ['Cem', 'Zoe']);
+  assert.deepEqual(plain(run('protLongerThanAl')(rows, 'other')), []);
+  assert.deepEqual(plain(run('protLongerThanAl')(rows, null)), []);
+});
+
+test('saveProtokoll: MA longer than AL → no reason sends nothing; reason lands in Vorkommnisse', async () => {
+  dom['prot-total-cost'] = { textContent: '0,00' };
+  dom['prot-incidents'] = { value: 'nein' };
+  ctx.prompt = () => '';
+  run('protState.alId = "al"; protState.personnel = [{ pos: "AL", userId: "al", name: "Ali", start: "08:00", end: "12:00", pause: "0" }, { pos: "MA", name: "Bert", start: "08:00", end: "14:00", pause: "0" }]');
+  await run('saveProtokoll()');
+  assert.equal(sb.calls.length, 0);
+  let asked = 0;
+  ctx.prompt = () => { asked++; return 'Abbau dauerte länger'; };
+  await run('saveProtokoll()').catch(() => {});
+  assert.equal(dom['prot-incidents'].value, 'Länger als AL (Bert): Abbau dauerte länger');
+  await run('saveProtokoll()').catch(() => {});
+  assert.equal(asked, 1); // already explained → resend does not ask again
 });
 
 test('loading another protocol or resetting the form closes all rows (no stale open state)', () => {
@@ -657,11 +685,11 @@ test('AL/PL select keeps a stored person who is no longer in the list', () => {
 });
 
 test('loadProtFromHistory remembers the stored AL name for a deactivated AL', () => {
-  store['luebbert_protokoll_history'] = JSON.stringify([{ id: 'h1', event: 'Gala', al: 'Gerd Alt', alId: 'u-gone', pl: 'Paul', plId: 'u-pl', personnel: [], transports: [] }]);
+  store['luebbert_protokoll_history'] = JSON.stringify([{ id: 'h1', event: 'Gala', al: 'Gerd Alt', alId: 'u-gone', pl: 'Pius', plId: 'u-pl', personnel: [], transports: [] }]);
   ctx.confirm = () => true;
   dom['prot-al'] = { innerHTML: '', value: '' };
   dom['prot-pl'] = { innerHTML: '', value: '' };
-  run('appUsers = [{ id: "u-pl", full_name: "Paul", role: "Admin" }]');
+  run('appUsers = [{ id: "u-pl", full_name: "Pius", role: "Admin" }]');
   run('loadProtFromHistory("h1")');
   assert.equal(run('protState.alName'), 'Gerd Alt');
   assert.equal(dom['prot-al'].value, 'u-gone');
@@ -891,7 +919,7 @@ test('protShiftChanges: every paid change on a booked shift sets status offen', 
 
 test('buildProtPdfDoc: cost block only with costs:true (AL download without, PL mail with)', () => {
   const entry = {
-    event: 'Gala', location: 'Estrel', date: '2026-10-28', action: 'Aufbau', al: 'Anna', pl: 'Paul', holiday: false,
+    event: 'Gala', location: 'Estrel', date: '2026-10-28', action: 'Aufbau', al: 'Anna', pl: 'Pius', holiday: false,
     transports: [{ type: 'Solo', driver: 'Tom', punctuality: 'pünktlich', delay: 0, hours: 2 }],
     personnel: [{ pos: 'MA', userId: 'u1', name: 'Max', start: '08:00', end: '16:00', pause: 30 }],
     categories: {}, totalCost: '400,00 €',
@@ -917,4 +945,179 @@ test('updateProtPersonnel: picking another person takes that person\'s type and 
   assert.equal(p.type, 'Fest');
   assert.ok(!p.legacy);
   assert.equal(run("protBasePos(protState.personnel[0], appUsers)"), 'MA Fest');
+});
+
+test('protLongerThanAl: AL over midnight, MA starting after midnight and ending later is flagged', () => {
+  const rows = [
+    { userId: 'al', name: 'Ali', start: '18:00', end: '02:00' },
+    { name: 'Eda', start: '00:30', end: '03:00' },
+    { name: 'Fin', start: '00:30', end: '01:30' },
+  ];
+  assert.deepEqual(plain(run('protLongerThanAl')(rows, 'al')), ['Eda']);
+});
+
+// ── Transport, PL and crew prefill from a Wochenplan shift ──
+const TYPES = ['Hängerzug', 'LKW', 'Spedition', 'Sprinter'];
+const staff = users.concat([{ id: 'u-pl', full_name: 'Judith Lang', role: 'PL' }, { id: 'u-pl2', full_name: 'Ilka Sommer', role: 'PL' }, { id: 'u-adm', full_name: 'Judith Admin', role: 'Admin', is_active: false }]);
+
+test('protGuessVehicleType: known type inside the plan text, else the form default', () => {
+  const g = run('protGuessVehicleType');
+  assert.equal(g('LeihLkw', TYPES), 'LKW');
+  assert.equal(g('Sprinter 2 (B-XY 123)', TYPES), 'Sprinter');
+  assert.equal(g('BAR PL 550', TYPES), 'Hängerzug');
+  assert.equal(g('', ['LKW', 'Sprinter']), 'LKW');
+});
+
+test('protPlanTransports: one transport per driver the plan names', () => {
+  const shift = planShift({ notes: ['BAR PL 550', 'LeihLkw', 'Bitte pünktlich'], people: [
+    { name: 'Anna', role: 'AL', note: 'BAR PL 550', userId: 'u-anna' },
+    { name: 'Marcin', role: 'Fahrer', note: 'LeihLkw, ab 7 Uhr', userId: null },
+    { name: 'Bert', role: 'MA', note: 'ab 14 Uhr', userId: 'u-bert' },
+    { name: 'Olaf', role: 'Fahrer', note: null, userId: null },
+  ], open: [{ role: 'Fahrer', count: 1, note: 'Spedition Barnim' }, { role: 'Fahrer', count: 1, note: 'Barnimer Land' }, { role: 'MA', count: 2 }] });
+  const t = plain(run('protPlanTransports')(shift, users, TYPES));
+  assert.deepEqual(t.map(x => [x.type, x.driver, x.driverUserId, x.hours]), [
+    ['Hängerzug', 'Anna Albers', 'u-anna', null], // also works on site: hours stay open
+    ['LKW', 'Marcin', '', 5],
+    ['Hängerzug', 'Olaf', '', 5],
+    ['Spedition', '', '', 5],
+  ]);
+  assert.deepEqual(plain(run('protPlanTransports')(planShift({ people: [{ name: 'Bert', role: 'MA', note: null, userId: 'u-bert' }] }), users, TYPES)), []);
+});
+
+test('protPlanCrew: pure drivers stand under Transport, not in the personnel list', () => {
+  const rows = plain(run('protPlanCrew')(planShift({ notes: ['BAR PL 550'], people: [
+    { name: 'Marcin', role: 'Fahrer', note: 'LeihLkw', userId: null },
+    { name: 'Anna', role: 'AL', note: 'BAR PL 550', userId: 'u-anna' },
+    { name: 'Bert', role: 'MA', note: null, userId: 'u-bert' },
+  ] }), users));
+  assert.deepEqual(rows.map(r => [r.pos, r.name, r.start]), [['AL', 'Anna Albers', '08:00'], ['MA', 'Bert Brandt', '08:00']]);
+});
+
+test('protPlanPl: linked account first, else a name only one active PL goes by', () => {
+  const pl = run('protPlanPl');
+  assert.equal(pl({ apUserId: 'u-pl2', ap: 'Judith' }, staff), 'u-pl2');
+  assert.equal(pl({ apUserId: 'u-bert', ap: 'Judith' }, staff), 'u-pl'); // a linked non-PL is ignored, the name decides
+  assert.equal(pl({ ap: 'ilka sommer' }, staff), 'u-pl2');
+  assert.equal(pl({ ap: 'Dennis' }, staff), null);
+  assert.equal(pl({ ap: '' }, staff), null);
+  assert.equal(pl({ ap: 'Judith' }, staff.concat([{ id: 'u-pl3', full_name: 'Judith Zwei', role: 'PL' }])), null);
+});
+
+// ── Auftragsnummer on a protocol ──
+test('protJobNo / protJobNoValid / protPhaseOfAction', () => {
+  assert.equal(run('protJobNo')(' 26-0447.01 '), '26-0447.01');
+  assert.equal(run('protJobNo')(null), '');
+  assert.deepEqual(['', '26-0447.01', ' 26-0447.01', '26-0447', '26-447.01', '0447.01', 'abc', '26-0447.011', '26-0447.1', '26-04470'].map(v => run('protJobNoValid')(v)),
+    [true, true, true, true, false, false, false, false, false, false]);
+  assert.deepEqual(['26-0447.01', ' 26-0447 ', 'abc', '', null].map(v => run('protProjectNo')(v)), ['26-0447', '26-0447', '', '', '']);
+  assert.deepEqual(['Aufbau', 'Teilaufbau', 'Umbau', 'Teilabbau', 'Abbau', '', null].map(a => run('protPhaseOfAction')(a)), ['setup', 'setup', null, 'teardown', 'teardown', null, null]);
+});
+
+test('sync: the Auftragsnummer is saved; an entry from before the field leaves the stored one alone', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  ctx.__data = protData({ jobNo: ' 26-0447.01' });
+  await run('syncProtokollToSupabase(__data, null)');
+  assert.equal(plain(sb.calls.find(c => c.table === 'protocols' && c.op === 'insert').payload).job_no, '26-0447.01');
+  sb.calls.length = 0;
+  ctx.__data = protData({ jobNo: '' });
+  await run('syncProtokollToSupabase(__data, null)');
+  assert.equal(plain(sb.calls.find(c => c.table === 'protocols' && c.op === 'insert').payload).job_no, null);
+  sb.calls.length = 0;
+  ctx.__data = protData({});
+  await run('syncProtokollToSupabase(__data, null)');
+  assert.equal('job_no' in plain(sb.calls.find(c => c.table === 'protocols' && c.op === 'insert').payload), false);
+  sb.calls.length = 0;
+  ctx.__data = protData({ jobNo: 'kaputt' }); // never reaches the server as a broken number
+  await run('syncProtokollToSupabase(__data, null)');
+  assert.equal(plain(sb.calls.find(c => c.table === 'protocols' && c.op === 'insert').payload).job_no, null);
+});
+
+test('protRowToEntry carries the Auftragsnummer', () => {
+  assert.equal(ctx.protRowToEntry({ id: 'x', job_no: '26-0447.01' }).jobNo, '26-0447.01');
+  assert.equal(ctx.protRowToEntry({ id: 'y' }).jobNo, '');
+});
+
+test('protKeepOnLogout: only what is not on the server yet stays on a shared phone', () => {
+  const keep = run('protKeepOnLogout');
+  const a = [
+    { id: 1, synced: true, mailed: true, supabaseId: 's1' },
+    { id: 2, synced: false },
+    { id: 3, synced: true, mailed: false, supabaseId: 's3' },
+    { id: 4, synced: true, supabaseId: 's4' },
+  ];
+  assert.deepEqual(plain(keep(a)).map(e => e.id), [2, 3]);
+  assert.deepEqual(plain(keep([])), []);
+  assert.deepEqual(plain(keep(null)), []);
+});
+
+test('Zusatzauftrag: saves without crew, vehicles and cost, with side_of', () => {
+  const d = run(`protApplySide(${JSON.stringify(protData({ personnel: [{ pos: 'MA', name: 'Paul', start: '11:00', end: '15:00' }], transports: [{ type: 'Hängerzug' }], totalCost: '171,38 €' }))}, 'p-main')`);
+  assert.deepEqual(plain(d.personnel), []);
+  assert.deepEqual(plain(d.transports), []);
+  assert.equal(d.totalCost, '0,00 €');
+  assert.equal(d.sideOf, 'p-main');
+  const normal = run(`protApplySide({ personnel: [1], totalCost: '5 €' }, null)`);
+  assert.equal(normal.sideOf, null);
+  assert.deepEqual(plain(normal.personnel), [1]);
+});
+
+test('Zusatzauftrag: sync writes side_of, and no shifts or transports', async () => {
+  const d = run(`protApplySide(${JSON.stringify(protData({ personnel: [{ pos: 'MA', name: 'Paul', userId: 'u-p', start: '11:00', end: '15:00', pause: '0' }], transports: [{ type: 'Hängerzug' }] }))}, 'p-main')`);
+  ctx.__d = d;
+  const id = await run('syncProtokollToSupabase(__d, null)');
+  assert.ok(id);
+  const ins = sb.calls.find(c => c.table === 'protocols' && c.op === 'insert');
+  assert.equal(ins.payload.side_of, 'p-main');
+  assert.equal(ins.payload.total_cost, 0);
+  assert.ok(!sb.calls.some(c => c.table === 'shifts' && c.op === 'insert'), 'no shifts');
+  assert.ok(!sb.calls.some(c => c.table === 'protocol_transports' && c.op === 'insert'), 'no transports');
+});
+
+test('Zusatzauftrag: before the column exists, a normal protocol still saves (side_of dropped)', async () => {
+  sb.fail['protocols.insert'] = { message: 'column "side_of" of relation "protocols" does not exist' };
+  let calls = 0;
+  const orig = sb.from;
+  sb.from = t => { const b = orig(t); if (t === 'protocols') { const ins = b.insert; b.insert = p => { calls++; if (calls > 1) delete sb.fail['protocols.insert']; return ins(p); }; } return b; };
+  ctx.__d = run(`protApplySide(${JSON.stringify(protData())}, null)`);
+  const id = await run('syncProtokollToSupabase(__d, null)');
+  assert.ok(id);
+  const ins = sb.calls.filter(c => c.table === 'protocols' && c.op === 'insert');
+  assert.equal(ins.length, 2);
+  assert.ok(!('side_of' in ins[1].payload));
+});
+
+test('Zusatzauftrag: main protocol candidates are same day, not a Zusatz, not the edited one; label falls back', () => {
+  const list = [
+    { supabaseId: 'a', date: '2026-11-18', event: 'Breko' },
+    { supabaseId: 'b', date: '2026-11-18', event: 'vitroconnect', sideOf: 'a' },
+    { supabaseId: 'c', date: '2026-11-17', event: 'Hagebau' },
+    { supabaseId: 'd', date: '2026-11-18', event: 'KKJ' },
+    { supabaseId: 'a', date: '2026-11-18', event: 'Breko' },
+  ];
+  assert.deepEqual(plain(run(`protSideCandidates(${JSON.stringify(list)}, '2026-11-18', 'd')`)).map(e => e.supabaseId), ['a']);
+  assert.equal(run(`protSideLabel('a', ${JSON.stringify(list)})`), 'Breko');
+  assert.equal(run(`protSideLabel('zz', [])`), 'Hauptprotokoll');
+  assert.equal(run(`protSideLabel(null, [])`), '');
+});
+
+test('protSaveArchive: full storage drops server-known signatures, then older server-known entries, never unsynced ones', () => {
+  let saved = null, limit = 0;
+  ctx.localStorage = { getItem: () => null, setItem(k, v) { if (v.length > limit) throw new Error('QuotaExceededError'); saved = JSON.parse(v); } };
+  const sig = 'x'.repeat(500);
+  const arch = [{ id: 'a', synced: false, signature: sig }, { id: 'b', synced: true, supabaseId: 1, mailed: true, signature: sig },
+    { id: 'c', synced: true, supabaseId: 2, mailed: false, signature: sig }];
+  limit = 1300; // fits once b's signature is gone
+  assert.equal(ctx.protSaveArchive(arch), true);
+  assert.equal(saved.find(e => e.id === 'b').signature, null);
+  assert.equal(saved.find(e => e.id === 'a').signature, sig);   // unsynced keeps its signature
+  assert.equal(saved.find(e => e.id === 'c').signature, sig);   // mail still pending keeps it
+  assert.equal(arch[1].signature, sig);                         // the caller's list is untouched
+  const many = Array.from({ length: 30 }, (_, i) => ({ id: 's' + i, synced: true, supabaseId: i + 1, mailed: true })).concat([{ id: 'u', synced: false }]);
+  limit = 900;
+  assert.equal(ctx.protSaveArchive(many), true);
+  assert.equal(saved.length, 11);
+  assert.ok(saved.some(e => e.id === 'u'));
+  limit = 5;
+  assert.equal(ctx.protSaveArchive(arch), false);
 });

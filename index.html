@@ -10,13 +10,9 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>LÜBBERT APP</title>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <link rel="stylesheet" href="css/style.css?v=38">
-  <link rel="stylesheet" href="css/ui.css?v=14">
+  <link rel="stylesheet" href="css/style.css?v=41">
+  <link rel="stylesheet" href="css/ui.css?v=45">
 </head>
 
 <body>
@@ -160,9 +156,11 @@
               <input type="text" id="prot-event" placeholder="Name des Projekts" oninput="saveProtDraft()" /></label>
             <label class="ui-field"><span>Einsatzort / Location</span>
               <input type="text" id="prot-location" placeholder="Ort" oninput="saveProtDraft()" /></label>
+            <label class="ui-field"><span>Projektnummer (optional)</span>
+              <input type="text" id="prot-job" placeholder="z. B. 26-0447" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12" oninput="saveProtDraft()" onchange="refreshProtShortages()" /></label>
             <div class="prot-date-row">
               <label class="ui-field"><span>Datum</span>
-                <input type="date" id="prot-date" onchange="saveProtDraft(); calcProtCosts(); protRefreshDriverHints()" /></label>
+                <input type="date" id="prot-date" onchange="saveProtDraft(); calcProtCosts(); protRefreshDriverHints(); if (protSideOn()) protRefreshSide(); refreshProtShortages()" /></label>
               <label class="prot-switch-label"><input type="checkbox" class="ui-switch" id="prot-isholiday" onchange="saveProtDraft(); calcProtCosts()" /> Feiertag</label>
             </div>
             <div class="ui-field"><span>Aktion</span>
@@ -188,6 +186,14 @@
               <label class="ui-field"><span>Projektleitung (PL)</span>
                 <select id="prot-pl" onchange="saveProtDraft()"><option value="">— PL auswählen —</option></select></label>
             </div>
+            <div class="prot-side">
+              <label class="prot-switch-label"><input type="checkbox" class="ui-switch" id="prot-side-on" onchange="toggleProtSide(this.checked)" /> Zusatzauftrag (lief im Zuge eines anderen Auf-/Abbaus mit)</label>
+              <div id="prot-side-pick" hidden>
+                <label class="ui-field"><span>Läuft mit bei</span>
+                  <select id="prot-side-of" onchange="setProtSideOf(this.value)"><option value="">— Hauptprotokoll wählen —</option></select></label>
+                <div class="ui-sub">Personal, Transport und Kosten stehen im Hauptprotokoll. Hier nur Bereiche, Bemerkungen und Unterschrift.</div>
+              </div>
+            </div>
           </section>
 
           <!-- Section: Transport -->
@@ -202,6 +208,8 @@
             <div class="ui-section-head"><span class="ui-label">Equipment für Anlieferung &amp; Rücklauf</span></div>
             <div class="ui-sub" style="margin:-4px 2px 8px;">Kategorien ausschalten, falls nicht vorhanden</div>
             <div id="prot-categories-list"></div>
+            <div id="prot-shortages"></div>
+            <button type="button" class="ui-add-row" onclick="openProtMaterialCheck()">Material abhaken</button>
           </section>
 
           <!-- Section: Personal -->
@@ -257,7 +265,7 @@
         <!-- DASHBOARD TABS -->
         <div class="ui-seg dash-tabs" role="tablist" style="display: none;">
           <button type="button" id="dash-tab-prot" class="active" onclick="switchDashTab('prot')">Protokolle</button>
-          <button type="button" id="dash-tab-work" onclick="switchDashTab('work')">Buchhaltung</button>
+          <button type="button" id="dash-tab-work" onclick="switchDashTab('work')">Personal</button>
           <button type="button" id="dash-tab-settings" style="display: none;" onclick="switchDashTab('settings')">Einstellungen</button>
         </div>
 
@@ -269,6 +277,7 @@
           <div id="dash-scope"></div>
           <div class="ui-stats" id="dash-stats"></div>
           <div id="dash-missing"></div>
+          <div id="dash-nachkalk"></div>
           <div class="ui-search dash-search">
             <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
             <input type="search" id="dash-search" placeholder="Projekt, AL, Ort oder Datum suchen" oninput="renderDashboardTable()">
@@ -285,30 +294,71 @@
         <div id="dash-view-work" style="display: none;">
           <div class="dash-work" id="dash-work">
             <aside class="dash-work-list">
-              <button type="button" class="ui-btn ui-btn-block" onclick="toggleAddUserForm()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Mitarbeiter hinzufügen</button>
+              <button type="button" class="ui-btn ui-btn-block" id="dash-add-user-btn" onclick="toggleAddUserForm()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Mitarbeiter hinzufügen</button>
               <div class="ui-search" style="margin:10px 0 4px;">
                 <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
                 <input type="search" id="dash-worker-search" placeholder="Mitarbeiter suchen" oninput="renderDashWorkerList()">
               </div>
-              <div id="pending-workers-panel" style="display:none;">
-                <div class="ui-label">Neue Stunden eingereicht</div>
-                <div id="pending-workers-chips" class="ui-list"></div>
+              <div class="ui-seg dash-group-tabs" role="tablist" aria-label="Gruppe">
+                <button type="button" role="tab" id="dash-group-aus" class="active" onclick="setDashWorkerGroup('aus')">Aushilfen</button>
+                <button type="button" role="tab" id="dash-group-fest" onclick="setDashWorkerGroup('fest')">Fest</button>
+                <button type="button" role="tab" id="dash-group-inaktiv" onclick="setDashWorkerGroup('inaktiv')">Deaktiviert</button>
               </div>
-              <div class="ui-label">Alle Mitarbeiter</div>
+              <select id="dash-worker-filter" class="meta-input mit-filter" aria-label="Liste filtern" onchange="renderDashWorkerList()">
+                <option value="">Alle Mitarbeiter</option>
+                <option value="nosurname">Ohne Nachname</option>
+                <option value="nophoto">Ohne Profilbild</option>
+              </select>
               <div id="dash-worker-list" class="ui-list"></div>
+              <div class="dash-panels">
+                <details id="dash-close-panel" class="dash-close" hidden>
+                  <summary class="dash-panel-sum">Monatsabschluss</summary>
+                  <div class="dash-close-body">
+                    <label class="ui-field"><span>Abrechnungsmonat</span><select id="dash-close-month"></select></label>
+                    <div class="dash-close-btns">
+                      <button type="button" class="ui-btn dash-small-btn" onclick="exportDashMonthClose('pdf')">PDF mit allen Stundenzetteln</button>
+                      <button type="button" class="ui-btn dash-small-btn" onclick="exportDashMonthClose('csv')">CSV für Excel</button>
+                    </div>
+                    <div class="ui-sub">PDF: vorne die Übersicht aller mit App-Konto, dahinter für jede Person ihr Stundenzettel mit Zeiten, Ort, AL und Unterschriften. CSV: nur die Übersicht. Zenjob und Rockit stehen nicht drin.</div>
+                  </div>
+                </details>
+                <details id="dash-bees-panel" hidden>
+                  <summary class="dash-panel-sum" id="dash-bees-title">Fleißigste Bienen</summary>
+                  <div id="dash-bees"></div>
+                </details>
+                <details id="dash-unknown-panel" hidden>
+                  <summary class="dash-panel-sum" id="dash-unknown-title">Unbekannte Namen</summary>
+                  <div id="dash-unknown-list" class="ui-list"></div>
+                </details>
+                <details id="dash-idle-panel" hidden>
+                  <summary class="dash-panel-sum" id="dash-idle-title">Lange kein Einsatz</summary>
+                  <div id="dash-idle-list" class="ui-list"></div>
+                </details>
+                <details id="dash-minor-panel" hidden>
+                  <summary class="dash-panel-sum" id="dash-minor-title">Unter 18: Einsätze prüfen</summary>
+                  <div id="dash-minor-list" class="ui-list"></div>
+                </details>
+                <details id="dash-night-panel">
+                  <summary class="dash-panel-sum" id="dash-night-title">Nachtschichten · Kalenderjahr</summary>
+                  <div id="dash-night-ranking" class="ui-list"></div>
+                </details>
+              </div>
               <!-- data source for the selection (read by the dashboard code) -->
               <select id="dash-worker-select" hidden onchange="renderWorkerShifts(); updateEditWorkerBtn();">
                 <option value="">-- Mitarbeiter wählen --</option>
               </select>
             </aside>
             <section class="dash-work-detail">
-              <button type="button" class="stunden-link dash-work-back" onclick="closeDashWorker()">‹ Alle Mitarbeiter</button>
-              <div class="dash-worker-head" id="dash-worker-head"></div>
-              <div class="dash-worker-controls">
+              <button type="button" class="stunden-link dash-work-back" onclick="closeDashWorker()">‹ Personal</button>
+              <div class="dash-worker-top">
+                <div class="dash-worker-head" id="dash-worker-head"></div>
                 <button id="edit-worker-btn" type="button" class="ui-btn dash-small-btn" style="display:none;" onclick="openEditWorker()">Bearbeiten</button>
-                <label class="ui-field dash-month"><span>Monat für den PDF-Export</span>
-                  <select id="dash-month-filter" style="display: none;"><option value="">-- Monat --</option></select></label>
-                <button id="dash-export-month-btn" type="button" class="ui-btn dash-small-btn" style="display: none;" onclick="exportDashboardMonthlyPDF()">Monat als PDF</button>
+                <button id="reset-worker-pin-btn" type="button" class="ui-btn dash-small-btn" style="display:none;" onclick="dashResetWorkerPin()">PIN zurücksetzen</button>
+              </div>
+              <div class="dash-worker-controls">
+                <label class="ui-field dash-month"><span>Abrechnungsmonat</span>
+                  <select id="dash-month-filter" style="display: none;" onchange="dashRenderWorkerMonth()"></select></label>
+                <button id="dash-export-month-btn" type="button" class="ui-btn dash-small-btn" style="display: none;" onclick="exportDashboardMonthlyPDF()">Stundenzettel als PDF</button>
               </div>
               <div id="worker-shifts-container"></div>
             </section>
@@ -359,6 +409,8 @@
             <div class="ui-seg" role="tablist">
               <button type="button" class="active" id="wp-tab-mine" role="tab" aria-selected="true" onclick="wpSetView('mine')">Meine Schichten</button>
               <button type="button" id="wp-tab-all" role="tab" aria-selected="false" onclick="wpSetView('all')">Ganze Woche</button>
+              <button type="button" id="wp-tab-avail" role="tab" aria-selected="false" hidden onclick="wpSetView('avail')">Verfügbarkeit</button>
+              <button type="button" id="wp-tab-plan" role="tab" aria-selected="false" hidden onclick="wpSetView('plan')">Planen</button>
             </div>
             <div id="wp-week-nav" class="wp-weeknav" style="display:none;">
               <button type="button" id="wp-prev" aria-label="Vorige Woche" onclick="wpStepWeek(-1)"><svg class="wp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6"/></svg></button>
@@ -377,6 +429,13 @@
             <button id="wp-save-btn" class="btn primary" onclick="wpSaveImport()">Übernehmen</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="page" id="page-auftraege" style="overflow-y:auto; -webkit-overflow-scrolling:touch;">
+      <div class="dash-container ord-wrap">
+        <h2 class="ord-h">Aufträge</h2>
+        <div id="ord-content"></div>
       </div>
     </div>
 
@@ -442,11 +501,19 @@
           </select></label>
         <label class="ui-field"><span>Abteilung</span><input type="text" id="new-user-dept" placeholder="z.B. MA"></label>
       </div>
+      <label class="ui-field"><span>Art der Anstellung</span>
+        <select id="new-user-type" onchange="dashSyncInternal('new')">
+          <option value="">Bitte wählen</option>
+          <option value="Minijob">Minijob</option>
+          <option value="Midijob">Midijob</option>
+          <option value="Rechnung">Rechnungsschreiber</option>
+          <option value="Fest">Festangestellt</option>
+        </select></label>
       <div class="stunden-grid">
-        <label class="ui-field cost-only"><span>Lohn Conni (€/h)</span><input type="number" id="new-user-rate-conni" step="0.50" min="0" placeholder="z.B. 21.50"></label>
-        <label class="ui-field cost-only"><span>Satz intern (€/h)</span><input type="number" id="new-user-rate-internal" step="0.50" min="0" placeholder="z.B. 25.00"></label>
+        <label class="ui-field cost-only"><span>Lohn Conni (€/h)</span><input type="number" id="new-user-rate-conni" step="0.50" min="0" placeholder="z.B. 21.50" oninput="dashSyncInternal('new')"></label>
+        <label class="ui-field cost-only"><span>Satz intern (€/h)</span><input type="number" id="new-user-rate-internal" step="0.50" min="0" placeholder="Mini/Midi: automatisch +25 %"></label>
       </div>
-      <label class="ui-field cost-only"><span>Einkommensgrenze (€)</span><input type="number" id="new-user-income-limit" step="1" min="0" placeholder="z.B. 520"></label>
+      <label class="ui-field cost-only"><span>Eigene Verdienstgrenze (€, leer = Standard)</span><input type="number" id="new-user-income-limit" step="1" min="0" placeholder="Standard nach Art der Anstellung"></label>
       <div class="ui-sheet-actions">
         <button type="button" class="ui-btn" onclick="toggleAddUserForm()">Abbrechen</button>
         <button type="button" class="ui-btn ui-btn-primary" onclick="addDashboardUser()">Speichern</button>
@@ -492,6 +559,10 @@
       <label class="ui-field"><span>Ordnername *</span><input type="text" id="inp-ordner-name" placeholder="z. B. Projekt Berlin 2024" /></label>
       <label class="ui-field"><span>Beschreibung</span><input type="text" id="inp-ordner-desc" placeholder="Kurze Beschreibung…" /></label>
       <label class="ui-field"><span>Projektleitung (PL)</span><select id="inp-ordner-pl"></select></label>
+      <div class="ui-field"><span>Auftragsbestätigung (PDF) – füllt Einsätze, AL und MA aus</span>
+        <input type="file" id="inp-ordner-ab" accept="application/pdf,.pdf" onchange="ordnerReadAb(this)" style="display:none;" />
+        <button type="button" class="ui-add-row" onclick="document.getElementById('inp-ordner-ab').click()">PDF auswählen</button>
+        <span class="ui-sub" id="ordner-ab-status" role="status" aria-live="polite"></span></div>
       <div class="ui-field"><span>Einsätze / Eventtage (für die Protokoll-Erinnerung an die AL)</span>
         <div id="ordner-einsatz-rows" style="display:flex; flex-direction:column; gap:8px;"></div>
         <button type="button" class="ui-add-row" style="margin-top:8px;" onclick="addEinsatzRow()">+ Einsatz</button>
@@ -596,6 +667,8 @@
           <div class="ui-field"><span>Aufbauleitung (AL)</span><div id="pe-al-wrap"></div></div>
           <div class="ui-field"><span>Projektleitung (PL)</span><div id="pe-pl-wrap"></div></div>
         </div>
+        <label class="ui-field"><span>Projektnummer (optional)</span>
+          <input type="text" id="pe-job" placeholder="z. B. 26-0447" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12"></label>
       </section>
 
       <!-- Transporte -->
@@ -653,51 +726,60 @@
     </div>
   </div>
 
-  <!-- ── SETTINGS MODAL ── -->
-  <div class="sig-modal ui-sheet" id="settings-modal" style="--sheet-w:560px">
-    <div class="sig-modal-inner" style="max-height: 90vh; overflow-y: auto;">
-      <div class="sig-modal-head">
-        <div class="sig-modal-title">Einstellungen</div>
-        <button class="icon-btn" onclick="closeSettingsModal()">✕</button>
+  <!-- ── OPTIONEN (personal settings; logic in js/app.js "SETTINGS", styles .opt-* in css/ui.css) ── -->
+  <div class="sig-modal ui-sheet" id="settings-modal" style="--sheet-w:520px">
+    <div class="sig-modal-inner opt-sheet">
+      <div class="ui-sheet-head">
+        <h3 class="ui-title" style="font-size:20px;">Optionen</h3>
+        <button type="button" class="ui-icon-btn" onclick="closeSettingsModal()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
 
-      <div class="field" style="margin-top: 10px;">
-        <label>Stundenlohn (€)</label>
-        <input type="number" id="inp-wage" step="0.50" class="meta-input" placeholder="z. B. 15.00" />
+      <div class="opt-me">
+        <span class="opt-avatar" id="opt-avatar" aria-hidden="true"></span>
+        <div class="opt-me-text"><div class="opt-name" id="opt-name"></div><div class="ui-sub" id="opt-role"></div></div>
       </div>
 
-      <div class="field" style="margin-top: 16px;">
-        <label>Abrechnungsschluss (Tag)</label>
-        <div id="inp-cutoff-info" style="font-size:14px; color:var(--text2); padding:6px 0;"></div>
+      <div class="ui-label">Darstellung</div>
+      <div class="ui-seg" id="opt-theme" role="group" aria-label="Darstellung">
+        <button type="button" data-theme-opt="light" onclick="setTheme('light')">Hell</button>
+        <button type="button" data-theme-opt="dark" onclick="setTheme('dark')">Dunkel</button>
+        <button type="button" data-theme-opt="auto" onclick="setTheme('auto')">Wie das Gerät</button>
       </div>
 
-      <div class="field" style="margin-top: 16px;">
-        <label>Abteilungen verwalten</label>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Stundenl. (€/h) direkt neben jeder Abteilung
-          einstellen</div>
-        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-          <input type="text" id="inp-new-dept" class="meta-input" placeholder="Neue Abteilung" style="flex:1" />
-          <button class="btn primary" style="flex:0 0 auto; width: auto; padding: 0 16px;"
-            onclick="addDepartment()">+</button>
-        </div>
-        <div id="settings-dept-list"
-          style="max-height: 150px; overflow-y: auto; background: var(--bg2); border-radius: var(--radius); padding: 4px 10px;">
-        </div>
+      <div id="opt-sec-push">
+        <div class="ui-label">Benachrichtigungen</div>
+        <div class="opt-group"><div class="opt-row opt-row-static" id="opt-push"></div></div>
       </div>
 
-      <div class="field" style="margin-top: 16px;">
-        <label>Datensicherung</label>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-          <button class="btn" onclick="exportBackup()">Export</button>
-          <button class="btn" onclick="document.getElementById('import-file').click()">Import</button>
-          <input type="file" id="import-file" style="display:none" onchange="importBackup(event)" />
+      <div id="opt-sec-account">
+        <div class="ui-label">Konto</div>
+        <div class="opt-group">
+          <button type="button" class="opt-row" onclick="optGo('mitOpenPhoto')"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span class="opt-row-label">Profilbild <span class="mit-dot" id="opt-photo-dot" hidden aria-label="noch keins"></span></span><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+          <button type="button" class="opt-row" onclick="optGo('openPinChange')"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z"/></svg><span class="opt-row-label">PIN ändern</span><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+          <button type="button" class="opt-row" id="opt-calendar" onclick="optGo('wpCalendarSheet')"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14v14H5zM5 10h14M9 3v4M15 3v4"/></svg><span class="opt-row-label">Schichten im Handy-Kalender</span><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
         </div>
       </div>
 
-      <div class="sig-actions" style="margin-top: 24px;">
-        <button class="btn" onclick="handleLogout()" style="color:var(--danger)">Abmelden</button>
-        <button class="btn primary" onclick="saveSettingsModal()">Schließen</button>
+      <div id="opt-sec-pay">
+        <div class="ui-label">Verdienst im Stundenzettel</div>
+        <div class="opt-group">
+          <label class="opt-row opt-row-static" for="inp-wage"><span class="opt-row-label">Stundenlohn<small>gilt, wenn die Abteilung keinen eigenen hat</small></span>
+            <span class="opt-money"><input type="number" id="inp-wage" step="0.50" min="0" inputmode="decimal" placeholder="0,00" onchange="settingsApply()"><span>€/h</span></span></label>
+          <div class="opt-row opt-row-static"><span class="opt-row-label">Abrechnungsschluss<small>wird zentral eingestellt</small></span><span class="opt-value" id="inp-cutoff-info"></span></div>
+        </div>
+        <div class="ui-sub opt-note">Nur ein Richtwert für dich. Abgerechnet wird von der Buchhaltung.</div>
+
+        <div class="ui-label">Abteilungen</div>
+        <div class="opt-group">
+          <div id="settings-dept-list"></div>
+          <div class="opt-row opt-row-static opt-add">
+            <input type="text" id="inp-new-dept" placeholder="Neue Abteilung" aria-label="Neue Abteilung" autocomplete="off" onkeydown="if (event.key === 'Enter') { event.preventDefault(); addDepartment(); }">
+            <button type="button" class="ui-btn" onclick="addDepartment()">Hinzufügen</button>
+          </div>
+        </div>
       </div>
+
+      <button type="button" class="ui-btn ui-btn-block ui-btn-danger opt-logout" onclick="handleLogout()">Abmelden</button>
     </div>
   </div>
 
@@ -773,7 +855,7 @@
           </div>
           <div class="field">
             <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;" for="edit-worker-type">Beschäftigungsart</label>
-            <select id="edit-worker-type" class="meta-input">
+            <select id="edit-worker-type" class="meta-input" onchange="dashSyncInternal('edit')">
               <option value="Minijob">Minijob</option>
               <option value="Midijob">Midijob</option>
               <option value="Rechnung">Rechnungsschreiber</option>
@@ -784,6 +866,28 @@
             <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
               <input type="checkbox" id="edit-worker-sees-interest">
               <span style="font-size:14px;">Sieht im Wochenplan, wer Zeit hätte <span style="color:var(--text3); font-size:12px;">(Admin immer)</span></span>
+            </label>
+          </div>
+          <div class="field" id="edit-worker-plans-week-field" style="display:none;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" id="edit-worker-plans-week">
+              <span style="font-size:14px;">Plant den Wochenplan <span style="color:var(--text3); font-size:12px;">(baut und veröffentlicht den Plan in der App, Admin immer)</span></span>
+            </label>
+          </div>
+          <div class="field">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" id="edit-worker-avail">
+              <span style="font-size:14px;">Verfügbarkeit eintragen <span style="color:var(--text3); font-size:12px;">(Tage blocken im Wochenplan)</span></span>
+            </label>
+          </div>
+          <div class="field" id="edit-worker-minor-field" style="display:none;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" id="edit-worker-minor" onchange="mitMinorToggle()">
+              <span style="font-size:14px;">Unter 18 <span style="color:var(--text3); font-size:12px;">(immer Minijob; nur 6–20 Uhr, max. 8 Std am Tag und 40 Std die Woche, Pausen nach Jugendschutz; nur Admin und Buchhaltung sehen den Haken)</span></span>
+            </label>
+            <label id="edit-worker-birth-field" style="display:none; margin-top:6px;">
+              <span style="font-size:12px; color:var(--text3); display:block; margin-bottom:4px;">Geburtstag (am 18. Geburtstag geht der Haken von selbst weg)</span>
+              <input type="date" id="edit-worker-birth" class="meta-input">
             </label>
           </div>
           <div class="field">
@@ -799,15 +903,15 @@
           <div class="cost-only" style="display:flex; gap:10px;">
             <div class="field" style="flex:1;">
               <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Lohn Conni (€/h)</label>
-              <input type="number" id="edit-worker-rate-conni" class="meta-input" step="0.50" min="0" placeholder="z.B. 21.50">
+              <input type="number" id="edit-worker-rate-conni" class="meta-input" step="0.50" min="0" placeholder="z.B. 21.50" oninput="dashSyncInternal('edit')">
             </div>
             <div class="field" style="flex:1;">
               <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Satz intern (€/h)</label>
-              <input type="number" id="edit-worker-rate-internal" class="meta-input" step="0.50" min="0" placeholder="z.B. 25.00">
+              <input type="number" id="edit-worker-rate-internal" class="meta-input" step="0.50" min="0" placeholder="Mini/Midi: automatisch +25 %">
             </div>
           </div>
           <div class="cost-only field">
-            <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Einkommensgrenze (€)</label>
+            <label style="font-size:12px; color:var(--text3); margin-bottom:4px; display:block;">Eigene Verdienstgrenze (€, leer = Standard)</label>
             <input type="number" id="edit-worker-income-limit" class="meta-input" step="1" min="0" placeholder="z.B. 520">
           </div>
           <div class="field">
@@ -826,31 +930,39 @@
         <button class="btn" style="flex:1;" onclick="closeEditWorker()">Abbrechen</button>
       </div>
       <div style="margin-top:12px; text-align:center; border-top:0.5px solid var(--border2); padding-top:12px; flex-shrink:0;">
+        <button type="button" id="edit-worker-photo-btn" onclick="mitAdminDeletePhoto()" style="display:none;font-size:12px;padding:5px 14px;margin-right:8px;border:0.5px solid var(--border2);border-radius:var(--radius);background:none;color:var(--text2);cursor:pointer;">Profilbild löschen</button>
         <button onclick="deactivateWorker()" style="font-size:12px;padding:5px 14px;border:0.5px solid var(--danger);border-radius:var(--radius);background:none;color:var(--danger);cursor:pointer;">Mitarbeiter deaktivieren</button>
       </div>
     </div>
   </div>
 
   <!-- Scripts -->
+  <script src="vendor/supabase-js-2.119.0.js"></script>
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=35"></script>
+  <script src="js/auth.js?v=42"></script>
   <script src="js/logo.js?v=9"></script>
-  <script src="js/formulas.js?v=16"></script>
-  <script src="js/utils.js?v=21"></script>
-  <script src="js/ui.js?v=4"></script>
+  <script src="js/formulas.js?v=19"></script>
+  <script src="js/utils.js?v=27"></script>
+  <script src="js/ui.js?v=6"></script>
   <script src="js/changelog.js?v=1"></script>
-  <script src="js/settings.js?v=10"></script>
-  <script src="js/stundenzettel.js?v=25"></script>
-  <script src="js/protokoll.js?v=44"></script>
-  <script src="js/erinnerung.js?v=10"></script>
-  <script src="js/plan-pdf.js?v=1"></script>
-  <script src="js/plan-parser.js?v=17"></script>
-  <script src="js/wochenplan.js?v=20"></script>
-  <script src="js/home.js?v=7"></script>
-  <script src="js/dashboard.js?v=37"></script>
-  <script src="js/produkte.js?v=18"></script>
-  <script src="js/ordner.js?v=26"></script>
-  <script src="js/app.js?v=24"></script>
+  <script src="js/settings.js?v=15"></script>
+  <script src="js/mitarbeiter.js?v=4"></script>
+  <script src="js/stundenzettel.js?v=33"></script>
+  <script src="js/protokoll.js?v=58"></script>
+  <script src="js/erinnerung.js?v=14"></script>
+  <script src="js/plan-pdf.js?v=3"></script>
+  <script src="js/plan-parser.js?v=26"></script>
+  <script src="js/order-parser.js?v=9"></script>
+  <script src="js/order-slots.js?v=5"></script>
+  <script src="js/planer.js?v=11"></script>
+  <script src="js/auftraege.js?v=14"></script>
+  <script src="js/wochenplan.js?v=39"></script>
+  <script src="js/material.js?v=2"></script>
+  <script src="js/home.js?v=11"></script>
+  <script src="js/dashboard.js?v=62"></script>
+  <script src="js/produkte.js?v=22"></script>
+  <script src="js/ordner.js?v=37"></script>
+  <script src="js/app.js?v=28"></script>
 </body>
 
 </html>

@@ -74,10 +74,32 @@ function timeToMins(t) {
   return parseInt(p[0]) * 60 + parseInt(p[1]);
 }
 
-function autoPause(rawMins) {
+// Break from the shift length (start to end). Adults (ArbZG): over 6 h 30 min, over 9 h 45 min.
+// minor = unter 18 (JArbSchG §11: over 4,5 h work 30 min, over 6 h work 60 min) → from the length: over 4:30 h 30, over 6:30 h 60
+function autoPause(rawMins, minor) {
+  if (minor) return rawMins > 390 ? 60 : rawMins > 270 ? 30 : 0;
   if (rawMins > 540) return 45;
   if (rawMins > 360) return 30;
   return 0;
+}
+
+// People under 18 (staff_minors, ended by the 18th birthday on the server). The office learns it for the people it
+// loaded (RPC minors_among), the person itself through i_am_minor (window.currentUserIsMinor, mitarbeiter.js).
+var minorUserIds = {};
+function isMinorUser(id) {
+  if (!id) return false;
+  if (minorUserIds[id]) return true;
+  return typeof window !== 'undefined' && !!window.currentUserIsMinor && typeof currentUser !== 'undefined' && !!currentUser && currentUser.id === id;
+}
+async function loadMinorIds(ids) {
+  if (typeof supabaseClient === 'undefined' || !ids || !ids.length) return;
+  try {
+    var r = await supabaseClient.rpc('minors_among', { p_ids: ids });
+    if (r.error) { console.warn('Unter 18:', r.error); return; }
+    var next = {};
+    (r.data || []).forEach(function(x) { next[typeof x === 'string' ? x : x.minors_among] = true; });
+    minorUserIds = next;
+  } catch (e) { /* offline: keep what is known */ }
 }
 
 var MONTHS_DE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
@@ -245,14 +267,17 @@ function flattenPrivate(row) {
   const out = Object.assign({}, row);
   delete out.app_user_private;
   out.hourly_rate_conni = (p && p.hourly_rate_conni) ?? null;
-  out.income_limit = (p && p.income_limit) ?? null;
+  // Own limit (form value) and the one that counts: own, else the default for the Art der Anstellung (js/mitarbeiter.js)
+  out.income_limit_own = (p && p.income_limit) ?? null;
+  out.income_limit = out.income_limit_own ?? (typeof mitDefaultLimit === 'function' ? mitDefaultLimit(row) : null);
   out.email = (p && p.email) ?? null;
   return out;
 }
 
 function diffEinsaetze(existing, edited) {
   var FIELDS = ['date', 'action', 'al_id', 'cancelled'];
-  var pick = function(r) { var o = {}; FIELDS.forEach(function(f) { o[f] = r[f]; }); return o; };
+  // Auftrag tag (job_no/phase) only on rows that have one, so untagged rows keep their old shape
+  var pick = function(r) { var o = {}; FIELDS.forEach(function(f) { o[f] = r[f]; }); if (r.job_no) { o.job_no = r.job_no; o.phase = r.phase; } return o; };
   var byId = {};
   existing.forEach(function(e) { byId[e.id] = e; });
   var keep = {};
@@ -261,7 +286,7 @@ function diffEinsaetze(existing, edited) {
     if (!r.id || !byId[r.id]) { insert.push(pick(r)); return; }
     keep[r.id] = true;
     var old = byId[r.id];
-    var changed = FIELDS.some(function(f) { return old[f] !== r[f]; });
+    var changed = FIELDS.some(function(f) { return old[f] !== r[f]; }) || (old.job_no || null) !== (r.job_no || null) || (old.phase || null) !== (r.phase || null);
     if (changed) update.push(Object.assign({ id: r.id }, pick(r)));
   });
   var remove = existing.filter(function(e) { return !keep[e.id]; }).map(function(e) { return e.id; });
@@ -289,4 +314,82 @@ function mergeOpenJobs(folderJobs, planRows) {
     else if (r.venue && byDate[r.date].folderName.split(' / ').indexOf(r.venue) === -1) byDate[r.date].folderName += ' / ' + r.venue;
   });
   return out.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+}
+
+// jsPDF's built-in fonts only hold Western European letters (WinAnsi): "Sieńkowski" would print as garbage.
+// Letters outside that set fall back to their base letter (ń → n, ł → l), anything else to "?".
+var PDF_EXTRA_CHARS = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ';
+var PDF_CHAR_MAP = { 'ł': 'l', 'Ł': 'L', 'đ': 'd', 'Đ': 'D', 'ı': 'i', '−': '-', '‐': '-', '‑': '-', '→': '->', '✓': 'x', '≥': '>=', '≤': '<=' };
+function pdfText(t) {
+  if (typeof t !== 'string') return t;
+  var out = '';
+  for (var i = 0; i < t.length; i++) {
+    var ch = t.charAt(i), code = t.charCodeAt(i);
+    if (code <= 0xFF || PDF_EXTRA_CHARS.indexOf(ch) !== -1) { out += ch; continue; }
+    if (PDF_CHAR_MAP[ch] != null) { out += PDF_CHAR_MAP[ch]; continue; }
+    if (code >= 0x0300 && code <= 0x036F) continue; // a combining mark on its own
+    var base = ch.normalize ? ch.normalize('NFD').replace(/[̀-ͯ]/g, '') : ch;
+    out += (base && base !== ch && base.charCodeAt(0) <= 0xFF) ? base : '?';
+  }
+  return out;
+}
+// Big libraries load only when a feature needs them, not at app start (about 900 KB less to parse on every open).
+// The service worker precaches them (sw.js LAZY_ASSETS), so this is instant and works offline after the first install.
+var LIBS = {
+  jspdf: { src: 'vendor/jspdf-2.5.1.umd.min.js', ready: function() { return window.jspdf && window.jspdf.jsPDF; } },
+  pdfjs: { src: 'vendor/pdfjs-3.11.174/pdf.min.js', ready: function() { return window.pdfjsLib; },
+    after: function() { if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs-3.11.174/pdf.worker.min.js'; } },
+  chart: { src: 'vendor/chart-4.6.1.umd.min.js', ready: function() { return window.Chart; } },
+};
+var _libLoads = {};
+function loadLib(name) {
+  var lib = LIBS[name];
+  if (!lib) return Promise.reject(new Error('unknown lib ' + name));
+  if (lib.ready()) { if (lib.after) lib.after(); return Promise.resolve(lib.ready()); }
+  if (_libLoads[name]) return _libLoads[name];
+  _libLoads[name] = new Promise(function(resolve, reject) {
+    var s = document.createElement('script');
+    s.src = lib.src;
+    s.onload = function() {
+      if (!lib.ready()) { _libLoads[name] = null; reject(new Error(name + ' did not load')); return; }
+      if (lib.after) lib.after();
+      resolve(lib.ready());
+    };
+    s.onerror = function() { _libLoads[name] = null; reject(new Error(name + ' load failed')); };
+    document.head.appendChild(s);
+  });
+  return _libLoads[name];
+}
+// For buttons: true when the library is there, otherwise a toast and false
+async function needLib(name) {
+  try { await loadLib(name); return true; }
+  catch (e) {
+    console.error('loadLib', name, e);
+    if (typeof showToast === 'function') showToast('Funktion konnte nicht geladen werden. Prüf deine Verbindung.', 'danger');
+    return false;
+  }
+}
+
+// All rows of a query, page by page: PostgREST answers at most 1000 rows per request and cuts the rest off without an error.
+// makeQuery() builds a fresh query each time and must order it by a unique column, so pages neither overlap nor skip rows.
+async function sbFetchAll(makeQuery, page) {
+  page = page || 1000;
+  var all = [];
+  for (var from = 0; ; from += page) {
+    var r = await makeQuery().range(from, from + page - 1);
+    if (r.error) return { data: null, error: r.error };
+    all = all.concat(r.data || []);
+    if (!r.data || r.data.length < page) return { data: all, error: null };
+  }
+}
+
+// Every PDF of the app goes through this once after "new jsPDF": text, wrapping and measuring see the same letters
+function pdfPatch(doc) {
+  var fix = function(v) { return Array.isArray(v) ? v.map(pdfText) : pdfText(v); };
+  ['text', 'splitTextToSize', 'getTextWidth'].forEach(function(name) {
+    var orig = doc[name];
+    if (typeof orig !== 'function') return;
+    doc[name] = function() { var a = Array.prototype.slice.call(arguments); a[0] = fix(a[0]); return orig.apply(doc, a); };
+  });
+  return doc;
 }

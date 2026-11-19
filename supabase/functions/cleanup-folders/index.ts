@@ -5,6 +5,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { dueFolderTrees, storagePaths, chunk, hasUpcomingJob, pathsNotIn } from './cleanup.mjs';
 import { loadSettings } from '../_shared/settings.ts';
+import { callerRole, isAdminRole } from '../_shared/caller.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -27,9 +28,11 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   let input: { dry_run?: boolean } = {};
   try { const t = await req.text(); if (t.trim()) input = JSON.parse(t); } catch { return json({ error: 'invalid_json' }, 400); }
-  const dryRun = input.dry_run === true;
-
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  // The folder list of a dry run is for Admins only (the anon key that cron uses is public); a refused dry run
+  // must not turn into a real run
+  const dryRun = input.dry_run === true;
+  if (dryRun && !isAdminRole(await callerRole(db, req))) return json({ error: 'forbidden' }, 403);
 
   // Admin switch: off → nothing is deleted (a dry run still reports what would be)
   const settings = await loadSettings(db);

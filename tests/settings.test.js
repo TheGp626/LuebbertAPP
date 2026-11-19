@@ -21,6 +21,11 @@ test('validateSettings: first invalid key or null', () => {
   assert.equal(S.validateSettings({ foo: true }), 'foo');
   assert.equal(S.validateSettings({ mail_test_mode: 'yes' }), 'mail_test_mode');
   assert.equal(S.validateSettings({ billing_cutoff: 31, evening_push_hour: 15, mail_test_mode: false }), null);
+  assert.equal(S.validateSettings({ inactive_months: 0 }), 'inactive_months');
+  assert.equal(S.validateSettings({ inactive_months: 2.5 }), 'inactive_months');
+  assert.equal(S.validateSettings({ income_limit_minijob: -1 }), 'income_limit_minijob');
+  assert.equal(S.validateSettings({ income_limit_midijob: NaN }), 'income_limit_midijob');
+  assert.equal(S.validateSettings({ income_limit_minijob: 603, income_limit_midijob: 2000, inactive_months: 3 }), null);
 });
 
 test('defaults when nothing is cached', () => {
@@ -100,7 +105,7 @@ test('saveSettingsTab: a network exception from the rpc shows an error instead o
     console: { log() {}, warn() {}, error() {} },
     localStorage: global.localStorage,
     document: { getElementById: id => id === 'set-error' ? err : id === 'set-save-btn' ? btn : id === 'set-evening_push_hour' ? { value: '18' } : id === 'set-billing_cutoff' ? { value: '21' } : { checked: false },
-      querySelectorAll: sel => /set-personnel/.test(sel) ? [] : [{ querySelector: sel => ({ value: /name/.test(sel) ? 'PKW' : '20' }) }] },
+      querySelectorAll: sel => /set-personnel|set-dep/.test(sel) ? [] : [{ querySelector: sel => ({ value: /name/.test(sel) ? 'PKW' : '20' }) }] },
     showToast() {},
     supabaseClient: { rpc: () => Promise.reject(new TypeError('Failed to fetch')) },
   });
@@ -122,4 +127,27 @@ test('validPersonnelRates: exactly the 4 types × MA/AL/Fahrer, numbers 0–1000
   assert.equal(S.validPersonnelRates({ ...ok, Fest: { MA: 0, AL: 0 } }), false);
   assert.equal(S.validateSettings({ personnel_rates: { ...ok, Fest: { MA: 2000, AL: 0, Fahrer: 0 } } }), 'personnel_rates');
   assert.equal(S.validateSettings({ personnel_rates: ok }), null);
+});
+
+test('availability_for_all: default off, listed as a switch', () => {
+  assert.equal(S.APP_SETTINGS_DEFAULTS.availability_for_all, false);
+  assert.ok(S.SETTINGS_SWITCHES.some(g => g.items.some(i => i.key === 'availability_for_all')));
+});
+
+test('department mail settings: defaults, validation, merge keeps unknown areas out', () => {
+  assert.equal(S.appSetting('department_mail_enabled'), true);
+  assert.equal(S.appSetting('department_mail_test_mode'), true);
+  assert.equal(S.appSetting('department_routes').mobiliar, 'lager');
+  assert.equal(S.appSetting('department_routes').tischlerei, '');
+  assert.equal(S.validateSettings({ department_routes: { tischlerei: 'lager', mobiliar: '' } }), null);
+  assert.equal(S.validateSettings({ department_routes: { mobiliar: 'x@evil.test' } }), 'department_routes');
+  assert.equal(S.validateSettings({ department_routes: { kueche: 'lager' } }), 'department_routes');
+  assert.equal(S.validateSettings({ department_mail_enabled: 'ja' }), 'department_mail_enabled');
+  store.luebbert_app_settings = JSON.stringify({ department_routes: { tischlerei: 'lager' } });
+  S.appSettingsFromCache();
+  assert.equal(S.appSetting('department_routes').tischlerei, 'lager');
+  assert.equal(S.appSetting('department_routes').stoffe, 'stoffe');
+  store.luebbert_app_settings = JSON.stringify({ department_routes: { stoffe: 'evil' } });
+  S.appSettingsFromCache();
+  assert.equal(S.appSetting('department_routes').stoffe, 'stoffe');
 });

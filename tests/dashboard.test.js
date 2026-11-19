@@ -107,7 +107,7 @@ test('dashWorkerList: people with new hours first, then by name; search by name'
 
 test('incomeLimitShare: share of the income limit, null without pay or limit', () => {
   assert.deepEqual(plain(ctx.incomeLimitShare(390, 520)), { pct: 75, over: false });
-  assert.deepEqual(plain(ctx.incomeLimitShare(600, 520)), { pct: 100, over: true });
+  assert.deepEqual(plain(ctx.incomeLimitShare(600, 520)), { pct: 115, over: true });
   assert.deepEqual(plain(ctx.incomeLimitShare(520, 520)), { pct: 100, over: false });
   assert.deepEqual(plain(ctx.incomeLimitShare(0, 520)), { pct: 0, over: false });
   assert.equal(ctx.incomeLimitShare(null, 520), null);
@@ -313,7 +313,7 @@ const baseProt = (over) => Object.assign({ id: 'p1', date: '2026-10-28', is_holi
 test('refreshDashboard: a refresh requested while one runs is rerun afterwards (no stale snapshot)', async () => {
   let loads = 0, release;
   const gate = new Promise(r => { release = r; });
-  ctx.supabaseClient = { from: () => ({ select() { return this; }, order() { loads++; const n = loads; return n === 1 ? gate.then(() => ({ data: [{ id: 'old' }], error: null })) : Promise.resolve({ data: [{ id: 'new' }], error: null }); } }) };
+  ctx.supabaseClient = { from: () => ({ select() { return this; }, order() { return this; }, range() { loads++; const n = loads; return n === 1 ? gate.then(() => ({ data: [{ id: 'old' }], error: null })) : Promise.resolve({ data: [{ id: 'new' }], error: null }); } }) };
   ctx.showToast = () => {};
   run('ensureRateUsers = async function() {}');
   const first = run('refreshDashboard()');
@@ -502,7 +502,7 @@ test('renderWorkerShifts: a slower answer for a previously selected employee is 
   const sel = { value: 'w1' }, cont = { innerHTML: '' };
   ctx.document.getElementById = id => (id === 'dash-worker-select' ? sel : id === 'worker-shifts-container' ? cont : null);
   let release;
-  ctx.supabaseClient = { from: () => ({ select() { return this; }, eq() { return new Promise(r => { release = () => r({ data: [{ id: 's1', start_time: '08:00', end_time: '16:00' }], error: null }); }); } }) };
+  ctx.supabaseClient = { from: () => ({ select() { return this; }, eq() { return this; }, order() { return this; }, range() { return new Promise(r => { release = () => r({ data: [{ id: 's1', start_time: '08:00', end_time: '16:00' }], error: null }); }); } }) };
   run("dashboardWorkers = [{ id: 'w1', full_name: 'A' }, { id: 'w2', full_name: 'B' }]; populateDashboardMonthFilter = function() {}");
   const pending = run('renderWorkerShifts()');
   sel.value = 'w2'; // user clicked another person meanwhile
@@ -582,4 +582,298 @@ test('dashShiftToRow/dashShiftRowToDb: an old "AL fest" row keeps its marker unl
   ctx._editProtShifts = [Object.assign({}, row)];
   ctx.updateDashPeShift(0, 'pos', 'MA');
   assert.equal(ctx.dashShiftRowToDb(ctx._editProtShifts[0], ctx.appUsers).position_role, 'MA Minijob');
+});
+
+test('dashShiftNightMins / dashIsNightShift: 22–6 Uhr, over midnight, night shift only above 2 h', () => {
+  const sh = (a, b) => ({ start_time: a + ':00', end_time: b + ':00' });
+  assert.equal(ctx.dashShiftNightMins(sh('08:00', '16:00')), 0);
+  assert.equal(ctx.dashShiftNightMins(sh('18:00', '02:00')), 240);
+  assert.equal(ctx.dashShiftNightMins(sh('04:00', '12:00')), 120);
+  assert.equal(ctx.dashShiftNightMins({ start_time: null, end_time: '02:00:00' }), 0);
+  assert.equal(ctx.dashIsNightShift(sh('18:00', '00:00')), false); // exactly 2 h
+  assert.equal(ctx.dashIsNightShift(sh('18:00', '00:30')), true);
+});
+
+test('dashNightRanking: most nights first, ties by share; workers without night shifts left out', () => {
+  const sh = (u, a, b) => ({ user_id: u, start_time: a + ':00', end_time: b + ':00' });
+  const workers = [{ id: 'a', full_name: 'Anna' }, { id: 'b', full_name: 'Bert' }, { id: 'c', full_name: 'Cem' }];
+  const rows = JSON.parse(JSON.stringify(ctx.dashNightRanking([
+    sh('a', '20:00', '02:00'), sh('a', '08:00', '16:00'), sh('a', '08:00', '16:00'),
+    sh('b', '20:00', '02:00'), sh('b', '08:00', '16:00'),
+    sh('c', '08:00', '16:00'), sh('x', '20:00', '02:00'),
+  ], workers)));
+  assert.deepEqual(rows.map(r => [r.name, r.nights, r.share]), [['Bert', 1, 50], ['Anna', 1, 33]]);
+});
+
+test('saveEditWorker sends availability_enabled from the "Verfügbarkeit eintragen" box', async () => {
+  const f = { 'edit-worker-firstname': { value: 'Mo' }, 'edit-worker-lastname': { value: 'T' }, 'edit-worker-email': { value: '' },
+    'edit-worker-role': { value: 'MA' }, 'edit-worker-dept': { value: '' }, 'edit-worker-rate-internal': { value: '' },
+    'edit-worker-type': { value: 'Minijob' }, 'edit-worker-sees-interest': { checked: false }, 'edit-worker-can-drive': { checked: false },
+    'edit-worker-avail': { checked: true } };
+  ctx.document.getElementById = id => f[id] || null;
+  vm.runInContext("dashboardCurrentWorker = { id: 'w1' }", ctx);
+  let payload = null;
+  ctx.supabaseClient = { from: () => ({ update(p) { payload = p; return this; }, eq() { return this; }, select() { return Promise.resolve({ data: [], error: null }); } }) };
+  ctx.showToast = () => {};
+  await ctx.saveEditWorker();
+  assert.equal(payload.availability_enabled, true);
+});
+
+test('dashShiftsInMonth: billing month by protocol date, else shift_date (cut-off 20)', () => {
+  const s = [
+    { id: 'a', shift_date: '2026-11-05' },                         // Nov period (20.10.–19.11.)
+    { id: 'b', shift_date: '2026-11-20' },                         // Dec period
+    { id: 'c', shift_date: '2026-10-01', protocols: { date: '2026-11-10' } }, // protocol date wins → Nov
+    { id: 'd' },                                                   // no date → never
+  ];
+  const nov = ctx.getBillingKeyForDate(new Date('2026-11-05T12:00:00'), 20).key;
+  assert.deepEqual(plain(ctx.dashShiftsInMonth(s, nov, 20)).map(x => x.id), ['a', 'c']);
+});
+
+test('markAllShiftsBooked: books only the open shifts of the picked month', async () => {
+  const sb = mkSb(q => ({ data: [{ id: 'x' }], error: null }));
+  ctx.supabaseClient = sb; ctx.confirm = () => true; ctx.showToast = () => {};
+  const nov = ctx.getBillingKeyForDate(new Date('2026-11-05T12:00:00'), 20).key;
+  ctx.document.getElementById = id => (id === 'dash-month-filter' ? { value: nov, selectedIndex: -1, options: [] } : null);
+  run("renderWorkerShifts = function() {}; dashboardCurrentShifts = [" +
+    "{ id: 's1', user_id: 'u1', status: 'offen', shift_date: '2026-11-05' }," +
+    "{ id: 's2', user_id: 'u1', status: 'eingetragen', shift_date: '2026-11-06' }," +
+    "{ id: 's3', user_id: 'u1', status: 'offen', shift_date: '2026-12-01' }]");
+  await run("markAllShiftsBooked('u1')");
+  assert.equal(sb.calls.length, 1);
+  assert.deepEqual(plain(sb.calls[0].filters.find(f => f[0] === 'id')), ['id', ['s1']]);
+});
+
+test('loadDashInsights: pages past the 1000-row cap; night ranking only counts the current year', async () => {
+  const ranges = [], y = String(new Date().getFullYear());
+  const page = (from) => Array.from({ length: from === 0 ? 1000 : 3 }, (_, i) =>
+    ({ id: 'r' + (from + i), user_id: 'u', shift_date: (i === 0 && from === 0 ? '2001' : y) + '-01-05', start_time: '22:00:00', end_time: '03:00:00' }));
+  ctx.supabaseClient = { from: () => {
+    const b = { select() { return b; }, not() { return b; }, order() { return b; },
+      range(a, z) { ranges.push([a, z]); return Promise.resolve({ data: page(a), error: null }); } };
+    return b;
+  } };
+  run("dashboardWorkers = [{ id: 'u', full_name: 'Nina', role: 'MA' }]");
+  await ctx.loadDashInsights();
+  assert.deepEqual(ranges, [[0, 999], [1000, 1999]]);
+  assert.equal(run('dashInsights').nights[0].nights, 1002); // the 2001 shift is not this year
+});
+
+// ── Auswertung (Judith 06.11.): no night shift, inactive for 4 weeks, busiest bees ──
+const AW = [
+  { id: 'a', full_name: 'Anna', role: 'MA' }, { id: 'b', full_name: 'Ben', role: 'AL' },
+  { id: 'c', full_name: 'Cleo', role: 'MA' },                 // never worked
+  { id: 'g', full_name: 'Gast Zugang', role: 'Gast' },        // never listed
+  { id: 'p', full_name: 'Paula', role: 'PL' },                // office, no shifts → not listed
+  { id: 'x', full_name: 'Xaver', role: 'Admin' },             // admin with shifts → listed
+];
+const sh = (u, d, a, b) => ({ user_id: u, shift_date: d, start_time: a + ':00', end_time: b + ':00', pause_mins: 0 });
+
+test('dashEligible: active MA/AL or anyone with a shift; never Gast', () => {
+  const ids = plain(ctx.dashEligible(AW, [sh('x', '2026-10-01', '08:00', '12:00')])).map(w => w.id);
+  assert.deepEqual(ids, ['a', 'b', 'c', 'x']);
+});
+
+test('dashNoNight: eligible people without a night shift in the given shifts', () => {
+  const year = [sh('a', '2026-05-01', '20:00', '02:00'), sh('b', '2026-05-01', '08:00', '16:00'), sh('x', '2026-05-02', '08:00', '12:00')];
+  assert.deepEqual(plain(ctx.dashNoNight(year, AW)).map(w => w.name), ['Ben', 'Cleo', 'Xaver']);
+});
+
+test('dashInactive: last shift 4+ weeks ago (or never), longest first; protocol date counts', () => {
+  const all = [sh('a', '2026-11-01', '08:00', '12:00'), sh('b', '2026-09-01', '08:00', '12:00'),
+    { user_id: 'x', shift_date: null, protocols: { date: '2026-10-08' }, start_time: '08:00:00', end_time: '12:00:00' }];
+  const r = plain(ctx.dashInactive(all, AW, '2026-11-06', 28));
+  assert.deepEqual(r.map(x => [x.name, x.days]), [['Cleo', null], ['Ben', 66], ['Xaver', 29]]);
+  assert.equal(r[1].last, '2026-09-01');
+});
+
+test('dashBees: top 3 by net hours in the billing month', () => {
+  const nov = ctx.getBillingKeyForDate(new Date('2026-11-05T12:00:00'), 20).key;
+  const s = [sh('a', '2026-11-02', '08:00', '18:00'), sh('b', '2026-11-03', '08:00', '20:00'), sh('c', '2026-11-04', '08:00', '12:00'),
+    sh('x', '2026-11-05', '08:00', '16:00'), sh('a', '2026-12-01', '08:00', '23:00')];
+  const top = plain(ctx.dashBees(s, AW, nov, 20));
+  assert.deepEqual(top.map(t => t.name), ['Ben', 'Anna', 'Xaver']);
+  assert.equal(top[0].mins, 720);
+});
+
+test('dashPlansWeekChange: only a switch an Admin was shown and changed is saved', () => {
+  assert.equal(run('dashPlansWeekChange(null, true)'), null);      // not shown: no Admin, or the column does not exist yet
+  assert.equal(run('dashPlansWeekChange(undefined, true)'), null);
+  assert.equal(run('dashPlansWeekChange(false, false)'), null);
+  assert.equal(run('dashPlansWeekChange(true, true)'), null);
+  assert.equal(run('dashPlansWeekChange(false, true)'), true);
+  assert.equal(run('dashPlansWeekChange(true, false)'), false);
+  assert.equal(run('dashPlansWeekChange(true, undefined)'), false);
+});
+
+test('dashMayResetPin: follows the reset rules, never oneself or a deactivated account', () => {
+  run("var mayResetPinClient = function(c, t) { var m = { Admin: ['Admin','PL','AL','MA','Buchhaltung'], PL: ['AL','MA'], AL: ['MA'] }; return !!m[c] && m[c].indexOf(t) !== -1; }");
+  const ok = (role, me, w) => run('dashMayResetPin(' + JSON.stringify(role) + ', ' + JSON.stringify(me) + ', ' + JSON.stringify(w) + ')');
+  assert.equal(ok('AL', 'me', { id: 'a', role: 'MA' }), true);
+  assert.equal(ok('AL', 'me', { id: 'a', role: 'AL' }), false);
+  assert.equal(ok('PL', 'me', { id: 'a', role: 'AL' }), true);
+  assert.equal(ok('PL', 'me', { id: 'a', role: 'Buchhaltung' }), false);
+  assert.equal(ok('Buchhaltung', 'me', { id: 'a', role: 'MA' }), false);
+  assert.equal(ok('Admin', 'me', { id: 'a', role: 'Buchhaltung' }), true);
+  assert.equal(ok('Admin', 'me', { id: 'me', role: 'Admin' }), false);
+  assert.equal(ok('Admin', 'me', { id: 'a', role: 'MA', is_active: false }), false);
+  assert.equal(ok('Admin', 'me', { id: 'a', role: 'Gast' }), false);
+  assert.equal(ok('Admin', 'me', null), false);
+});
+
+test('pdfText: letters the PDF fonts lack fall back to their base letter', () => {
+  assert.equal(run("pdfText('Piotr Sieńkowski, Łukasz Żółć')"), 'Piotr Sienkowski, Lukasz Zólc');
+  assert.equal(run("pdfText('Müller, Größe 5 € – „ok“ …')"), 'Müller, Größe 5 € – „ok“ …');
+  assert.equal(run("pdfText('日 ✓')"), '? x');
+  assert.equal(run('pdfText(12)'), 12);
+  const calls = run("(function(){ var seen = []; var d = pdfPatch({ text: function(t, x) { seen.push([t, x]); return 'r'; }, splitTextToSize: function(t) { return [t]; } }); var r = d.text(['Sieńkowski', 'ok'], 5); return JSON.stringify([seen, r, d.splitTextToSize('Łódź')]); })()");
+  assert.equal(calls, JSON.stringify([[[['Sienkowski', 'ok'], 5]], 'r', ['Lódz']]));
+});
+
+test('dashboard shows only what the role can do: staff edits and booking', () => {
+  assert.deepEqual(['MA', 'AL', 'PL', 'Buchhaltung', 'Admin', null].map(r => run('dashMayManageStaff(' + JSON.stringify(r) + ')')), [false, false, true, true, true, false]);
+  assert.deepEqual(['AL', 'PL', 'Buchhaltung', 'Admin'].map(r => run('dashMayBook(' + JSON.stringify(r) + ')')), [false, false, true, true]);
+  const row = (canEdit, status) => run('dashShiftRowHtml(' + JSON.stringify({ id: 's1', shift_date: '2026-11-10', start_time: '08:00:00', end_time: '16:00:00', pause_mins: 30, status }) + ', ' + canEdit + ')');
+  assert.match(row(true, 'offen'), /shift-booked-cb/);
+  assert.doesNotMatch(row(false, 'offen'), /shift-booked-cb|openShiftEdit/);
+  assert.match(row(false, 'offen'), /ui-pill">offen/);
+  assert.match(row(false, 'eingetragen'), /ui-pill ui-pill-ok">verbucht/);
+});
+
+test('dashNachkalk: protocols of one Auftrag add up per phase, people count once, newest Auftrag first', () => {
+  const sh = (user, start, end, pause) => ({ user_id: user, temp_worker_name: null, start_time: start, end_time: end, pause_mins: pause || 0 });
+  ctx.__prots = [
+    { id: 'p1', job_no: '26-0447.01', date: '2026-11-11', action: 'Aufbau', total_cost: 500, projects: { name: 'Business of Apps' },
+      shifts: [sh('a', '08:00:00', '16:00:00', 30), sh('b', '08:00:00', '12:00:00'), { user_id: null, temp_worker_name: 'Tom ', start_time: '08:00:00', end_time: '12:00:00', pause_mins: 0 }] },
+    { id: 'p2', job_no: '26-0447.02', date: '2026-11-12', action: 'Teilaufbau', total_cost: 100, projects: { name: 'Business of Apps' }, shifts: [sh('a', '08:00:00', '12:00:00')] },
+    { id: 'p3', job_no: '26-0447', date: '2026-11-13', action: 'Abbau', total_cost: 200, shifts: [sh('a', '20:00:00', '01:00:00'), sh('c', '20:00:00', '01:00:00')] },
+    { id: 'p4', job_no: '26-0447.01', date: '2026-11-12', action: 'Umbau', total_cost: 50, shifts: [] },
+    { id: 'p5', job_no: '26-0900.02', date: '2026-12-01', action: 'Aufbau', total_cost: 80, projects: { name: 'Gala' }, shifts: [{ user_id: null, temp_worker_name: 'tom', start_time: '08:00:00', end_time: '12:00:00' }] },
+    { id: 'p6', job_no: null, date: '2026-12-02', action: 'Aufbau', total_cost: 999, shifts: [sh('z', '08:00:00', '10:00:00')] },
+  ];
+  ctx.__staff = { '26-0447.01': { staff_setup: 2, staff_teardown: null }, '26-0447.02': { staff_setup: 3, staff_teardown: null }, '26-0448.01': { staff_setup: 9, staff_teardown: 9 } };
+  const out = JSON.parse(run("JSON.stringify(dashNachkalk(__prots, __staff, function(p) { return p.id === 'p1' ? 120 : p.id === 'p4' ? 999 : 0; }))"));
+  assert.deepEqual(out.map(j => j.jobNo), ['26-0900', '26-0447']); // per Projektnummer: jobs .01, .02 and the bare number together
+  const j = out[1];
+  assert.deepEqual([j.name, j.from, j.to], ['Business of Apps', '2026-11-11', '2026-11-13']);
+  assert.deepEqual(j.phases.setup, { count: 2, people: 3, mins: 450 + 240 + 240 + 240, cost: 600, transport: 120, planned: 5 });
+  assert.deepEqual(j.phases.teardown, { count: 1, people: 2, mins: 600, cost: 200, transport: 0, planned: null });
+  assert.deepEqual(j.phases.other, { count: 1, people: 0, mins: 0, cost: 50, transport: 50, planned: null }); // transport never above the stored total
+  assert.deepEqual(j.total, { count: 4, people: 4, mins: 1770, cost: 850, transport: 170, planned: null });
+  assert.deepEqual(j.protocols.map(p => p.id), ['p1', 'p2', 'p4', 'p3']);
+  assert.equal(out[0].total.people, 1);
+  assert.deepEqual(JSON.parse(run('JSON.stringify(dashNachkalk([], {}, null))')), []);
+});
+
+test('dashNkRowHtml: more people than planned is marked, costs carry cost-only', () => {
+  const html = run("dashNkRowHtml('Aufbau', { count: 2, people: 3, mins: 630, cost: 600, transport: 120, planned: 2 }, false)");
+  assert.match(html, /dash-nk-over">\/ 2 geplant/);
+  assert.match(html, /10,5 h/);
+  assert.match(html, /class="cost-only"><dt>Personal<\/dt><dd>480,00 €/);
+  assert.doesNotMatch(run("dashNkRowHtml('Abbau', { count: 1, people: 2, mins: 60, cost: 0, transport: 0, planned: null }, false)"), /geplant/);
+});
+
+test('dashNkJobHtml: protocol buttons in the dashboard, plain days in the Aufträge tab', () => {
+  ctx.__job = { jobNo: '26-0447.01', name: 'Business <Apps>', from: '2026-11-11', to: '2026-11-12', protocols: [{ id: 'p1', date: '2026-11-11', action: 'Aufbau' }],
+    phases: { setup: { count: 1, people: 2, mins: 480, cost: 100, transport: 0, planned: 2 }, teardown: { count: 0, people: 0, mins: 0, cost: 0, transport: 0, planned: null }, other: { count: 0, people: 0, mins: 0, cost: 0, transport: 0, planned: null } },
+    total: { count: 1, people: 2, mins: 480, cost: 100, transport: 0, planned: null } };
+  const withLinks = run('dashNkJobHtml(__job)'), plainDays = run('dashNkJobHtml(__job, false)');
+  assert.match(withLinks, /openDashDetail\('p1'\)/);
+  assert.doesNotMatch(plainDays, /openDashDetail/);
+  assert.match(plainDays, /Protokolle: 11\.11\. Aufbau/);
+  assert.match(plainDays, /Business &lt;Apps&gt;/);
+  assert.doesNotMatch(plainDays, /Sonstiges/);
+});
+
+// ── Monatsabschluss ──
+const plainJ = v => JSON.parse(JSON.stringify(v));
+test('dashBillingRange: the days a billing month covers, with and without a cutoff day', () => {
+  assert.deepEqual(plainJ(run("dashBillingRange('2026-11', 20)")), { from: '2026-10-20', to: '2026-11-19' });
+  assert.deepEqual(plainJ(run("dashBillingRange('2026-01', 20)")), { from: '2025-12-20', to: '2026-01-19' });
+  assert.deepEqual(plainJ(run("dashBillingRange('2026-02', 0)")), { from: '2026-02-01', to: '2026-02-28' });
+});
+
+test('dashMonthSummary: per person shifts, open ones, hours and pay of one billing month', () => {
+  ctx.__sh = [
+    { user_id: 'a', shift_date: '2026-10-25', start_time: '08:00:00', end_time: '16:30:00', pause_mins: 30, status: 'eingetragen' },
+    { user_id: 'a', shift_date: null, protocols: { date: '2026-11-02' }, start_time: '20:00:00', end_time: '02:00:00', pause_mins: 0, status: 'offen' },
+    { user_id: 'a', shift_date: '2026-11-20', start_time: '08:00:00', end_time: '16:00:00', pause_mins: 0, status: 'offen' }, // next month
+    { user_id: 'b', shift_date: '2026-11-03', start_time: '08:00:00', end_time: '12:00:00', pause_mins: 0, status: 'eingetragen' },
+    { user_id: null, temp_worker_name: 'Tom', shift_date: '2026-11-03', start_time: '08:00:00', end_time: '12:00:00' },
+    { user_id: 'gone', shift_date: '2026-11-04', start_time: '08:00:00', end_time: '12:00:00', status: 'offen' },
+  ];
+  ctx.__users = [
+    { id: 'a', full_name: 'Zora Alt', role: 'MA', hourly_rate_conni: '14.50', income_limit: '556' },
+    { id: 'b', full_name: 'Bert Brandt', role: 'AL', hourly_rate_conni: null, income_limit: null },
+  ];
+  const out = JSON.parse(run("JSON.stringify(dashMonthSummary(__sh, __users, '2026-11', 20))"));
+  assert.deepEqual(out.rows.map(r => [r.name, r.role, r.shifts, r.open, r.mins, r.rate, r.pay, r.limitPct]), [
+    ['Bert Brandt', 'AL', 1, 0, 240, null, null, null],
+    ['Unbekannt (gone)', '', 1, 1, 240, null, null, null],
+    ['Zora Alt', 'MA', 2, 1, 840, 14.5, 203, 37],
+  ]);
+  assert.deepEqual([out.total.shifts, out.total.open, out.total.mins, out.total.pay], [4, 2, 1320, 203]);
+});
+
+test('dashMonthSummary: MA and AL hours with different pay', () => {
+  ctx.__sh = [
+    { user_id: 'a', shift_date: '2026-11-03', start_time: '08:00:00', end_time: '14:00:00', pause_mins: 0, position_role: 'MA Midijob' },
+    { user_id: 'a', shift_date: '2026-11-04', start_time: '08:00:00', end_time: '14:00:00', pause_mins: 0, position_role: 'AL Midijob' },
+  ];
+  ctx.__users = [{ id: 'a', full_name: 'Max Muster', role: 'AL', hourly_rate_conni: '17', income_limit: '2000',
+    role_rates: [{ role: 'MA Midijob', rate_conni: 17 }, { role: 'AL Midijob', rate_conni: 20 }] }];
+  const out = JSON.parse(run("JSON.stringify(dashMonthSummary(__sh, __users, '2026-11', 20))"));
+  assert.equal(out.rows[0].pay, 222); // 6 × 17 + 6 × 20
+  assert.equal(out.rows[0].rate, 18.5);
+  const w = JSON.parse(run("JSON.stringify(dashWorkerMoney(__sh, __users[0]))"));
+  assert.equal(w.pay, 222);
+  assert.deepEqual(w.payRates, [17, 20]);
+  assert.equal(w.byPos, 'MA 6 h · AL 6 h');
+});
+
+test('dashMonthCsv: semicolons, decimal commas, a header and a total line, safe against formulas', () => {
+  const csv = run("dashMonthCsv({ rows: [{ name: '=Zora; Alt', role: 'MA', shifts: 2, open: 1, mins: 840, rate: 14.5, pay: 203, limit: 556, limitPct: 37 }, { name: 'Bert', role: 'AL', shifts: 1, open: 0, mins: 90, rate: null, pay: null, limit: null, limitPct: null }], total: { shifts: 3, open: 1, mins: 930, pay: 203 } }, 'November 2026')");
+  const lines = csv.replace(/^﻿/, '').trim().split('\r\n');
+  assert.equal(lines[0], 'Name;Rolle;Schichten;davon offen;Stunden;Stundenlohn;Lohn;Verdienstgrenze;Anteil Grenze');
+  assert.equal(lines[1], '"\'=Zora; Alt";MA;2;1;14,00;14,50;203,00;556,00;37 %');
+  assert.equal(lines[2], 'Bert;AL;1;0;1,50;;;;');
+  assert.equal(lines[3], 'Summe November 2026;;3;1;15,50;;203,00;;');
+  assert.ok(csv.startsWith('﻿'));
+});
+
+test('dashSummaryFromMonths: overview hours and pay come from the built Stundenzettel', () => {
+  ctx.__sum = { rows: [{ id: 'a', mins: 900, rate: 14.5, limit: 556 }, { id: 'b', mins: 240, rate: null, limit: null }, { id: 'c', mins: 60, rate: 10, limit: null }], total: { shifts: 3, open: 0, mins: 0, pay: 0 } };
+  const out = JSON.parse(run("JSON.stringify(dashSummaryFromMonths(__sum, { a: { mTot: 14 }, b: { mTot: 3.5 } }))"));
+  assert.deepEqual(out.rows.map(r => [r.mins, r.pay, r.limitPct]), [[840, 203, 37], [210, null, null], [60, 10, null]]);
+  assert.deepEqual([out.total.mins, out.total.pay], [1110, 213]);
+});
+
+test('Monatsabschluss reads pay rate and earnings limit from app_user_private, not the emptied columns', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../js/dashboard.js'), 'utf8');
+  const body = src.slice(src.indexOf('async function dashLoadMonthSummary'), src.indexOf('function dashSummaryFromMonths'));
+  assert.match(body, /app_user_private\(hourly_rate_conni, income_limit\)/);
+  assert.doesNotMatch(body, /select\('id, full_name, role, hourly_rate_conni, income_limit'\)/);
+});
+
+test('dashShiftNetMins: start equal to end is no shift (no 3 h floor), short shifts still get the floor', () => {
+  assert.equal(ctx.dashShiftNetMins({ start_time: '08:00:00', end_time: '08:00:00', pause_mins: 0 }), 0);
+  assert.equal(ctx.dashShiftNetMins({ start_time: '08:00', end_time: '09:00', pause_mins: 0 }), 180);
+  assert.equal(ctx.dashShiftNetMins({ start_time: '22:00', end_time: '06:00', pause_mins: 30 }), 450);
+});
+
+test('autoInternalRate: Minijob/Midijob +25 %, others none', () => {
+  const f = run('autoInternalRate');
+  assert.equal(f('20', 'Minijob'), 25);
+  assert.equal(f(17.5, 'Midijob'), 21.88);
+  assert.equal(f('20', 'Fest'), null);
+  assert.equal(f('20', 'Rechnung'), null);
+  assert.equal(f('', 'Minijob'), null);
+});
+
+test('dashWorkerList: groups Aushilfen and Fest', () => {
+  const w = [{ id: 'a', full_name: 'Max', employment_type: 'Minijob' }, { id: 'b', full_name: 'Lena', employment_type: 'Fest' },
+    { id: 'c', full_name: 'Tom', is_fest: true }, { id: 'd', full_name: 'Zenjob', role: 'Gast' }];
+  assert.deepEqual(plain(ctx.dashWorkerList(w, {}, '', '', 'aus')).map(x => x.id), ['a', 'd']);
+  assert.deepEqual(plain(ctx.dashWorkerList(w, {}, '', '', 'fest')).map(x => x.id).sort(), ['b', 'c']);
+  assert.equal(plain(ctx.dashWorkerList(w, {}, '')).length, 4);
 });

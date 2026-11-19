@@ -76,10 +76,10 @@ try {
 
 // ── MODE SELECTION & NAVIGATION ──
 var MODULE_TITLES = { stunden: 'Stundenzettel', protokoll: 'Protokoll', dashboard: 'Office Dashboard',
-  produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan' };
+  produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan', auftraege: 'Aufträge' };
 
 // The office dashboard is opened from two tiles; each shows one view ('prot' | 'work'), Admin settings come via "…"
-var DASH_VIEW_TITLES = { prot: 'Protokoll-Übersicht', work: 'Buchhaltung', settings: 'Einstellungen' };
+var DASH_VIEW_TITLES = { prot: 'Protokoll-Übersicht', work: 'Personal', settings: 'Einstellungen' };
 var DASH_VIEW_KEY = 'luebbert_dash_view';
 var dashView = dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY));
 
@@ -103,6 +103,7 @@ function selectMode(m, view) {
   if (loggedIn && !moduleAllowedForRole(m, userRole)) {
     showToast(userRole === 'Gast' ? 'Zugriff verweigert: Gastzugang nur für Produktdatenbank und Projektordner.'
       : m === 'protokoll' ? 'Zugriff verweigert: Nur für AL/PL.'
+      : m === 'auftraege' ? 'Zugriff verweigert: Nur für PL/Admin.'
       : 'Zugriff verweigert: Nur für AL/PL/Buchhaltung.');
     return;
   }
@@ -111,7 +112,7 @@ function selectMode(m, view) {
   if (m === 'dashboard') dashView = view || dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY));
   // The test build at /experimental/ shares localStorage with the live app, which doesn't know
   // the Wochenplan module → never hand it over as the module to restore
-  if (window.IS_TEST_BUILD && m === 'wochenplan') localStorage.removeItem('luebbert_mode');
+  if (window.IS_TEST_BUILD && (m === 'wochenplan' || m === 'auftraege')) localStorage.removeItem('luebbert_mode');
   else localStorage.setItem('luebbert_mode', m);
   
   // Hide startup
@@ -160,6 +161,13 @@ function selectMode(m, view) {
     navigate('wochenplan');
     // The plan needs the logged-in user; a module restored before login is initialised from handleSession
     if (typeof initWochenplan === 'function' && typeof currentUser !== 'undefined' && currentUser) initWochenplan();
+  } else if (m === 'auftraege') {
+    document.getElementById('main-nav').style.display = 'none';
+    var pn5 = document.getElementById('prot-nav');
+    if (pn5) pn5.style.display = 'none';
+    navigate('auftraege');
+    // Needs the session for the queries; a module restored before login is initialised from handleSession
+    if (typeof initAuftraege === 'function' && typeof currentUser !== 'undefined' && currentUser) initAuftraege();
   }
 }
 
@@ -237,11 +245,29 @@ function applyTheme(t) {
   document.querySelectorAll('.theme-btn-icon').forEach(function (b) { b.textContent = ICONS[t]; });
 }
 
+// Chosen in Optionen (the top bar button still cycles)
+function setTheme(t) {
+  if (THEMES.indexOf(t) === -1) return;
+  currentTheme = t;
+  localStorage.setItem('theme', t);
+  applyTheme(t);
+  optPaintTheme();
+}
+
+function optPaintTheme() {
+  document.querySelectorAll('#opt-theme [data-theme-opt]').forEach(function(b) {
+    var on = b.getAttribute('data-theme-opt') === currentTheme;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+
 function cycleTheme() {
   var idx = (THEMES.indexOf(currentTheme) + 1) % THEMES.length;
   currentTheme = THEMES[idx];
   localStorage.setItem('theme', currentTheme);
   applyTheme(currentTheme);
+  optPaintTheme();
 }
 
 // ── EASTER EGG: MONSTER MODE ──
@@ -452,11 +478,38 @@ function saveSigModal() {
   closeSigModal();
 }
 
-// ── SETTINGS ──
+// ── SETTINGS (Optionen: one menu for everything personal) ──
+var OPT_ROLE_NAMES = { MA: 'Mitarbeiter', AL: 'Aufbauleitung', PL: 'Projektleitung', Buchhaltung: 'Buchhaltung', Admin: 'Admin', Gast: 'Gast (nur ansehen)' };
+
+// "Piotr Sieńkowski" → "PS"
+function optInitials(name) {
+  var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  return (parts[0].charAt(0) + (parts.length > 1 ? parts[parts.length - 1].charAt(0) : '')).toUpperCase();
+}
+
+// Which blocks of the menu a role sees: a guest only looks, so nothing personal to set
+function optSections(role) {
+  var member = !!role && role !== 'Gast';
+  return { push: member, account: member, pay: member };
+}
+
 function openSettingsModal() {
   var m = document.getElementById('settings-modal'), w = document.getElementById('inp-wage'), c = document.getElementById('inp-cutoff-info');
+  var role = typeof userRole !== 'undefined' ? userRole : null;
+  var name = (typeof currentUser !== 'undefined' && currentUser && currentUser.full_name) || '';
+  var set = function(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; };
+  set('opt-avatar', optInitials(name));
+  set('opt-name', name || 'Nicht angemeldet');
+  set('opt-role', OPT_ROLE_NAMES[role] || role || '');
+  var sec = optSections(role), show = function(id, on) { var el = document.getElementById(id); if (el) el.hidden = !on; };
+  show('opt-sec-push', sec.push); show('opt-sec-account', sec.account);
+  show('opt-calendar', sec.account && typeof wpCalendarSheet === 'function');
+  show('opt-sec-pay', sec.pay);
+  optPaintTheme();
+  if (sec.push) optPaintPush();
   if (w) w.value = hourlyWage > 0 ? hourlyWage : '';
-  if (c) c.textContent = billingCutoff + '. des Monats (zentral eingestellt)';
+  if (c) c.textContent = billingCutoff + '. des Monats';
   renderSettingsDepts(); 
   if (m) m.classList.add('open');
 }
@@ -466,9 +519,46 @@ function closeSettingsModal() {
   if (m) m.classList.remove('open'); 
 }
 
-function saveSettingsModal() {
+// Row that leaves the menu for another sheet (PIN, calendar): close first, two sheets on top of each other read badly
+function optGo(fn) {
+  closeSettingsModal();
+  if (typeof window[fn] === 'function') window[fn]();
+}
+
+// State of push on THIS device, with the one step that is open (if any)
+async function optPaintPush() {
+  var box = document.getElementById('opt-push');
+  if (!box) return;
+  var row = function(title, sub, btn) {
+    box.innerHTML = '<span class="opt-row-label">' + escapeHtml(title) + (sub ? '<small>' + escapeHtml(sub) + '</small>' : '') + '</span>' + (btn || '');
+  };
+  var known = typeof pushSupported === 'function' && typeof isIosWithoutHomescreen === 'function' && typeof hasPushSubscription === 'function';
+  if (!known) return row('Auf diesem Gerät nicht verfügbar');
+  if (isIosWithoutHomescreen()) return row('Erst zum Home-Bildschirm hinzufügen', 'Teilen, dann „Zum Home-Bildschirm“, und die App von dort öffnen');
+  if (!pushSupported()) return row('Dieser Browser kann keine Benachrichtigungen');
+  if (Notification.permission === 'denied') return row('Für diese App blockiert', 'In den Einstellungen des Handys oder Browsers erlauben');
+  row('Wird geprüft…');
+  var on = false;
+  try { on = await hasPushSubscription(); } catch (e) { on = false; }
+  if (on) return row('An auf diesem Gerät', 'Planänderungen und Erinnerungen kommen als Mitteilung', '<span class="ui-pill ui-pill-ok">An</span>');
+  row('Aus auf diesem Gerät', 'Planänderungen und Erinnerungen als Mitteilung bekommen',
+    '<button type="button" class="ui-btn ui-btn-primary" id="opt-push-btn" onclick="optEnablePush()">Einschalten</button>');
+}
+
+async function optEnablePush() {
+  var btn = document.getElementById('opt-push-btn');
+  if (btn) btn.disabled = true;
+  var res = typeof enablePushReminders === 'function' ? await enablePushReminders() : 'unsupported';
+  if (res === 'granted') showToast('Benachrichtigungen sind an');
+  else if (res === 'denied') showToast('Benachrichtigungen wurden abgelehnt (in den Browser-Einstellungen änderbar).', 'danger');
+  else if (res !== 'ios_needs_install') showToast('Benachrichtigungen konnten nicht eingeschaltet werden.', 'danger');
+  optPaintPush();
+}
+
+// Wages apply as soon as a field is left: an options menu has no "save" step to forget
+function settingsApply() {
   var wEl = document.getElementById('inp-wage');
-  var w = wEl ? parseFloat(wEl.value) : NaN;
+  var w = wEl ? parseFloat(String(wEl.value).replace(',', '.')) : NaN;
 
   if (!isNaN(w) && w > 0) { hourlyWage = w; localStorage.setItem('stundenzettel_wage', w); }
   else { hourlyWage = 0; localStorage.removeItem('stundenzettel_wage'); }
@@ -478,18 +568,23 @@ function saveSettingsModal() {
   departments.forEach(function(d) {
     var el = document.getElementById('inp-dept-wage-' + d.replace(/[^a-zA-Z0-9]/g, '_'));
     if (el) {
-      var val = parseFloat(el.value);
+      var val = parseFloat(String(el.value).replace(',', '.'));
       if (!isNaN(val) && val > 0) deptWages[d] = val;
       else delete deptWages[d];
     }
   });
   localStorage.setItem('stundenzettel_dept_wages', JSON.stringify(deptWages));
-  
-  closeSettingsModal(); 
+
   if (typeof calcTotal === 'function') calcTotal();
   if (document.getElementById('page-history') && document.getElementById('page-history').classList.contains('active')) { 
     if (typeof renderHistory === 'function') { renderHistory(); renderHistoryChart(); }
   }
+}
+
+// Kept for callers of the old "Schließen" button
+function saveSettingsModal() {
+  settingsApply();
+  closeSettingsModal(); 
   showToast('Einstellungen gespeichert');
 }
 
@@ -497,57 +592,31 @@ function renderSettingsDepts() {
   var l = document.getElementById('settings-dept-list'); if (!l) return;
   l.innerHTML = departments.map(function(d, i) {
     var safeId = 'inp-dept-wage-' + d.replace(/[^a-zA-Z0-9]/g, '_');
-    var wage = deptWages[d] || '';
-    return '<div class="dept-item">' +
-           '<div style="display:flex;align-items:center;gap:8px;flex:1;">' +
-           '<span>' + escapeHtml(deptLabel(d)) + '</span>' +
-           '</div>' +
-           '<div style="display:flex;align-items:center;gap:6px;">' +
-           '<input type="number" id="' + safeId + '" step="0.50" min="0" value="' + wage + '" placeholder="€/h" ' +
-           'style="width:64px;padding:4px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);" ' +
-           'onclick="event.stopPropagation()" />' +
-           '<button onclick="event.stopPropagation();deleteDepartment(' + i + ')" style="background:none;border:none;color:var(--danger);cursor:pointer;padding:4px 8px;">✕</button>' +
-           '</div></div>';
+    var wage = deptWages[d] || '', label = escapeHtml(deptLabel(d));
+    return '<div class="opt-row opt-row-static">' +
+      '<label class="opt-row-label" for="' + safeId + '">' + label + '</label>' +
+      '<span class="opt-money"><input type="number" id="' + safeId + '" step="0.50" min="0" inputmode="decimal" value="' + wage + '" placeholder="wie oben" ' +
+        'aria-label="Stundenlohn ' + label + '" onchange="settingsApply()"><span>€/h</span></span>' +
+      '<button type="button" class="ui-icon-btn opt-del" aria-label="' + label + ' entfernen" onclick="deleteDepartment(' + i + ')">' +
+        '<svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+    '</div>';
   }).join('');
 }
 
 function addDepartment() {
   var i = document.getElementById('inp-new-dept'), v = i.value.trim(); if (!v || departments.indexOf(v) !== -1) return;
+  settingsApply();
   departments.push(v); localStorage.setItem('stundenzettel_depts', JSON.stringify(departments)); 
   i.value = ''; renderSettingsDepts(); 
 }
 
 function deleteDepartment(i) {
   if (departments.length <= 1) { showToast('Mindestens eine Abteilung muss bleiben'); return; }
+  settingsApply();
   var removed = departments.splice(i, 1)[0]; localStorage.setItem('stundenzettel_depts', JSON.stringify(departments));
   // The default for new shifts must stay one from the list
   if (removed === selectedAbt) selectedAbt = departments.indexOf('MA') !== -1 ? 'MA' : departments[0];
   renderSettingsDepts();
-}
-
-// ── BACKUP ──
-function exportBackup() {
-  var b = { meta: { date: new Date().toISOString(), version: '1.2' }, data: {} };
-  for (var i = 0; i < localStorage.length; i++) { 
-    var k = localStorage.key(i); 
-    if (k.startsWith('stundenzettel') || k.startsWith('luebbert')) b.data[k] = localStorage.getItem(k); 
-  }
-  var blob = new Blob([JSON.stringify(b, null, 2)], { type: 'application/json' }), url = URL.createObjectURL(blob), a = document.createElement('a');
-  a.href = url; a.download = 'luebbert_app_backup_' + localDateStr() + '.json'; a.click();  
-  showToast('Backup exportiert!');
-}
-
-function importBackup(e) {
-  var f = e.target.files[0]; if (!f) return;
-  var r = new FileReader(); r.onload = function(evt) {
-    try {
-      var b = JSON.parse(evt.target.result); if (!b.data) throw new Error();
-      if (confirm('Daten überschreiben?')) { 
-        Object.keys(b.data).forEach(function(k){ localStorage.setItem(k,b.data[k]); }); 
-        window.location.reload(); 
-      }
-    } catch(err){ showToast('Fehler beim Import'); }
-  }; r.readAsText(f);
 }
 
 // Global Event Binding

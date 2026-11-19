@@ -16,7 +16,7 @@ beforeEach(() => {
     setTimeout: () => 0,
   });
   ctx.window = ctx;
-  for (const f of ['utils.js', 'ui.js', 'plan-parser.js', 'wochenplan.js']) {
+  for (const f of ['utils.js', 'ui.js', 'plan-parser.js', 'order-slots.js', 'wochenplan.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../js', f), 'utf8'), ctx, { filename: f });
   }
 });
@@ -112,9 +112,57 @@ test('wpCanApply: only when one open slot fits the person', () => {
   assert.equal(ctx.wpCanApply({ ...s, open_slots: [{ role: 'AL', count: 1 }] }, 'a', '2030-01-01', { role: 'AL' }), true);
 });
 
-test('wpInterested: drops assigned users; [] when not loaded', () => {
-  assert.deepEqual(plain(ctx.wpInterested({ plan_assignments: [{ user_id: 'a' }], _interest: ['a', 'b'] })), ['b']);
-  assert.deepEqual(plain(ctx.wpInterested({ plan_assignments: [] })), []);
+// ── Meldungen on Dennis's shifts (plan_shift_interest rows { user_id, status }) ──
+const ishift = (rows) => ({ id: 'p1', week_id: 'w', date: '2026-11-09', key: 'k', venue: 'Estrel', wann: 'Aufbau: 10 Uhr',
+  plan_assignments: [], open_slots: [{ role: 'MA', count: 2 }], _interest: rows });
+
+test('wpMyInterest: own row status, null without own row or when not loaded', () => {
+  ctx.currentUser = { id: 'me' };
+  assert.equal(ctx.wpMyInterest(ishift([{ user_id: 'x', status: 'offen' }, { user_id: 'me', status: 'angenommen' }])), 'angenommen');
+  assert.equal(ctx.wpMyInterest(ishift([{ user_id: 'x', status: 'offen' }])), null);
+  assert.equal(ctx.wpMyInterest(ishift(null)), null);
+});
+
+test('wpInterestBlock: „Ich kann“ when a slot fits and no own row', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  const html = ctx.wpInterestBlock(ishift([]));
+  assert.match(html, /Ich kann/);
+  assert.doesNotMatch(html, /Ich hätte Zeit/);
+});
+
+test('wpInterestBlock: offen → „Gemeldet“ + „Zurückziehen“; angenommen → „Angenommen ✓“ without button; abgelehnt → „Abgelehnt“', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  let html = ctx.wpInterestBlock(ishift([{ user_id: 'me', status: 'offen' }]));
+  assert.match(html, /Gemeldet/); assert.match(html, /Zurückziehen/); assert.doesNotMatch(html, /Ich kann/);
+  html = ctx.wpInterestBlock(ishift([{ user_id: 'me', status: 'angenommen' }]));
+  assert.match(html, /Angenommen ✓/); assert.doesNotMatch(html, /<button/);
+  html = ctx.wpInterestBlock(ishift([{ user_id: 'me', status: 'abgelehnt' }]));
+  assert.match(html, /Abgelehnt/); assert.doesNotMatch(html, /<button/);
+});
+
+test('wpInterestBlock: empty on a shift with an Auftrag (s._orders), when not loaded, or with no fitting slot', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  assert.equal(ctx.wpInterestBlock(Object.assign(ishift([]), { _orders: [{ job_no: 'j', phase: 'setup' }] })), '');
+  assert.equal(ctx.wpInterestBlock(ishift(null)), '');
+  assert.equal(ctx.wpInterestBlock(Object.assign(ishift([]), { open_slots: [] })), '');
+});
+
+test('wpToggleInterest: withdraw deletes only an open own row; insert otherwise', async () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.showToast = () => {}; ctx.wpRenderWeek = () => {};
+  const calls = [];
+  ctx.supabaseClient = { from: (t) => { const q = { t, filters: [] }; const b = {
+    insert(row) { q.op = 'insert'; q.row = row; return b; }, delete() { q.op = 'delete'; return b; },
+    eq(k, v) { q.filters.push([k, v]); return b; },
+    select() { calls.push(q); return Promise.resolve({ data: [{ user_id: 'me' }], error: null }); } }; return b; } };
+  const s = ishift([{ user_id: 'me', status: 'offen' }]);
+  vm.runInContext('_wpShiftCache.p1 = null', ctx); ctx._wpShiftCache.p1 = s;
+  await ctx.wpToggleInterest({ disabled: false }, 'p1');
+  assert.equal(calls[0].op, 'delete');
+  assert.deepEqual(plain(calls[0].filters), [['week_id', 'w'], ['shift_key', 'k'], ['user_id', 'me'], ['status', 'offen']]);
+  s._interest = [];
+  await ctx.wpToggleInterest({ disabled: false }, 'p1');
+  assert.equal(calls[1].op, 'insert');
+  assert.deepEqual(plain(calls[1].row), { week_id: 'w', shift_key: 'k', user_id: 'me' });
 });
 
 test('wochenplan.js: no top-level function is defined twice (the later one silently wins)', () => {
@@ -129,4 +177,339 @@ test('wpSeesInterest: only with the per-user switch (PL/Admin role check needs a
   ctx.currentUserSeesInterest = true;
   assert.equal(ctx.wpSeesInterest(), true);
   ctx.currentUserSeesInterest = false;
+});
+
+// ── Verfügbarkeit ──
+test('wpAvailNext cycles verfügbar → notfall → nein → verfügbar', () => {
+  assert.equal(ctx.wpAvailNext(''), 'notfall');
+  assert.equal(ctx.wpAvailNext('notfall'), 'nein');
+  assert.equal(ctx.wpAvailNext('nein'), '');
+});
+
+test('wpAvailWeeks: starts Monday, crosses the year (KW 53/1)', () => {
+  const w = plain(ctx.wpAvailWeeks('2026-12-30', 2));
+  assert.equal(w[0].monday, '2026-12-28');
+  assert.equal(w[0].days[6], '2027-01-03');
+  assert.equal(w[0].kw, 53);
+  assert.equal(w[1].monday, '2027-01-04');
+  assert.equal(w[1].kw, 1);
+  assert.equal(plain(ctx.wpAvailWeeks('2026-11-08', 1))[0].monday, '2026-11-02'); // Sunday as today
+  assert.equal(plain(ctx.wpAvailWeeks('2026-11-06', 8)).length, 8);
+});
+
+test('wpCanSetAvail: flag or forAll, never Gast', () => {
+  assert.equal(ctx.wpCanSetAvail({ role: 'MA', availability_enabled: true }, false), true);
+  assert.equal(ctx.wpCanSetAvail({ role: 'MA' }, false), false);
+  assert.equal(ctx.wpCanSetAvail({ role: 'MA' }, true), true);
+  assert.equal(ctx.wpCanSetAvail({ role: 'Gast', availability_enabled: true }, true), false);
+  assert.equal(ctx.wpCanSetAvail(null, true), false);
+});
+
+test('wpAvailGrid: one row per person, cells Mo–So, sorted by name', () => {
+  const g = plain(ctx.wpAvailGrid([{ id: 'b', full_name: 'Mo' }, { id: 'a', full_name: 'Konrad' }],
+    [{ user_id: 'b', day: '2026-11-04', level: 'nein' }, { user_id: 'a', day: '2026-11-09', level: 'notfall' }], '2026-11-02'));
+  assert.deepEqual(g.map(r => r.name), ['Konrad', 'Mo']);
+  assert.deepEqual(g[1].cells, ['', '', 'nein', '', '', '', '']);
+  assert.deepEqual(g[0].cells, ['', '', '', '', '', '', '']);
+});
+
+// Fake client for availability writes: records calls, answers in the order the test releases them
+function availClient(opts) {
+  const calls = [], pending = [];
+  const from = () => {
+    const q = { filters: [] };
+    const b = {
+      upsert(row, o) { q.op = 'upsert'; q.row = row; q.onConflict = o && o.onConflict; return b; },
+      delete() { q.op = 'delete'; return b; },
+      eq(k, v) { q.filters.push([k, v]); return b; },
+      select() {
+        calls.push(q);
+        return new Promise(res => {
+          const answer = () => res(opts && opts.fail ? { data: null, error: { message: 'x' } } : { data: [{ day: 'd' }], error: null });
+          if (opts && opts.manual) pending.push(answer); else answer();
+        });
+      },
+    };
+    return b;
+  };
+  return { calls, pending, from };
+}
+
+test('wpAvailMode: own calendar for unlocked people, grid for planners', () => {
+  ctx.userRole = 'MA'; ctx.currentUserAvailability = true; ctx.currentUserSeesInterest = false;
+  assert.deepEqual(plain(ctx.wpAvailMode()), { own: true, grid: false });
+  ctx.currentUserAvailability = false; ctx.currentUserSeesInterest = true;
+  assert.deepEqual(plain(ctx.wpAvailMode()), { own: false, grid: true });
+  ctx.userRole = 'Gast'; ctx.currentUserAvailability = true; ctx.currentUserSeesInterest = false;
+  assert.deepEqual(plain(ctx.wpAvailMode()), { own: false, grid: false });
+});
+
+test('wpToggleAvail: verfügbar → upsert notfall; nein → delete; past day → no request', async () => {
+  const sb = availClient(); ctx.supabaseClient = sb; ctx.currentUser = { id: 'me' }; ctx.showToast = () => {};
+  stubToday('2026-11-06');
+  await ctx.wpToggleAvail('2026-11-10');
+  assert.equal(sb.calls[0].op, 'upsert');
+  assert.deepEqual(plain(sb.calls[0].row).level, 'notfall');
+  assert.equal(sb.calls[0].row.user_id, 'me');
+  assert.equal(sb.calls[0].onConflict, 'user_id,day');
+  vm.runInContext('wpAvailRows["2026-11-11"] = "nein"', ctx);
+  await ctx.wpToggleAvail('2026-11-11');
+  assert.equal(sb.calls[1].op, 'delete');
+  assert.deepEqual(plain(sb.calls[1].filters), [['user_id', 'me'], ['day', '2026-11-11']]);
+  await ctx.wpToggleAvail('2026-11-05');
+  assert.equal(sb.calls.length, 2);
+});
+
+test('wpToggleAvail: save error reverts the day and shows a toast', async () => {
+  ctx.supabaseClient = availClient({ fail: true }); ctx.currentUser = { id: 'me' }; stubToday('2026-11-06');
+  let toast = null; ctx.showToast = (m, t) => { toast = t; };
+  await ctx.wpToggleAvail('2026-11-10');
+  assert.equal(vm.runInContext('wpAvailRows["2026-11-10"] || ""', ctx), '');
+  assert.equal(toast, 'danger');
+});
+
+test('wpToggleAvail: rapid taps reach the server in tap order, last state wins', async () => {
+  const sb = availClient({ manual: true }); ctx.supabaseClient = sb; ctx.currentUser = { id: 'me' }; ctx.showToast = () => {};
+  stubToday('2026-11-06');
+  const a = ctx.wpToggleAvail('2026-11-10'), b = ctx.wpToggleAvail('2026-11-10');
+  await new Promise(r => setImmediate(r));
+  assert.equal(sb.calls.length, 1); // second write waits for the first
+  sb.pending.shift()();
+  await new Promise(r => setImmediate(r));
+  assert.equal(sb.calls.length, 2);
+  sb.pending.shift()();
+  await Promise.all([a, b]);
+  assert.deepEqual(sb.calls.map(c => c.row.level), ['notfall', 'nein']);
+  assert.equal(vm.runInContext('wpAvailRows["2026-11-10"]', ctx), 'nein');
+});
+
+test('wpRenderAvail: planner without own unlock gets the grid, no calendar; week nav stays within now…+8 weeks', async () => {
+  const el = { innerHTML: '' }, planner = { innerHTML: '' };
+  ctx.document.getElementById = id => (id === 'wp-content' ? el : id === 'wp-av-planner' ? planner : null);
+  ctx.userRole = 'PL'; ctx.currentUserAvailability = false; ctx.currentUserSeesInterest = true;
+  stubToday('2026-11-06');
+  const q = { select() { return q; }, gte() { return q; }, lte() { return Promise.resolve({ data: [{ user_id: 'k', day: '2026-11-04', level: 'nein' }], error: null }); } };
+  ctx.supabaseClient = { from: () => q, rpc: () => Promise.resolve({ data: [{ id: 'k', full_name: 'Konrad' }], error: null }) };
+  await ctx.wpRenderAvail();
+  await new Promise(r => setImmediate(r));
+  assert.doesNotMatch(el.innerHTML, /wp-av-cal/);
+  assert.match(planner.innerHTML, /wp-av-grid/);
+  assert.match(planner.innerHTML, /Konrad/);
+  assert.match(planner.innerHTML, /geht nicht/);
+  assert.equal(ctx.wpAvailGridBounds().min, '2026-11-02');
+  assert.equal(ctx.wpAvailGridBounds().max, '2026-12-21'); // + 7 weeks = 8th week shown
+});
+
+// "today" fixed; localDateStr(date) keeps formatting real dates (wpAddDays uses it)
+function stubToday(iso) {
+  const real = ctx.localDateStr;
+  ctx.localDateStr = d => (d ? real(d) : iso);
+}
+
+test('wpToggleAvail: two failed taps fall back to the last saved value, not an unsaved one', async () => {
+  const sb = availClient({ manual: true, fail: true }); ctx.supabaseClient = sb; ctx.currentUser = { id: 'me' }; ctx.showToast = () => {};
+  stubToday('2026-11-06');
+  const a = ctx.wpToggleAvail('2026-11-10'), b = ctx.wpToggleAvail('2026-11-10');
+  await new Promise(r => setImmediate(r));
+  sb.pending.shift()();
+  await new Promise(r => setImmediate(r));
+  sb.pending.shift()();
+  await Promise.all([a, b]);
+  assert.equal(vm.runInContext('wpAvailRows["2026-11-10"] || ""', ctx), '');
+});
+
+// ── Aufträge im Wochenplan (order_slots) ──
+const oslot = (extra) => Object.assign({ job_no: '26-0415.01', phase: 'setup', start_at: '2026-11-09T10:00', end_at: '2026-11-09T18:00',
+  title: '261112_Estrel_Vernissage', name: 'Speicher', room: 'Halle', needed: 4, accepted: 1, my_status: null,
+  materials: [{ group: 'Bar', items: [{ qty: 2, name: 'Barelement <weiß>' }] }], notes: 'Info: X', link_set: false }, extra || {});
+
+test('wpOrderBlock: open = needed − taken, „Ich kann“ only when applying is possible', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  const ps = { id: 'p1', date: '2026-11-09', plan_assignments: [{ user_id: 'u1' }] };
+  let html = ctx.wpOrderBlock(oslot(), ps);
+  assert.match(html, /2 Plätze frei/);
+  assert.match(html, /Ich kann/);
+  assert.match(html, /Barelement &lt;weiß&gt;/);
+  html = ctx.wpOrderBlock(oslot(), { id: 'p1', date: '2026-11-09', plan_assignments: [{ user_id: 'me' }] });
+  assert.doesNotMatch(html, /Ich kann/);
+  assert.match(ctx.wpOrderBlock(oslot({ my_status: 'offen' }), null), /Zurückziehen/);
+  assert.match(ctx.wpOrderBlock(oslot({ my_status: 'angenommen' }), null), /Angenommen/);
+  ctx.userRole = 'Gast';
+  assert.doesNotMatch(ctx.wpOrderBlock(oslot(), null), /Ich kann/);
+});
+
+test('wpRow: a shift with an Auftrag shows its block instead of the shift’s own „Ich kann“', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  const s = { id: 'p1', date: '2026-11-09', key: 'k', venue: 'Estrel', wann: 'Aufbau: 10 Uhr', plan_assignments: [],
+    open_slots: [{ role: 'MA', count: 2 }], _interest: [] };
+  assert.match(ctx.wpRow(s), /wpToggleInterest/);
+  s._orders = [oslot()];
+  const html = ctx.wpRow(s);
+  assert.doesNotMatch(html, /wpToggleInterest/);
+  assert.match(html, /wpOrderApply\([^)]*true\)">Ich kann/);
+});
+
+function applyClient(fail) {
+  const calls = [];
+  return { calls, from: (t) => { const q = { t, filters: [] }; const b = {
+    insert(row) { q.op = 'insert'; q.row = row; return b; }, delete() { q.op = 'delete'; return b; },
+    eq(k, v) { q.filters.push([k, v]); return b; },
+    select() { calls.push(q); return Promise.resolve(fail ? { data: null, error: { message: 'x' } } : { data: [{ job_no: 'j' }], error: null }); } };
+    return b; } };
+}
+
+test('wpOrderApply: insert row shape; error toasts and keeps the state', async () => {
+  ctx.currentUser = { id: 'me' }; let toast = null; ctx.showToast = (m, t) => { toast = t; };
+  ctx.wpRenderWeek = async () => {}; ctx.wpRenderMine = async () => {};
+  vm.runInContext('_wpSlots = [' + JSON.stringify(oslot()) + ']', ctx);
+  let sb = applyClient(false); ctx.supabaseClient = sb;
+  await ctx.wpOrderApply('26-0415.01', 'setup', true);
+  assert.equal(sb.calls[0].t, 'order_applications');
+  assert.deepEqual(plain(sb.calls[0].row), { job_no: '26-0415.01', phase: 'setup', user_id: 'me' });
+  assert.equal(vm.runInContext('_wpSlots[0].my_status', ctx), 'offen');
+  sb = applyClient(true); ctx.supabaseClient = sb;
+  await ctx.wpOrderApply('26-0415.01', 'setup', false);
+  assert.equal(toast, 'danger');
+  assert.equal(vm.runInContext('_wpSlots[0].my_status', ctx), 'offen');
+});
+
+test('wpOrderApply: withdraw deletes only the own open row', async () => {
+  ctx.currentUser = { id: 'me' }; ctx.showToast = () => {};
+  ctx.wpRenderWeek = async () => {}; ctx.wpRenderMine = async () => {};
+  vm.runInContext('_wpSlots = [' + JSON.stringify(oslot({ my_status: 'offen' })) + ']', ctx);
+  const sb = applyClient(false); ctx.supabaseClient = sb;
+  await ctx.wpOrderApply('26-0415.01', 'setup', false);
+  assert.equal(sb.calls[0].op, 'delete');
+  assert.deepEqual(plain(sb.calls[0].filters), [['job_no', '26-0415.01'], ['phase', 'setup'], ['user_id', 'me'], ['status', 'offen']]);
+  assert.equal(vm.runInContext('_wpSlots[0].my_status', ctx), null);
+});
+
+test('wpOrderBlock: material quantity is escaped (order_parsed is free jsonb)', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  const html = ctx.wpOrderBlock(oslot({ materials: [{ group: 'G', items: [{ qty: '<img src=x onerror=alert(1)>', name: 'n' }] }] }), null);
+  assert.doesNotMatch(html, /<img/);
+});
+
+test('wpOrderBlock: a full Auftrag shows „voll“ and no „Ich kann“; an own application can still be withdrawn', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  const ps = { id: 'p1', date: '2026-11-09', plan_assignments: [{ user_id: 'u1' }, { user_id: 'u2' }, { user_id: 'u3' }] };
+  let html = ctx.wpOrderBlock(oslot({ needed: 3, accepted: 0, accepted_ids: [] }), ps);
+  assert.match(html, /voll/);
+  assert.doesNotMatch(html, /Ich kann/);
+  html = ctx.wpOrderBlock(oslot({ needed: 3, accepted: 0, accepted_ids: [], my_status: 'offen' }), ps);
+  assert.match(html, /Zurückziehen/);
+  html = ctx.wpOrderBlock(oslot({ needed: 4, accepted: 0, accepted_ids: [] }), ps);
+  assert.match(html, /1 Platz frei/);
+  assert.match(html, /Ich kann/);
+});
+
+test('wpMineOrdersHtml: only accepted Aufträge, no „Offene Aufträge“ list', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  const html = ctx.wpMineOrdersHtml([oslot(), oslot({ job_no: '26-0447.01', my_status: 'angenommen' }), oslot({ job_no: '26-0500.01', my_status: 'offen' })], []);
+  assert.match(html, />Angenommen</);
+  assert.equal((html.match(/wp-ord-row/g) || []).length, 1); // only the accepted one
+  assert.match(html, /Angenommen ✓/);
+  assert.doesNotMatch(html, /Offene Aufträge|Gemeldet|Ich kann/);
+});
+
+test('wpOpenPills: Dennis’s „MA fehlt“ is hidden on a shift with an Auftrag (its own status counts)', () => {
+  const s = { open_slots: [{ role: 'MA', count: 1 }] };
+  assert.match(ctx.wpOpenPills(s), /1 MA fehlt/);
+  s._orders = [{ job_no: 'j', phase: 'setup' }];
+  assert.equal(ctx.wpOpenPills(s), '');
+});
+
+test('wpOrderCard: one „Auftrag“ label, venue as written', () => {
+  const html = ctx.wpOrderCard({ job_no: '26-0415.01', phase: 'setup', title: '261109_Neuköllnspeicher_Vernissage', name: 'Vernissage',
+    start_at: '2026-11-09T10:00', needed: 2, accepted_ids: [], materials: [] });
+  assert.equal((html.match(/>Auftrag</g) || []).length, 1);
+  assert.match(html, /Neuköllnspeicher/);
+});
+
+test('wpMineOrdersHtml: accepted Dennis shift listed under „Angenommen“ with „Angenommen ✓“', () => {
+  stubToday('2026-11-06'); ctx.currentUser = { id: 'me' }; ctx.userRole = 'MA';
+  const sh = { id: 'p9', week_id: 'w', date: '2026-11-10', key: 'k9', venue: 'Tempodrom', wann: 'Abbau: 22 Uhr', plan_assignments: [],
+    open_slots: [{ role: 'MA', count: 1 }], _interest: [{ user_id: 'me', status: 'angenommen' }] };
+  const html = ctx.wpMineOrdersHtml([], [], [sh]);
+  assert.match(html, />Angenommen</);
+  assert.match(html, /Tempodrom/);
+  assert.match(html, /Angenommen ✓/);
+});
+
+test('wpMineOrdersHtml: nothing when both lists empty', () => {
+  ctx.currentUser = { id: 'me' };
+  assert.equal(ctx.wpMineOrdersHtml([], [], []), '');
+  assert.equal(ctx.wpMineOrdersHtml([], [], null), '');
+});
+
+test('wpLoadAcceptedShifts: own accepted rows → their upcoming shifts where I am not assigned yet', async () => {
+  ctx.currentUser = { id: 'me' };
+  const shifts = [{ id: 'a', week_id: 'w', key: 'k1', date: '2026-11-10', plan_assignments: [] },
+    { id: 'b', week_id: 'w', key: 'k2', date: '2026-11-10', plan_assignments: [{ user_id: 'me' }] },
+    { id: 'c', week_id: 'w', key: 'k3', date: '2026-11-10', plan_assignments: [] }];
+  ctx.supabaseClient = { from: (t) => { const b = { select: () => b, eq: () => b, in: () => b, gte: () => b,
+    then: (res) => res(t === 'plan_shift_interest' ? { data: [{ week_id: 'w', shift_key: 'k1', status: 'angenommen' }, { week_id: 'w', shift_key: 'k2', status: 'angenommen' }], error: null }
+      : { data: shifts, error: null }) }; return b; } };
+  const out = await ctx.wpLoadAcceptedShifts();
+  assert.deepEqual(plain(out.map(s => s.id)), ['a']);
+  assert.deepEqual(plain(out[0]._interest), [{ user_id: 'me', status: 'angenommen' }]);
+});
+
+// ── Leere Wochen: Auftrag-Slots in KWs ohne Daniels Plan ──
+test('wpVirtualWeeks: one virtual ISO week per future KW with slots and no plan_weeks row', () => {
+  const real = [{ id: 'w1', week_start: '2026-11-09', week_end: '2026-11-15' }];
+  const slots = [
+    { start_at: '2026-11-10T08:00:00+01:00' },               // covered by w1
+    { start_at: '2026-12-14T08:00:00+01:00' },               // KW 51 (Mo)
+    { start_at: '2026-12-20T22:00:00+01:00' },               // KW 51 (So), same week
+    { start_at: '2026-12-28T08:00:00+01:00' },               // KW 53 of 2026
+    { start_at: '2026-11-02T08:00:00+01:00' },               // past → skipped
+    { start_at: null },
+  ];
+  const v = plain(ctx.wpVirtualWeeks(real, slots, '2026-11-09'));
+  assert.deepEqual(v, [
+    { id: 'v-2026-51', year: 2026, kw: 51, week_start: '2026-12-14', week_end: '2026-12-20', _virtual: true },
+    { id: 'v-2026-53', year: 2026, kw: 53, week_start: '2026-12-28', week_end: '2027-01-03', _virtual: true },
+  ]);
+});
+
+test('wpVirtualWeeks: ISO year at the turn of the year, current week counts, null slots → []', () => {
+  const v = plain(ctx.wpVirtualWeeks([], [{ start_at: '2027-01-01T10:00:00+01:00' }, { start_at: '2027-01-04T10:00:00+01:00' }], '2026-12-31'));
+  assert.deepEqual(v.map(w => w.id), ['v-2026-53', 'v-2027-1']);
+  assert.deepEqual(plain(ctx.wpVirtualWeeks([], null, '2026-12-31')), []);
+});
+
+test('wpStatusLabel: says what changed when the plan knows it', () => {
+  assert.equal(ctx.wpStatusLabel({ change_status: 'neu' }), 'neu');
+  assert.equal(ctx.wpStatusLabel({ change_status: 'geändert' }), 'geändert');                       // rows from before the column
+  assert.equal(ctx.wpStatusLabel({ change_status: 'geändert', change_fields: null }), 'geändert');
+  assert.equal(ctx.wpStatusLabel({ change_status: 'geändert', change_fields: ['Wann'] }), 'geändert: Wann');
+  assert.equal(ctx.wpStatusLabel({ change_status: 'geändert', change_fields: ['Wann', 'Wer', 'Hinweis'] }), 'geändert: Wann, Wer, Hinweis');
+  assert.equal(ctx.wpStatusLabel({ change_status: 'geändert', change_fields: ['Wann', 'Wer', 'PL', 'Was'] }), 'geändert');
+  assert.equal(ctx.wpStatusLabel({ change_status: 'neu', change_fields: ['Wann'] }), 'neu');
+});
+
+test('wpCanCancel: only on an own shift with an account, not for a day that is over', () => {
+  const s = { date: '2026-11-17', week_id: 'w', key: 'k', plan_assignments: [{ user_id: 'me' }, { user_id: null, name: 'Tom' }] };
+  assert.equal(ctx.wpCanCancel(s, 'me', '2026-11-17'), true);
+  assert.equal(ctx.wpCanCancel(s, 'me', '2026-11-18'), false);
+  assert.equal(ctx.wpCanCancel(s, 'other', '2026-11-11'), false);
+  assert.equal(ctx.wpCanCancel(Object.assign({}, s, { week_id: null }), 'me', '2026-11-11'), false);
+  assert.equal(ctx.wpCanCancel(s, null, '2026-11-11'), false);
+});
+
+test('wpCancelSoon: today or tomorrow asks to call the PL as well', () => {
+  assert.equal(ctx.wpCancelSoon('2026-11-11', '2026-11-11'), true);
+  assert.equal(ctx.wpCancelSoon('2026-11-12', '2026-11-11'), true);
+  assert.equal(ctx.wpCancelSoon('2026-11-13', '2026-11-11'), false);
+});
+
+test('wpCancelContact: the AL of the shift; the PL when you are the AL yourself or no AL is named', () => {
+  const s = (people, ap) => ({ ap: ap || null, plan_assignments: people });
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Piotr' }, { user_id: 'k', role: 'AL', name: 'Konrad' }], 'Judith'), 'me'))), { role: 'AL', name: 'Konrad' });
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'AL', name: 'Piotr' }], 'Judith'), 'me'))), { role: 'PL', name: 'Judith' });
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Piotr' }], 'Judith'), 'me'))), { role: 'PL', name: 'Judith' });
+  assert.equal(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Piotr' }]), 'me'), null);
+  assert.equal(ctx.wpCancelText({ role: 'AL', name: 'Konrad' }), 'Ruf bitte Konrad (AL) an oder schreib eine Nachricht, damit vor Ort alle Bescheid wissen.');
+  assert.equal(ctx.wpCancelText(null), 'Sag bitte deiner AL Bescheid, per Anruf oder Nachricht.');
 });

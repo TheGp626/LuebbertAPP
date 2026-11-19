@@ -210,3 +210,11 @@ test('pendingPlIds: PLs of a plan job that were not mailed yet', () => {
   assert.deepEqual(pendingPlIds(job, new Set(['A|2026-10-20|P1', 'A|2026-10-20|P2'])), []);
   assert.deepEqual(pendingPlIds({ al_id: 'A', date: 'd', pl_ids: [] }, new Set()), [null]); // no PL → 'none' bucket
 });
+
+test('dropWaivedPlanRows: rows marked "Kein Protokoll nötig" get no reminder', async () => {
+  const { dropWaivedPlanRows } = await import('./reminders.mjs');
+  const rows = [{ key: 'a', al_id: '1' }, { key: 'b', al_id: '1' }, { al_id: '2' }, { key: 'c', al_id: '3' }];
+  assert.deepEqual(dropWaivedPlanRows(rows, [{ shift_keys: ['a', 'c'] }, { shift_keys: null }]).map(r => r.key || '-'), ['b', '-']);
+  assert.equal(dropWaivedPlanRows(rows, null).length, 4);
+  assert.deepEqual(dropWaivedPlanRows(null, []), []);
+});

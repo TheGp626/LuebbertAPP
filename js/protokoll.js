@@ -26,10 +26,16 @@ var protState = {
 };
 
 var appUsers = [];
+var protNameAliases = {}; // Unbekannte Namen: free-text spelling (lower, trimmed) → user id, set by Admin in the Office Dashboard
 async function fetchAppUsers() {
   if (typeof supabaseClient === 'undefined') return;
   // MA/Gast may only read their own row (RLS): the pickers and rates are office-only
   if (typeof userRole === 'undefined' || !['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole)) return;
+  supabaseClient.from('worker_name_aliases').select('alias, user_id').then(function(r) {
+    if (r.error) return; // table not there yet / offline: names stay free text
+    protNameAliases = {};
+    (r.data || []).forEach(function(a) { if (a.user_id) protNameAliases[a.alias] = a.user_id; });
+  });
   var { data, error } = await supabaseClient.from('app_users').select('id, full_name, role, role_rates, hourly_rate_internal, is_fest, employment_type').or('is_active.is.null,is_active.eq.true');
   if (error) console.error("Error fetching app_users:", error);
   if (data) {
@@ -44,6 +50,7 @@ async function fetchAppUsers() {
     });
     renderProtPersonnel();
     populateAlPlSelects();
+    if (typeof loadMinorIds === 'function') loadMinorIds(appUsers.map(function(u) { return u.id; }));
     // A restored draft was calculated before the rates were known
     calcProtCosts();
   }
@@ -127,6 +134,86 @@ function protScopeSegHtml(scope, setFn) {
 }
 
 // Server protocol row (with joins) → history entry shape. Shared by the history re-sync and the dashboard PDF.
+// ── ZUSATZAUFTRAG ──
+// A small job the crew does alongside a bigger one ("im Zuge Aufbau Breko"): its own protocol for the PL and the
+// trades, but without personnel, transport and costs, so nobody's hours count twice. protocols.side_of = main protocol.
+function protSideLabel(sideOf, list) {
+  if (!sideOf) return '';
+  var m = (list || []).find(function(e) { return e && (e.supabaseId === sideOf || e.id === sideOf); });
+  return m ? (m.event && m.event !== '—' ? m.event : 'Hauptprotokoll') : 'Hauptprotokoll';
+}
+// Main protocols to choose from: same date, not a Zusatz itself, not the one being edited
+function protSideCandidates(list, date, editingId) {
+  var seen = {};
+  return (list || []).filter(function(e) {
+    if (!e || !e.supabaseId || e.date !== date || e.sideOf || e.supabaseId === editingId || seen[e.supabaseId]) return false;
+    seen[e.supabaseId] = true;
+    return true;
+  });
+}
+// What a Zusatz saves: no crew, no vehicles, no cost
+function protApplySide(data, sideOf) {
+  if (!sideOf) return Object.assign({}, data, { sideOf: null });
+  return Object.assign({}, data, { sideOf: sideOf, personnel: [], transports: [], totalCost: '0,00 €' });
+}
+
+function protSideOn() { var el = document.getElementById('prot-side-on'); return !!(el && el.checked); }
+
+// Shows the switch state: picker visible, Personal/Transport/Kosten hidden on a Zusatz
+function renderProtSide() {
+  var on = !!protState.sideOf || protSideOn();
+  var sw = document.getElementById('prot-side-on');
+  if (sw) sw.checked = on;
+  var pick = document.getElementById('prot-side-pick');
+  if (pick) pick.hidden = !on;
+  var page = document.getElementById('page-protokoll');
+  if (page) page.classList.toggle('prot-side-mode', on);
+  if (on) protRefreshSide();
+  if (typeof renderProtSectionNav === 'function') renderProtSectionNav();
+}
+
+function toggleProtSide(on) {
+  if (!on) protState.sideOf = null;
+  var sw = document.getElementById('prot-side-on');
+  if (sw) sw.checked = !!on;
+  renderProtSide();
+  saveProtDraft();
+  calcProtCosts();
+}
+
+function setProtSideOf(id) {
+  protState.sideOf = id || null;
+  saveProtDraft();
+}
+
+// Fills the "Läuft mit bei" picker: protocols of the form's date from the history and the server
+var _protSideList = [];
+async function protRefreshSide() {
+  var sel = document.getElementById('prot-side-of');
+  if (!sel) return;
+  var date = (document.getElementById('prot-date') || {}).value || '';
+  var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
+  var list = archive.slice();
+  if (date && typeof supabaseClient !== 'undefined' && navigator.onLine !== false) {
+    try {
+      var res = await supabaseClient.from('protocols').select('*, projects(name), al:app_users!protocols_al_id_fkey(full_name)').eq('date', date);
+      if (!res.error) (res.data || []).forEach(function(r) {
+        list.push({ supabaseId: r.id, date: r.date, sideOf: r.side_of || null, event: (r.projects && r.projects.name) || '—', al: (r.al && r.al.full_name) || r.al_name_fallback || '' });
+      });
+    } catch (e) { console.warn('Hauptprotokolle nicht geladen:', e); }
+  }
+  _protSideList = list;
+  var cands = protSideCandidates(list, date, protState.editingId);
+  var cur = protState.sideOf;
+  if (cur && !cands.some(function(c) { return c.supabaseId === cur; }))
+    cands.unshift({ supabaseId: cur, event: protSideLabel(cur, list), al: '' });
+  sel.innerHTML = '<option value="">' + (date ? (cands.length ? '— Hauptprotokoll wählen —' : 'Kein Protokoll an diesem Tag') : 'Erst das Datum eintragen') + '</option>' +
+    cands.map(function(c) {
+      return '<option value="' + escapeHtml(c.supabaseId) + '"' + (c.supabaseId === cur ? ' selected' : '') + '>' +
+        escapeHtml(c.event || '—') + (c.al ? ' · AL ' + escapeHtml(c.al) : '') + '</option>';
+    }).join('');
+}
+
 function protRowToEntry(r) {
   var catMap = {};
   (r.protocol_equipments || []).forEach(function(eq) {
@@ -175,6 +262,9 @@ function protRowToEntry(r) {
     alId: r.al_id || null,
     plId: r.pl_id || null,
     createdBy: r.created_by || null,
+    jobNo: r.job_no || '',
+    sideOf: r.side_of || null,
+    shortages: Array.isArray(r.shortages) ? r.shortages : null,
     totalCost: (Number(r.total_cost) || 0).toFixed(2).replace('.', ',') + ' €',
     transports: (r.protocol_transports || []).map(function(t) {
       // hours stays null for rows saved before driver hours existed → no driver cost on recalc
@@ -535,7 +625,7 @@ function addProtPersonnel() {
 // names, AL first. Start: personal note ("ab 14 Uhr", agency "8.30 - 16.30 Uhr") → else the shift's Wann time.
 // End only when the plan states one for that person; the AL fills in the rest.
 function protPlanPersonnel(shift, users) {
-  var shiftWhen = planWhen(shift.wann || []);
+  var shiftWhen = planCrewWhen(shift.wann || []);
   var shiftStart = shiftWhen.prefix === 'bis' ? '' : (shiftWhen.time || '');
   var posOf = function(role) {
     if (role === 'ROCKiT') return 'Rockit';
@@ -552,10 +642,124 @@ function protPlanPersonnel(shift, users) {
       name: u ? (u.full_name || u.email) : p.name, start: start, end: end, pause: '0', rating: null, isStar: false };
     if (u) row.fest = !!u.is_fest;
     var a = timeToMins(start), b = timeToMins(end);
-    if (a !== null && b !== null) row.pause = String(autoPause((b < a ? b + 1440 : b) - a));
+    if (a !== null && b !== null) row.pause = String(autoPause((b < a ? b + 1440 : b) - a, protMinor(row.userId)));
     return row;
   });
   return rows.filter(function(r) { return r.pos === 'AL'; }).concat(rows.filter(function(r) { return r.pos !== 'AL'; }));
+}
+
+// Protocol history → localStorage. When the phone's storage is full (signature images add up), first the signatures of
+// entries the server has (synced and mailed; protServerSignature loads them again) are left out, then older such entries.
+// Entries the server does not have yet are never dropped. false = not even that fits.
+function protArchiveShrink(archive, step) {
+  var done = function(e) { return e && e.synced === true && !!e.supabaseId && e.mailed !== false; };
+  if (step === 1) return archive.map(function(e) { return done(e) && e.signature ? Object.assign({}, e, { signature: null }) : e; });
+  var kept = 0;
+  return archive.filter(function(e) { return !done(e) || ++kept <= 10; });
+}
+function protSaveArchive(archive) {
+  var list = archive || [];
+  for (var step = 0; step < 3; step++) {
+    if (step) list = protArchiveShrink(list, step);
+    try { localStorage.setItem('luebbert_protokoll_history', JSON.stringify(list)); return true; } catch (e) { console.warn('Protokoll-Verlauf speichern:', e); }
+  }
+  return false;
+}
+
+// On logout from a shared phone: the protocol history keeps only entries the server does not have yet (not synced,
+// or the mail to the PL still pending); everything else is loaded from the server again at the next login
+function protKeepOnLogout(archive) {
+  return (archive || []).filter(function(e) { return e && (!e.synced || e.mailed === false); });
+}
+function protLogoutCleanup() {
+  try {
+    var all = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]'), kept = protKeepOnLogout(all);
+    if (kept.length) protSaveArchive(kept);
+    else localStorage.removeItem('luebbert_protokoll_history');
+    return kept.length;
+  } catch (e) { return 0; }
+}
+
+// Projektnummer of the Auftragsbestätigung ("26-0447"), optionally with the job in it ("26-0447.01"): optional on a
+// protocol, links it to its project (Nachkalkulation). Prefills carry the full job, a hand-typed project number is enough.
+var PROT_JOB_RE = /^\d{2}-\d{4}(\.\d{2})?$/;
+function protProjectNo(v) { var j = protJobNo(v); return PROT_JOB_RE.test(j) ? j.slice(0, 7) : ''; }
+function protJobNo(v) { return String(v == null ? '' : v).replace(/\s+/g, ''); }
+function protJobNoValid(v) { var j = protJobNo(v); return !j || PROT_JOB_RE.test(j); }
+// Which phase of an Auftrag a protocol covers follows from its action; Umbau and anything else → null
+function protPhaseOfAction(action) {
+  if (action === 'Aufbau' || action === 'Teilaufbau') return 'setup';
+  if (action === 'Abbau' || action === 'Teilabbau') return 'teardown';
+  return null;
+}
+
+// "BAR PL 550" / "LeihLkw" / "Sprinter 2" → one of the vehicle types of the form; no hit → Hängerzug (the form's default)
+function protGuessVehicleType(label, types) {
+  var norm = function(t) { return String(t || '').toLowerCase().replace(/[^a-zäöüß]/g, ''); };
+  var l = norm(label), best = '';
+  (types || []).forEach(function(t) { var n = norm(t); if (n && l.indexOf(n) !== -1 && n.length > norm(best).length) best = t; });
+  return best || ((types || []).indexOf('Hängerzug') !== -1 ? 'Hängerzug' : (types || [])[0] || 'Hängerzug');
+}
+
+// Is this plan person a driver, and of which vehicle? Role "Fahrer", or a note that starts with one of the
+// shift's vehicle lines ("BAR PL 550 | Konrad (AL)" → Konrad, AL, note "BAR PL 550"). → vehicle text ('' if unnamed) or null
+function protPlanVehicleOf(person, shift) {
+  var note = String(person.note || '').toLowerCase();
+  var veh = (shift.notes || []).filter(function(v) { return v && note && note.indexOf(String(v).toLowerCase()) === 0; })[0];
+  if (veh) return veh;
+  return person.role === 'Fahrer' ? String(person.note || '') : null;
+}
+
+// Wochenplan shift → transport rows: one per driver the plan names. A pure driver gets the usual 5 hours; an AL or MA
+// who also drives is in the personnel list with their times already, so the driver hours stay empty for the AL to decide.
+// An open driver slot only counts when its vehicle is a known type (a Spedition line, say).
+function protPlanTransports(shift, users, types) {
+  var out = [];
+  (shift.people || []).forEach(function(p) {
+    var veh = protPlanVehicleOf(p, shift);
+    if (veh === null) return;
+    var u = p.userId ? (users || []).find(function(x) { return x.id === p.userId; }) : null;
+    out.push({ type: protGuessVehicleType(veh, types), driver: u ? (u.full_name || u.email) : p.name, driverUserId: u ? u.id : '',
+      hours: p.role === 'Fahrer' ? 5 : null, punctuality: 'pünktlich', delay: '' });
+  });
+  (shift.open || []).forEach(function(o) {
+    if (o.role !== 'Fahrer' || !o.note) return;
+    var norm = function(t) { return String(t || '').toLowerCase().replace(/[^a-zäöüß]/g, ''); };
+    var hit = (types || []).filter(function(t) { return norm(t) && norm(o.note).indexOf(norm(t)) !== -1; })[0];
+    if (hit) out.push({ type: protGuessVehicleType(o.note, types), driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
+  });
+  return out;
+}
+
+// Personnel rows of the plan without the pure drivers: they stand under Transport (else they would be paid twice)
+function protPlanCrew(shift, users) {
+  var crew = Object.assign({}, shift, { people: (shift.people || []).filter(function(p) { return p.role !== 'Fahrer'; }) });
+  return protPlanPersonnel(crew, users);
+}
+
+// PL of a plan shift: the linked account, else the name in the PL column if exactly one PL goes by it
+function protPlanPl(shift, users) {
+  var pls = (users || []).filter(function(u) { return u.is_active !== false && (userHasRole(u, 'PL') || u.role === 'Admin'); });
+  if (shift.apUserId && pls.some(function(u) { return u.id === shift.apUserId; })) return shift.apUserId;
+  var ap = String(shift.ap || '').trim().toLowerCase();
+  if (!ap) return null;
+  var hits = pls.filter(function(u) {
+    var full = String(u.full_name || '').trim().toLowerCase();
+    return full === ap || full.split(' ')[0] === ap;
+  });
+  return hits.length === 1 ? hits[0].id : null;
+}
+
+// Puts the plan's drivers into the form unless the AL already named a driver (then nothing changes)
+function protApplyPlanTransports(rows) {
+  if (!rows || !rows.length) return false;
+  if (protState.transports.some(function(t) { return (t.driver || '').trim() || t.driverUserId; })) return false;
+  protState.transports = rows;
+  Object.keys(protOpenRows).forEach(function(k) { if (k.charAt(0) === 't') delete protOpenRows[k]; });
+  renderProtTransport();
+  saveProtDraft();
+  if (typeof calcProtCosts === 'function') calcProtCosts();
+  return true;
 }
 
 // Puts plan rows into the form unless the AL already entered someone (then nothing changes)
@@ -647,6 +851,7 @@ function onProtPersonnelName(idx, val) {
   var exact = appUsers.filter(function(u) { return (u.full_name || '').toLowerCase() === lower; });
   var partial = typed.length >= 3 ? appUsers.filter(function(u) { return (u.full_name || '').toLowerCase().includes(lower); }) : [];
   var match = exact.length === 1 ? exact[0] : (partial.length === 1 ? partial[0] : null);
+  if (!match && protNameAliases[lower]) match = appUsers.find(function(u) { return u.id === protNameAliases[lower]; }) || null; // remembered spelling
   var row = protState.personnel[idx];
   if (!row) return;
   var userId = match ? match.id : '';
@@ -704,25 +909,25 @@ function updateProtPersonnel(idx, field, val) {
   }
   if (field === 'pos' || field === 'isTemp') renderProtPersonnel();
 
-  // Auto-pause calculation
-  if (field === 'start' || field === 'end') {
+  // Auto-pause calculation (another person may be under 18 → other break)
+  if (field === 'start' || field === 'end' || field === 'userId') {
     var v = timeToMins(protState.personnel[idx].start);
     var b = timeToMins(protState.personnel[idx].end);
     var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
     if (v !== null && b !== null && effB > v) {
-      protState.personnel[idx].pause = autoPause(effB - v);
+      protState.personnel[idx].pause = autoPause(effB - v, protMinor(protState.personnel[idx].userId));
       renderProtPersonnelAfterPicker();
     }
     
     // Time sync: if AL (index 0) changes, update others if they are empty or matched old AL time
-    if (idx === 0) {
+    if (idx === 0 && field !== 'userId') {
       protState.personnel.forEach(function(p, i) {
         if (i === 0) return;
         if (!p.start || (field === 'start' && p.start === oldStart)) p.start = protState.personnel[0].start;
         if (!p.end || (field === 'end' && p.end === oldEnd)) p.end = protState.personnel[0].end;
         var pv = timeToMins(p.start), pb = timeToMins(p.end);
         var effPb = (pb !== null && pv !== null && pb < pv) ? pb + 1440 : pb;
-        if (pv !== null && pb !== null && effPb > pv) p.pause = autoPause(effPb - pv);
+        if (pv !== null && pb !== null && effPb > pv) p.pause = autoPause(effPb - pv, protMinor(p.userId));
       });
       renderProtPersonnelAfterPicker();
     }
@@ -868,9 +1073,9 @@ function protSectionStatus(state, basis, opened) {
   var cats = state.categories || {};
   return {
     basis: !!(basis.event && basis.date && basis.alId),
-    transport: (state.transports || []).length > 0 || !!opened.transport,
+    transport: !!state.sideOf || (state.transports || []).length > 0 || !!opened.transport,
     equipment: Object.keys(cats).every(function(k) { return !cats[k].active || !!cats[k].status; }),
-    personal: (state.personnel || []).some(function(p) { return p.start && p.end; }),
+    personal: !!state.sideOf || (state.personnel || []).some(function(p) { return p.start && p.end; }),
     vorkommnisse: true,
     unterschrift: !!state.signature
   };
@@ -885,7 +1090,8 @@ function renderProtSectionNav() {
   var nav = document.getElementById('prot-section-nav');
   if (!nav) return;
   var st = protSectionStatus(protState, protBasisValues(), { transport: protTransportOpened });
-  nav.innerHTML = PROT_SECTIONS.map(function(s) {
+  var side = !!protState.sideOf || protSideOn();
+  nav.innerHTML = PROT_SECTIONS.filter(function(s) { return !side || (s[0] !== 'transport' && s[0] !== 'personal'); }).map(function(s) {
     return '<button type="button" class="ui-chip' + (st[s[0]] ? ' ui-chip-on' : '') + '" onclick="scrollProtSection(\'' + s[0] + '\')">' +
       (st[s[0]] ? uiIcon('check') : '') + s[1] + '</button>';
   }).join('');
@@ -915,6 +1121,37 @@ function setProtAction(v) {
   sel.value = v;
   sel.dispatchEvent(new Event('change'));
   syncProtActionSeg();
+  if (protState.shortages !== null && protState.shortages !== undefined) refreshProtShortages();
+}
+
+// ── Fehlmengen laut Auftrag (from Material abhaken, js/material.js) ──
+// protState.shortages: null = not looked at yet, [] = nothing missing, else [{name, soll, ist, fehlt, note}]
+function renderProtShortages() {
+  var box = typeof document !== 'undefined' && document.getElementById && document.getElementById('prot-shortages');
+  if (!box) return;
+  var list = protState.shortages;
+  box.innerHTML = Array.isArray(list) && list.length
+    ? '<div class="ui-card"><div class="ui-row-title">Fehlmengen laut Auftrag</div>' +
+        (protState.shortagesSource ? '<div class="ui-sub">aus ' + escapeHtml(protState.shortagesSource) + ', wird mit dem Protokoll gespeichert</div>' : '') +
+        list.map(function(s) { return '<div class="prot-shortage-line">' + escapeHtml(mcShortageText(s)) + '</div>'; }).join('') + '</div>'
+    : (Array.isArray(list) ? '<div class="ui-sub" style="margin:2px 2px 8px;">Keine Fehlmengen aus „Material abhaken“.</div>' : '');
+}
+
+var _protShortSeq = 0;
+async function refreshProtShortages(timeoutMs) {
+  if (typeof mcLoadShortages !== 'function') return;
+  var val = function(id) { return ((document.getElementById(id) || {}).value || '').trim(); };
+  var seq = ++_protShortSeq;
+  var load = mcLoadShortages(protJobNo(val('prot-job')), val('prot-date'), val('prot-event'), mcPhaseOf(val('prot-action')));
+  var res = timeoutMs ? await Promise.race([load, new Promise(function(r) { setTimeout(function() { r(null); }, timeoutMs); })]) : await load;
+  if (seq !== _protShortSeq || !res) return;
+  protState.shortages = res.items;
+  protState.shortagesSource = res.source;
+  renderProtShortages();
+}
+
+function openProtMaterialCheck() {
+  if (typeof openMaterialCheckForProtocol === 'function') openMaterialCheckForProtocol();
 }
 
 // Textareas grow with their content
@@ -936,6 +1173,7 @@ function saveProtDraft() {
     ownerId: protDraftOwner(),
     event: (document.getElementById('prot-event') || {}).value || '',
     location: (document.getElementById('prot-location') || {}).value || '',
+    jobNo: (document.getElementById('prot-job') || {}).value || '',
     date: (document.getElementById('prot-date') || {}).value || '',
     holiday: (document.getElementById('prot-isholiday') || {}).checked || false,
     action: (document.getElementById('prot-action') || {}).value || 'Aufbau',
@@ -954,6 +1192,7 @@ function saveProtDraft() {
     signature: protState.signature,
     editingId: protState.editingId || null,
     editingLocalId: protState.editingLocalId || null,
+    sideOf: protState.sideOf || null,
     savedAt: new Date().toISOString()
   };
   localStorage.setItem('luebbert_protokoll_draft', JSON.stringify(data));
@@ -971,9 +1210,10 @@ function protDraftOwner() {
 
 // Empties the form state and fields without touching localStorage (used when a foreign draft is discarded)
 function resetProtFormState() {
-  protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null, editingId: null, editingLocalId: null, signature: null };
+  protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null, editingId: null, editingLocalId: null, signature: null, sideOf: null, shortages: null };
   protOpenRows = {};
-  ['prot-event', 'prot-location', 'prot-date', 'prot-damages', 'prot-incidents', 'prot-feedback', 'prot-al', 'prot-pl'].forEach(function(id) {
+  renderProtShortages();
+  ['prot-event', 'prot-location', 'prot-job', 'prot-date', 'prot-damages', 'prot-incidents', 'prot-feedback', 'prot-al', 'prot-pl'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -997,6 +1237,7 @@ function loadProtDraft() {
     }
     if (document.getElementById('prot-event')) document.getElementById('prot-event').value = data.event || '';
     if (document.getElementById('prot-location')) document.getElementById('prot-location').value = data.location || '';
+    if (document.getElementById('prot-job')) document.getElementById('prot-job').value = data.jobNo || '';
     if (document.getElementById('prot-date')) document.getElementById('prot-date').value = data.date || '';
     if (document.getElementById('prot-isholiday')) document.getElementById('prot-isholiday').checked = data.holiday || false;
     if (document.getElementById('prot-action')) document.getElementById('prot-action').value = data.action || 'Aufbau';
@@ -1015,6 +1256,8 @@ function loadProtDraft() {
     protState.signature = data.signature || null;
     protState.editingId = data.editingId || null;
     protState.editingLocalId = data.editingLocalId || null;
+    protState.sideOf = data.sideOf || null;
+    renderProtSide();
     return true;
   } catch(e) { console.error("Error loading draft", e); return false; }
 }
@@ -1028,6 +1271,7 @@ function clearProtForm(skipConfirm) {
   // Re-hydrate UI without reloading if possible
   document.getElementById('prot-event').value = '';
   document.getElementById('prot-location').value = '';
+  if (document.getElementById('prot-job')) document.getElementById('prot-job').value = '';
   document.getElementById('prot-date').value = '';
   if (document.getElementById('prot-isholiday')) document.getElementById('prot-isholiday').checked = false;
   document.getElementById('prot-action').value = 'Aufbau';
@@ -1045,6 +1289,10 @@ function clearProtForm(skipConfirm) {
   calcProtCosts();
   protState.editingId = null;
   protState.editingLocalId = null;
+  protState.sideOf = null;
+  var sideSw = document.getElementById('prot-side-on');
+  if (sideSw) sideSw.checked = false;
+  renderProtSide();
 }
 
 // Rows that Senden would skip (no start or no end) although someone filled them in; untouched blank rows don't count
@@ -1055,11 +1303,62 @@ function protIncompleteNames(personnel) {
   }).map(function(p) { return p.name || p.tempName || 'Ohne Name'; });
 }
 
+// People who end later than the AL's own row (rule: the AL must explain why). No AL row or AL time → nobody.
+// An end before the start counts as the next day (over midnight); a row starting more than 12 h before the AL's
+// start belongs to the night after it (AL 18:00–02:00, MA 00:30–03:00).
+// Person under 18 (utils.js, loaded with the users)
+function protMinor(userId) { return typeof isMinorUser === 'function' && isMinorUser(userId); }
+
+// Rows of people under 18 that break Jenni's rules (6–20 Uhr, at most 8 h, break) → ['Name: nach 20 Uhr, …']
+function protMinorWarnings(personnel) {
+  if (typeof minorShiftIssues !== 'function') return [];
+  return (personnel || []).filter(function(p) { return p.userId && !p.isTemp && protMinor(p.userId) && p.start && p.end; }).map(function(p) {
+    var issues = minorShiftIssues(p.start, p.end, parseInt(p.pause, 10) || 0);
+    return issues.length ? (p.name || 'Unbekannt') + ': ' + issues.join(', ') : null;
+  }).filter(Boolean);
+}
+
+var PROT_LONGER_THAN_AL = 'Länger als AL';
+function protLongerThanAl(personnel, alId) {
+  var alStart = null;
+  var endMin = function(p) {
+    var s = timeToMins(p.start), e = timeToMins(p.end);
+    if (s === null || e === null || isNaN(s) || isNaN(e)) return null;
+    if (e < s) e += 1440;
+    return alStart !== null && s + 720 < alStart ? e + 1440 : e;
+  };
+  var al = alId ? (personnel || []).find(function(p) { return p.userId === alId; }) : null;
+  var alEnd = al ? endMin(al) : null;
+  if (alEnd === null) return [];
+  alStart = timeToMins(al.start);
+  return personnel.filter(function(p) {
+    var e = p !== al ? endMin(p) : null;
+    return e !== null && e > alEnd;
+  }).map(function(p) { return p.name || p.tempName || 'Ohne Name'; });
+}
+
 // ── PROTOKOLL SAVE (replaces PDF Export) ──
 async function saveProtokoll() {
-  var missing = protIncompleteNames(protState.personnel);
+  var side = protState.sideOf || null;
+  if (protSideOn() && !side) { showToast('Bitte das Hauptprotokoll auswählen, bei dem dieser Zusatzauftrag mitlief.', 'danger'); return; }
+  var missing = side ? [] : protIncompleteNames(protState.personnel);
   if (missing.length && !confirm('Ohne Start- oder Endzeit: ' + missing.join(', ') + '.\n\n' +
       (missing.length === 1 ? 'Diese Person wird' : 'Diese Personen werden') + ' nicht mitgespeichert und fehlen bei den Stunden. Trotzdem senden?')) return;
+  // Reason goes into "Vorkommnisse" (mail, PDF, dashboard); once there, a resend doesn't ask again
+  var incEl = document.getElementById('prot-incidents');
+  var longer = side ? [] : protLongerThanAl(protState.personnel,
+    protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, appUsers.length > 0));
+  if (longer.length && incEl && (incEl.value || '').indexOf(PROT_LONGER_THAN_AL) === -1) {
+    var why = prompt(longer.join(', ') + (longer.length === 1 ? ' hat' : ' haben') +
+      ' länger gearbeitet als der Aufbauleiter.\n\nBitte kurz begründen (Pflicht):', '');
+    if (!why || !why.trim()) { showToast('Ohne Begründung wird nicht gesendet.', 'danger'); return; }
+    incEl.value = PROT_LONGER_THAN_AL + ' (' + longer.join(', ') + '): ' + why.trim() +
+      (incEl.value.trim() && incEl.value.trim() !== 'nein' ? '\n' + incEl.value.trim() : '');
+  }
+  var minorWarn = protMinorWarnings(protState.personnel);
+  if (minorWarn.length && !confirm('Unter 18:\n' + minorWarn.join('\n') + '\n\nErlaubt sind nur 6–20 Uhr und höchstens 8 Std am Tag. Trotzdem senden?')) return;
+  var jobNo = protJobNo((document.getElementById('prot-job') || {}).value);
+  if (!protJobNoValid(jobNo)) { showToast('Die Projektnummer sieht so aus: 26-0447 (oder mit Auftrag: 26-0447.01). Bitte korrigieren oder leer lassen.', 'danger'); return; }
   calcProtCosts(); // the shown total may be stale (restored draft, rates loaded late)
   var usersLoaded = appUsers.length > 0;
   var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded);
@@ -1077,6 +1376,7 @@ async function saveProtokoll() {
   var data = {
     event: (document.getElementById('prot-event') || {}).value || '—',
     location: (document.getElementById('prot-location') || {}).value || '—',
+    jobNo: jobNo,
     date: (document.getElementById('prot-date') || {}).value || '—',
     action: (document.getElementById('prot-action') || {}).value || '—',
     holiday: !!(document.getElementById('prot-isholiday') || {}).checked,
@@ -1092,6 +1392,10 @@ async function saveProtokoll() {
     categories: protState.categories,
     totalCost: document.getElementById('prot-total-cost').textContent + ' €'
   };
+  data = protApplySide(data, side);
+  // "Fehlmengen laut Auftrag": taken over from Material abhaken; not looked at yet → look now (short wait at most)
+  if (protState.shortages === null || protState.shortages === undefined) await refreshProtShortages(6000);
+  if (Array.isArray(protState.shortages)) data.shortages = protState.shortages;
 
   showToast('Speichere & Sende an Server...', 'info');
   var btn = document.querySelector('#page-protokoll .ui-actionbar .ui-btn-primary');
@@ -1118,6 +1422,9 @@ async function saveProtokoll() {
     pl: data.pl,
     alId: data.alId || null,
     plId: data.plId || null,
+    jobNo: data.jobNo || '',
+    sideOf: data.sideOf || null,
+    shortages: data.shortages || null,
     // Author stays as first saved; an edit by someone else does not take it over
     createdBy: (protState.editingLocalId && (archive.find(x => x.id === protState.editingLocalId) || {}).createdBy) ||
       (!isUpdate && typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null),
@@ -1154,7 +1461,15 @@ async function saveProtokoll() {
   }
 
   if (archive.length > 50) archive = archive.slice(0, 50);
-  localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
+  if (!protSaveArchive(archive)) {
+    if (!isSynced) {
+      // Neither on the server nor on the phone: keep the form filled so nothing is lost
+      if (btn) { btn.disabled = false; btn.textContent = 'Senden'; }
+      showToast('Speicher dieses Handys ist voll und keine Verbindung: Protokoll nicht gesichert. Bitte mit Internet erneut senden.', 'danger');
+      return;
+    }
+    showToast('Gespeichert. Der Verlauf auf diesem Handy ist voll, das Protokoll steht aber auf dem Server.', 'info');
+  }
   
   if (btn) { btn.disabled = false; btn.textContent = 'Senden'; }
   // Mail in the background so Senden never waits on SMTP (registered as in-flight before the history retry runs)
@@ -1269,6 +1584,11 @@ async function syncProtokollToSupabase(data, targetId, out) {
       notes_incidents: data.incidents === 'nein' ? null : data.incidents,
       notes_feedback: data.feedback === '—' ? null : data.feedback
     };
+    // Only when the caller knows the number (a retry of an entry saved before the field existed must not clear it)
+    if (data.jobNo !== undefined) protPayload.job_no = (protJobNoValid(data.jobNo) && protJobNo(data.jobNo)) || null;
+    if (data.sideOf !== undefined) protPayload.side_of = data.sideOf || null;
+    // Only when known: a retry of an older entry must not clear what is stored
+    if (Array.isArray(data.shortages)) protPayload.shortages = data.shortages.length ? data.shortages : null;
 
     // Server signatures are not kept in localStorage (see mergeProtHistory): an edit loaded without one
     // must not overwrite the stored signature with null
@@ -1278,6 +1598,15 @@ async function syncProtokollToSupabase(data, targetId, out) {
     var protId = null;
     if (editId) {
       var { data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', editId).select('id');
+      if (upErr && /side_of/.test(upErr.message || '') && !protPayload.side_of) {
+        delete protPayload.side_of;
+        ({ data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', editId).select('id'));
+      }
+      // Column not migrated yet: save without the shortages rather than lose the edit
+      if (upErr && /shortages/.test(upErr.message || '')) {
+        delete protPayload.shortages;
+        ({ data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', editId).select('id'));
+      }
       if (upErr) throw upErr;
       // RLS can silently match 0 rows instead of erroring — treat that as a failure
       if (!upData || upData.length === 0) throw new Error('Update abgelehnt – fehlende Berechtigung auf dem Server (protocols).');
@@ -1294,6 +1623,14 @@ async function syncProtokollToSupabase(data, targetId, out) {
       var insPayload = Object.assign({ created_by: data.createdBy || ((typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null) }, protPayload);
       var { data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single();
       // Column not migrated yet: save without it rather than lose the protocol
+      if (protError && /side_of/.test(protError.message || '') && !insPayload.side_of) {
+        delete insPayload.side_of;
+        ({ data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single());
+      }
+      if (protError && /shortages/.test(protError.message || '')) {
+        delete insPayload.shortages;
+        ({ data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single());
+      }
       if (protError && /created_by/.test(protError.message || '')) {
         delete insPayload.created_by;
         ({ data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single());
@@ -1459,7 +1796,7 @@ async function retrySyncAllProtocolsRun() {
         if (done.synced && !cur.synced) { cur.synced = true; cur.mailed = false; }
       }
     });
-    localStorage.setItem('luebbert_protokoll_history', JSON.stringify(current));
+    protSaveArchive(current);
   }
   if (successCount > 0) {
     showToast(`✅ ${successCount} Protokolle erfolgreich synchronisiert!`);
@@ -1494,7 +1831,7 @@ function markProtMailed(supabaseId) {
   archive.forEach(function(x) {
     if (x.supabaseId === supabaseId && x.mailed === false) { x.mailed = true; changed = true; }
   });
-  if (changed) localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
+  if (changed) protSaveArchive(archive);
 }
 
 // Quietly retries mails of synced protocols whose mail failed (runs on every history render).
@@ -1539,6 +1876,7 @@ async function mailProtokoll(supabaseId, entry, isUpdate, notify) {
   if (!supabaseId || typeof supabaseClient === 'undefined') return false;
   var pdfBase64 = null;
   try {
+    await loadLib('jspdf');
     pdfBase64 = buildProtPdfDoc(entry, { costs: true }).output('datauristring').split(',')[1] || null;
     // The function rejects >5 MB with 413 forever → send the summary without attachment instead
     if (pdfBase64 && pdfBase64.length > MAIL_MAX_PDF_B64) {
@@ -1614,7 +1952,7 @@ async function renderProtHistory() {
         mergeProtHistory(archive, rows.map(protRowToEntry), PROT_HIST_FETCH_LIMIT);
         archive.sort(function(a, b) { return new Date(b.savedAt) - new Date(a.savedAt); });
         if (archive.length > 100) archive = archive.slice(0, 100);
-        localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
+        protSaveArchive(archive);
       }
     } catch(e) { console.warn('Verlauf Supabase fetch failed:', e); }
     retryPendingMails(); // fire-and-forget
@@ -1653,6 +1991,7 @@ function renderProtHistoryList() {
     var d = /^(\d{4})-(\d{2})-(\d{2})/.exec(e.date || '');
     var id = jsAttrArg(e.id);
     var pills = '<span class="ui-pill ui-pill-info">' + escapeHtml(e.action || '—') + '</span>' +
+      (e.sideOf ? ' <span class="ui-pill">Zusatz zu ' + escapeHtml(protSideLabel(e.sideOf, archive)) + '</span>' : '') +
       (e.synced === false || !e.synced
         ? ' <span class="ui-pill ui-pill-warn" role="button" title="Tippen zum Synchronisieren" onclick="event.stopPropagation();retrySyncAllProtocols()">nicht synchronisiert</span>'
         : (e.mailed === false ? ' <span class="ui-pill ui-pill-warn">Mail ausstehend</span>' : ''));
@@ -1705,7 +2044,7 @@ async function deleteProtHistory(id) {
   }
 
   archive = archive.filter(function(e) { return e.id !== id; });
-  localStorage.setItem('luebbert_protokoll_history', JSON.stringify(archive));
+  protSaveArchive(archive);
   renderProtHistory();
   showToast(supabaseId ? '✅ Protokoll und alle Schichten gelöscht.' : 'Aus Verlauf entfernt.');
 }
@@ -1730,6 +2069,8 @@ function loadProtFromHistory(id) {
 
   // Hydrate state
   protState.transports = (entry.transports || []).map(function(t) { return Object.assign({}, t); });
+  protState.shortages = Array.isArray(entry.shortages) ? entry.shortages : null;
+  renderProtShortages();
   protState.personnel  = (entry.personnel  || []).map(function(p) { return Object.assign({}, p); });
   protOpenRows = {};
   protState.categories = JSON.parse(JSON.stringify(entry.categories || {}));
@@ -1765,12 +2106,21 @@ function loadProtFromHistory(id) {
 
   // Redraw signature preview if present
   redrawProtSig();
+  // Synced protocol opened on a phone that doesn't have its signature: show the server's (saving keeps it either way)
+  if (!protState.signature && entry.supabaseId) {
+    protServerSignature(entry).then(function(sig) {
+      if (sig && !protState.signature && protState.editingLocalId === id) { protState.signature = sig; redrawProtSig(); renderProtSectionNav(); }
+    });
+  }
 
   // Switch to Erfassen tab and save as draft
   if (typeof navigateProt === 'function') navigateProt('protokoll');
   
   protState.editingLocalId = id;
   protState.editingId = entry.supabaseId || null;
+  protState.sideOf = entry.sideOf || null;
+  renderProtSide();
+  if (document.getElementById('prot-job')) document.getElementById('prot-job').value = entry.jobNo || '';
 
   saveProtDraft();
   showToast('✏️ Protokoll geladen – Änderungen werden beim Senden gespeichert.');
@@ -1782,9 +2132,29 @@ async function reExportProtPDF(id) {
   for (var i = 0; i < archive.length; i++) { if (archive[i].id === id) { entry = archive[i]; break; } }
   if (!entry) { showToast('Nicht gefunden'); return; }
 
+  if (!(await needLib('jspdf'))) return;
   showToast('Generiere PDF...');
-  buildProtPdfDoc(entry, { costs: canSeeCosts(currentUser) }).save(protPdfFileName(entry));
-  showToast('PDF wurde gespeichert!');
+  // The history keeps only signatures drawn on this phone (storage): a synced protocol gets its signature from the server
+  var sig = await protServerSignature(entry);
+  if (sig === undefined) {
+    showToast('Unterschrift konnte nicht geladen werden (offline?). PDF ist ohne Unterschrift.', 'danger');
+    sig = null;
+  }
+  buildProtPdfDoc(Object.assign({}, entry, { signature: sig }), { costs: canSeeCosts(currentUser) }).save(protPdfFileName(entry));
+  if (sig !== null || !entry.supabaseId) showToast('PDF wurde gespeichert!');
+}
+
+// Signature of a history entry: the local one if this phone has it, else the one stored on the server.
+// null = there is none; undefined = it couldn't be loaded (offline, error), so the caller can tell the person.
+async function protServerSignature(entry) {
+  if (!entry) return null;
+  if (entry.signature) return entry.signature;
+  if (!entry.supabaseId || typeof supabaseClient === 'undefined') return null;
+  try {
+    var res = await supabaseClient.from('protocols').select('signature_text').eq('id', entry.supabaseId).maybeSingle();
+    if (res.error) { console.warn('Unterschrift nicht geladen:', res.error); return undefined; }
+    return (res.data && res.data.signature_text) || null;
+  } catch (e) { console.warn('Unterschrift nicht geladen:', e); return undefined; }
 }
 
 function protPdfFileName(entry) {
@@ -1803,13 +2173,16 @@ function buildProtPdfDoc(entry, opts) {
     feedback: pdfStr(entry.feedback, '—'),
     transports: entry.transports || [], personnel: entry.personnel || [],
     categories: entry.categories || {},
-    totalCost: pdfStr(entry.totalCost, '0,00 €')
+    totalCost: pdfStr(entry.totalCost, '0,00 €'),
+    jobNo: entry.jobNo || '',
+    shortages: Array.isArray(entry.shortages) ? entry.shortages : [],
+    side: entry.sideOf ? pdfStr((opts && opts.sideLabel) || protSideLabel(entry.sideOf, JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]')), 'Hauptprotokoll') : ''
   };
   var savedProtState = protState;
   protState = { transports: data.transports, personnel: data.personnel, categories: data.categories, signature: entry.signature || null };
   try {
 
-  var doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
+  var doc = pdfPatch(new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })), ml = 20, cw = 170;
   if (typeof LOGO_BASE64 !== 'undefined') {
     try { var lw = 30, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100; doc.addImage(LOGO_BASE64, 'PNG', 160, 10, lw, lh); } catch(e) {}
   }
@@ -1817,7 +2190,8 @@ function buildProtPdfDoc(entry, opts) {
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120); doc.text('Lübbert Event Interiors', ml, 26); doc.setTextColor(0);
   var y = 38;
 
-  doc.setDrawColor(230); doc.setFillColor(248,248,246); doc.rect(ml, y, cw, 32, 'F');
+  var pdfJob = data.jobNo && protJobNoValid(data.jobNo) ? protJobNo(data.jobNo) : '';
+  doc.setDrawColor(230); doc.setFillColor(248,248,246); doc.rect(ml, y, cw, pdfJob ? 38 : 32, 'F');
   doc.setFontSize(9); doc.setFont('helvetica','bold');
   doc.text('Projekt:', ml+4, y+6); doc.setFont('helvetica','normal'); doc.text(data.event, ml+25, y+6);
   doc.setFont('helvetica','bold'); doc.text('Ort:', ml+4, y+12); doc.setFont('helvetica','normal'); doc.text(data.location, ml+25, y+12);
@@ -1825,8 +2199,17 @@ function buildProtPdfDoc(entry, opts) {
   doc.setFont('helvetica','bold'); doc.text('Aktion:', ml+80, y+18); doc.setFont('helvetica','normal'); doc.text(data.action, ml+100, y+18);
   doc.setFont('helvetica','bold'); doc.text('AL:', ml+4, y+24); doc.setFont('helvetica','normal'); doc.text(data.al, ml+25, y+24);
   doc.setFont('helvetica','bold'); doc.text('PL:', ml+80, y+24); doc.setFont('helvetica','normal'); doc.text(data.pl, ml+100, y+24);
-  y += 40;
+  if (pdfJob) { doc.setFont('helvetica','bold'); doc.text('Projekt-Nr.:', ml+4, y+30); doc.setFont('helvetica','normal'); doc.text(pdfJob, ml+25, y+30); }
+  y += pdfJob ? 46 : 40;
+  if (data.side) {
+    doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text('Zusatzauftrag im Zuge von ' + data.side, ml, y);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(110);
+    doc.text('Personal, Transport und Kosten stehen im Hauptprotokoll.', ml, y + 5); doc.setTextColor(0);
+    y += 13;
+  }
 
+  if (!data.side) {
   // Transports
   doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Logistik & Transport', ml, y); y += 6;
   if (!data.transports.length) {
@@ -1841,6 +2224,7 @@ function buildProtPdfDoc(entry, opts) {
     }); y += 4;
   }
 
+  } // end transports (not on a Zusatz)
   // Categories
   doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Equipment & Gewerke', ml, y); y += 6;
   var activeCats = PROT_CATEGORIES_CONFIG.filter(function(c){return data.categories[c.id] && data.categories[c.id].active;});
@@ -1871,8 +2255,18 @@ function buildProtPdfDoc(entry, opts) {
     }
     y += 7; if (y > 270) { doc.addPage(); y = 20; }
   }); y += 4;
+  if (data.shortages.length) {
+    if (y > 260) { doc.addPage(); y = 20; }
+    doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Fehlmengen laut Auftrag', ml, y); y += 6;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    data.shortages.forEach(function(s) {
+      doc.splitTextToSize(pdfStr(mcShortageText(s), '—'), cw - 5).forEach(function(line) { if (y > 280) { doc.addPage(); y = 20; } doc.text(line, ml + 2, y); y += 4.5; });
+    });
+    y += 4;
+  }
 
   // Personnel
+  if (!data.side) {
   doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Personal', ml, y); y += 6;
   if (!data.personnel.length) {
     doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Keine Personaldaten.', ml, y); y += 8;
@@ -1892,6 +2286,7 @@ function buildProtPdfDoc(entry, opts) {
       y+=8; if(y>270){doc.addPage();y=20;}
     }); y += 4;
   }
+  } // end personnel (not on a Zusatz)
 
   // Incidents (free text → wrapped, can span pages)
   y += 4; if (y > 260) { doc.addPage(); y = 20; }
@@ -1901,7 +2296,7 @@ function buildProtPdfDoc(entry, opts) {
   y = pdfWrappedRow(doc, 'Vorkommnisse:', data.incidents, ml, ml+40, cw-40, y, 4.5, 280);
   y = pdfWrappedRow(doc, 'Feedback:', data.feedback, ml, ml+40, cw-40, y, 4.5, 280); y += 6;
 
-  if (!opts || opts.costs !== false) {
+  if ((!opts || opts.costs !== false) && !data.side) {
   // Costs, itemized with the same rules as calcProtCosts (custom rates, holiday) so the lines add up to the total
   if (y > 250) { doc.addPage(); y = 20; }
   doc.setDrawColor(24,95,165); doc.setLineWidth(0.5); doc.line(ml,y,ml+cw,y); y += 8;

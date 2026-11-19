@@ -211,6 +211,7 @@ function ordnerGoBack() {
 function closeOrdnerDetail() {
   aktuellerOrdner = null;
   ordnerFiles = [];
+  _pdfWarm = { folder: null, files: {}, ready: {} };
   var listView = document.getElementById('ordner-list-view');
   var detailView = document.getElementById('ordner-detail-view');
   if (listView) listView.style.display = 'block';
@@ -257,6 +258,65 @@ async function fetchOrdnerFiles(folderId) {
   if (error) { console.error('Files fetch:', error); showToast('Fehler beim Laden.', 'danger'); return; }
   ordnerFiles = data || [];
   renderOrdnerFiles(ordnerFiles);
+  ordnerWarmPdfs(folderId, ordnerFiles);
+}
+
+// ── PDF warm-up ──
+// Drawing a page of a big Aufbauplan takes seconds on a phone (the drawing itself, not its size), so the PDFs of the opened
+// folder are downloaded and page 1 is drawn in the background; a tap then shows it at once. Memory only (private files
+// never go to the disk cache), only the current folder, at most 3 files of up to 3 MB, never with "Datensparen".
+var ORDNER_WARM_MAX = 3, ORDNER_WARM_BYTES = 3 * 1024 * 1024;
+var _pdfWarm = { folder: null, files: {}, ready: {} };
+
+// Which files to warm: PDFs within the size limit, plans first ("Aufbau", "Plan", "Skizze"), then by list order
+function ordnerWarmPick(files, max, maxBytes) {
+  var pdfs = (files || []).filter(function(f) {
+    return ordnerViewerKind(f.file_type, f.name) === 'pdf' && (!f.file_size_bytes || f.file_size_bytes <= maxBytes);
+  });
+  var plan = function(f) { return /aufbau|plan|skizze|grundriss|bestuhlung/i.test(f.name || '') ? 0 : 1; };
+  return pdfs.map(function(f, i) { return { f: f, i: i }; })
+    .sort(function(a, b) { return plan(a.f) - plan(b.f) || a.i - b.i; })
+    .slice(0, max).map(function(x) { return x.f; });
+}
+
+// Width of the page bitmap: twice the fit width at screen density (drawing costs the same, zoom up to 2x needs no redraw)
+function ordnerPdfRenderWidth(fitW, zoom, dpr) {
+  var need = Math.min(fitW * zoom * Math.min(dpr || 1, 2), 3000);
+  return { need: Math.floor(need), draw: Math.floor(Math.min(Math.max(need, fitW * Math.min(dpr || 1, 2) * 2), 3000)) };
+}
+
+function ordnerWarmPdfs(folderId, files) {
+  var conn = navigator.connection;
+  if (conn && conn.saveData) return;
+  if (_pdfWarm.folder !== folderId) _pdfWarm = { folder: folderId, files: {}, ready: {} };
+  var warm = _pdfWarm, chain = Promise.resolve();
+  ordnerWarmPick(files, ORDNER_WARM_MAX, ORDNER_WARM_BYTES).forEach(function(f) {
+    if (warm.files[f.id]) return;
+    // one after the other: the first plan is ready soonest and the phone is not flooded
+    warm.files[f.id] = chain = chain.then(function() { return _pdfWarm === warm ? ordnerWarmOne(f) : null; })
+      .then(function(v) { if (v) warm.ready[f.id] = v; });
+  });
+}
+
+async function ordnerWarmOne(f) {
+  try {
+    var url = await signedProjectFileUrl(f.file_url);
+    if (!url) return null;
+    var res = await fetch(url);
+    if (!res.ok) return null;
+    var buf = await res.arrayBuffer();
+    var pdfjs = await loadPdfJs();
+    var pdf = await pdfjs.getDocument({ data: buf.slice(0) }).promise; // the worker takes over the copy it gets
+    var page = await pdf.getPage(1);
+    var fitW = Math.max(200, Math.min(window.innerWidth || 390, 1000) - 16);
+    var w = Math.min(ordnerPdfRenderWidth(fitW, 1, window.devicePixelRatio).draw, 2000); // up to 3 kept in memory: phone size is enough, a wide screen redraws once
+    var vp = page.getViewport({ scale: w / page.getViewport({ scale: 1 }).width });
+    var c = document.createElement('canvas');
+    c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+    await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+    pdf.destroy();
+    return { url: url, buf: buf, preview: c };
+  } catch (e) { console.warn('PDF vorladen:', e); return null; }
 }
 
 function renderOrdnerFiles(list) {
@@ -312,8 +372,10 @@ async function runOrdnerUploads(folderId, files) {
   }
 }
 
-async function uploadOrdnerFile(folderId, file) {
-  var safeName = file.name
+// → the new folder_files id, or false; name overrides file.name (shown name)
+async function uploadOrdnerFile(folderId, file, name) {
+  name = name || file.name;
+  var safeName = name
     .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
     .replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue')
     .replace(/ß/g, 'ss')
@@ -333,14 +395,14 @@ async function uploadOrdnerFile(folderId, file) {
   var { data: urlData } = supabaseClient.storage.from('project-files').getPublicUrl(filePath);
   var publicUrl = urlData && urlData.publicUrl ? urlData.publicUrl : null;
 
-  var { error: dbErr } = await supabaseClient.from('folder_files').insert({
+  var { data: row, error: dbErr } = await supabaseClient.from('folder_files').insert({
     folder_id: folderId,
-    name: file.name,
+    name: name,
     file_url: publicUrl,
     file_type: file.type || null,
     file_size_bytes: file.size || null,
     created_by: typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null
-  });
+  }).select('id').single();
 
   if (dbErr) {
     console.error('DB insert error for "' + file.name + '":', dbErr.message || dbErr);
@@ -348,7 +410,7 @@ async function uploadOrdnerFile(folderId, file) {
     await ordnerRemoveFiles([filePath]);
     return false;
   }
-  return true;
+  return row.id;
 }
 
 // storage.remove() reports failures as { error } instead of throwing: true only when the objects are really gone
@@ -397,6 +459,70 @@ var EINSATZ_ACTIONS = ['Aufbau', 'Teilaufbau', 'Umbau', 'Teilabbau', 'Abbau'];
 var _ordnerUsers = null;            // active app_users {id, full_name, role}
 var _editEinsaetzeExisting = [];    // saved jobs of the folder being edited (for diffEinsaetze)
 var _ordnerFormReturnId = null;     // reopen this folder's detail view after saving
+var _ordnerAb = null;               // { file, parsed } Auftragsbestätigung picked in the form, uploaded on save
+var _ordnerStaff = {};              // job_no → order_staffing row, for the MA fields of tagged Einsätze
+
+// Name from the Bestätigung („Auf- & Abbauleitung“) → active AL/Admin: exact name, else the only one with all words
+function ordnerMatchAl(lead, users) {
+  var norm = function(x) { return String(x || '').toLowerCase().replace(/\s+/g, ' ').trim(); };
+  var cands = (users || []).filter(function(u) { return u.is_active !== false && (userHasRole(u, 'AL') || userHasRole(u, 'Admin')); });
+  var parts = String(lead || '').split(/,|\/|&|\bund\b/);
+  for (var i = 0; i < parts.length; i++) {
+    var p = norm(parts[i]);
+    if (!p) continue;
+    var exact = cands.filter(function(u) { return norm(u.full_name) === p; });
+    if (exact.length === 1) return exact[0].id;
+    var words = p.split(' ');
+    var some = cands.filter(function(u) { var n = norm(u.full_name).split(' '); return words.every(function(w) { return n.indexOf(w) !== -1; }); });
+    if (some.length === 1) return some[0].id;
+  }
+  return '';
+}
+
+// Einsatz rows from a parsed Bestätigung: Aufbau + Abbau per job, tagged with job_no/phase; have = 'job|phase' already in the form
+// A phase several jobs share (same time) is one row on the first job; also_jobs get 0 MA for it on save
+function ordnerAbRows(parsed, users, have) {
+  var jobs = (parsed && parsed.jobs) || [], shared = orderSharedPhases(jobs), out = [];
+  jobs.forEach(function(j) {
+    ['setup', 'teardown'].forEach(function(ph) {
+      var r = j[ph];
+      if (!r || !r.start || shared[j.jobNo + '|' + ph] || (have || {})[j.jobNo + '|' + ph]) return;
+      var also = Object.keys(shared).filter(function(k) { return shared[k] === j.jobNo && k.split('|')[1] === ph; })
+        .map(function(k) { return k.split('|')[0]; });
+      var row = { date: r.start.slice(0, 10), action: orderPhaseAction(j, ph), al_id: ordnerMatchAl(j.lead, users), job_no: j.jobNo, phase: ph };
+      if (also.length) row.also_jobs = also;
+      out.push(row);
+    });
+    // Further days of the day plan (2nd Aufbau day, Umbau, later Abbau days): plain Einsätze, once (on the primary job)
+    if (j.days && j.setup && !shared[j.jobNo + '|setup'] && !(have || {})[j.jobNo + '|setup']) {
+      j.days.forEach(function(d) {
+        if ((d.action === 'Aufbau' && d.date === j.setup.start.slice(0, 10)) || (d.action === 'Abbau' && j.teardown && d.date === j.teardown.start.slice(0, 10))) return;
+        out.push({ date: d.date, action: d.action, al_id: ordnerMatchAl(j.lead, users) });
+      });
+    }
+  });
+  var tagged = {};
+  out.forEach(function(r) { if (r.job_no) tagged[r.date + r.action] = true; });
+  out = out.filter(function(r) { return r.job_no || !tagged[r.date + r.action]; }); // a job's own phase that day covers it
+  return out.sort(function(a, b) { return a.date.localeCompare(b.date); });
+}
+
+// order_staffing upserts from the MA fields of tagged rows (earliest row per phase); only the phases present are written
+function ordnerStaffRows(rows) {
+  var by = {}, order = [];
+  (rows || []).filter(function(r) { return r.job_no && r.phase; })
+    .sort(function(a, b) { return String(a.date).localeCompare(String(b.date)); })
+    .forEach(function(r) {
+      if (!by[r.job_no]) { by[r.job_no] = { job_no: r.job_no }; order.push(r.job_no); }
+      var col = r.phase === 'setup' ? 'staff_setup' : 'staff_teardown', n = parseInt(r.staff, 10);
+      if (!(col in by[r.job_no])) by[r.job_no][col] = isNaN(n) ? null : Math.max(0, Math.min(99, n));
+      (r.also_jobs || []).forEach(function(a) {
+        if (!by[a]) { by[a] = { job_no: a }; order.push(a); }
+        if (!(col in by[a])) by[a][col] = 0;
+      });
+    });
+  return order.map(function(k) { return by[k]; });
+}
 
 async function loadOrdnerUsers() {
   if (_ordnerUsers) return _ordnerUsers;
@@ -433,6 +559,10 @@ function addEinsatzRow(e) {
   var row = document.createElement('div');
   row.className = 'einsatz-row';
   row.dataset.id = e.id || '';
+  row.dataset.job = e.job_no || '';
+  row.dataset.phase = e.phase || '';
+  row.dataset.also = (e.also_jobs || []).join(',');
+  var staff = e.job_no ? (_ordnerStaff[e.job_no] || {})[e.phase === 'setup' ? 'staff_setup' : 'staff_teardown'] : null;
   row.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px; align-items:center;';
   row.innerHTML =
     '<input type="date" class="meta-input einsatz-date" style="flex:1 1 130px; margin:0;" value="' + escOrdner(e.date || '') + '">' +
@@ -440,8 +570,10 @@ function addEinsatzRow(e) {
       EINSATZ_ACTIONS.map(function(a) { return '<option' + (a === (e.action || 'Aufbau') ? ' selected' : '') + '>' + a + '</option>'; }).join('') +
     '</select>' +
     '<select class="meta-input einsatz-al" style="flex:2 1 160px; margin:0;">' + ordnerUserOptions(['AL', 'Admin'], e.al_id, '– AL wählen –') + '</select>' +
+    (e.job_no ? '<label class="einsatz-staff-wrap" style="font-size:12px; display:flex; align-items:center; gap:4px; white-space:nowrap;">MA gebraucht <input type="number" class="meta-input einsatz-staff" inputmode="numeric" min="0" max="99" style="width:64px; margin:0;" value="' + (staff == null ? '' : staff) + '"></label>' : '') +
     '<label style="font-size:12px; display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" class="einsatz-cancelled"' + (e.cancelled ? ' checked' : '') + '> abgesagt/übernommen</label>' +
-    '<button type="button" class="btn" style="width:auto; padding:4px 10px; color:var(--danger);" title="Einsatz entfernen" onclick="this.parentElement.remove(); ordnerSyncDeleteField()">🗑</button>';
+    '<button type="button" class="btn" style="width:auto; padding:4px 10px; color:var(--danger);" title="Einsatz entfernen" onclick="this.parentElement.remove(); ordnerSyncDeleteField()">🗑</button>' +
+    (e.job_no ? '<div class="ui-sub" style="flex-basis:100%; order:-1; margin:0; font-weight:600;">Auftrag ' + escOrdner([e.job_no].concat(e.also_jobs || []).join(', ')) + ' · ' + (e.phase === 'setup' ? 'Aufbau' : 'Abbau') + ' – Datum und AL hier gelten auch für „Ich kann“</div>' : '');
   list.appendChild(row);
 }
 
@@ -470,6 +602,8 @@ function readEinsatzRows() {
       cancelled: row.querySelector('.einsatz-cancelled').checked
     };
     if (row.dataset.id) r.id = row.dataset.id;
+    if (row.dataset.job) { r.job_no = row.dataset.job; r.phase = row.dataset.phase; r.staff = row.querySelector('.einsatz-staff').value; }
+    if (row.dataset.also) r.also_jobs = row.dataset.also.split(',');
     return r;
   });
 }
@@ -498,6 +632,11 @@ async function openOrdnerForm(id) {
   var endsField = document.getElementById('ordner-ends-field');
   if (endsField) endsField.style.display = o && o.parent_id ? 'none' : '';
   _ordnerAutoValue = '';
+  _ordnerAb = null;
+  _ordnerStaff = {};
+  var abInp = document.getElementById('inp-ordner-ab'), abSt = document.getElementById('ordner-ab-status');
+  if (abInp) abInp.value = '';
+  if (abSt) abSt.textContent = '';
 
   await loadOrdnerUsers();
   var plSel = document.getElementById('inp-ordner-pl');
@@ -506,10 +645,11 @@ async function openOrdnerForm(id) {
   if (rows) rows.innerHTML = '';
   _editEinsaetzeExisting = [];
   if (o) {
-    var { data, error } = await supabaseClient.from('einsaetze').select('id, date, action, al_id, cancelled')
+    var { data, error } = await supabaseClient.from('einsaetze').select('id, date, action, al_id, cancelled, job_no, phase')
       .eq('folder_id', o.id).order('date');
     if (error) { console.error('Einsätze laden:', error); showToast('Einsätze konnten nicht geladen werden.', 'danger'); return; } // saving without them would duplicate jobs
     _editEinsaetzeExisting = data || [];
+    await ordnerLoadStaff(_editEinsaetzeExisting.map(function(e) { return e.job_no; }));
     _editEinsaetzeExisting.forEach(addEinsatzRow);
   }
   // Baseline for the follow rule: what the auto date is for the jobs as loaded
@@ -526,6 +666,44 @@ async function openOrdnerForm(id) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+async function ordnerLoadStaff(jobNos) {
+  jobNos = jobNos.filter(function(j, i) { return j && jobNos.indexOf(j) === i; });
+  if (!jobNos.length) return;
+  var r = await supabaseClient.from('order_staffing').select('job_no, staff_setup, staff_teardown').in('job_no', jobNos);
+  if (r.error) { console.error('MA-Zahlen laden:', r.error); return; } // fields stay empty; saving then writes what is typed
+  (r.data || []).forEach(function(x) { _ordnerStaff[x.job_no] = x; });
+}
+
+// Picked Auftragsbestätigung: read it here, fill name (if empty) and one Aufbau/Abbau row per job; uploaded on save
+async function ordnerReadAb(input) {
+  var file = input.files && input.files[0], st = document.getElementById('ordner-ab-status');
+  _ordnerAb = null;
+  if (!file) { if (st) st.textContent = ''; return; }
+  if (st) st.textContent = 'Wird gelesen…';
+  var parsed;
+  try {
+    await loadPdfJs();
+    parsed = orderParse(orderLines(await readPlanPdf(await file.arrayBuffer(), { textOnly: true })));
+  } catch (err) {
+    console.error('Auftragsbestätigung lesen:', err);
+    if (st) st.textContent = 'Die PDF konnte nicht gelesen werden. Trag die Einsätze bitte von Hand ein.';
+    return;
+  }
+  if (!parsed.jobs.length) { if (st) st.textContent = 'Keine Aufträge in der PDF gefunden. Ist es eine Auftragsbestätigung aus easyjob?'; return; }
+  _ordnerAb = { file: file, parsed: parsed };
+  var nameInp = document.getElementById('inp-ordner-name');
+  if (nameInp && !nameInp.value.trim()) nameInp.value = [parsed.project, parsed.title].filter(Boolean).join(' ');
+  var have = {};
+  readEinsatzRows().forEach(function(r) { if (r.job_no) have[r.job_no + '|' + r.phase] = true; });
+  await ordnerLoadStaff(parsed.jobs.map(function(j) { return j.jobNo; }));
+  var rows = ordnerAbRows(parsed, _ordnerUsers, have);
+  rows.forEach(addEinsatzRow);
+  ordnerSyncDeleteField();
+  var noAl = rows.filter(function(r) { return !r.al_id; }).length;
+  if (st) st.textContent = parsed.jobs.length + (parsed.jobs.length === 1 ? ' Auftrag' : ' Aufträge') + ' erkannt, ' + rows.length + ' Einsätze eingetragen. Bitte Datum, AL und MA prüfen' +
+    (noAl ? ' (' + noAl + '× AL nicht erkannt)' : '') + '. Die PDF wird beim Speichern hochgeladen.';
+}
+
 function closeOrdnerForm() {
   editingOrdnerId = null;
   var fm = document.getElementById('ordner-form-modal');
@@ -536,7 +714,7 @@ function closeOrdnerForm() {
 // After a partly failed save: take the DB state as the new baseline and give form rows that were
 // already inserted their id, so the retry neither re-deletes nor inserts duplicates
 async function resyncEinsatzRows(folderId) {
-  var { data, error } = await supabaseClient.from('einsaetze').select('id, date, action, al_id, cancelled').eq('folder_id', folderId);
+  var { data, error } = await supabaseClient.from('einsaetze').select('id, date, action, al_id, cancelled, job_no, phase').eq('folder_id', folderId);
   if (error) { console.error('Einsätze neu laden:', error); return; }
   _editEinsaetzeExisting = data || [];
   var claimed = {};
@@ -617,6 +795,20 @@ async function saveOrdnerRun() {
     await resyncEinsatzRows(folderId);
     showToast('Fehler beim Speichern der Einsätze', 'danger');
     return;
+  }
+  // MA numbers of tagged Einsätze (the Aufträge tab reads the same table)
+  var staff = ordnerStaffRows(einsaetze);
+  if (staff.length) {
+    var { data: stRows, error: stErr } = await supabaseClient.from('order_staffing').upsert(staff, { onConflict: 'job_no' }).select('job_no');
+    if (stErr || !stRows || stRows.length !== staff.length) { console.error('MA-Zahlen speichern:', stErr); showToast('Einsätze gespeichert, aber die MA-Zahlen nicht. Bitte nochmal speichern.', 'danger'); return; }
+  }
+  // The picked Bestätigung goes into the folder, with its parse result so "Aufträge" and "Ich kann" see it at once
+  if (_ordnerAb) {
+    var ab = _ordnerAb, fileId = await uploadOrdnerFile(folderId, ab.file, orderIsAb(ab.file.name) ? ab.file.name : 'Auftragsbestätigung ' + ab.file.name);
+    if (!fileId) { showToast('Ordner gespeichert, aber die PDF nicht hochgeladen. Bitte nochmal speichern.', 'danger'); return; }
+    _ordnerAb = null; // a retry must not upload it twice
+    var pr = await supabaseClient.from('order_parsed').upsert({ file_id: fileId, parser_version: ORDER_PARSER_VERSION, result: ab.parsed }, { onConflict: 'file_id' });
+    if (pr.error) console.warn('Auftrag nicht zwischengespeichert (wird beim Öffnen von Aufträge gelesen):', pr.error);
   }
   showToast(wasNew ? '✅ Ordner erstellt.' : '✅ Ordner aktualisiert.');
   // Push to ALs not told about this folder yet (the function decides who; a failure must not affect the save)
@@ -756,9 +948,10 @@ async function openOrdnerFileById(id) {
   if (!f || _ordnerOpening) return;
   _ordnerOpening = true;
   try {
-    var url = await signedProjectFileUrl(f.file_url);
+    var warm = _pdfWarm.ready[id] || null; // still loading: open the normal way instead of waiting behind the queue
+    var url = warm ? warm.url : await signedProjectFileUrl(f.file_url);
     if (!url) { showToast('Datei konnte nicht geöffnet werden'); return; }
-    openFileViewer(url, f.name, f.file_type || '');
+    openFileViewer(url, f.name, f.file_type || '', warm);
   } finally { _ordnerOpening = false; }
 }
 
@@ -771,7 +964,7 @@ function ordnerViewerKind(mimeType, url) {
   return 'file';
 }
 
-function openFileViewer(url, name, mimeType) {
+function openFileViewer(url, name, mimeType, warm) {
   var modal = document.getElementById('produkt-viewer-modal');
   var titleEl = document.getElementById('viewer-title');
   var subtitleEl = document.getElementById('viewer-subtitle');
@@ -796,12 +989,12 @@ function openFileViewer(url, name, mimeType) {
     if (isImage) {
       mountZoomViewer(body, { kind: 'image', url: url });
     } else if (isPdf) {
-      mountZoomViewer(body, { kind: 'pdf', url: url });
+      mountZoomViewer(body, { kind: 'pdf', url: url, data: warm && warm.buf ? warm.buf.slice(0) : null, preview: warm && warm.preview });
     } else {
       body.innerHTML = '<div style="color:#fff;padding:40px;text-align:center;">' +
         '<div style="font-size:64px;margin-bottom:16px;">' + fileIcon(mimeType, name) + '</div>' +
         '<div style="font-size:16px;margin-bottom:20px;">' + escOrdner(name) + '</div>' +
-        '<a href="' + url + '" target="_blank" class="btn primary" style="display:inline-block;width:auto;padding:12px 24px;text-decoration:none;">⬇ Herunterladen</a>' +
+        '<a href="' + escOrdner(url) + '" target="_blank" rel="noopener" class="btn primary" style="display:inline-block;width:auto;padding:12px 24px;text-decoration:none;">⬇ Herunterladen</a>' +
         '</div>';
     }
   }
@@ -811,26 +1004,20 @@ function openFileViewer(url, name, mimeType) {
 // ── ZOOMABLE VIEWER (PDF via PDF.js, images) ──
 // The page itself has user-scalable=no, so pinch/zoom is implemented here:
 // content width = fit-width * zoom; pinch + buttons + double-tap change `zoom`.
-var PDFJS_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-var PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-var _pdfjsPromise = null;
 var _zv = null; // current zoom viewer state
 
-function loadPdfJs() {
-  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
-  if (_pdfjsPromise) return _pdfjsPromise;
-  _pdfjsPromise = new Promise(function(resolve, reject) {
-    var s = document.createElement('script');
-    s.src = PDFJS_SRC;
-    s.onload = function() {
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
-      resolve(window.pdfjsLib);
-    };
-    s.onerror = function() { _pdfjsPromise = null; reject(new Error('pdf.js load failed')); };
-    document.head.appendChild(s);
-  });
-  return _pdfjsPromise;
+// A finished touch → a tap { x, y, t } when it was short, did not move and had no second finger; else null
+function zvTap(touch, endT) {
+  if (!touch || touch.moved || touch.multi || endT - touch.t > 300) return null;
+  return { x: touch.x, y: touch.y, t: endT };
 }
+// Two taps make a double tap when they are close in time (under 300 ms) and place (under 40 px)
+function zvIsDoubleTap(prev, tap) {
+  return !!prev && !!tap && tap.t - prev.t < 300 && Math.hypot(tap.x - prev.x, tap.y - prev.y) < 40;
+}
+
+// pdf.js loads on first use (utils.js loadLib, shipped with the app, no CDN)
+function loadPdfJs() { return loadLib('pdfjs'); }
 
 function mountZoomViewer(body, opts) {
   var token = {};
@@ -888,24 +1075,20 @@ function mountZoomViewer(body, opts) {
     });
   });
 
-  // Pinch zoom + double-tap
-  var pinch = null, lastTap = 0;
+  // Pinch zoom + double-tap. A tap is a short touch that did not move and was not part of a pinch: only two of those
+  // count as a double tap (two quick swipes while panning used to reset the zoom to the whole page)
+  var pinch = null, touch = null, lastTap = null;
   function dist(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); }
   scroll.addEventListener('touchstart', function(e) {
     if (e.touches.length === 2) {
       pinch = { d: dist(e.touches), z: zv.zoom };
+      if (touch) touch.multi = true;
     } else if (e.touches.length === 1) {
-      var now = Date.now();
-      if (now - lastTap < 300) {
-        var r = scroll.getBoundingClientRect();
-        var t = e.touches[0];
-        applyZoom(zv.zoom > 1.2 ? 1 : 2.5, t.clientX - r.left, t.clientY - r.top);
-        e.preventDefault();
-      }
-      lastTap = now;
-    }
+      touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), moved: false, multi: false };
+    } else if (touch) touch.multi = true;
   }, { passive: false });
   scroll.addEventListener('touchmove', function(e) {
+    if (touch && e.touches.length === 1 && Math.hypot(e.touches[0].clientX - touch.x, e.touches[0].clientY - touch.y) > 10) touch.moved = true;
     if (pinch && e.touches.length === 2) {
       e.preventDefault();
       var r = scroll.getBoundingClientRect();
@@ -914,7 +1097,19 @@ function mountZoomViewer(body, opts) {
       applyZoom(pinch.z * dist(e.touches) / pinch.d, cx, cy);
     }
   }, { passive: false });
-  scroll.addEventListener('touchend', function(e) { if (e.touches.length < 2) pinch = null; });
+  scroll.addEventListener('touchend', function(e) {
+    if (e.touches.length < 2) pinch = null;
+    if (e.touches.length || !touch) return;
+    var tap = zvTap(touch, Date.now());
+    touch = null;
+    if (!tap) { lastTap = null; return; }
+    if (zvIsDoubleTap(lastTap, tap)) {
+      lastTap = null;
+      var r = scroll.getBoundingClientRect();
+      applyZoom(zv.zoom > 1.2 ? 1 : 2.5, tap.x - r.left, tap.y - r.top);
+      e.preventDefault();
+    } else lastTap = tap;
+  }, { passive: false });
   // Ctrl+wheel / trackpad pinch on desktop
   scroll.addEventListener('wheel', function(e) {
     if (!e.ctrlKey) return;
@@ -941,8 +1136,17 @@ function mountZoomViewer(body, opts) {
 
   // PDF
   setFitWidth();
+  // A warmed-up copy: page 1 shows its finished drawing at once, the file is not downloaded again
+  if (opts.preview) {
+    var pre = document.createElement('canvas');
+    pre.style.cssText = 'width:100%;height:auto;display:block;margin:0 0 8px;background:#fff;';
+    pre.width = opts.preview.width; pre.height = opts.preview.height;
+    pre.getContext('2d').drawImage(opts.preview, 0, 0);
+    content.appendChild(pre);
+    status.style.display = 'none';
+  }
   loadPdfJs().then(function(pdfjs) {
-    return pdfjs.getDocument({ url: opts.url }).promise;
+    return pdfjs.getDocument(opts.data ? { data: opts.data } : { url: opts.url }).promise;
   }).then(function(pdf) {
     if (!alive()) return;
     status.style.display = 'none';
@@ -951,24 +1155,24 @@ function mountZoomViewer(body, opts) {
       (function(num) {
         chain = chain.then(function() { return pdf.getPage(num); }).then(function(page) {
           if (!alive()) return;
+          if (num === 1 && pre) { zv.pages.push({ page: page, canvas: pre, drawnW: pre.width }); return; }
           var canvas = document.createElement('canvas');
           canvas.style.cssText = 'width:100%;height:auto;display:block;margin:0 0 8px;background:#fff;';
           content.appendChild(canvas);
-          zv.pages.push({ page: page, canvas: canvas });
+          zv.pages.push({ page: page, canvas: canvas, drawnW: 0 });
         });
       })(n);
     }
     zv.rerender = function() {
       var gen = ++zv.renderGen;
-      var dpr = Math.min(window.devicePixelRatio || 1, 2);
-      var cssW = zv.fitW * zv.zoom;
-      // cap backing-store width to keep memory sane on phones
-      var targetW = Math.min(cssW * dpr, 3000);
+      // cap backing-store width to keep memory sane on phones; a page drawn sharp enough already is not drawn again
+      var w = ordnerPdfRenderWidth(zv.fitW, zv.zoom, window.devicePixelRatio);
       zv.pages.reduce(function(p, item) {
         return p.then(function() {
           if (!alive() || gen !== zv.renderGen) return;
+          if (item.drawnW >= w.need) return;
           var vp0 = item.page.getViewport({ scale: 1 });
-          var vp = item.page.getViewport({ scale: targetW / vp0.width });
+          var vp = item.page.getViewport({ scale: w.draw / vp0.width });
           var c = item.canvas;
           // render offscreen first so the old bitmap stays visible (no flicker)
           var off = document.createElement('canvas');
@@ -977,6 +1181,7 @@ function mountZoomViewer(body, opts) {
             if (!alive() || gen !== zv.renderGen) return;
             c.width = off.width; c.height = off.height;
             c.getContext('2d').drawImage(off, 0, 0);
+            item.drawnW = off.width;
           });
         });
       }, Promise.resolve());

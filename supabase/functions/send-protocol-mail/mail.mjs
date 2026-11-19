@@ -46,7 +46,9 @@ function summaryRows(p) {
     ['Datum', formatDateDE(p.date)],
     ['Aktion', actionText(p) || '—'],
     ['AL', (p.al && p.al.full_name) || p.al_name_fallback || '—'],
-    ['Personal', String((p.shifts || []).length)]
+    // A Zusatzauftrag has no crew of its own: the people and costs are in the main protocol
+    p.side_of ? ['Zusatzauftrag', 'im Zuge von ' + ((p.main && p.main.projects && p.main.projects.name) || 'Hauptprotokoll')]
+      : ['Personal', String((p.shifts || []).length)]
   ];
   return rows;
 }

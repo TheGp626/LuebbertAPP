@@ -47,30 +47,30 @@ test('planParseWer: agency group takes exactly N names, roles and vehicles', () 
 });
 
 test('planParseWer: unfilled agency slots become open slots; notes on names', () => {
-  const w = P.planParseWer(['4 x Zenjob (2.30 - 10 Uhr)', 'Xaver Eins', 'Milan (ab 14 Uhr)']);
+  const w = P.planParseWer(['4 x Zenjob (2.30 - 10 Uhr)', 'Xaver Eins', 'Mats (ab 14 Uhr)']);
   assert.equal(w.people.length, 2);
-  assert.equal(w.people[1].name, 'Milan');
+  assert.equal(w.people[1].name, 'Mats');
   assert.equal(w.people[1].note, 'ab 14 Uhr');
   assert.deepEqual(w.open, [{ role: 'Zenjob', count: 2, note: '2.30 - 10 Uhr' }]);
 });
 
 test('planMatchPerson: alias, full name, unique first name, initial; agency never', () => {
   const users = [
-    { id: 'u1', full_name: 'Paul Fischer', role: 'AL' },
-    { id: 'u2', full_name: 'Paul Beispiel', role: 'AL' },
-    { id: 'u3', full_name: 'Kacper Nowak', role: 'AL' },
-    { id: 'u4', full_name: 'Julian Hoffmann', role: 'MA' },
-    { id: 'u5', full_name: 'Julian Tetzlaff', role: 'MA' },
-    { id: 'u6', full_name: 'Old Kacper', role: 'MA', is_active: false },
+    { id: 'u1', full_name: 'Pius Fischer', role: 'AL' },
+    { id: 'u2', full_name: 'Pius Beispiel', role: 'AL' },
+    { id: 'u3', full_name: 'Konrad Nowak', role: 'AL' },
+    { id: 'u4', full_name: 'Jonas Hoffmann', role: 'MA' },
+    { id: 'u5', full_name: 'Jonas Tetzlaff', role: 'MA' },
+    { id: 'u6', full_name: 'Old Konrad', role: 'MA', is_active: false },
   ];
-  assert.equal(P.planMatchPerson({ name: 'Kacper', role: 'AL' }, users, {}).userId, 'u3');
-  assert.equal(P.planMatchPerson({ name: 'Paul Fischer', role: 'MA' }, users, {}).userId, 'u1');
-  const amb = P.planMatchPerson({ name: 'Paul', role: 'AL' }, users, {});
+  assert.equal(P.planMatchPerson({ name: 'Konrad', role: 'AL' }, users, {}).userId, 'u3');
+  assert.equal(P.planMatchPerson({ name: 'Pius Fischer', role: 'MA' }, users, {}).userId, 'u1');
+  const amb = P.planMatchPerson({ name: 'Pius', role: 'AL' }, users, {});
   assert.equal(amb.userId, null);
   assert.deepEqual(amb.candidates, ['u1', 'u2']);
-  assert.equal(P.planMatchPerson({ name: 'Paul', role: 'AL' }, users, { paul: 'u2' }).userId, 'u2');
-  assert.equal(P.planMatchPerson({ name: 'Julian T.', role: 'MA' }, users, {}).userId, 'u5');
-  assert.equal(P.planMatchPerson({ name: 'Paul Fischer', role: 'ROCKiT' }, users, {}).userId, null);
+  assert.equal(P.planMatchPerson({ name: 'Pius', role: 'AL' }, users, { pius: 'u2' }).userId, 'u2');
+  assert.equal(P.planMatchPerson({ name: 'Jonas T.', role: 'MA' }, users, {}).userId, 'u5');
+  assert.equal(P.planMatchPerson({ name: 'Pius Fischer', role: 'ROCKiT' }, users, {}).userId, null);
 });
 
 test('planDiff: new, changed, unchanged, removed', () => {
@@ -107,7 +107,7 @@ test('planGuessAction and planEventName', () => {
 
 test('planShiftRow → planShiftFromDb round trip keeps planDiff stable', () => {
   const s = { date: '2026-11-03', sort: 2, key: 'k', venue: 'Messe', location: ['Messedamm 22', '14055 Berlin'], title: 'Teambox',
-    details: ['7 Barhocker'], wann: ['Aufbau: 8 Uhr', 'Abbau: 12 Uhr'], ap: 'Inge', notes: ['BAR PL XXX'], color: null,
+    details: ['7 Barhocker'], wann: ['Aufbau: 8 Uhr', 'Abbau: 12 Uhr'], ap: 'Ilka', notes: ['BAR PL XXX'], color: null,
     open: [{ role: 'AL', count: 1, note: null }], people: [{ name: 'Anna', role: 'AL', note: null }] };
   const row = P.planShiftRow(s, 'w1', 'neu');
   assert.equal(row.wann, 'Aufbau: 8 Uhr\nAbbau: 12 Uhr');
@@ -120,7 +120,7 @@ test('planShiftRow → planShiftFromDb round trip keeps planDiff stable', () => 
 });
 
 test('planShiftRow stores the resolved PL (ap_user_id)', () => {
-  const s = { date: '2026-11-03', sort: 0, key: 'k', venue: 'Messe', location: [], title: 'T', details: [], wann: [], ap: 'Inge', notes: [], color: null, open: [], people: [] };
+  const s = { date: '2026-11-03', sort: 0, key: 'k', venue: 'Messe', location: [], title: 'T', details: [], wann: [], ap: 'Ilka', notes: [], color: null, open: [], people: [] };
   assert.equal(P.planShiftRow(Object.assign({ apUserId: 'u9' }, s), 'w', null).ap_user_id, 'u9');
   assert.equal(P.planShiftRow(s, 'w', null).ap_user_id, null);
 });
@@ -153,11 +153,11 @@ for (const [name, kw, start, end, minShifts] of [
 test('real plan kw42: Monday Estrel team', { skip: !fixture('kw42') && 'no local fixture' }, () => {
   const s = P.planParse(fixture('kw42')).shifts.find(x => x.date === '2026-10-12' && x.title === 'Networking');
   const roles = Object.fromEntries(s.people.map(p => [p.name, p.role]));
-  assert.equal(roles['Kacper'], 'AL');
-  assert.equal(roles['Edib'], 'MA');
+  assert.equal(roles['Konrad'], 'AL');
+  assert.equal(roles['Emre'], 'MA');
   assert.equal(Object.values(roles).filter(r => r === 'ROCKiT').length, 4, '4 x ROCKiT');
   assert.equal(roles['Marcin'], 'Fahrer');
-  assert.equal(s.ap, 'Jenni');
+  assert.equal(s.ap, 'Judith');
 });
 
 test('real plan kw45: open slots and colours', { skip: !fixture('kw45') && 'no local fixture' }, () => {
@@ -170,12 +170,12 @@ test('real plan kw45: open slots and colours', { skip: !fixture('kw45') && 'no l
 test('planMatchPerson: the AP column (role PL) only matches PL, Admin or Buchhaltung', () => {
   const users = [
     { id: 'm1', full_name: 'Sabine Muster', role: 'MA' },
-    { id: 'p1', full_name: 'Inge Beispiel', role: 'PL' },
-    { id: 'a1', full_name: 'Sonja Chef', role: 'Admin' },
+    { id: 'p1', full_name: 'Ilka Beispiel', role: 'PL' },
+    { id: 'a1', full_name: 'Svenja Chef', role: 'Admin' },
   ];
   assert.equal(P.planMatchPerson({ name: 'Sabine', role: 'PL' }, users, {}).userId, null);
-  assert.equal(P.planMatchPerson({ name: 'Inge', role: 'PL' }, users, {}).userId, 'p1');
-  assert.equal(P.planMatchPerson({ name: 'Sonja', role: 'PL' }, users, {}).userId, 'a1');
+  assert.equal(P.planMatchPerson({ name: 'Ilka', role: 'PL' }, users, {}).userId, 'p1');
+  assert.equal(P.planMatchPerson({ name: 'Svenja', role: 'PL' }, users, {}).userId, 'a1');
   assert.equal(P.planMatchPerson({ name: 'Sabine', role: 'MA' }, users, {}).userId, 'm1');
   assert.equal(P.planMatchPerson({ name: 'Sabine', role: 'PL' }, users, { sabine: 'm1' }).userId, null, 'an alias to an MA never makes them the PL');
 });
@@ -218,13 +218,13 @@ test('planDiff: location and notes changes are flagged', () => {
 });
 
 test('planAliasKey: one normalisation for saving and lookup; aliases with a trailing dot match', () => {
-  assert.equal(P.planAliasKey('Julian H.'), 'julian h');
-  assert.equal(P.planAliasKey('  Julian   H. '), 'julian h');
-  assert.equal(P.planAliasKey('Inge', true), 'ap:inge');
-  assert.equal(P.planAliasKey('ap:Julian H.'), 'ap:julian h', 'stored keys keep their prefix');
-  const users = [{ id: 'u4', full_name: 'Julian Hoffmann', role: 'MA' }, { id: 'u7', full_name: 'Julian Hase', role: 'MA' }];
-  const aliases = { [P.planAliasKey('Julian H.')]: 'u7' };
-  assert.equal(P.planMatchPerson({ name: 'Julian H.', role: 'MA' }, users, aliases).userId, 'u7');
+  assert.equal(P.planAliasKey('Jonas H.'), 'jonas h');
+  assert.equal(P.planAliasKey('  Jonas   H. '), 'jonas h');
+  assert.equal(P.planAliasKey('Ilka', true), 'ap:ilka');
+  assert.equal(P.planAliasKey('ap:Jonas H.'), 'ap:jonas h', 'stored keys keep their prefix');
+  const users = [{ id: 'u4', full_name: 'Jonas Hoffmann', role: 'MA' }, { id: 'u7', full_name: 'Jonas Hase', role: 'MA' }];
+  const aliases = { [P.planAliasKey('Jonas H.')]: 'u7' };
+  assert.equal(P.planMatchPerson({ name: 'Jonas H.', role: 'MA' }, users, aliases).userId, 'u7');
 });
 
 test('planMatchPerson: PL aliases only point to PL/Admin/Buchhaltung; ap: keys stay apart from team names', () => {
@@ -451,6 +451,17 @@ test('planWithoutProtocol: shifts of the window without a protocol of the same d
   assert.deepEqual(P.planWithoutProtocol([], [], '2026-10-16', '2026-10-30'), []);
 });
 
+test('planSplitWaived: entries marked "Kein Protokoll nötig" move out of the open list, by date and event', () => {
+  const sh = (date, title) => ({ id: date + title, date, venue: 'Estrel', title, location: [], wann: [], people: [] });
+  const open = [sh('2026-11-12', 'Dt. Post Betriebsräte'), sh('2026-11-08', 'Stand 421'), sh('2026-11-08', 'Stand 502')];
+  assert.equal(P.planEventKey(open[0]), 'dt. post betriebsräte');
+  const r = P.planSplitWaived(open, [{ date: '2026-11-08', event_key: 'stand 421' }, { date: '2026-11-09', event_key: 'stand 502' }]);
+  assert.deepEqual(r.open.map(s => s.title), ['Dt. Post Betriebsräte', 'Stand 502'], 'same event on another day stays open');
+  assert.deepEqual(r.waived.map(s => s.title), ['Stand 421']);
+  assert.deepEqual(P.planSplitWaived(open, null).open.length, 3);
+  assert.deepEqual(P.planSplitWaived(null, []), { open: [], waived: [] });
+});
+
 test('planWithoutProtocol: shifts without an AL need no protocol', () => {
   const shifts = [
     { id: 'a', date: '2026-10-29', venue: 'Lager', title: 'Inventur', location: [], wann: [], people: [{ name: 'Bert', role: 'MA' }] },
@@ -535,7 +546,7 @@ test('planStripPhones: more notations (+49 (0) …, (0170) …, 0170.…) but ne
 });
 
 test('planDiff: a changed note of a person ("ab 14 Uhr" → "ab 15 Uhr") marks the shift as changed', () => {
-  const mk = note => ({ key: 'a', wann: ['8 Uhr'], people: [{ name: 'Milan', role: 'MA', note }], open: [], ap: 'X', details: [] });
+  const mk = note => ({ key: 'a', wann: ['8 Uhr'], people: [{ name: 'Mats', role: 'MA', note }], open: [], ap: 'X', details: [] });
   assert.deepEqual(P.planDiff([mk('ab 14 Uhr')], [mk('ab 15 Uhr')]).status, ['geändert']);
   assert.deepEqual(P.planDiff([mk('ab 14 Uhr')], [mk('ab 14 Uhr')]).status, [null]);
   assert.deepEqual(P.planDiff([mk(null)], [mk(undefined)]).status, [null]);
@@ -567,8 +578,8 @@ test('planWhen: en dash and em dash work as range separator', () => {
 });
 
 test('planMatchPerson: an alias to a deactivated user is ignored', () => {
-  const users = [{ id: 'u1', full_name: 'Kacper Nowak', role: 'AL' }, { id: 'u2', full_name: 'Alt Kollege', role: 'MA', is_active: false }];
-  assert.equal(P.planMatchPerson({ name: 'Kacper', role: 'AL' }, users, { kacper: 'u2' }).userId, 'u1');
+  const users = [{ id: 'u1', full_name: 'Konrad Nowak', role: 'AL' }, { id: 'u2', full_name: 'Alt Kollege', role: 'MA', is_active: false }];
+  assert.equal(P.planMatchPerson({ name: 'Konrad', role: 'AL' }, users, { konrad: 'u2' }).userId, 'u1');
   assert.equal(P.planMatchPerson({ name: 'Foo', role: 'MA' }, users, { foo: 'u2' }).userId, null);
   assert.equal(P.planMatchPerson({ name: 'Foo', role: 'MA' }, users, { foo: 'u1' }).userId, 'u1', 'active alias still works');
 });
@@ -596,4 +607,232 @@ test('planShiftOrder: the 2 h rule uses the last time of the day (Aufbau 8 Uhr +
   assert.deepEqual(P.planShiftOrder([merged], now), [merged]);
   assert.deepEqual(P.planShiftOrder([merged], new Date(2026, 9, 29, 22, 30)), [], 'more than 2 h past the last time (20:00)');
   assert.deepEqual(P.planShiftOrder([{ date: '2026-10-29', wann: ['Aufbau: 8 Uhr', 'Abbau: 20 Uhr'], sort: 0 }], now).length, 1, 'array shape too');
+});
+
+// ── What changed, and renamed entries (KW 46 Stand 3 → 4: "54 Tischdeko" became "56 Tischdeko") ──
+const full = o => Object.assign({ key: '2026-11-14|estrel|54 tischdeko', date: '2026-11-14', venue: 'Estrel', title: '54 Tischdeko',
+  location: ['Sonnenallee 225', 'CH I AB', 'HWR Bachelorball'], details: [], wann: ['Aufbau: 13:30 - 15 Uhr'], ap: 'Maike', notes: ['BAR PL XXX'],
+  open: [], people: [{ name: 'Hamid', role: 'Fahrer', note: 'BAR PL XXX', userId: 'u-h' }] }, o || {});
+
+test('planDiff: a changed first line of "Was" is a change, not "entfallen" plus "neu"', () => {
+  const old = [full()];
+  const neu = [full({ key: '2026-11-14|estrel|56 tischdeko', title: '56 Tischdeko' })];
+  const d = P.planDiff(old, neu);
+  assert.deepEqual(d.status, ['geändert']);
+  assert.deepEqual(d.removed, []);
+  assert.deepEqual(d.fields, [['Was']]);
+  assert.equal(d.matched[0], old[0]);
+});
+
+test('planDiff: a renamed entry is only paired with one at the same place and day', () => {
+  const old = [full()];
+  // other room: really a different entry
+  let d = P.planDiff(old, [full({ key: '2026-11-14|estrel|56 tischdeko', title: '56 Tischdeko', location: ['Sonnenallee 225', 'Saal A', 'Andere VA'] })]);
+  assert.deepEqual(d.status, ['neu']); assert.equal(d.removed.length, 1);
+  // other day
+  d = P.planDiff(old, [full({ key: '2026-11-15|estrel|56 tischdeko', date: '2026-11-15', title: '56 Tischdeko' })]);
+  assert.deepEqual(d.status, ['neu']); assert.equal(d.removed.length, 1);
+  // same room and day but nothing else in common (other material, other time, other people)
+  d = P.planDiff(old, [full({ key: '2026-11-14|estrel|3 loungetisch acryl', title: '3 Loungetisch Acryl', wann: ['Abbau: 22 Uhr'], people: [{ name: 'Emre', role: 'MA' }] })]);
+  assert.deepEqual(d.status, ['neu']); assert.equal(d.removed.length, 1);
+});
+
+test('planDiff: says which part of an entry changed', () => {
+  const f = (a, b) => P.planDiff([full(a)], [full(b)]).fields[0];
+  assert.deepEqual(f({}, {}), []);
+  assert.deepEqual(f({}, { wann: ['Aufbau: 14 Uhr'] }), ['Wann']);
+  assert.deepEqual(f({}, { people: [{ name: 'Hamid', role: 'Fahrer', note: 'BAR PL XXX' }, { name: 'Jule', role: 'MA' }] }), ['Wer']);
+  assert.deepEqual(f({}, { people: [{ name: 'Hamid', role: 'AL', note: 'BAR PL XXX' }] }), ['Wer']);
+  // only the vehicle number was filled in: a note, the team is the same
+  assert.deepEqual(f({}, { notes: ['BAR PL 550'], people: [{ name: 'Hamid', role: 'Fahrer', note: 'BAR PL 550' }] }), ['Hinweis']);
+  assert.deepEqual(f({}, { open: [{ role: 'MA', count: 2, note: null }] }), ['Offene Plätze']);
+  assert.deepEqual(f({}, { ap: 'Judith' }), ['PL']);
+  assert.deepEqual(f({}, { details: ['5 Kerzen'] }), ['Was']);
+  assert.deepEqual(f({}, { location: ['Sonnenallee 225', 'CH I AB', 'HWR Ball'] }), ['Ort']);
+  assert.deepEqual(f({}, { wann: ['Abbau'], ap: 'Judith' }), ['Wann', 'PL']);
+  // unchanged and new entries carry no list
+  const d = P.planDiff([full()], [full(), full({ key: 'x', date: '2026-11-16', title: 'Neu' })]);
+  assert.deepEqual(d.fields, [[], []]);
+});
+
+test('planDiff: old shapes without the newer fields still compare (stored rows, tests)', () => {
+  const mk = (key, wann) => ({ key, wann, people: [], open: [], ap: 'X', details: [] });
+  const d = P.planDiff([mk('a', ['8 Uhr'])], [mk('a', ['9 Uhr'])]);
+  assert.deepEqual(d.status, ['geändert']);
+  assert.deepEqual(d.fields, [['Wann']]);
+});
+
+test('planDiff: entries without a room line are not paired just because the same person is on both', () => {
+  const old = [full({ key: '2026-11-14|lager|inventur', venue: 'Lager', title: 'Inventur', location: [] })];
+  const neu = [full({ key: '2026-11-14|lager|rücklauf sortieren', venue: 'Lager', title: 'Rücklauf sortieren', location: [] })];
+  const d = P.planDiff(old, neu);
+  assert.deepEqual(d.status, ['neu']); assert.equal(d.removed.length, 1);
+  // with matching words in the title they are
+  const d2 = P.planDiff(old, [full({ key: '2026-11-14|lager|inventur halle 2', venue: 'Lager', title: 'Inventur Halle', location: [] })]);
+  assert.deepEqual(d2.status, ['geändert']);
+});
+
+test('planAssigned: who joined an existing entry (not the people on a brand-new one)', () => {
+  const old = [full({ people: [{ name: 'Hamid', role: 'Fahrer', userId: 'u-h' }, { name: 'Jule', role: 'MA', userId: 'u-j' }] })];
+  const neu = [full({ people: [{ name: 'Hamid', role: 'Fahrer', userId: 'u-h' }, { name: 'Emre', role: 'MA', userId: 'u-e' }, { name: 'Tom', role: 'Zenjob', userId: null }] }),
+    full({ key: 'x', date: '2026-11-16', title: 'Neu', people: [{ name: 'Emre', role: 'MA', userId: 'u-e' }] })];
+  const d = P.planDiff(old, neu);
+  assert.deepEqual(P.planAssigned(neu, d), [['u-e'], []]);
+  assert.deepEqual(P.planUnassigned(neu, d).map(x => x.user_ids), [['u-j']]);
+});
+
+test('planFindColumns: last column may be headed PL, but only on the header line', () => {
+  const head = (last, extra) => ({ items: [
+    { s: 'Datum', x: 30, y: 50, h: 8 }, { s: 'Was', x: 150, y: 50, h: 8 }, { s: 'Wann', x: 360, y: 50, h: 8 }, { s: 'Wer', x: 480, y: 50, h: 8 },
+  ].concat(last ? [{ s: last, x: 700, y: 50, h: 8 }] : []).concat(extra || []) });
+  assert.deepEqual(P.planFindColumns(head('AP')).x, [28, 148, 358, 478, 698]);
+  assert.deepEqual(P.planFindColumns(head('PL')).x, [28, 148, 358, 478, 698]);
+  // "PL" inside a cell further down (a vehicle "BAR PL 550") is no header
+  assert.equal(P.planFindColumns(head(null, [{ s: 'PL', x: 500, y: 140, h: 8 }])), null);
+  // AP wins when both stand there
+  assert.equal(P.planFindColumns(head('AP', [{ s: 'PL', x: 760, y: 50, h: 8 }])).x[4], 698);
+});
+
+test('planParseWer: sentences in the Wer column are notes, not people (KW 47, 17.11.)', () => {
+  const w = P.planParseWer(['Piotr (AL)', 'Abholung durch Konrad', 'Service baut ab', 'BAR PL 102 | steht vor Ort', 'Mats']);
+  assert.deepEqual(w.people.map(p => p.name), ['Piotr', 'Mats']);
+  assert.ok(w.notes.includes('Abholung durch Konrad'));
+  assert.ok(w.notes.includes('Service baut ab'));
+  assert.ok(w.notes.includes('BAR PL 102 | steht vor Ort'));
+  assert.deepEqual(w.open, [], 'a vehicle that stands on site needs no driver');
+});
+
+test('planParseWer: real names with particles and agency triple names stay people', () => {
+  const w = P.planParseWer(['3 x ROCKiT (16 - 20 Uhr)', 'Mauro Reyero de Diego', 'Prince Jr. Fasso Ngounou', 'Arvo Ishan Roth', 'Anna von Berg', 'mats']);
+  assert.deepEqual(w.people.map(p => [p.name, p.role]), [
+    ['Mauro Reyero de Diego', 'ROCKiT'], ['Prince Jr. Fasso Ngounou', 'ROCKiT'], ['Arvo Ishan Roth', 'ROCKiT'], ['Anna von Berg', 'MA'], ['mats', 'MA']]);
+});
+
+test('planParseWer: a sentence inside an agency group does not use up a slot', () => {
+  const w = P.planParseWer(['2 x Zenjob (8 - 16 Uhr)', 'Carla Muster', 'kommt später', 'Dino Beispiel']);
+  assert.deepEqual(w.people.map(p => [p.name, p.role]), [['Carla Muster', 'Zenjob'], ['Dino Beispiel', 'Zenjob']]);
+  assert.ok(w.notes.includes('kommt später'));
+  assert.deepEqual(w.open, []);
+});
+
+test('planParseWer: a heading line "Stoffe & Deko:" is no person; "Deko:" alone gives the role to the names below', () => {
+  const w = P.planParseWer(['Stoffe & Deko:', 'Hanna', 'Deko:', 'Ida', 'Jan', '3 MA', 'Kai']);
+  assert.deepEqual(w.people.map(p => [p.name, p.role]), [['Hanna', 'MA'], ['Ida', 'Deko'], ['Jan', 'Deko'], ['Kai', 'MA']]);
+  assert.ok(w.notes.includes('Stoffe & Deko:'));
+});
+
+test('planParseWer: "Piotr ?" is Piotr with a question mark as note', () => {
+  const w = P.planParseWer(['Piotr ? (AL)', 'Bert?']);
+  assert.deepEqual(w.people.map(p => [p.name, p.role, p.note]), [['Piotr', 'AL', '?'], ['Bert', 'MA', '?']]);
+});
+
+// ── Check before publishing ──
+const chk = (shifts, avail) => P.planChecks(shifts.map(s => Object.assign({ venue: '', title: '', location: [], wann: [], details: [], notes: [], people: [], open: [], color: null }, s)), avail);
+const per = (name, role, extra) => Object.assign({ name, role: role || 'MA', note: null, userId: null }, extra || {});
+
+test('planChecks: too little rest after a night Abbau (11 hours)', () => {
+  const out = chk([
+    { date: '2026-11-17', venue: 'Estrel', title: 'Hussen', wann: ['Abbau 01.30 - 6 Uhr'], people: [per('Konrad', 'AL', { userId: 'k' }), per('Mats')] },
+    { date: '2026-11-18', venue: 'Messe', title: 'Gala', wann: ['Aufbau: 8 Uhr'], people: [per('Konrad', 'MA', { userId: 'k' })] },
+    { date: '2026-11-18', venue: 'Messe', title: 'Gala', wann: ['Aufbau: 17 Uhr'], people: [per('Mats')] },
+  ]);
+  assert.deepEqual(out.map(w => w.kind), ['ruhe']);
+  assert.match(out[0].text, /Konrad/);
+  assert.match(out[0].text, /2 Std\./);
+  assert.match(out[0].text, /18\.11\. um 8:00/);
+});
+
+test('planChecks: overlapping shifts at two places are a double booking; rows of one event are not', () => {
+  const out = chk([
+    { date: '2026-11-17', venue: 'Estrel', title: 'Business of Apps', location: ['Saal A'], wann: ['Aufbau: 8 - 16 Uhr'], people: [per('Anna', 'AL', { userId: 'a' }), per('Bert', 'MA', { userId: 'b' })] },
+    { date: '2026-11-17', venue: 'Estrel', title: 'Business of Apps', location: ['Saal B'], wann: ['Aufbau: 10 Uhr'], people: [per('Bert', 'MA', { userId: 'b' })] },
+    { date: '2026-11-17', venue: 'Messe', title: 'Gala', wann: ['Aufbau: 12 Uhr'], people: [per('Anna', 'MA', { userId: 'a' })] },
+    { date: '2026-11-17', venue: 'Tempodrom', title: 'Konzert', wann: ['Aufbau: 18 Uhr'], people: [per('Anna', 'MA', { userId: 'a' })] },
+  ]);
+  assert.deepEqual(out.map(w => w.kind), ['doppelt']);
+  assert.match(out[0].text, /Anna/);
+  assert.match(out[0].text, /Messe/);
+});
+
+test('planChecks: same start time at two places without an end is a double booking too', () => {
+  const out = chk([
+    { date: '2026-11-19', venue: 'Estrel', title: 'A', wann: ['Aufbau: 9 Uhr'], people: [per('Frida')] },
+    { date: '2026-11-19', venue: 'Messe', title: 'B', wann: ['Aufbau: 9 Uhr'], people: [per('Frida')] },
+    { date: '2026-11-19', venue: 'Tempodrom', title: 'C', wann: [], people: [per('Frida')] },
+  ]);
+  assert.deepEqual(out.map(w => w.kind), ['doppelt']);
+});
+
+test('planChecks: several events at the same venue at once are one place (crew and van cover all halls)', () => {
+  const out = chk([
+    { date: '2026-11-23', venue: 'Estrel', title: 'Dt. Post', location: ['Saal A'], wann: ['Aufbau: 10 Uhr'], notes: ['BAR PL 600'], people: [per('Paul', 'AL', { userId: 'p' }), per('Kacper', 'MA', { userId: 'k' })] },
+    { date: '2026-11-23', venue: 'Estrel', title: 'Siemens', location: ['Saal B'], wann: ['Aufbau: 10 Uhr'], notes: ['BAR PL 600'], people: [per('Paul', 'AL', { userId: 'p' }), per('Kacper', 'MA', { userId: 'k' })] },
+    { date: '2026-11-23', venue: 'estrel ', title: 'Ionos', location: ['CH II'], wann: ['Aufbau: 10 Uhr'], notes: ['BAR PL 600'], people: [per('Paul', 'AL', { userId: 'p' })] },
+  ]);
+  assert.deepEqual(out, []);
+});
+
+test('planChecks: a person at three rows of one venue and also elsewhere gets one hint per clash, not duplicates', () => {
+  const out = chk([
+    { date: '2026-11-23', venue: 'Estrel', title: 'A', wann: ['Aufbau: 10 Uhr'], people: [per('Paul', 'AL', { userId: 'p' })] },
+    { date: '2026-11-23', venue: 'Estrel', title: 'B', wann: ['Aufbau: 10 Uhr'], people: [per('Paul', 'AL', { userId: 'p' })] },
+    { date: '2026-11-23', venue: 'Messe', title: 'C', wann: ['Aufbau: 10 Uhr'], people: [per('Paul', 'AL', { userId: 'p' })] },
+  ]);
+  assert.equal(out.length, 1);
+  assert.match(out[0].text, /Estrel \(10:00\) und Messe/);
+});
+
+test('planChecks: one vehicle at two places at the same time; rental vans without a plate are ignored', () => {
+  const out = chk([
+    { date: '2026-11-17', venue: 'Estrel', title: 'A', wann: ['Aufbau: 8 Uhr'], notes: ['BAR PL 550', 'LeihLkw'], people: [per('Anna', 'AL')] },
+    { date: '2026-11-17', venue: 'Messe', title: 'B', wann: ['Aufbau: 8 Uhr'], notes: ['BAR PL 550', 'LeihLkw'], people: [per('Bert', 'AL')] },
+    { date: '2026-11-17', venue: 'Tempodrom', title: 'C', wann: ['Aufbau: 15 Uhr'], notes: ['BAR PL 550'], people: [per('Carla', 'AL')] },
+  ]);
+  assert.deepEqual(out.map(w => [w.kind, /BAR PL 550/.test(w.text)]), [['fahrzeug', true]]);
+});
+
+test('planChecks: an Auftrag with three or more people and no AL; coloured entries and open AL slots are fine', () => {
+  const out = chk([
+    { date: '2026-11-20', venue: 'Estrel', title: 'Gala', wann: ['Aufbau: 8 Uhr'], people: [per('A'), per('B'), per('C')] },
+    { date: '2026-11-20', venue: 'Messe', title: 'Intern', color: '#ffff00', people: [per('D'), per('E'), per('F')] },
+    { date: '2026-11-20', venue: 'Tempodrom', title: 'Show', people: [per('G'), per('H'), per('I')], open: [{ role: 'AL', count: 1, note: null }] },
+    { date: '2026-11-20', venue: 'Arena', title: 'Messe', people: [per('J'), per('K', 'Fahrer'), per('L', 'Fahrer')] },
+    { date: '2026-11-21', venue: 'Estrel', title: 'Gala', location: ['Saal A'], people: [per('M', 'AL'), per('N')] },
+    { date: '2026-11-21', venue: 'Estrel', title: 'Gala', location: ['Saal B'], people: [per('O'), per('P'), per('Q')] },
+  ]);
+  assert.deepEqual(out.map(w => w.kind), ['al']);
+  assert.match(out[0].text, /20\.11\./);
+});
+
+test('planChecks: planned on a day marked "geht nicht" or "nur im Notfall"', () => {
+  const out = chk([
+    { date: '2026-11-17', venue: 'Estrel', title: 'A', people: [per('Anna', 'AL', { userId: 'a' }), per('Bert', 'MA', { userId: 'b' }), per('Carla', 'MA', { userId: 'c' })] },
+  ], { 'a|2026-11-17': 'nein', 'b|2026-11-17': 'notfall' });
+  assert.deepEqual(out.map(w => w.kind), ['nein', 'notfall']);
+  assert.match(out[0].text, /Anna.*geht nicht/);
+  assert.deepEqual(chk([]), []);
+});
+
+test('planGuessAction: the first action named counts, also inside a word ("Schnellaufbau")', () => {
+  assert.equal(P.planGuessAction(['Abbau 01.30 - 6 Uhr', '(Umbau auf Plenum)']), 'Abbau');
+  assert.equal(P.planGuessAction(['Anlieferung: 13 Uhr', 'Schnellaufbau: 16 - 19 Uhr']), 'Aufbau');
+  assert.equal(P.planGuessAction(['Umbau: 14 Uhr', 'Abbau: 22 Uhr']), 'Umbau');
+  assert.equal(P.planGuessAction(['Teilaufbau: 9 Uhr']), 'Teilaufbau');
+  assert.equal(P.planGuessAction(['Teilabbau 22 Uhr']), 'Teilabbau');
+  assert.equal(P.planGuessAction(['Abholung: 14 Uhr']), 'Aufbau');
+});
+
+test('planCrewWhen: the line that names the Aufbau/Abbau gives the crew time, not the delivery before it', () => {
+  assert.equal(P.planCrewWhen(['Anlieferung: 13 Uhr', '@Konrad: ins PL Lager stellen!!', 'Schnellaufbau: 16 - 19 Uhr']).time, '16:00');
+  assert.equal(P.planCrewWhen(['Abbau 01.30 - 6 Uhr', 'Abholung: 14 Uhr']).time, '01:30');
+  assert.equal(P.planCrewWhen(['Anlieferung: 13 Uhr']).time, '13:00');
+  assert.equal(P.planCrewWhen(['Aufbau nach Absprache', 'ab 9 Uhr']).time, '09:00');
+  assert.equal(P.planCrewWhen([]).time, null);
+});
+
+test('planPlace: venue and room, without street and postcode', () => {
+  assert.equal(P.planPlace({ venue: 'Estrel', location: ['Sonnenallee 225', '12057 Berlin', 'CH II', 'Hagebau'] }), 'Estrel, CH II, Hagebau');
+  assert.equal(P.planPlace({ venue: 'Estrel', location: ['Saal 3'] }), 'Estrel, Saal 3');
+  assert.equal(P.planPlace({ venue: 'Messe', location: ['Messedamm 22', '14055 Berlin'] }), 'Messe, Messedamm 22');
+  assert.equal(P.planPlace({ venue: '', location: [] }), '');
 });

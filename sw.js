@@ -1,4 +1,9 @@
-const CACHE = 'stundenzettel-v146';
+const CACHE = 'stundenzettel-v219';
+// Product media, shared by the live app and /experimental/ (same origin, same files)
+const MEDIA_CACHE = 'luebbert-media-v1';
+// Loaded by the app only when needed (utils.js loadLib), so index.html doesn't name them: precached here for offline use
+const LAZY_ASSETS = ['vendor/jspdf-2.5.1.umd.min.js', 'vendor/pdfjs-3.11.174/pdf.min.js', 'vendor/pdfjs-3.11.174/pdf.worker.min.js',
+  'vendor/chart-4.6.1.umd.min.js'];
 
 // Offline start needs every script/stylesheet of index.html (own files + CDN libs): the install step reads
 // index.html and caches whatever it references, so this list never has to be kept in sync by hand.
@@ -6,9 +11,9 @@ const CACHE = 'stundenzettel-v146';
 function assetUrlsOf(html) {
   const urls = [];
   const add = u => { if (u && !/^(data|blob):/.test(u) && !urls.includes(u)) urls.push(u); };
-  (html.match(/<script[^>]*>/gi) || []).forEach(t => add((/src\s*=\s*["']([^"']+)["']/i.exec(t) || [])[1]));
-  (html.match(/<link[^>]*>/gi) || []).forEach(t => {
-    if (/rel\s*=\s*["']stylesheet["']/i.test(t)) add((/href\s*=\s*["']([^"']+)["']/i.exec(t) || [])[1]);
+  (html.match(/<script\b[^>]*>/gi) || []).forEach(t => add((/\bsrc\s*=\s*["']([^"']+)["']/i.exec(t) || [])[1]));
+  (html.match(/<link\b[^>]*>/gi) || []).forEach(t => {
+    if (/\brel\s*=\s*["']stylesheet["']/i.test(t)) add((/\bhref\s*=\s*["']([^"']+)["']/i.exec(t) || [])[1]);
   });
   return urls.map(u => new URL(u, self.registration.scope).href);
 }
@@ -22,12 +27,20 @@ async function precache() {
   // that references ?v= files which are not in this cache → broken offline start
   await cache.put('./index.html', res.clone());
   const urls = assetUrlsOf(await res.text());
+  LAZY_ASSETS.forEach(a => { const u = new URL(a, self.registration.scope).href; if (!urls.includes(u)) urls.push(u); });
   const own = urls.filter(u => u.startsWith(self.location.origin));
   const cdn = urls.filter(u => !u.startsWith(self.location.origin));
-  await Promise.all(own.map(u => fetch(new Request(u, { cache: 'no-cache' })).then(r => {
+  // vendor/ files carry their version in the name and never change: an update copies them from the old cache
+  // instead of downloading about 2 MB again on every new app version
+  await Promise.all(own.map(async u => {
+    if (u.includes('/vendor/')) {
+      const old = await caches.match(u);
+      if (old) return cache.put(u, old);
+    }
+    const r = await fetch(new Request(u, { cache: 'no-cache' }));
     if (!r.ok) throw new Error('precache failed: ' + u);
     return cache.put(u, r);
-  })));
+  }));
   await Promise.all(cdn.map(u => fetch(new Request(u, { mode: 'no-cors' })).then(r => cache.put(u, r)).catch(() => {})));
 }
 
@@ -39,7 +52,7 @@ self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys => {
       // The /experimental/ test build (own SW, same origin) keeps its 'stundenzettel-exp-*' cache: never delete it here
-      const oldCaches = keys.filter(k => k !== CACHE && !k.startsWith('stundenzettel-exp-'));
+      const oldCaches = keys.filter(k => k !== CACHE && !k.startsWith('stundenzettel-exp-') && k !== MEDIA_CACHE);
       return Promise.all(oldCaches.map(k => caches.delete(k)))
         .then(() => self.clients.claim())
         .then(() => {
@@ -57,6 +70,19 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.mode === 'navigate') {
+    // App start: open from the saved copy at once instead of waiting for GitHub (hung for seconds on weak signal).
+    // A new version always comes with a new sw.js (CACHE bump): its install stores the new index.html with its files,
+    // and the page reloads itself (SW_UPDATED / controllerchange in app.js). Only the app page itself, by path.
+    const path = new URL(e.request.url).pathname;
+    const scopePath = new URL(self.registration.scope).pathname;
+    if (path === scopePath || path === scopePath + 'index.html') {
+      e.respondWith(caches.open(CACHE).then(c => c.match('./index.html')).then(cached => cached || fetch(new Request(e.request, { cache: 'no-cache' }))
+        .then(res => {
+          if (res.ok && !res.redirected) { const clone = res.clone(); caches.open(CACHE).then(c => c.put('./index.html', clone)); }
+          return res;
+        })));
+      return;
+    }
     e.respondWith(
       fetch(new Request(e.request, { cache: 'no-cache' }))
         .then(res => {
@@ -69,6 +95,18 @@ self.addEventListener('fetch', e => {
         })
         .catch(() => caches.match('./index.html'))
     );
+    return;
+  }
+
+  // Product photos and Aufbau-Dateien (public buckets, a new upload gets a new file name): kept across app versions,
+  // so the product list doesn't download them again on every visit. Private project files (signed links) never.
+  if (e.request.method === 'GET' && /\/storage\/v1\/object\/public\/product-(images|pdfs)\//.test(e.request.url)) {
+    // <img> asks without CORS (opaque, unreadable, padded to megabytes in the cache): fetch it with CORS instead
+    const key = e.request.url;
+    e.respondWith(caches.open(MEDIA_CACHE).then(c => c.match(key).then(hit => hit || fetch(key, { mode: 'cors', credentials: 'omit' }).then(res => {
+      if (res.ok) c.put(key, res.clone()).then(() => trimMedia(c));
+      return res;
+    }, () => fetch(e.request)))));
     return;
   }
 
@@ -98,6 +136,12 @@ self.addEventListener('fetch', e => {
     })
   );
 });
+
+// shortcut: drops the oldest entries by insertion order once over 150 files (~60 MB), no LRU; enough for one product catalogue
+const MEDIA_MAX = 150;
+function trimMedia(c) {
+  return c.keys().then(keys => Promise.all(keys.slice(0, Math.max(0, keys.length - MEDIA_MAX)).map(k => c.delete(k))));
+}
 
 self.addEventListener('message', e => {
   if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();

@@ -1225,12 +1225,6 @@ canvas#historyChart {
 
 .wp-removed { background: var(--wp-danger-bg); border-radius: 14px; padding: 12px 14px; margin: 8px 0; font-size: 13px; line-height: 1.5; }
 .wp-removed-title { font-weight: 700; margin-bottom: 2px; }
-.wp-int { margin-top: 10px; }
-.wp-chip .ui-avatar { width: 18px; height: 18px; font-size: 9px; margin-right: 5px; vertical-align: -4px; }
-.wp-apps { background: var(--accent-bg); border-radius: 14px; padding: 12px 14px; margin: 8px 0; }
-.wp-apps-title { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 8px; margin-bottom: 6px; color: var(--accent-text); }
-.wp-app { display: block; width: 100%; text-align: left; font: inherit; color: var(--text); background: var(--bg, #fff); border: 0.5px solid var(--border2); border-radius: 10px; padding: 9px 11px; margin-top: 6px; cursor: pointer; }
-.wp-app-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; margin-bottom: 4px; }
 .wp-empty { text-align: center; color: var(--text2); font-size: 14px; line-height: 1.5; padding: 40px 16px; }
 .wp-empty-title { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
 .wp-empty-btn { display: inline-block !important; width: auto; margin-top: 14px; padding: 10px 16px; font-size: 14px; }
@@ -1317,8 +1311,7 @@ canvas#historyChart {
 .prot-date-row { display: flex; align-items: flex-end; gap: 12px; }
 .prot-date-row .ui-field { flex: 1; }
 .prot-switch-label { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text2); margin-bottom: 20px; cursor: pointer; white-space: nowrap; }
-.prot-action-seg { overflow-x: auto; scrollbar-width: none; }
-.prot-action-seg::-webkit-scrollbar { display: none; }
+.prot-action-seg { flex-wrap: wrap; }
 .prot-action-seg > button { flex: 1 0 auto; padding: 0 12px; }
 .prot-text { min-height: 72px; resize: vertical; font-family: inherit; line-height: 1.4; }
 #page-protokoll .ui-row { align-items: center; }
@@ -1366,7 +1359,6 @@ canvas#historyChart {
 }
 .dash-worker-head { margin-bottom: 12px; }
 .dash-shift-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-bottom: 12px; }
-.dash-shift-table td { vertical-align: middle; }
 /* Settings tab (redesign): groups as cards */
 #dash-view-settings.set-card { background: none; border: 0; box-shadow: none; padding: 0; }
 .set-group { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--r-card); padding: 4px 14px; }

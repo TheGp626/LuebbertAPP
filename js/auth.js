@@ -195,7 +195,7 @@ async function fetchOwnProfile(id) {
   let data = null, error = null;
   try {
     ({ data, error } = await supabaseClient.from('app_users')
-      .select('id, full_name, role, role_rates, employment_type, default_dept, hourly_rate_internal, is_active, plan_interest_viewer, can_drive, app_user_private(hourly_rate_conni)')
+      .select('id, full_name, role, role_rates, employment_type, default_dept, hourly_rate_internal, is_active, plan_interest_viewer, can_drive, availability_enabled, photo_path, photo_consent_at, app_user_private(hourly_rate_conni)')
       .eq('id', id).maybeSingle());
   } catch (e) { error = e; }
   if (isProfileDenied(error)) return { profile: null, error: false };
@@ -291,7 +291,9 @@ function authSessionChanged(shown, fresh) {
   if (!shown || !fresh) return true;
   return ['full_name', 'role', 'default_dept', 'hourly_rate_conni', 'hourly_rate_internal', 'employment_type', 'can_drive']
     .some(function(k) { return String(shown[k] == null ? '' : shown[k]) !== String(fresh[k] == null ? '' : fresh[k]); })
-    || JSON.stringify(shown.role_rates || []) !== JSON.stringify(fresh.role_rates || []);
+    || JSON.stringify(shown.role_rates || []) !== JSON.stringify(fresh.role_rates || [])
+    // Wochenplan switches; a cached profile from before a new column existed counts as false
+    || ['plan_interest_viewer', 'availability_enabled'].some(function(k) { return !!shown[k] !== !!fresh[k]; });
 }
 
 async function initAuth() {
@@ -349,6 +351,7 @@ function handleSession(user) {
   const userChanged = sessionUserChanged(lastSessionUserId, user ? user.id : null);
   lastSessionUserId = user ? user.id : null;
   if (userChanged) closePinSheet(); // no open PIN sheet or typed PINs across logout/user switch
+  if (userChanged && typeof _ordnerUsers !== 'undefined') _ordnerUsers = null; // people list of the project folders is loaded per login
 
   if (user) {
     currentUser = { id: user.id, email: '', full_name: user.full_name || '', role: user.role,
@@ -366,6 +369,7 @@ function handleSession(user) {
     localStorage.setItem('stundenzettel_name', user.full_name);
     window.currentUserSeesInterest = !!user.plan_interest_viewer; // Wochenplan: sees who said "Ich hätte Zeit"
     window.currentUserCanDrive     = !!user.can_drive;            // Wochenplan: may apply for Fahrer slots
+    window.currentUserAvailability = !!user.availability_enabled; // Wochenplan: may block days (Verfügbarkeit)
     window.currentUserRateConni    = parseFloat(user.hourly_rate_conni)    || 0;
     window.currentUserRateInternal = parseFloat(user.hourly_rate_internal) || 0;
 
@@ -386,6 +390,7 @@ function handleSession(user) {
     settingsReady.then(function() { if (typeof loadErinnerungen === 'function') loadErinnerungen(); });
     // Employee list for the Protokoll pickers and rates — only readable with a session (no anon access)
     if (userChanged && typeof fetchAppUsers === 'function') fetchAppUsers();
+    if (userChanged && typeof mitAfterLogin === 'function') mitAfterLogin(); // unter 18, Profilbilder, Foto-Hinweis
     // A ?open=wochenplan link goes through selectMode(), which already initialises the plan
     const wpDeepLink = new URLSearchParams(location.search).get('open') === 'wochenplan';
     if (typeof handleEinsatzDeepLink === 'function') handleEinsatzDeepLink();
@@ -393,6 +398,7 @@ function handleSession(user) {
     if (typeof handleOrdnerDeepLink === 'function') handleOrdnerDeepLink();
     // Wochenplan restored from before the login needs the user to load "Meine Schichten"
     if (!wpDeepLink && typeof activeModule !== 'undefined' && activeModule === 'wochenplan' && typeof initWochenplan === 'function') initWochenplan();
+    if (typeof activeModule !== 'undefined' && activeModule === 'auftraege' && typeof initAuftraege === 'function') initAuftraege();
     // If Projektordner is already rendered, re-render with correct permissions
     if (typeof activeModule !== 'undefined' && activeModule === 'ordner' &&
         typeof renderOrdner === 'function' && typeof alleOrdner !== 'undefined') {
@@ -411,6 +417,7 @@ function handleSession(user) {
     userRole = 'MA';
     window.currentUserSeesInterest = false;
     window.currentUserCanDrive     = false;
+    window.currentUserIsMinor      = false;
     authSelectedUserId = null;
     if (userChanged && typeof buildDays === 'function') buildDays(true); // no editor content of the logged-out user stays in memory
     const nameInp = document.getElementById('auth-name-input');
@@ -431,6 +438,7 @@ var GAST_MODULES = ['produkte', 'ordner'];
 function moduleAllowedForRole(m, role) {
   if (role === 'Gast') return GAST_MODULES.indexOf(m) !== -1;
   if (m === 'protokoll') return role !== 'MA';
+  if (m === 'auftraege') return role === 'Admin' || role === 'PL' || !!(typeof window !== 'undefined' && window.currentUserSeesInterest);
   if (m === 'dashboard') return ['AL', 'PL', 'Buchhaltung', 'Admin'].indexOf(role) !== -1;
   return true;
 }
@@ -539,6 +547,12 @@ async function handleLogout() {
   await signOutLocal();
   localStorage.removeItem(LOGIN_TS_KEY);
   localStorage.removeItem(OWN_PROFILE_KEY);
+  // Shared phones: nothing personal of the last person stays readable. Unsent protocols and the own Stundenzettel
+  // weeks (stored per person, only unsent ones matter) stay, so no work is lost.
+  ['luebbert_next_shift', 'luebbert_dash_view', 'luebbert_dash_prot_scope', 'luebbert_prot_hist_scope', 'luebbert_mode'].forEach(function(k) {
+    try { localStorage.removeItem(k); } catch (e) { /* storage unavailable */ }
+  });
+  if (typeof protLogoutCleanup === 'function') protLogoutCleanup();
   // Close the open module so the next user doesn't land in e.g. the dashboard of the previous one
   if (typeof exitToMenu === 'function') exitToMenu();
   handleSession(null);

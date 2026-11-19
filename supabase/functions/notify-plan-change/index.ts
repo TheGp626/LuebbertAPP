@@ -6,6 +6,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { pushTo, vapidReady } from '../_shared/push.ts';
 import { buildPlanPushes } from './notify.mjs';
 import { loadSettings } from '../_shared/settings.ts';
+import { callerRole, isAdminRole } from '../_shared/caller.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -29,6 +30,8 @@ Deno.serve(async (req) => {
   if (!input.week_id || typeof input.week_id !== 'string') return json({ error: 'week_id_required' }, 400);
 
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  // Dry runs list who would get which push: Admins only (refused, never turned into a real send)
+  if (input.dry_run && !isAdminRole(await callerRole(db, req))) return json({ error: 'forbidden' }, 403);
   const { data: week, error } = await db.from('plan_weeks').select('id, kw, version, notified_version, removed')
     .eq('id', input.week_id).maybeSingle();
   if (error) {
@@ -44,7 +47,7 @@ Deno.serve(async (req) => {
   if (!input.dry_run && week.notified_version >= week.version) return json({ skipped: 'already_notified' });
 
   const { data: shifts, error: sErr } = await db.from('plan_shifts')
-    .select('date, venue, change_status, plan_assignments(user_id)').eq('week_id', week.id);
+    .select('date, venue, change_status, change_fields, added_user_ids, plan_assignments(user_id)').eq('week_id', week.id);
   if (sErr) { console.error('notify-plan-change: load shifts failed', sErr); return json({ error: 'db_error' }, 500); }
   const pushes = buildPlanPushes(week, shifts || [], berlinToday());
   if (input.dry_run) return json({ dry_run: true, enabled: settings.plan_change_push_enabled, pushes });

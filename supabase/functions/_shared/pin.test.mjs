@@ -47,3 +47,14 @@ test('firstPinNeedsAdminPin: leader roles only', () => {
   for (const r of ['Admin', 'PL', 'AL', 'Buchhaltung']) assert.equal(firstPinNeedsAdminPin(r), true, r);
   for (const r of ['MA', 'Gast', '', undefined, 'constructor']) assert.equal(firstPinNeedsAdminPin(r), false, String(r));
 });
+
+test('newPinEmail: random, not derived from the user id; isLegacyPinEmail spots the old form', async () => {
+  const { newPinEmail, isLegacyPinEmail } = await import('./pin.mjs');
+  const a = newPinEmail(), b = newPinEmail(), id = '4e71084c-4942-4565-ade5-974a0c3480f4';
+  assert.match(a, /^[0-9a-f-]{36}@nutzer\.luebbert\.invalid$/);
+  assert.notEqual(a, b);
+  assert.equal(isLegacyPinEmail(id, id + '@nutzer.luebbert.invalid'), true);
+  assert.equal(isLegacyPinEmail(id, id.toUpperCase() + '@NUTZER.luebbert.invalid'), true);
+  assert.equal(isLegacyPinEmail(id, a), false);
+  assert.equal(isLegacyPinEmail(id, null), false);
+});

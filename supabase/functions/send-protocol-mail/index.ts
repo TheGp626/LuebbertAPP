@@ -5,6 +5,7 @@ import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { buildSubject, buildBody, attachmentName, safePdfBase64 } from './mail.mjs';
 import { loadSettings } from '../_shared/settings.ts';
 import { chooseRecipient, disabledReason, emailOf } from '../_shared/recipient.mjs';
+import { departmentFeedback, planDepartmentMails, buildDepartmentSubject, buildDepartmentBody, departmentRecipient } from './departments.mjs';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -14,6 +15,52 @@ const CORS = {
 const MAX_PDF_B64 = 5_000_000;
 const THROTTLE_MS = 60_000;
 const MAX_MAILS_PER_HOUR = 30;
+const MAX_DEPARTMENT_MAILS_PER_HOUR = 30;
+
+// Abteilungs-Mails (Lager, Stoffe, Floristik): independent of the PL mail and never blocking it.
+// department_mail_log is claimed before sending (unique protocol + department + feedback hash), so a retry or a
+// second call at the same time sends nothing twice; a failed send releases the claim.
+// deno-lint-ignore no-explicit-any
+async function sendDepartmentMails(db: any, p: any, settings: any, testRecipient: string) {
+  const out: { department: string; sent: boolean; reason?: string }[] = [];
+  const plan = planDepartmentMails(departmentFeedback(p, settings.department_routes), await (async () => {
+    const { data, error } = await db.from('department_mail_log').select('department, items').eq('protocol_id', p.id);
+    if (error) throw error;
+    return data;
+  })());
+  if (!plan.length) return out;
+  if (!gmailConfigured()) return plan.map((m) => ({ department: m.department, sent: false, reason: 'not_configured' }));
+  const since = new Date(Date.now() - 3_600_000).toISOString();
+  const { count, error: cntErr } = await db.from('department_mail_log').select('id', { count: 'exact', head: true }).gt('sent_at', since);
+  if (cntErr) throw cntErr;
+  let budget = MAX_DEPARTMENT_MAILS_PER_HOUR - (count || 0);
+  for (const m of plan) {
+    const rcpt = departmentRecipient(m.department, { enabled: settings.department_mail_enabled,
+      testMode: settings.mail_test_mode || settings.department_mail_test_mode, testRecipient });
+    if (rcpt.reason) { out.push({ department: m.department, sent: false, reason: rcpt.reason }); continue; }
+    if (budget <= 0) { console.error('send-protocol-mail: department hourly cap reached'); out.push({ department: m.department, sent: false, reason: 'rate_limited' }); continue; }
+    const { data: claim, error: claimErr } = await db.from('department_mail_log')
+      .insert({ protocol_id: p.id, department: m.department, items: m.lines, items_hash: m.hash, is_supplement: m.isSupplement, sent_to_test: rcpt.test })
+      .select('id').maybeSingle();
+    if (claimErr) {
+      out.push({ department: m.department, sent: false, reason: claimErr.code === '23505' ? 'already_sent' : 'db_error' });
+      if (claimErr.code !== '23505') console.error('send-protocol-mail: department claim failed', claimErr);
+      continue;
+    }
+    budget--;
+    const { text, html } = buildDepartmentBody(p, m.department, m.lines, m.isSupplement);
+    try {
+      await sendGmail({ to: rcpt.to!, subject: buildDepartmentSubject(p, m.department, m.isSupplement, rcpt.test), text, html });
+      out.push({ department: m.department, sent: true });
+    } catch (e) {
+      console.error('send-protocol-mail: department SMTP failed', m.department, e);
+      const { error: relErr } = await db.from('department_mail_log').delete().eq('id', claim.id);
+      if (relErr) console.error('send-protocol-mail: department claim release failed', relErr);
+      out.push({ department: m.department, sent: false, reason: 'smtp_error' });
+    }
+  }
+  return out;
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
@@ -34,12 +81,13 @@ Deno.serve(async (req) => {
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const { data: p, error } = await db
     .from('protocols')
-    .select(`id, date, action, notes_damages, notes_incidents, notes_feedback, al_name_fallback, pl_name_fallback, pl_id, mailed_at,
+    .select(`id, date, action, job_no, notes_damages, notes_incidents, notes_feedback, al_name_fallback, pl_name_fallback, pl_id, mailed_at, side_of,
+      main:side_of(projects(name)),
       projects(name, location),
       al:app_users!protocols_al_id_fkey(full_name),
       pl:app_users!protocols_pl_id_fkey(full_name, app_user_private(email)),
       shifts(position_role, temp_worker_name, app_users(full_name)),
-      protocol_equipments(category_id, status, note),
+      protocol_equipments(category_id, status, note, hussen_delivered, hussen_returned),
       worker_ratings(temp_worker_name, rating, is_star)`)
     .eq('id', protocol_id)
     .maybeSingle();
@@ -53,10 +101,14 @@ Deno.serve(async (req) => {
 
   // Admin switches (Office Dashboard → Einstellungen); a failed read keeps today's behaviour
   const settings = await loadSettings(db);
-  if (!settings.protocol_mail_enabled) return json({ sent: false, reason: disabledReason(input.client) });
+  // Department mails first and on their own: a throttled or held-back PL mail must not hold them back
+  let departments: unknown = [];
+  try { departments = await sendDepartmentMails(db, p, settings, testRecipient); }
+  catch (e) { console.error('send-protocol-mail: department mails failed', e); departments = 'error'; }
+  if (!settings.protocol_mail_enabled) return json({ sent: false, reason: disabledReason(input.client), departments });
 
   if (p.mailed_at && Date.now() - new Date(p.mailed_at).getTime() < THROTTLE_MS) {
-    return json({ sent: false, reason: 'throttled' });
+    return json({ sent: false, reason: 'throttled', departments });
   }
 
   if (!gmailConfigured()) {
@@ -88,7 +140,7 @@ Deno.serve(async (req) => {
     .or(`mailed_at.is.null,mailed_at.lt.${cutoff}`)
     .select('id');
   if (claimErr) { console.error('send-protocol-mail: claim failed', claimErr); return json({ sent: false, reason: 'db_error' }); }
-  if (!claimed || claimed.length === 0) return json({ sent: false, reason: 'throttled' });
+  if (!claimed || claimed.length === 0) return json({ sent: false, reason: 'throttled', departments });
   const releaseClaim = async () => {
     const { error: relErr } = await db.from('protocols').update({ mailed_at: p.mailed_at }).eq('id', protocol_id);
     if (relErr) console.error('send-protocol-mail: claim release failed', relErr);
@@ -111,5 +163,5 @@ Deno.serve(async (req) => {
     return json({ sent: false, reason: (e as { code?: string })?.code === 'EAUTH' ? 'not_configured' : 'smtp_error' });
   }
 
-  return json({ sent: true, to_name: plName });
+  return json({ sent: true, to_name: plName, departments });
 });

@@ -11,7 +11,7 @@ const fn = auth.match(/function moduleAllowedForRole\([\s\S]*?\r?\n}\r?\n/)[0];
 const allowed = new Function(gast + '\n' + fn + '; return moduleAllowedForRole;')();
 
 test('firstName', () => {
-  assert.equal(H.firstName('Patryk Stanczyk'), 'Patryk');
+  assert.equal(H.firstName('Piotr Sienkowski'), 'Piotr');
   assert.equal(H.firstName('  Erika  '), 'Erika');
   assert.equal(H.firstName(''), '');
   assert.equal(H.firstName(undefined), '');
@@ -19,11 +19,12 @@ test('firstName', () => {
 
 test('homeTiles follow the role rules of auth.js', () => {
   const labels = r => H.homeTiles(r, allowed).map(t => t.label);
-  const office = ['Protokoll-Übersicht', 'Buchhaltung'];
+  const office = ['Protokoll-Übersicht', 'Personal'];
   assert.deepEqual(labels('MA'), ['Stundenzettel', 'Wochenplan', 'Produktdatenbank', 'Projektordner']);
   assert.deepEqual(labels('Gast'), ['Produktdatenbank', 'Projektordner']);
   assert.deepEqual(labels('AL'), ['Stundenzettel', 'Protokoll schreiben', 'Wochenplan', 'Produktdatenbank', 'Projektordner'].concat(office));
-  assert.deepEqual(labels('Admin'), labels('AL'));
+  assert.deepEqual(labels('Admin'), ['Stundenzettel', 'Protokoll schreiben', 'Wochenplan', 'Aufträge', 'Produktdatenbank', 'Projektordner'].concat(office));
+  assert.deepEqual(labels('PL'), labels('Admin'));
   assert.deepEqual(labels('Buchhaltung'), labels('AL').filter(l => l !== 'Protokoll schreiben' || allowed('protokoll', 'Buchhaltung')));
 });
 
@@ -55,4 +56,20 @@ test('homeNextAllowed: the "Nächster Einsatz" card only for roles that may open
   assert.equal(H.homeNextAllowed('MA', allowed), true);
   assert.equal(H.homeNextAllowed('AL', allowed), true);
   assert.equal(H.homeNextAllowed('Gast', allowed), false);
+});
+
+test('homeIsToday: today, and last night\'s shift that is still running', () => {
+  assert.equal(H.homeIsToday('2026-11-11', '2026-11-11'), true);
+  assert.equal(H.homeIsToday('2026-11-10', '2026-11-11'), true);
+  assert.equal(H.homeIsToday('2026-11-12', '2026-11-11'), false);
+  assert.equal(H.homeIsToday('2026-10-31', '2026-11-01'), true);
+});
+
+test('homeAddress / homeMapsUrl: room, street and town from the location lines', () => {
+  const s = { venue: 'Estrel', location: 'Saal Europa\nSonnenallee 225\n12057 Berlin' };
+  assert.equal(H.homeAddress(s), 'Saal Europa, Sonnenallee 225');
+  assert.equal(H.homeMapsUrl(s), 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent('Estrel, Sonnenallee 225, 12057 Berlin'));
+  assert.equal(H.homeMapsUrl({ venue: 'Tempodrom', location: 'Arena' }), 'https://www.google.com/maps/search/?api=1&query=Tempodrom');
+  assert.equal(H.homeMapsUrl({ venue: '', location: '' }), null);
+  assert.equal(H.homeAddress({ venue: 'X', location: null }), '');
 });

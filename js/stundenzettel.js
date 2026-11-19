@@ -180,7 +180,7 @@ function weekToEditorState(w, fallbackDept) {
     st.shiftValues[i] = shs.map(function (sh, s) {
       if (sh.sig) st.shiftSigData[i + '-' + s] = sh.sig;
       var _v = timeToMins(sh.von || ''), _b = timeToMins(sh.bis || '');
-      var _p = (_v !== null && _b !== null) ? autoPause(_b < _v ? _b + 1440 - _v : _b - _v) : 0;
+      var _p = (_v !== null && _b !== null) ? autoPause(_b < _v ? _b + 1440 - _v : _b - _v, ownIsMinor()) : 0;
       return { von: sh.von || '', bis: sh.bis || '', ort: sh.ort || dd.ort || '', al: sh.al || dd.al || '', pause: _p.toString(), dept: editorDept(sh.dept || fallbackDept), protocolId: sh.protocolId || null, isProtocol: sh.isProtocol || false };
     });
   });
@@ -208,9 +208,38 @@ function markEditorClean() { _editorBaseline = editorSnapshot(); }
 function editorIsDirty() { return _editorBaseline !== null && editorSnapshot() !== _editorBaseline; }
 
 // Empty editor, then (if given) the stored week on top
+// AL signatures of protocol shifts, fetched from the protocol only to show them (never saved into the week:
+// the protocol holds them, and they'd make the editor look changed). Key "day-shift" like shiftSigData.
+var _protSigShown = {};
+function shownSig(key) { return shiftSigData[key] || _protSigShown[key] || null; }
+
+// Protocol shifts of the open week whose signature this phone doesn't have: load them from their protocols
+async function loadProtocolSigsForEditor() {
+  if (typeof supabaseClient === 'undefined' || !currentUser) return;
+  var want = {}, wk = _editorWeek;
+  Object.keys(shiftValues).forEach(function(d) {
+    (shiftValues[d] || []).forEach(function(sv, s) {
+      var key = d + '-' + s;
+      if (sv && sv.protocolId && !shiftSigData[key] && !_protSigShown[key]) (want[sv.protocolId] = want[sv.protocolId] || []).push(key);
+    });
+  });
+  var ids = Object.keys(want);
+  if (!ids.length) return;
+  try {
+    var res = await supabaseClient.from('protocols').select('id, signature_text').in('id', ids);
+    if (res.error || !res.data || wk !== _editorWeek) return; // another week opened meanwhile
+    res.data.forEach(function(r) {
+      if (!r.signature_text) return;
+      want[r.id].forEach(function(key) { _protSigShown[key] = r.signature_text; redrawShiftSig(key); });
+    });
+    for (var i = 0; i < DAYS.length; i++) updateBubble(i);
+  } catch (e) { console.warn('Protokoll-Unterschriften nicht geladen:', e); }
+}
+
 function resetEditorState(w, fallbackDept) {
   shiftSigCanvases = {};
   shiftSigData = {};
+  _protSigShown = {};
   shiftValues = {};
   shiftCounts = {};
   for (var i = 0; i < DAYS.length; i++) {
@@ -233,6 +262,7 @@ function renderEditorFromState() {
   updateTopBarSub();
   _editorWeek = (document.getElementById('inp-week') || {}).value || currentWeekVal();
   markEditorClean();
+  loadProtocolSigsForEditor();
 }
 
 // The sync brought a newer state of the week that is open — show it, but never over unsaved input
@@ -305,14 +335,16 @@ async function fetchShiftsNow() {
       }
     }
 
-    var { data, error } = await supabaseClient
+    // Paged: a cut-off answer would look like deleted shifts and drop synced local weeks
+    var { data, error } = await sbFetchAll(() => supabaseClient
       .from('shifts')
       .select(`
         id, start_time, end_time, pause_mins, position_role, status, shift_date, protocol_id, ort,
         protocols ( date, al_name_fallback, pl_name_fallback, projects ( name, location ) )
       `)
       .eq('user_id', currentUser.id)
-      .in('status', ['offen', 'eingetragen']);
+      .in('status', ['offen', 'eingetragen'])
+      .order('id'));
 
     if (error) throw error;
     if (!sameUser()) { setTimeout(fetchSupabaseShifts, 0); return; } // the new user gets their own sync
@@ -381,7 +413,7 @@ async function fetchShiftsNow() {
         dayMatch.shifts.push({
            von: (sh.start_time || '').substring(0,5),
            bis: (sh.end_time || '').substring(0,5),
-           pause: (function() { var v = timeToMins((sh.start_time||'').substring(0,5)), b = timeToMins((sh.end_time||'').substring(0,5)); if (v===null||b===null) return '0'; var r = b<v ? b+1440-v : b-v; return autoPause(r).toString(); })(),
+           pause: serverShiftPause(sh),
            ort: (prot.projects && (prot.projects.location || prot.projects.name)) ? [prot.projects.location, prot.projects.name].filter(Boolean).join(', ') : (sh.ort || ''),
            al: prot.al_name_fallback || prot.pl_name_fallback || '',
            dept: sh.position_role || 'MA',
@@ -642,7 +674,7 @@ function updateBubble(dayIdx) {
   for (var s = 0; s < (shiftCounts[dayIdx] || 1); s++) {
     var data = getShiftData(dayIdx, s);
     shifts.push(data);
-    if (shiftSigData[dayIdx + '-' + s]) signed++;
+    if (shownSig(dayIdx + '-' + s)) signed++;
     var von = timeToMins(data.von), bis = timeToMins(data.bis);
     var pause = parseInt(data.pause) || 0;
     var effB = (bis < von) ? bis + 1440 : bis;
@@ -775,7 +807,7 @@ function calcDay(dayIdx) {
     var von = timeToMins(vonEl.value), bis = timeToMins(bisEl.value);
     var effB = (bis < von) ? bis + 1440 : bis;
     if (von !== null && bis !== null && effB > von) {
-      var raw = effB - von, pause = autoPause(raw), net = Math.max(180, raw - pause);
+      var raw = effB - von, pause = autoPause(raw, ownIsMinor()), net = Math.max(180, raw - pause);
       if (pauseEl) pauseEl.value = pause;
       if (badge) badge.textContent = shiftSummaryLine(vonEl.value, bisEl.value, pause);
       totalMins += net;
@@ -820,7 +852,7 @@ function calcTotal() {
         var earn = formatEarnings(byDept[d], d);
         if (!earn) return null;
         var shortName = d.split(' ')[0]; // e.g. "AL" or "MA"
-        return '<span style="font-size:11px;opacity:0.85">' + shortName + ':</span> ' + earn;
+        return '<span style="font-size:11px;opacity:0.85">' + escapeHtml(shortName) + ':</span> ' + earn;
       }).filter(Boolean);
       if (parts.length) {
         e.innerHTML = parts.join('<span style="margin:0 6px;opacity:0.4">|</span>');
@@ -872,12 +904,12 @@ function redrawShiftSig(key) {
   var sc = shiftSigCanvases[key];
   if (sc) {
     sc.ctx.clearRect(0, 0, sc.w, sc.h);
-    if (shiftSigData[key]) {
+    if (shownSig(key)) {
       var img = new Image(); img.onload = function () { sc.ctx.drawImage(img, 0, 0, sc.w, sc.h); };
-      img.src = shiftSigData[key];
+      img.src = shownSig(key);
     }
   }
-  var ph = document.getElementById('sigph-' + key); if (ph) ph.style.display = shiftSigData[key] ? 'none' : '';
+  var ph = document.getElementById('sigph-' + key); if (ph) ph.style.display = shownSig(key) ? 'none' : '';
   updateShiftLockState(key);
 }
 
@@ -932,8 +964,8 @@ function updateShiftLockState(key) {
     // Signature status pill next to "Unterschrift AL"
     var pill = document.getElementById('sigpill-' + key);
     if (pill) {
-      pill.className = 'ui-pill ' + (shiftSigData[key] ? 'ui-pill-ok' : 'ui-pill-warn');
-      pill.textContent = shiftSigData[key] ? 'unterschrieben' : 'fehlt';
+      pill.className = 'ui-pill ' + (shownSig(key) ? 'ui-pill-ok' : 'ui-pill-warn');
+      pill.textContent = shownSig(key) ? 'unterschrieben' : 'fehlt';
     }
   }
   if (!isNaN(dayIdx)) updateBubble(dayIdx);
@@ -1046,6 +1078,8 @@ function renderHistory(skipSync) {
 
 function renderHistoryChart() {
   var ctx = document.getElementById('historyChart'); if (!ctx) return;
+  // Chart.js loads on first use; draw once it is there (no chart offline before the first install is fine)
+  if (!window.Chart) { loadLib('chart').then(renderHistoryChart).catch(function(e) { console.error('chart', e); }); return; }
   var all = loadStore();
   // Aggregate hours per base week key (merges "2026-W12:AL" + "2026-W12:MA" into "2026-W12")
   var weekTotals = {};
@@ -1298,6 +1332,20 @@ function syncWeekToSupabase(data, quiet) {
   });
 }
 
+// Pause of a server shift for the local week: the stored pause_mins (set by the AL in the protocol or by the office),
+// the automatic pause only when none is stored. Recomputing it always made hours differ from the dashboard and
+// pushed the automatic value back over an office correction on the next save.
+function serverShiftPause(sh) {
+  var p = parseInt(sh && sh.pause_mins, 10);
+  if (!isNaN(p) && p >= 0) return String(p);
+  var v = timeToMins(((sh && sh.start_time) || '').substring(0, 5)), b = timeToMins(((sh && sh.end_time) || '').substring(0, 5));
+  if (v === null || b === null) return '0';
+  return autoPause(b < v ? b + 1440 - v : b - v, ownIsMinor()).toString();
+}
+
+// Logged-in person is under 18 (i_am_minor after the login, mitarbeiter.js)
+function ownIsMinor() { return typeof window !== 'undefined' && !!window.currentUserIsMinor; }
+
 async function syncWeekNow(data, quiet) {
   if (typeof supabaseClient === 'undefined' || !currentUser) return;
 
@@ -1508,11 +1556,12 @@ function weekEarningsTotal(parts) {
 // saving/syncing happens only via the Speichern button.
 async function downloadWeekPDF() {
   var data = collectData(); if (!data.name) { showToast('Bitte Namen eingeben'); return; }
+  if (!(await needLib('jspdf'))) return;
   await fetchSignaturesForWeeks([data]);
   var sigP = [];
   data.days.forEach(function (dd) { dd.shifts.forEach(function (sh) { if (sh.sig) sigP.push(new Promise(function (res) { compressSignature(sh.sig, function (c) { sh.sig = c; res(); }); })); }); });
   await Promise.all(sigP);
-  var doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
+  var doc = pdfPatch(new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })), ml = 20, cw = 170;
   splitWeekByDepts(data).forEach(function (pageData, i) {
     if (i > 0) doc.addPage();
     drawPDFContent(doc, pageData, ml, cw);
@@ -1526,6 +1575,7 @@ async function downloadWeekPDF() {
 var sendToBuchhaltung = downloadWeekPDF;
 
 async function exportMonthlyPDF(mKey) {
+  if (!(await needLib('jspdf'))) return;
   var all = loadStore();
   var ks = Object.keys(all).sort();
   var monthW = [], mLab = monthLabelFromKey(mKey), mTot = 0, name = '';
@@ -1556,7 +1606,7 @@ async function exportMonthlyPDF(mKey) {
     if (!name) name = w.name;
   });
   if (!monthW.length) return;
-  var doc = new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }), ml = 20, cw = 170;
+  var doc = pdfPatch(new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })), ml = 20, cw = 170;
   if (typeof LOGO_BASE64 !== 'undefined') {
     try { var lw = 30, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100; doc.addImage(LOGO_BASE64, 'PNG', 160, 10, lw, lh); } catch (e) { }
   }
@@ -1657,7 +1707,9 @@ function drawPDFContent(doc, data, ml, cw) {
   });
   y += 8; doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Gesamtstunden:', ml, y); doc.setTextColor(24, 95, 165); doc.text(data.total + ' h', ml + 38, y);
   doc.setTextColor(0);
-  var rateC = window.currentUserRateConni || 0;
+  // A page is one department: the person's pay for that function (MA / AL can differ), else the general rate
+  var rUser = window._pdfRateUser || (typeof currentUser !== 'undefined' ? currentUser : null);
+  var rateC = (rUser && data.abt && personPayRate(rUser, shiftSyncRole(data.abt, rUser.employment_type))) || window.currentUserRateConni || 0;
   if (rateC > 0 && parseFloat(data.total) > 0) {
     var earnings = (parseFloat(data.total) * rateC).toFixed(2).replace('.', ',');
     y += 7; doc.setFont('helvetica', 'normal'); doc.setFontSize(10);

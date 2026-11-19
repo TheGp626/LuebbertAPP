@@ -4,9 +4,11 @@
 // Cron runs several times in the 9:00 hour; reminder_log / plan_reminder_log make later runs no-ops and retry failures.
 // Body: { mode? ("evening" → evening push), force?, only_user_id?, dry_run? (list only, send/log nothing), plan_override? (daily dry runs: treat plan reminders as on) } or { mode: "test", user_id, pin } (test push)
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
-import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, pendingPlIds, testPush, testPushResult, LOOKBACK_DAYS } from './reminders.mjs';
+import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, pendingPlIds, testPush, testPushResult, dropWaivedPlanRows, LOOKBACK_DAYS } from './reminders.mjs';
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { loadSettings } from '../_shared/settings.ts';
+import { callerRole, isAdminRole } from '../_shared/caller.ts';
+import { stripDebug, wantsDebug } from '../_shared/debug-input.mjs';
 import { pushTo, vapidReady } from '../_shared/push.ts';
 import { chooseRecipient, emailOf } from '../_shared/recipient.mjs';
 import { planGuessAction } from '../_shared/plan-time.mjs';
@@ -58,14 +60,18 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
       planFrom = planWindowStart(from, sw?.updated_at || null);
     }
     let pq = db.from('plan_assignments')
-      .select('user_id, role, shift:plan_shifts!inner(date, venue, title, wann, ap_user_id)')
+      .select('user_id, role, shift:plan_shifts!inner(key, date, venue, title, wann, ap_user_id)')
       .eq('role', 'AL').not('user_id', 'is', null)
       .gte('shift.date', planFrom).lte('shift.date', to);
     if (input.only_user_id) pq = pq.eq('user_id', input.only_user_id);
     const { data: rows, error: rErr } = await pq;
     if (rErr) { console.error('send-reminders: load plan failed', rErr); return json({ error: 'db_error' }, 500); }
-    planJobs = mergePlanJobs(einsaetze || [], (rows || []).map((r: Db) => ({ al_id: r.user_id, date: r.shift.date, venue: r.shift.venue,
-      title: r.shift.title, wann: r.shift.wann, ap_user_id: r.shift.ap_user_id })));
+    // "Kein Protokoll nötig" in the Protokoll-Übersicht: no push and no PL mail for those (a failed read reminds as before)
+    const { data: waivers, error: wvErr } = await db.from('protocol_waivers').select('shift_keys').gte('date', planFrom).lte('date', to);
+    if (wvErr) console.error('send-reminders: load protocol_waivers failed', wvErr);
+    const planRows = (rows || []).map((r: Db) => ({ key: r.shift.key, al_id: r.user_id, date: r.shift.date, venue: r.shift.venue,
+      title: r.shift.title, wann: r.shift.wann, ap_user_id: r.shift.ap_user_id }));
+    planJobs = mergePlanJobs(einsaetze || [], dropWaivedPlanRows(planRows, wvErr ? [] : waivers));
   }
   if (!(einsaetze || []).length && !planJobs.length) return json({ pushed: 0, mailed: 0, removed_subscriptions: 0, ...(dry ? { dry_run: true } : {}) });
 
@@ -274,8 +280,9 @@ async function runEvening(db: Db, input: Input, settings: Record<string, unknown
 }
 
 // Test push from the admin settings tab: one fixed message to all devices of one user, nothing logged.
-// Needs the admin password (checked by verify_admin_pin), so the anon key alone can't push to people.
-async function runTest(db: Db, input: Input, now: Date) {
+// Needs a logged-in Admin plus the admin password (the anon key is public, so the password alone could be guessed).
+async function runTest(db: Db, input: Input, now: Date, isAdmin: boolean) {
+  if (!isAdmin) return json({ error: 'forbidden' }, 403);
   if (!input.user_id || !input.pin) return json({ error: 'missing_input' }, 400);
   const { data: okPin, error: pinErr } = await db.rpc('verify_admin_pin', { input_pin: input.pin });
   if (pinErr) { console.error('send-reminders: pin check failed', pinErr); return json({ error: 'db_error' }, 500); }
@@ -292,7 +299,10 @@ Deno.serve(async (req) => {
 
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const now = new Date();
-  if (input.mode === 'test') return runTest(db, input, now);
+  // Cron calls with the anon key and no switches; only an Admin may test, dry-run or force
+  const isAdmin = (input.mode === 'test' || wantsDebug(input)) && isAdminRole(await callerRole(db, req));
+  if (input.mode === 'test') return runTest(db, input, now, isAdmin);
+  input = stripDebug(input, isAdmin) as Input;
   const settings = await loadSettings(db);
   return input.mode === 'evening' ? runEvening(db, input, settings, now) : runDaily(db, input, settings, now);
 });

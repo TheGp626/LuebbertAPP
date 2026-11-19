@@ -7,7 +7,7 @@ const base = {
   projects: { name: 'BVL 20.10', location: 'ESTREL' },
   al: { full_name: 'Adriano Sorrentino' }, pl: { full_name: 'Jennifer Wolf', email: 'j@x.de' },
   notes_damages: 'nein', notes_incidents: '', notes_feedback: 'Alles <super> & "gut"',
-  shifts: [{ position_role: 'Rockit', temp_worker_name: 'ALEX' }, { position_role: 'MA frei', app_users: { full_name: 'Lukas Kozmus' } }],
+  shifts: [{ position_role: 'Rockit', temp_worker_name: 'ALEX' }, { position_role: 'MA frei', app_users: { full_name: 'Lasse Kozmus' } }],
   protocol_equipments: [{ category_id: 'mobiliar', status: 'okay' }, { category_id: 'stoffe', status: 'beschädigt', note: 'Riss' }],
   worker_ratings: [{ temp_worker_name: 'ALEX', rating: 'up', is_star: true }]
 };
@@ -52,4 +52,15 @@ test('safePdfBase64 keeps real PDFs only', () => {
   assert.equal(safePdfBase64(''), null);
   assert.equal(safePdfBase64(null), null);
   assert.equal(safePdfBase64(42), null);
+});
+
+test('buildBody: a Zusatzauftrag names its main protocol instead of "Personal: 0"', () => {
+  const p = { date: '2026-11-18', action: 'Aufbau', projects: { name: 'KKJ', location: 'Estrel' }, al: { full_name: 'Paul' },
+    side_of: 'x', main: { projects: { name: 'Breko' } }, shifts: [] };
+  const { text, html } = buildBody(p);
+  assert.match(text, /Zusatzauftrag: im Zuge von Breko/);
+  assert.doesNotMatch(text, /Personal:/);
+  assert.match(html, /im Zuge von Breko/);
+  const plain = buildBody(Object.assign({}, p, { side_of: null, main: null, shifts: [{}, {}] })).text;
+  assert.match(plain, /Personal: 2/);
 });
