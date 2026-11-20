@@ -268,13 +268,27 @@ async function openMaterialCheck(opts) {
   var parsed = shift && typeof planShiftFromDb === 'function' ? planShiftFromDb(shift) : shift;
   var planKey = shift ? mcPlanKey(shift.date, planEventKey(parsed)) : null;
   var planItems = shift ? mcPlanItems(planMaterialLines(parsed)).map(function(it) { return Object.assign(it, { list: planKey }); }) : [];
+  // The other rooms of the same Bestätigung on that day (RPC order_check_group); without it (offline) the known jobs only
+  var group = {};
+  if (jobNos.length) {
+    try {
+      var gr = await supabaseClient.rpc('order_check_group', { p_job: jobNos[0], p_phase: (opts.phase || 'aufbau') === 'abbau' ? 'teardown' : 'setup' });
+      if (gr.error) throw gr.error;
+      (Array.isArray(gr.data) ? gr.data : []).forEach(function(j) {
+        if (!mcIsJobNo(j.jobNo)) return;
+        group[j.jobNo] = j;
+        if (jobNos.indexOf(j.jobNo) === -1) jobNos.push(j.jobNo);
+      });
+      jobNos.sort();
+    } catch (e) { console.warn('Material: weitere Räume', e); }
+  }
   var jobKeys = jobNos.map(mcJobKey);
   var cached = function(k) { try { return JSON.parse(localStorage.getItem(MC_ITEMS_KEY + k) || 'null'); } catch (e) { return null; } };
   var jobItems = [], jobNames = [], rows = [], offline = false;
   for (var ji = 0; ji < jobNos.length; ji++) {
     var jobNo = jobNos[ji], jobKey = jobKeys[ji], its = [], nm = '';
     try {
-      var ir = await supabaseClient.rpc('order_check_items', { p_job: jobNo });
+      var ir = group[jobNo] ? { data: group[jobNo] } : await supabaseClient.rpc('order_check_items', { p_job: jobNo });
       if (ir.error) throw ir.error;
       its = mcJobItems(ir.data);
       nm = (ir.data && ir.data.name) || '';
