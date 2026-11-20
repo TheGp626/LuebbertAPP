@@ -1249,9 +1249,25 @@ function collectData() {
   return { name: document.getElementById('inp-name').value || '', abt: used.length === 1 ? used[0] : selectedAbt, weekStart: v, weekLabel: weekLabelFromVal(v), days: days, total: document.getElementById('total-hours').textContent, saved: new Date().toISOString(), depts: used };
 }
 
+// Days (index 0 = Monday) with a filled shift dated after tomorrow. Hours are entered once worked: a shift typed into a
+// future week by mistake was never replaced by the AL's protocol (other day) and counted twice.
+function szFutureDayIdx(mon, days, today) {
+  var limit = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).getTime();
+  return (days || []).map(function(dd, i) {
+    var day = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i).getTime();
+    var filled = (dd.shifts || []).some(function(sh) { return sh.von && sh.bis; });
+    return filled && day > limit ? i : -1;
+  }).filter(function(i) { return i >= 0; });
+}
+
 async function saveWeek() {
   if (!szStoreKey()) { showToast('Bitte zuerst anmelden'); return; }
   var d = collectData(); if (!d.name) { showToast('Bitte Namen eingeben'); return; }
+  var future = szFutureDayIdx(getMondayFromWeekVal(d.weekStart), d.days, new Date());
+  if (future.length) {
+    showToast('Schichten erst eintragen, wenn sie gearbeitet sind (' + future.map(function(i) { return d.days[i].day + ' ' + d.days[i].date; }).join(', ') + '). Falsche Woche?', 'danger');
+    return;
+  }
 
   // A save replaces the week on the server (deletes open shifts that are not in the form) — so the server state of
   // the week must have been seen first. Never delete what the user never saw.
