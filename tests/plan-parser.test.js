@@ -325,6 +325,13 @@ test('planShiftHeading / planMaterialLines: a Was cell that starts with equipmen
   assert.equal(P.planShiftHeading({ title: '1. OG', location: [] }), '1. OG');
 });
 
+test('planMaterialLines: the title heads the first room of a list grouped by rooms', () => {
+  const s = { title: 'Foyer 4', details: ['4 Glasbowl', 'CH II | Bühne', '2 STB weiß + Verblendung', 'CH II', '16 STB weiß'].join('\n') };
+  assert.deepEqual(P.planMaterialLines(s), ['Foyer 4', '4 Glasbowl', 'CH II | Bühne', '2 STB weiß + Verblendung', 'CH II', '16 STB weiß']);
+  // no room headings in the list: the title is the event, not a room
+  assert.deepEqual(P.planMaterialLines({ title: 'Hochzeit', details: ['20 Stuhl Clara', '4 Tisch rund'] }), ['20 Stuhl Clara', '4 Tisch rund']);
+});
+
 test('planShiftOrder / nextOwnShift: date, then time, untimed last, today long past dropped', () => {
   const now = new Date(2026, 9, 29, 15, 0); // Wed 29.10. 15:00 local
   const s = (date, wann, sort) => ({ date, wann, sort });

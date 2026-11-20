@@ -105,3 +105,30 @@ test('pick source: Bestätigung first, a started plan list stays when the Bestä
   assert.deepEqual(M.mcPickSource([], p, [], []), { use: 'plan', switchToJob: false });
   assert.deepEqual(M.mcPickSource([], [], [], []), { use: null, switchToJob: false });
 });
+
+test('mcJobsForShift: all rooms of one Bestätigung on the same day and phase', () => {
+  const at = (d) => d + 'T07:00:00+01:00';
+  const orders = [{ job_no: '26-0287.01', phase: 'setup', start_at: at('2026-11-26') }];
+  const slots = [
+    { job_no: '26-0287.01', phase: 'setup', start_at: at('2026-11-26') },
+    { job_no: '26-0287.03', phase: 'setup', start_at: at('2026-11-26') },
+    { job_no: '26-0287.02', phase: 'setup', start_at: at('2026-11-26') },
+    { job_no: '26-0287.02', phase: 'teardown', start_at: at('2026-11-28') }, // other phase
+    { job_no: '26-0287.04', phase: 'setup', start_at: at('2026-11-27') },    // other day
+    { job_no: '26-0300.01', phase: 'setup', start_at: at('2026-11-26') },    // other Bestätigung
+  ];
+  assert.deepEqual(M.mcJobsForShift(orders, slots), ['26-0287.01', '26-0287.02', '26-0287.03']);
+  assert.deepEqual(M.mcJobsForShift(orders, null), ['26-0287.01']);
+  assert.deepEqual(M.mcJobsForShift([], slots), []);
+  assert.equal(M.mcJobLabel(['26-0287.01', '26-0287.02', '26-0287.03']), '26-0287.01, .02, .03');
+});
+
+test('mcLinesMulti: each position reads the ticks of its own job', () => {
+  const items = [{ key: '0.0', list: 'job:26-0287.01', name: 'Stehtischbrücke weiß', soll: 16 },
+    { key: '0.0', list: 'job:26-0287.03', name: 'Glasbowl', soll: 4 }];
+  const rows = [{ list_key: 'job:26-0287.03', phase: 'aufbau', item_key: '0.0', qty: 3, note: '' }];
+  const l = M.mcLinesMulti(items, rows, 'aufbau');
+  assert.equal(l[0].ist, null);
+  assert.equal(l[1].ist, 3);
+  assert.equal(l[1].fehlt, 1);
+});
