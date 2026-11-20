@@ -1121,3 +1121,12 @@ test('protSaveArchive: full storage drops server-known signatures, then older se
   limit = 5;
   assert.equal(ctx.protSaveArchive(arch), false);
 });
+
+test('markProtMailed: a correction saved after the mailed version stays pending', () => {
+  let saved = null;
+  const arch = [{ supabaseId: 7, mailed: false, savedAt: '2026-11-20T10:00:00.000Z' }, { supabaseId: 7, mailed: false, savedAt: '2026-11-20T10:00:10.000Z' },
+    { supabaseId: 8, mailed: false, savedAt: '2026-11-20T09:00:00.000Z' }];
+  ctx.localStorage = { getItem: () => JSON.stringify(arch), setItem(k, v) { saved = JSON.parse(v); } };
+  ctx.markProtMailed(7, '2026-11-20T10:00:00.000Z');
+  assert.deepEqual(saved.map(e => e.mailed), [true, false, false]); // the 10:00:10 edit and another protocol stay open
+});
