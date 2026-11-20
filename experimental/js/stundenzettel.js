@@ -722,6 +722,10 @@ function renderDayEditorArea() {
     });
     if (needsCalc) calcDay(i);
     for (var s2 = 0; s2 < (shiftCounts[i] || 1); s2++) {
+      // A shift without stored values (empty day) starts on the default dept ("MA"), not on the first option of the list ("AL"),
+      // which was saved as an AL shift (higher pay) unless the worker changed the select
+      var dNew = document.getElementById('dept-' + i + '-' + s2);
+      if (dNew && !(sv[s2] && sv[s2].dept)) dNew.value = selectedAbt;
       initShiftSig(i, s2);
       redrawShiftSig(i + '-' + s2);
     }
