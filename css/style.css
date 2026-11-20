@@ -1162,6 +1162,8 @@ canvas#historyChart {
 .wp-titlebar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .wp-titlebar h2 { margin: 0; font-size: 22px; font-weight: 700; }
 .wp-upload { flex: 0 0 auto; display: inline-flex !important; align-items: center; gap: 6px; width: auto; padding: 9px 14px; font-size: 14px; }
+/* the !important above beat the "display:none" set for everyone but PL/Admin (wochenplan.js initWochenplan): an MA saw the upload button */
+.wp-upload[style*="display:none"], .wp-upload[style*="display: none"] { display: none !important; }
 .wp-hint { font-size: 13px; color: var(--text2); background: var(--bg2); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 12px; }
 .wp-hint-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; padding: 11px; margin-bottom: 12px; }
 
