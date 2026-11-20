@@ -1813,11 +1813,13 @@ var _mailInFlight = {};
 // In-flight guard keeps the save path and the history retry from mailing the same protocol twice.
 async function sendMailForEntry(entry, notify) {
   var sid = entry.supabaseId;
-  if (!sid || _mailInFlight[sid]) return false;
+  if (!sid) return false;
+  // A correction saved while the first mail is still on its way is not lost: it goes out after the server's duplicate guard
+  if (_mailInFlight[sid]) { scheduleMailRetry(); return false; }
   _mailInFlight[sid] = true;
   try {
     var done = await mailProtokoll(sid, entry, !!entry.isUpdate, notify);
-    if (done) markProtMailed(sid);
+    if (done) markProtMailed(sid, entry.savedAt);
     return done;
   } finally {
     delete _mailInFlight[sid];
@@ -1825,11 +1827,12 @@ async function sendMailForEntry(entry, notify) {
 }
 
 // Re-reads the archive so entries written meanwhile aren't lost; only flips the flag
-function markProtMailed(supabaseId) {
+// upTo = savedAt of the entry that was mailed: a newer edit of the same protocol saved meanwhile stays pending
+function markProtMailed(supabaseId, upTo) {
   var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
   var changed = false;
   archive.forEach(function(x) {
-    if (x.supabaseId === supabaseId && x.mailed === false) { x.mailed = true; changed = true; }
+    if (x.supabaseId === supabaseId && x.mailed === false && (!upTo || !x.savedAt || x.savedAt <= upTo)) { x.mailed = true; changed = true; }
   });
   if (changed) protSaveArchive(archive);
 }
@@ -1869,6 +1872,8 @@ function scheduleMailRetry() {
 var MAIL_TIMEOUT_MS = 60000;
 var MAIL_MAX_PDF_B64 = 4900000; // just under the function's 5 MB limit
 
+var _pdfFailTries = {};
+
 // Mails the protocol (summary + PDF) to its PL via the send-protocol-mail Edge Function.
 // Returns true when nothing is left to retry; never throws. `notify` = user just pressed Senden/Sync,
 // so failures get a toast; background retries stay quiet.
@@ -1878,13 +1883,21 @@ async function mailProtokoll(supabaseId, entry, isUpdate, notify) {
   try {
     await loadLib('jspdf');
     pdfBase64 = buildProtPdfDoc(entry, { costs: true }).output('datauristring').split(',')[1] || null;
+    if (!pdfBase64) throw new Error('leeres PDF');
     // The function rejects >5 MB with 413 forever → send the summary without attachment instead
-    if (pdfBase64 && pdfBase64.length > MAIL_MAX_PDF_B64) {
+    if (pdfBase64.length > MAIL_MAX_PDF_B64) {
       console.warn('Protokoll-PDF zu groß für Mail, sende ohne Anhang:', pdfBase64.length);
       pdfBase64 = null;
     }
   } catch (e) {
-    console.warn('Protokoll-PDF für Mail fehlgeschlagen, sende ohne Anhang:', e);
+    // The PDF could not be made (library did not load on a bad connection, ...): the mail is held back and retried instead
+    // of reaching the PL without its attachment and counting as sent. After 3 tries the summary goes out alone.
+    _pdfFailTries[supabaseId] = (_pdfFailTries[supabaseId] || 0) + 1;
+    console.warn('Protokoll-PDF für Mail fehlgeschlagen (Versuch ' + _pdfFailTries[supabaseId] + '):', e);
+    if (_pdfFailTries[supabaseId] < 3) {
+      if (notify) showToast('PDF konnte nicht erstellt werden – die Mail wird erneut versucht', 'danger');
+      return false;
+    }
   }
   try {
     var timeout = new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, MAIL_TIMEOUT_MS); });
@@ -2278,7 +2291,7 @@ function buildProtPdfDoc(entry, opts) {
       if (i%2===1){doc.setFillColor(248,248,246);doc.rect(ml,y,cw,8,'F');}
       var v=timeToMins(p.start),b=timeToMins(p.end),pa=parseInt(p.pause)||0;
       var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
-      var netStr='—'; if(v!==null&&b!==null&&effB>v){var n=Math.max(3,(effB-v-pa)/60);netStr=n.toFixed(2)+' h';}
+      var netStr='—'; if(v!==null&&b!==null&&effB>v){var n=Math.max(p.pos==='Zenjob'||p.pos==='Rockit'?4:3,(effB-v-pa)/60);netStr=n.toFixed(2)+' h';}
       // Same fest/frei rule as the cost lines below
       var posLabel = pdfStr(protBasePos(p, appUsers), '—');
       doc.text(truncatePdf(doc,posLabel,22),ml+2,y+5.5); doc.text(truncatePdf(doc,pdfStr(p.name,'—'),45),ml+25,y+5.5); doc.text(pdfStr(p.start,'—')+' - '+pdfStr(p.end,'—'),ml+72,y+5.5); doc.text(pa+' Min',ml+100,y+5.5); doc.text(netStr,ml+118,y+5.5);
