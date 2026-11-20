@@ -1,6 +1,8 @@
 /* Material abhaken (Spec "Mengen abhaken und Abteilungs-Mails", Teil A).
  * AL, PL and the MA planned on an Einsatz tick off the positions of the Auftragsbestätigung (RPC order_check_items) or,
  * without one, the material lines of the Wochenplan, with the real quantity: once at Aufbau, once at Abbau.
+ * One plan entry often covers several rooms of one Bestätigung (26-0287.01 CH II, .02 Saal Europa, .03 Foyer): all jobs
+ * of that Bestätigung with the same day and phase are shown together, each still saved under its own job (list_key).
  * Every change goes to table order_checks at once and shows on every open phone through Supabase Realtime.
  * Offline, changes wait in localStorage and are sent when the phone is back online (the later change wins on the server).
  * Pure functions first (tested in tests/material.test.js), then the sheet. */
@@ -42,6 +44,33 @@ function mcPlanItems(lines) {
     out.push({ key: seen[base] > 1 ? base + '#' + seen[base] : base, group: group, name: name, soll: +m[1] });
   });
   return out;
+}
+
+// Jobs to tick for a plan entry: the linked ones plus every job of the same Bestätigung (26-0287.xx) with a slot on the
+// same day and phase; the plan links each slot to one entry only, but the entry lists the material of all rooms
+function mcJobsForShift(orders, slots) {
+  var out = [], linked = (orders || []).filter(function(o) { return mcIsJobNo(o.job_no); });
+  var add = function(j) { if (out.indexOf(j) === -1) out.push(j); };
+  linked.forEach(function(o) { add(o.job_no); });
+  linked.forEach(function(o) {
+    var base = o.job_no.split('.')[0], day = String(o.start_at || '').slice(0, 10);
+    (slots || []).forEach(function(s) {
+      if (mcIsJobNo(s.job_no) && s.job_no.split('.')[0] === base && s.phase === o.phase && String(s.start_at || '').slice(0, 10) === day) add(s.job_no);
+    });
+  });
+  return out.sort();
+}
+
+// Lines of positions from several lists (item.list = list_key): each position reads the rows of its own list
+function mcLinesMulti(items, rows, phase) {
+  var byList = {};
+  (rows || []).forEach(function(r) { (byList[r.list_key] = byList[r.list_key] || []).push(r); });
+  return (items || []).map(function(it) { return mcLines([it], mcIndexRows(byList[it.list] || []), phase)[0]; });
+}
+
+// "26-0287.01" / "26-0287.01, .02, .03"
+function mcJobLabel(jobNos) {
+  return (jobNos || []).map(function(j, i) { return i ? '.' + j.split('.')[1] : j; }).join(', ');
 }
 
 // rows (order_checks of one list) → { 'aufbau|key': row, 'abbau|key': row }
@@ -121,7 +150,7 @@ function mcPickSource(jobItems, planItems, jobRows, planRows) {
 
 // ── Sheet (browser only) ──
 
-var _mc = null; // { src, listKey, phase, items, rows, channel, live, lastSync, alt }
+var _mc = null; // { listKeys (job lists or the plan list), phase, items, rows, channel, live, lastSync, alt }
 
 function _mcEsc(s) { return (typeof escapeHtml === 'function') ? escapeHtml(String(s == null ? '' : s)) : String(s == null ? '' : s); }
 function _mcQueue() { try { return JSON.parse(localStorage.getItem(MC_QUEUE_KEY) || '[]'); } catch (e) { return []; } }
@@ -163,7 +192,7 @@ function openMaterialCheckForShift(shiftId) {
   if (!s) return;
   var parsed = typeof planShiftFromDb === 'function' ? planShiftFromDb(s) : s;
   var order = (s._orders || []).find(function(o) { return mcIsJobNo(o.job_no); });
-  openMaterialCheck({ shift: s, date: s.date, jobNo: order ? order.job_no : '',
+  openMaterialCheck({ shift: s, date: s.date, jobNos: mcJobsForShift(s._orders, typeof _wpSlots !== 'undefined' ? _wpSlots : null),
     phase: order ? mcPhaseOf(order.phase) : mcPhaseOf(typeof planGuessAction === 'function' ? planGuessAction(parsed.wann) : '') });
 }
 
@@ -172,7 +201,7 @@ async function openMaterialCheckForProtocol() {
   var val = function(id) { return ((document.getElementById(id) || {}).value || '').trim(); };
   var date = val('prot-date'), event = val('prot-event'), jobNo = (typeof protJobNo === 'function' ? protJobNo(val('prot-job')) : val('prot-job'));
   if (!date) { if (typeof showToast === 'function') showToast('Erst das Datum eintragen.'); return; }
-  openMaterialCheck({ jobNo: mcIsJobNo(jobNo) ? jobNo : '', date: date, eventName: event, phase: mcPhaseOf(val('prot-action')), fromProtocol: true,
+  openMaterialCheck({ jobNos: mcIsJobNo(jobNo) ? [jobNo] : [], date: date, eventName: event, phase: mcPhaseOf(val('prot-action')), fromProtocol: true,
     onClose: function() { if (typeof refreshProtShortages === 'function') refreshProtShortages(); } });
 }
 
@@ -228,32 +257,37 @@ function _mcHead(title) {
     '<svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>';
 }
 
-// opts: { shift?, jobNo?, date, eventName?, phase, fromProtocol?, onClose? }
+// opts: { shift?, jobNos?, date, eventName?, phase, fromProtocol?, onClose? }
 async function openMaterialCheck(opts) {
   if (_mc) closeMaterialCheck();
   var box = _mcSheet();
   box.innerHTML = _mcHead('Material abhaken') + '<div class="wp-empty">Lädt…</div>';
   var shift = opts.shift || (opts.eventName ? await _mcPlanShiftFor(opts.date, opts.eventName) : null);
-  var jobNo = opts.jobNo || (shift ? await _mcJobForShift(shift) : '');
+  var jobNos = (opts.jobNos && opts.jobNos.length) ? opts.jobNos : [];
+  if (!jobNos.length && shift) { var j1 = await _mcJobForShift(shift); if (j1) jobNos = [j1]; }
   var parsed = shift && typeof planShiftFromDb === 'function' ? planShiftFromDb(shift) : shift;
-  var planItems = shift ? mcPlanItems(planMaterialLines(parsed)) : [];
-  var planKey = shift ? mcPlanKey(shift.date, planEventKey(parsed)) : null, jobKey = jobNo ? mcJobKey(jobNo) : null;
+  var planKey = shift ? mcPlanKey(shift.date, planEventKey(parsed)) : null;
+  var planItems = shift ? mcPlanItems(planMaterialLines(parsed)).map(function(it) { return Object.assign(it, { list: planKey }); }) : [];
+  var jobKeys = jobNos.map(mcJobKey);
   var cached = function(k) { try { return JSON.parse(localStorage.getItem(MC_ITEMS_KEY + k) || 'null'); } catch (e) { return null; } };
-  var jobItems = [], jobName = '', rows = [], offline = false;
-  if (jobKey) {
+  var jobItems = [], jobNames = [], rows = [], offline = false;
+  for (var ji = 0; ji < jobNos.length; ji++) {
+    var jobNo = jobNos[ji], jobKey = jobKeys[ji], its = [], nm = '';
     try {
       var ir = await supabaseClient.rpc('order_check_items', { p_job: jobNo });
       if (ir.error) throw ir.error;
-      jobItems = mcJobItems(ir.data);
-      jobName = (ir.data && ir.data.name) || '';
-      if (jobItems.length) try { localStorage.setItem(MC_ITEMS_KEY + jobKey, JSON.stringify({ items: jobItems, name: jobName })); } catch (e) { /* full */ }
+      its = mcJobItems(ir.data);
+      nm = (ir.data && ir.data.name) || '';
+      if (its.length) try { localStorage.setItem(MC_ITEMS_KEY + jobKey, JSON.stringify({ items: its, name: nm })); } catch (e) { /* full */ }
     } catch (e) {
       console.error('Material: Positionen laden', e);
       var c = cached(jobKey);
-      if (c) { jobItems = c.items || []; jobName = c.name || ''; offline = true; }
+      if (c) { its = c.items || []; nm = c.name || ''; offline = true; }
     }
+    its.forEach(function(it) { it.list = jobKey; jobItems.push(it); });
+    if (nm) jobNames.push(nm);
   }
-  var keys = [jobKey, planKey].filter(Boolean);
+  var keys = jobKeys.concat(planKey ? [planKey] : []);
   if (keys.length) {
     try {
       var rr = await supabaseClient.from('order_checks').select('*').in('list_key', keys);
@@ -261,18 +295,18 @@ async function openMaterialCheck(opts) {
       rows = rr.data || [];
     } catch (e) { console.error('Material: Haken laden', e); offline = true; }
   }
-  var pick = mcPickSource(jobItems, planItems, rows.filter(function(r) { return r.list_key === jobKey; }), rows.filter(function(r) { return r.list_key === planKey; }));
+  var pick = mcPickSource(jobItems, planItems, rows.filter(function(r) { return jobKeys.indexOf(r.list_key) !== -1; }), rows.filter(function(r) { return r.list_key === planKey; }));
   if (!pick.use) {
     box.innerHTML = _mcHead('Material abhaken') + '<div class="wp-empty">' + (offline
       ? 'Ohne Netz und ohne gespeicherte Liste geht es gerade nicht. Versuch es mit Netz noch einmal.'
       : 'Für diesen Einsatz gibt es weder eine Auftragsbestätigung noch Material im Wochenplan.') + '</div>';
     return;
   }
-  var useJob = pick.use === 'job';
+  var useJob = pick.use === 'job', jobSource = 'aus Auftragsbestätigung ' + mcJobLabel(jobNos) + (jobNames.length ? ' (' + jobNames.join(', ') + ')' : '');
   _mc = {
-    listKey: useJob ? jobKey : planKey, items: useJob ? jobItems : planItems,
-    source: useJob ? 'aus Auftragsbestätigung ' + jobNo + (jobName ? ' (' + jobName + ')' : '') : 'aus dem Wochenplan',
-    alt: pick.switchToJob ? { listKey: jobKey, items: jobItems, source: 'aus Auftragsbestätigung ' + jobNo } : null,
+    listKeys: useJob ? jobKeys : [planKey], items: useJob ? jobItems : planItems,
+    source: useJob ? jobSource : 'aus dem Wochenplan',
+    alt: pick.switchToJob ? { listKeys: jobKeys, items: jobItems, source: jobSource } : null,
     phase: opts.phase || 'aufbau', date: (shift && shift.date) || opts.date,
     planKeys: shift ? ((shift.keys && shift.keys.length) ? shift.keys : [shift.key]).filter(Boolean) : [],
     rows: rows, live: false, lastSync: offline ? null : new Date(), onClose: opts.onClose || null, openNote: {}
@@ -287,17 +321,18 @@ function mcSwitchToJob() {
   if (!confirm('Zur Liste aus der Auftragsbestätigung wechseln? Die Haken aus dem Wochenplan bleiben gespeichert, zählen dann aber nicht mehr.')) return;
   var alt = _mc.alt;
   if (_mc.channel) { try { supabaseClient.removeChannel(_mc.channel); } catch (e) { /* gone */ } }
-  Object.assign(_mc, { listKey: alt.listKey, items: alt.items, source: alt.source, alt: null, channel: null, live: false });
+  Object.assign(_mc, { listKeys: alt.listKeys, items: alt.items, source: alt.source, alt: null, channel: null, live: false });
   _mcSubscribe();
   _mcRender();
 }
 
 function _mcSubscribe() {
   if (!_mc || typeof supabaseClient === 'undefined' || !supabaseClient.channel) return;
-  var key = _mc.listKey;
-  _mc.channel = supabaseClient.channel('mc-' + key.replace(/[^A-Za-z0-9]/g, '-') + '-' + Date.now())
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'order_checks', filter: 'list_key=eq.' + key }, function(p) {
-      if (!_mc || _mc.listKey !== key) return;
+  var keys = _mc.listKeys.slice();
+  var ch = supabaseClient.channel('mc-' + keys[0].replace(/[^A-Za-z0-9]/g, '-') + '-' + Date.now());
+  keys.forEach(function(key) {
+    ch = ch.on('postgres_changes', { event: '*', schema: 'public', table: 'order_checks', filter: 'list_key=eq.' + key }, function(p) {
+      if (!_mc || _mc.listKeys.indexOf(key) === -1) return;
       var row = p.new && p.new.list_key ? p.new : null, old = p.old || {};
       _mc.rows = _mc.rows.filter(function(r) {
         var k = row || old;
@@ -306,7 +341,9 @@ function _mcSubscribe() {
       if (row) _mc.rows.push(row);
       _mc.lastSync = new Date();
       _mcRender();
-    })
+    });
+  });
+  _mc.channel = ch
     .subscribe(function(status) {
       if (!_mc) return;
       _mc.live = status === 'SUBSCRIBED';
@@ -316,12 +353,13 @@ function _mcSubscribe() {
 }
 
 function _mcLines() {
-  var rows = mcWithPending(_mc.rows, _mcQueue(), _mc.listKey);
-  return mcLines(_mc.items, mcIndexRows(rows.filter(function(r) { return r.list_key === _mc.listKey; })), _mc.phase);
+  var q = _mcQueue(), rows = [];
+  _mc.listKeys.forEach(function(k) { rows = rows.concat(mcWithPending(_mc.rows.filter(function(r) { return r.list_key === k; }), q, k)); });
+  return mcLinesMulti(_mc.items, rows, _mc.phase);
 }
 
 function _mcStatusHtml() {
-  var pending = _mcQueue().filter(function(r) { return _mc && r.list_key === _mc.listKey; }).length;
+  var pending = _mcQueue().filter(function(r) { return _mc && _mc.listKeys.indexOf(r.list_key) !== -1; }).length;
   var online = _mc.live && (typeof navigator === 'undefined' || navigator.onLine !== false);
   var t = _mc.lastSync ? _mc.lastSync.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
   return '<span class="mc-dot ' + (online ? 'mc-dot-live' : '') + '"></span>' + (online ? 'live' : 'offline' + (t ? ', zuletzt ' + t : '')) +
@@ -401,8 +439,8 @@ function mcNote(idx, v) {
 }
 
 function _mcWrite(idx, qty, note) {
-  var it = _mc.items[idx], base = mcBase(it, mcIndexRows(_mc.rows), _mc.phase);
-  var row = { list_key: _mc.listKey, phase: _mc.phase, item_key: it.key, item_name: it.name.slice(0, 300),
+  var it = _mc.items[idx], base = mcBase(it, mcIndexRows(_mc.rows.filter(function(r) { return r.list_key === it.list; })), _mc.phase);
+  var row = { list_key: it.list, phase: _mc.phase, item_key: it.key, item_name: it.name.slice(0, 300),
     soll: base, qty: qty, note: note || '', plan_date: _mc.date, plan_keys: _mc.planKeys, changed_at: new Date().toISOString() };
   _mcSaveQueue(mcQueuePut(_mcQueue(), row));
   _mcRender();
@@ -448,7 +486,7 @@ async function _mcOnline() {
   await _mcFlush();
   if (!_mc || typeof supabaseClient === 'undefined') return;
   try {
-    var r = await supabaseClient.from('order_checks').select('*').eq('list_key', _mc.listKey);
+    var r = await supabaseClient.from('order_checks').select('*').in('list_key', _mc.listKeys);
     if (r.error) throw r.error;
     if (_mc) { _mc.rows = r.data || []; _mc.lastSync = new Date(); _mcRender(); }
   } catch (e) { console.error('Material: nachladen', e); }
@@ -464,16 +502,19 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 async function mcLoadShortages(jobNo, date, eventName, phase) {
   if (typeof supabaseClient === 'undefined') return { items: [], source: '' };
   try {
-    var listKey = null, items = [];
+    var listKey = null, items = [], rows = [];
     if (mcIsJobNo(jobNo)) {
-      var ir = await supabaseClient.rpc('order_check_items', { p_job: jobNo });
-      if (!ir.error && ir.data) { items = mcJobItems(ir.data); listKey = mcJobKey(jobNo); }
-    }
-    var rows = [];
-    if (listKey) {
-      var r = await supabaseClient.from('order_checks').select('*').eq('list_key', listKey);
+      // the protocol's job and the other rooms of the same Bestätigung ticked for that day (one sheet ticks them together)
+      var q = supabaseClient.from('order_checks').select('*').like('list_key', 'job:' + jobNo.split('.')[0] + '.%');
+      var r = await (date ? q.or('list_key.eq.' + mcJobKey(jobNo) + ',plan_date.eq.' + date) : q.eq('list_key', mcJobKey(jobNo)));
       if (r.error) throw r.error;
       rows = r.data || [];
+      var lists = rows.map(function(x) { return x.list_key; }).filter(function(k, i, a) { return a.indexOf(k) === i; }).sort();
+      for (var li = 0; li < lists.length; li++) {
+        var ir = await supabaseClient.rpc('order_check_items', { p_job: lists[li].slice(4) });
+        if (!ir.error && ir.data) mcJobItems(ir.data).forEach(function(it) { it.list = lists[li]; items.push(it); });
+      }
+      if (rows.length) listKey = mcJobKey(jobNo);
     }
     if (!rows.length && eventName && date) {
       var s = await _mcPlanShiftFor(date, eventName);
@@ -481,11 +522,13 @@ async function mcLoadShortages(jobNo, date, eventName, phase) {
         var parsed = planShiftFromDb(s), pk = mcPlanKey(s.date, planEventKey(parsed));
         var r2 = await supabaseClient.from('order_checks').select('*').eq('list_key', pk);
         if (r2.error) throw r2.error;
-        if ((r2.data || []).length) { rows = r2.data; items = mcPlanItems(planMaterialLines(parsed)); listKey = pk; }
+        if ((r2.data || []).length) { rows = r2.data; items = mcPlanItems(planMaterialLines(parsed)).map(function(it) { return Object.assign(it, { list: pk }); }); listKey = pk; }
       }
     }
     if (!rows.length) return { items: [], source: '' };
-    return { items: mcShortages(items, rows, phase), source: listKey.indexOf('job:') === 0 ? 'Auftragsbestätigung ' + jobNo : 'Wochenplan' };
+    var short = mcLinesMulti(items, rows, phase).filter(function(l) { return l.fehlt > 0 || (l.ist != null && l.note.trim()); })
+      .map(function(l) { return { name: l.item.name, soll: l.base, ist: l.ist, fehlt: l.fehlt, note: l.note.trim() }; });
+    return { items: short, source: listKey.indexOf('job:') === 0 ? 'Auftragsbestätigung ' + jobNo.split('.')[0] : 'Wochenplan' };
   } catch (e) {
     console.error('Material: Fehlmengen laden', e);
     return { items: [], source: '' };
@@ -495,5 +538,6 @@ async function mcLoadShortages(jobNo, date, eventName, phase) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { mcPhaseOf: mcPhaseOf, mcJobKey: mcJobKey, mcPlanKey: mcPlanKey, mcIsJobNo: mcIsJobNo, mcJobItems: mcJobItems,
     mcPlanItems: mcPlanItems, mcIndexRows: mcIndexRows, mcBase: mcBase, mcLines: mcLines, mcSummary: mcSummary, mcShortages: mcShortages,
-    mcShortageText: mcShortageText, mcQueuePut: mcQueuePut, mcWithPending: mcWithPending, mcPickSource: mcPickSource };
+    mcShortageText: mcShortageText, mcQueuePut: mcQueuePut, mcWithPending: mcWithPending, mcPickSource: mcPickSource,
+    mcJobsForShift: mcJobsForShift, mcLinesMulti: mcLinesMulti, mcJobLabel: mcJobLabel };
 }
