@@ -721,7 +721,12 @@ function planShiftHeading(s) {
 // Material list incl. an equipment line that the parser took as the title
 function planMaterialLines(s) {
   var d = planLines(s.details);
-  return planIsMaterial(s.title) ? [s.title].concat(d) : d;
+  if (planIsMaterial(s.title)) return [s.title].concat(d);
+  // A list grouped by rooms whose first room is the title ("Foyer 4" + "4 Glasbowl / CH II | Bühne / 2 STB …"):
+  // the title heads the first block, otherwise "4 Glasbowl" would stand without its room
+  var first = d.find(function(l) { return String(l || '').trim(); });
+  var grouped = d.some(function(l) { var t = String(l || '').trim(); return t && !planIsMaterial(t); });
+  return s.title && planIsMaterial(first) && grouped ? [s.title].concat(d) : d;
 }
 
 // Order of a person's upcoming shifts: by date, same day timed shifts by time, then untimed ones by sort.
