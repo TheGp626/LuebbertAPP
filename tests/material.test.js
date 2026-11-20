@@ -19,10 +19,10 @@ test('phase, keys and job numbers', () => {
   assert.ok(!M.mcIsJobNo('26-1234'));
 });
 
-test('job items: group.item keys, soll from qty', () => {
+test('job items: keys from group and name, soll from qty', () => {
   const it = M.mcJobItems(job);
   assert.deepEqual(it.map(i => [i.key, i.group, i.name, i.soll]),
-    [['0.0', 'Mobiliar', 'Stuhl Clara', 10], ['0.1', 'Mobiliar', 'Stehtisch', 4], ['1.0', 'Stoffe', 'Husse weiß', 120]]);
+    [['j:mobiliar|stuhl clara', 'Mobiliar', 'Stuhl Clara', 10], ['j:mobiliar|stehtisch', 'Mobiliar', 'Stehtisch', 4], ['j:stoffe|husse weiß', 'Stoffe', 'Husse weiß', 120]]);
   assert.deepEqual(M.mcJobItems(null), []);
 });
 
@@ -36,9 +36,9 @@ test('plan items: quantity lines, headings as groups, repeated lines numbered', 
 test('lines and summary: Aufbau against Soll, Abbau against what was set up', () => {
   const items = M.mcJobItems(job);
   const rows = [
-    { phase: 'aufbau', item_key: '0.0', qty: 8, note: '2 mit Kratzern', updated_by: 'u1' },
-    { phase: 'aufbau', item_key: '0.1', qty: 4, note: '' },
-    { phase: 'abbau', item_key: '0.0', qty: 7, note: '' },
+    { phase: 'aufbau', item_key: 'j:mobiliar|stuhl clara', qty: 8, note: '2 mit Kratzern', updated_by: 'u1' },
+    { phase: 'aufbau', item_key: 'j:mobiliar|stehtisch', qty: 4, note: '' },
+    { phase: 'abbau', item_key: 'j:mobiliar|stuhl clara', qty: 7, note: '' },
   ];
   const by = M.mcIndexRows(rows);
   const up = M.mcLines(items, by, 'aufbau');
@@ -52,9 +52,9 @@ test('lines and summary: Aufbau against Soll, Abbau against what was set up', ()
 test('shortages for the protocol: missing quantities and notes of ticked positions', () => {
   const items = M.mcJobItems(job);
   const rows = [
-    { phase: 'aufbau', item_key: '0.0', qty: 8, note: '2 mit Kratzern' },
-    { phase: 'aufbau', item_key: '0.1', qty: 4, note: 'einer wackelt' },
-    { phase: 'aufbau', item_key: '1.0', qty: 120, note: '' },
+    { phase: 'aufbau', item_key: 'j:mobiliar|stuhl clara', qty: 8, note: '2 mit Kratzern' },
+    { phase: 'aufbau', item_key: 'j:mobiliar|stehtisch', qty: 4, note: 'einer wackelt' },
+    { phase: 'aufbau', item_key: 'j:stoffe|husse weiß', qty: 120, note: '' },
   ];
   const s = M.mcShortages(items, rows, 'aufbau');
   assert.deepEqual(s, [
@@ -67,7 +67,7 @@ test('shortages for the protocol: missing quantities and notes of ticked positio
 
 test('a tick taken back (qty null) is open again: not counted, no shortage, Abbau starts from the Soll', () => {
   const items = M.mcJobItems(job);
-  const rows = [{ phase: 'aufbau', item_key: '0.0', qty: null, note: 'kommt nach', updated_by: 'u1' }];
+  const rows = [{ phase: 'aufbau', item_key: 'j:mobiliar|stuhl clara', qty: null, note: 'kommt nach', updated_by: 'u1' }];
   const by = M.mcIndexRows(rows);
   const l = M.mcLines(items, by, 'aufbau')[0];
   assert.equal(l.ist, null);
@@ -131,4 +131,12 @@ test('mcLinesMulti: each position reads the ticks of its own job', () => {
   assert.equal(l[0].ist, null);
   assert.equal(l[1].ist, 3);
   assert.equal(l[1].fehlt, 1);
+});
+
+test('job items: a revised Bestätigung keeps ticks on their position; repeated lines are numbered', () => {
+  const rev = { materials: [{ group: 'Mobiliar', items: [{ qty: 2, name: 'Sessel' }, { qty: 10, name: 'Stuhl Clara' }, { qty: 3, name: 'Stuhl Clara' }] }] };
+  const it = M.mcJobItems(rev);
+  assert.deepEqual(it.map(i => i.key), ['j:mobiliar|sessel', 'j:mobiliar|stuhl clara', 'j:mobiliar|stuhl clara#2']);
+  // 'Stuhl Clara' is the same key as in the first Bestätigung although a new position came first
+  assert.equal(it[1].key, M.mcJobItems(job)[0].key);
 });

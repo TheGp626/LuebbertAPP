@@ -19,13 +19,16 @@ function mcJobKey(jobNo) { return 'job:' + jobNo; }
 function mcPlanKey(date, eventKey) { return 'plan:' + date + '|' + String(eventKey || '').trim().toLowerCase().slice(0, 200); }
 function mcIsJobNo(v) { return /^\d{2}-\d{4}\.\d{2}$/.test(String(v || '')); }
 
-// order_check_items() result → positions [{key, group, name, soll}]; key = group.item index (stable for one Bestätigung)
+// order_check_items() result → positions [{key, group, name, soll}]. The key is the text of group and name (numbered when
+// it repeats), like the plan list: a revised Bestätigung that adds or moves a position keeps every tick on its position
 function mcJobItems(res) {
-  var out = [];
-  ((res && res.materials) || []).forEach(function(g, gi) {
-    (g.items || []).forEach(function(it, ii) {
-      var q = Number(it.qty);
-      out.push({ key: gi + '.' + ii, group: g.group || '', name: String(it.name || '').trim(), soll: isFinite(q) ? q : null });
+  var out = [], seen = {};
+  ((res && res.materials) || []).forEach(function(g) {
+    (g.items || []).forEach(function(it) {
+      var q = Number(it.qty), name = String(it.name || '').trim();
+      var base = 'j:' + (String(g.group || '').trim() + '|' + name).toLowerCase().slice(0, 180);
+      seen[base] = (seen[base] || 0) + 1;
+      out.push({ key: seen[base] > 1 ? base + '#' + seen[base] : base, group: g.group || '', name: name, soll: isFinite(q) ? q : null });
     });
   });
   return out;
@@ -468,30 +471,52 @@ async function _mcFlush() {
   var queue = _mcQueue();
   if (!queue.length) return;
   _mcFlushing = true;
+  var again = false;
+  var rowId = function(q) { return q.list_key + '|' + q.phase + '|' + q.item_key + '|' + q.changed_at; };
+  var permanent = function(e) { return !!e && (e.code === '42501' || e.code === '23514' || e.code === '22P02' || e.code === '23502'); };
+  var send = function(rows) { return supabaseClient.from('order_checks').upsert(rows, { onConflict: 'list_key,phase,item_key' }).select('*'); };
+  // Only drop what was handled: a tick made while the request ran stays queued
+  var drop = function(rows) {
+    var gone = {};
+    rows.forEach(function(q) { gone[rowId(q)] = true; });
+    _mcSaveQueue(_mcQueue().filter(function(q) { return !gone[rowId(q)]; }));
+  };
+  var take = function(data) {
+    if (!_mc) return;
+    (data || []).forEach(function(row) {
+      _mc.rows = _mc.rows.filter(function(x) { return !(x.list_key === row.list_key && x.phase === row.phase && x.item_key === row.item_key); });
+      _mc.rows.push(row);
+    });
+    _mc.lastSync = new Date();
+  };
   try {
-    var r = await supabaseClient.from('order_checks').upsert(queue, { onConflict: 'list_key,phase,item_key' }).select('*');
+    var r = await send(queue);
     if (r.error) throw r.error;
-    // Only drop what was sent: a tick made while the request ran stays queued
-    var sent = {};
-    queue.forEach(function(q) { sent[q.list_key + '|' + q.phase + '|' + q.item_key + '|' + q.changed_at] = true; });
-    _mcSaveQueue(_mcQueue().filter(function(q) { return !sent[q.list_key + '|' + q.phase + '|' + q.item_key + '|' + q.changed_at]; }));
-    if (_mc) {
-      (r.data || []).forEach(function(row) {
-        _mc.rows = _mc.rows.filter(function(x) { return !(x.list_key === row.list_key && x.phase === row.phase && x.item_key === row.item_key); });
-        _mc.rows.push(row);
-      });
-      _mc.lastSync = new Date();
-    }
+    drop(queue);
+    take(r.data);
+    again = _mcQueue().length > 0; // a tick made while this request ran
   } catch (e) {
     console.error('Material: senden', e);
-    // A row the server refuses for good (no right, bad value) would block the queue forever
-    if (e && (e.code === '42501' || e.code === '23514' || e.code === '22P02' || e.code === '23502')) {
-      _mcSaveQueue([]);
-      if (typeof showToast === 'function') showToast('Änderung abgelehnt: keine Berechtigung für diese Liste.', 'error');
+    // One row the server refuses for good (no right, bad value) rejects the whole batch and would block the queue
+    // forever: send the rows one by one, drop only the refused ones, keep the rest for later
+    if (permanent(e)) {
+      var refused = 0;
+      for (var qi = 0; qi < queue.length; qi++) {
+        try {
+          var one = await send([queue[qi]]);
+          if (one.error) throw one.error;
+          drop([queue[qi]]);
+          take(one.data);
+        } catch (e2) {
+          if (permanent(e2)) { drop([queue[qi]]); refused++; } else break; // network trouble: the rest waits
+        }
+      }
+      if (refused && typeof showToast === 'function') showToast('Änderung abgelehnt: keine Berechtigung für diese Liste.', 'error');
     }
   } finally {
     _mcFlushing = false;
     if (_mc) _mcRender();
+    if (again) _mcFlush();
   }
 }
 
