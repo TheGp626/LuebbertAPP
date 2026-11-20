@@ -410,3 +410,10 @@ test('szFutureDayIdx: filled shifts after tomorrow are refused, today and tomorr
   days[6].shifts = [{ von: '02:30', bis: '' }];
   assert.deepEqual(f(mon, days, today), []);
 });
+
+test('weekToEditorState: a synced day with no shifts still has one (empty) shift, so its break is calculated', () => {
+  const { weekToEditorState } = load(['weekToEditorState', 'editorDept', 'ownIsMinor'], ['timeToMins', 'autoPause']);
+  const st = weekToEditorState({ days: [{ shifts: [] }, { shifts: [{ von: '08:00', bis: '16:30' }] }] }, 'MA');
+  assert.equal(st.shiftCounts[0], 1);
+  assert.equal(st.shiftCounts[1], 1);
+});
