@@ -145,3 +145,16 @@ body { color: var(--w-ink); font-feature-settings: 'tnum' 0; -webkit-font-smooth
   background: var(--w-card); color: var(--w-ink); border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); font-size: 15px; font-weight: 700; cursor: pointer; }
 .w-more-item.on { box-shadow: inset 4px 0 0 var(--w-accent); }
 .w-more-item:active { background: var(--w-tint); }
+
+/* ── Heute (js/heute.js, js/home.js) ── */
+.w-heute { padding-top: 20px; }
+.w-heute .w-title { cursor: default; -webkit-user-select: none; user-select: none; }
+.w-heute .w-hero { margin-bottom: 8px; }
+.w-heute .w-hero[role="button"] { cursor: pointer; }
+.w-heute .w-hero .w-btn-accent { min-height: 36px; padding: 6px 14px; font-size: 13px; }
+.w-heute .w-hero-foot > span { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.w-heute .home-today { margin-bottom: 8px; }
+.w-heute .w-empty { margin-bottom: 8px; }
+#erinnerung-banner { margin-top: 16px; }
+.w-banner-rows .w-row { font-size: 14px; min-height: 48px; }
+.w-foot { text-align: center; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--w-muted); margin-top: 28px; }

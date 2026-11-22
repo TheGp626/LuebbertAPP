@@ -13,7 +13,7 @@
 
   <link rel="stylesheet" href="css/style.css?v=43">
   <link rel="stylesheet" href="css/ui.css?v=47">
-  <link rel="stylesheet" href="css/werk.css?v=2">
+  <link rel="stylesheet" href="css/werk.css?v=3">
 </head>
 
 <body>
@@ -72,16 +72,15 @@
 
     <!-- ══════════ STARTUP PAGE ══════════ -->
     <div class="page active" id="page-startup">
-      <div class="ui-home">
-        <div class="ui-home-head">
-          <div class="ui-sub" id="home-date"></div>
-        </div>
-        <h1 class="ui-title ui-home-hello" id="home-hello" onclick="titleTap()">Hallo</h1>
+      <div class="ui-home w-heute" id="heute">
+        <div class="w-date" id="home-date"></div>
+        <h1 class="w-title" id="home-hello" onclick="titleTap()">Heute</h1>
         <div id="home-next"></div>
         <div id="erinnerung-banner" style="display:none;"></div>
-        <div class="ui-tiles" id="home-tiles"></div>
-        <button type="button" class="ui-btn ui-btn-block home-problem" onclick="openProblemForm()">Problem melden</button>
-        <div class="ui-sub" style="text-align:center; margin-top:12px;">Lübbert App v2.0</div>
+        <div id="heute-office"></div>
+        <div id="heute-week"></div>
+        <div id="heute-todo"></div>
+        <div class="w-foot">Lübbert App v2.0</div>
       </div>
     </div>
 
@@ -961,7 +960,7 @@
   <script src="js/mitarbeiter.js?v=4"></script>
   <script src="js/stundenzettel.js?v=37"></script>
   <script src="js/protokoll.js?v=60"></script>
-  <script src="js/erinnerung.js?v=14"></script>
+  <script src="js/erinnerung.js?v=15"></script>
   <script src="js/plan-pdf.js?v=3"></script>
   <script src="js/plan-parser.js?v=27"></script>
   <script src="js/order-parser.js?v=9"></script>
@@ -970,7 +969,8 @@
   <script src="js/auftraege.js?v=14"></script>
   <script src="js/wochenplan.js?v=41"></script>
   <script src="js/material.js?v=5"></script>
-  <script src="js/home.js?v=11"></script>
+  <script src="js/home.js?v=12"></script>
+  <script src="js/heute.js?v=1"></script>
   <script src="js/dashboard.js?v=66"></script>
   <script src="js/fehler.js?v=1"></script>
   <script src="js/produkte.js?v=22"></script>
