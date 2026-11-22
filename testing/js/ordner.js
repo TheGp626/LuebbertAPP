@@ -1,0 +1,1280 @@
+/**
+ * Projektordner Module — Datei-Manager (Google Drive Ersatz)
+ */
+
+var alleOrdner = [];
+var aktuellerOrdner = null; // { id, name, description }
+var ordnerFiles = [];
+var editingOrdnerId = null;
+
+var canManageOrdner = false; // PL / Admin only
+
+// project_folders.ends_on is the deletion date: a top-level folder is removed (with subfolders and files)
+// by the Edge Function cleanup-folders once this date has passed.
+var ORDNER_DELETE_DAYS = 7;
+var ORDNER_DELETE_WARN_DAYS = 7;
+var _ordnerAutoValue = ''; // auto date the open form last computed from its Einsatz rows
+
+// ISO date + n days (UTC math, no DST surprises)
+function ordnerAddDays(iso, n) {
+  var p = String(iso).split('-');
+  var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n));
+  return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2);
+}
+
+// Latest non-cancelled Einsatz date + 7 days, null without dated jobs
+function ordnerAutoDeleteDate(einsaetze) {
+  var latest = null;
+  (einsaetze || []).forEach(function(e) {
+    if (e && e.date && !e.cancelled && (!latest || e.date > latest)) latest = e.date;
+  });
+  return latest ? ordnerAddDays(latest, ORDNER_DELETE_DAYS) : null;
+}
+
+// null without a deletion date, else { date, days } (days left, 0 = today or overdue); today = ISO date
+function ordnerDeleteInfo(folder, today) {
+  if (!folder || !folder.ends_on) return null;
+  var a = folder.ends_on.split('-'), b = String(today).split('-');
+  var days = Math.round((Date.UTC(+a[0], +a[1] - 1, +a[2]) - Date.UTC(+b[0], +b[1] - 1, +b[2])) / 86400000);
+  return { date: folder.ends_on, days: Math.max(0, days) };
+}
+
+// "Löschung am 05.10.2026", '' without a date
+function ordnerDeleteLabel(endsOn) {
+  var p = String(endsOn || '').split('-');
+  return p.length === 3 ? 'Löschung am ' + p[2] + '.' + p[1] + '.' + p[0] : '';
+}
+
+// Warning text for the last days before deletion, '' otherwise
+function ordnerDeleteBadge(info) {
+  if (!info || info.days > ORDNER_DELETE_WARN_DAYS) return '';
+  return info.days === 0 ? 'wird heute gelöscht' : 'wird in ' + info.days + (info.days === 1 ? ' Tag' : ' Tagen') + ' gelöscht';
+}
+
+// Form rule: an empty field or one still equal to the previous auto value follows the jobs; a manual date stays
+function ordnerNextDeleteValue(current, oldAuto, newAuto) {
+  if (!current || current === oldAuto) return newAuto || '';
+  return current;
+}
+
+// ── INIT ──
+async function initOrdner() {
+  canManageOrdner = typeof userRole !== 'undefined' && ['PL', 'Admin'].includes(userRole);
+  var addBtn = document.getElementById('btn-add-ordner');
+  if (addBtn) addBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
+  closeOrdnerDetail();
+  await fetchOrdner();
+}
+
+// ── FETCH ORDNER ──
+async function fetchOrdner() {
+  showOrdnerLoading(true);
+  if (typeof supabaseClient === 'undefined') { showOrdnerLoading(false); return; }
+
+  var { data, error } = await supabaseClient
+    .from('project_folders')
+    .select('id, name, description, created_at, parent_id, pl_id, ends_on')
+    .order('name', { ascending: true });
+
+  showOrdnerLoading(false);
+  if (error) { console.error('Ordner fetch:', error); showToast('Fehler beim Laden der Ordner.', 'danger'); return; }
+  alleOrdner = data || [];
+  filterOrdner(); // keeps an active search text applied (renders everything when empty)
+}
+
+function renderOrdner(list) {
+  canManageOrdner = typeof userRole !== 'undefined' && ['PL', 'Admin'].includes(userRole);
+  var addBtn = document.getElementById('btn-add-ordner');
+  if (addBtn) addBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
+
+  var grid = document.getElementById('ordner-grid');
+  var empty = document.getElementById('ordner-empty');
+  if (!grid) return;
+
+  // Top level shows only root folders; subfolders live inside their parent
+  list = (list || []).filter(function(o) { return !o.parent_id; });
+
+  if (!list || list.length === 0) {
+    grid.innerHTML = '';
+    if (empty) empty.style.display = 'flex';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  grid.innerHTML = list.map(function(o) { return ordnerFolderRowHtml(o, true); }).join('');
+}
+
+// One folder as a list row (list view and subfolders)
+function ordnerFolderRowHtml(o, showDate) {
+  var date = showDate && o.created_at ? new Date(o.created_at).toLocaleDateString('de-DE') : '';
+  // Only top-level folders carry a deletion date
+  var info = o.parent_id ? null : ordnerDeleteInfo(o, localDateStr());
+  var sub = [o.description || '', date, info ? 'Löschung am ' + shortDateDE(info.date) : ''].filter(Boolean).join(' · ');
+  var badge = ordnerDeleteBadge(info);
+  var menuBtn = canManageOrdner ? '<button type="button" class="ui-icon-btn" aria-label="Ordner-Aktionen" onclick="event.stopPropagation();ordnerFolderMenu(\'' + o.id + '\')">' + uiIcon('dots') + '</button>' : '';
+  var end = (badge ? '<span class="ui-pill ui-pill-warn">' + escOrdner(badge) + '</span>' : '') + menuBtn;
+  return '<div class="ui-row ordner-row" onclick="openOrdnerDetail(\'' + o.id + '\')">' +
+    '<span class="ui-tile-ico ordner-ico">' + uiIcon('folder') + '</span>' +
+    '<div class="ui-row-main"><div class="ui-row-title">' + escOrdner(o.name) + '</div>' + (sub ? '<div class="ui-sub">' + escOrdner(sub) + '</div>' : '') + '</div>' +
+    (end ? '<div class="ui-row-end">' + end + '</div>' : '') +
+  '</div>';
+}
+
+function filterOrdner() {
+  var q = ((document.getElementById('ordner-search') || {}).value || '').toLowerCase().trim();
+  if (!q) { renderOrdner(alleOrdner); return; }
+  // Match any folder (incl. subfolders), then surface the root folder that
+  // contains the match — the list view only shows roots.
+  var rootIds = {};
+  alleOrdner.forEach(function(o) {
+    if (!o.name.toLowerCase().includes(q) && !(o.description || '').toLowerCase().includes(q)) return;
+    var cur = o, guard = 0;
+    while (cur && cur.parent_id && guard++ < 10) {
+      cur = alleOrdner.find(function(x) { return x.id === cur.parent_id; });
+    }
+    if (cur) rootIds[cur.id] = true;
+  });
+  renderOrdner(alleOrdner.filter(function(o) { return rootIds[o.id]; }));
+}
+
+// ── ORDNER DETAIL (FILE LIST + SUBFOLDERS) ──
+function ordnerBreadcrumb(folder) {
+  // Walk parent chain for the title, e.g. "K5 / Bühne / Pläne"
+  var names = [folder.name], cur = folder, guard = 0;
+  while (cur && cur.parent_id && guard++ < 10) {
+    cur = alleOrdner.find(function(o) { return o.id === cur.parent_id; });
+    if (cur) names.unshift(cur.name);
+  }
+  return names.join(' / ');
+}
+
+async function openOrdnerDetail(id) {
+  var folder = alleOrdner.find(function(o) { return o.id === id; });
+  if (!folder) return;
+  aktuellerOrdner = folder;
+
+  // Switch views
+  document.getElementById('ordner-list-view').style.display = 'none';
+  document.getElementById('ordner-detail-view').style.display = 'block';
+
+  var titleEl = document.getElementById('ordner-detail-title');
+  if (titleEl) titleEl.textContent = ordnerBreadcrumb(folder);
+  ordnerSetTitle(ordnerBreadcrumb(folder));
+  var endsEl = document.getElementById('ordner-ends');
+  var endsInfo = folder.parent_id ? null : ordnerDeleteInfo(folder, localDateStr());
+  var endsText = endsInfo ? [ordnerDeleteLabel(endsInfo.date), ordnerDeleteBadge(endsInfo)].filter(Boolean).join(' · ') : '';
+  if (endsEl) { endsEl.textContent = endsText; endsEl.style.display = endsText ? 'block' : 'none'; }
+  initOrdnerDragDrop();
+
+  // Upload is the main action; Unterordner, PL & Einsätze and Löschen live in the top bar "…"
+  var uploadBar = document.getElementById('ordner-upload-bar');
+  if (uploadBar) uploadBar.style.display = canManageOrdner ? 'flex' : 'none';
+  renderOrdnerEinsaetze(folder);
+
+  renderSubfolders(id);
+  await fetchOrdnerFiles(id);
+}
+
+function renderSubfolders(parentId) {
+  var grid = document.getElementById('ordner-subfolder-grid');
+  if (!grid) return;
+  var children = alleOrdner.filter(function(o) { return o.parent_id === parentId; });
+  if (!children.length) { grid.innerHTML = ''; grid.style.display = 'none'; return; }
+  grid.style.display = 'block';
+  grid.innerHTML = '<div class="ui-label">Unterordner</div>' + children.map(function(o) { return ordnerFolderRowHtml(o, false); }).join('');
+}
+
+async function createSubfolder() {
+  if (!aktuellerOrdner || !canManageOrdner) return;
+  var name = prompt('Name des neuen Unterordners:');
+  if (!name || !name.trim()) return;
+  var { error } = await supabaseClient.from('project_folders').insert({
+    name: name.trim(),
+    parent_id: aktuellerOrdner.id,
+    created_by: typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null
+  });
+  if (error) { showToast('Fehler: ' + error.message, 'danger'); return; }
+  showToast('✅ Unterordner erstellt.');
+  var keepId = aktuellerOrdner.id;
+  await fetchOrdner();          // refresh alleOrdner (re-shows list view)
+  await openOrdnerDetail(keepId); // jump back into the folder
+}
+
+function ordnerGoBack() {
+  if (aktuellerOrdner && aktuellerOrdner.parent_id) {
+    openOrdnerDetail(aktuellerOrdner.parent_id);
+  } else {
+    closeOrdnerDetail();
+  }
+}
+
+function closeOrdnerDetail() {
+  aktuellerOrdner = null;
+  ordnerFiles = [];
+  _pdfWarm = { folder: null, files: {}, ready: {} };
+  var listView = document.getElementById('ordner-list-view');
+  var detailView = document.getElementById('ordner-detail-view');
+  if (listView) listView.style.display = 'block';
+  if (detailView) detailView.style.display = 'none';
+  ordnerSetTitle('Projektordner');
+  filterOrdner(); // keeps an active search text applied (renders everything when empty)
+}
+
+function initOrdnerDragDrop() {
+  var zone = document.getElementById('ordner-detail-view');
+  if (!zone || zone._dragInited) return;
+  zone._dragInited = true;
+
+  zone.addEventListener('dragover', function(e) {
+    if (!canManageOrdner || !aktuellerOrdner) return;
+    e.preventDefault();
+    zone.classList.add('drag-over');
+  });
+  zone.addEventListener('dragleave', function(e) {
+    if (!e.relatedTarget || !zone.contains(e.relatedTarget)) zone.classList.remove('drag-over');
+  });
+  zone.addEventListener('drop', async function(e) {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    if (!canManageOrdner || !aktuellerOrdner) return;
+    var files = Array.from(e.dataTransfer.files);
+    if (!files.length) return;
+    await runOrdnerUploads(aktuellerOrdner.id, files);
+  });
+}
+
+async function fetchOrdnerFiles(folderId) {
+  var container = document.getElementById('ordner-files-list');
+  if (container && aktuellerOrdner && aktuellerOrdner.id === folderId) container.innerHTML = '<div class="ui-sub" style="padding:16px 2px;">Dateien werden geladen…</div>';
+
+  var { data, error } = await supabaseClient
+    .from('folder_files')
+    .select('id, name, file_url, file_type, file_size_bytes, created_at, note')
+    .eq('folder_id', folderId)
+    .order('name', { ascending: true });
+
+  // Stale answer: the user navigated to another folder (or left) while this was loading
+  if (!aktuellerOrdner || aktuellerOrdner.id !== folderId) return;
+  if (error) { console.error('Files fetch:', error); showToast('Fehler beim Laden.', 'danger'); return; }
+  ordnerFiles = data || [];
+  renderOrdnerFiles(ordnerFiles);
+  ordnerWarmPdfs(folderId, ordnerFiles);
+}
+
+// ── PDF warm-up ──
+// Drawing a page of a big Aufbauplan takes seconds on a phone (the drawing itself, not its size), so the PDFs of the opened
+// folder are downloaded and page 1 is drawn in the background; a tap then shows it at once. Memory only (private files
+// never go to the disk cache), only the current folder, never with "Datensparen". Every PDF up to 15 MB is downloaded;
+// page 1 is drawn for the first 3 only (a drawn page holds ~10 MB of memory), the others draw on open without a download.
+var ORDNER_WARM_MAX = 50, ORDNER_WARM_DRAW = 3, ORDNER_WARM_BYTES = 15 * 1024 * 1024;
+var _pdfWarm = { folder: null, files: {}, ready: {} };
+
+// Which files to warm: PDFs within the size limit, plans first ("Aufbau", "Plan", "Skizze"), then by list order
+function ordnerWarmPick(files, max, maxBytes) {
+  var pdfs = (files || []).filter(function(f) {
+    return ordnerViewerKind(f.file_type, f.name) === 'pdf' && (!f.file_size_bytes || f.file_size_bytes <= maxBytes);
+  });
+  var plan = function(f) { return /aufbau|plan|skizze|grundriss|bestuhlung/i.test(f.name || '') ? 0 : 1; };
+  return pdfs.map(function(f, i) { return { f: f, i: i }; })
+    .sort(function(a, b) { return plan(a.f) - plan(b.f) || a.i - b.i; })
+    .slice(0, max).map(function(x) { return x.f; });
+}
+
+// Width of the page bitmap: twice the fit width at screen density (drawing costs the same, zoom up to 2x needs no redraw)
+function ordnerPdfRenderWidth(fitW, zoom, dpr) {
+  var need = Math.min(fitW * zoom * Math.min(dpr || 1, 2), 3000);
+  return { need: Math.floor(need), draw: Math.floor(Math.min(Math.max(need, fitW * Math.min(dpr || 1, 2) * 2), 3000)) };
+}
+
+function ordnerWarmPdfs(folderId, files) {
+  var conn = navigator.connection;
+  if (conn && conn.saveData) return;
+  if (_pdfWarm.folder !== folderId) _pdfWarm = { folder: folderId, files: {}, ready: {} };
+  var warm = _pdfWarm, chain = Promise.resolve();
+  ordnerWarmPick(files, ORDNER_WARM_MAX, ORDNER_WARM_BYTES).forEach(function(f, i) {
+    if (warm.files[f.id]) return;
+    // one after the other: the first plan is ready soonest and the phone is not flooded
+    warm.files[f.id] = chain = chain.then(function() { return _pdfWarm === warm ? ordnerWarmOne(f, i < ORDNER_WARM_DRAW) : null; })
+      .then(function(v) { if (v) warm.ready[f.id] = v; });
+  });
+}
+
+async function ordnerWarmOne(f, draw) {
+  try {
+    var url = await signedProjectFileUrl(f.file_url);
+    if (!url) return null;
+    var res = await fetch(url);
+    if (!res.ok) return null;
+    var buf = await res.arrayBuffer();
+    if (!draw) return { url: url, buf: buf, preview: null };
+    var pdfjs = await loadPdfJs();
+    var pdf = await pdfjs.getDocument({ data: buf.slice(0) }).promise; // the worker takes over the copy it gets
+    var page = await pdf.getPage(1);
+    var fitW = Math.max(200, Math.min(window.innerWidth || 390, 1000) - 16);
+    var w = Math.min(ordnerPdfRenderWidth(fitW, 1, window.devicePixelRatio).draw, 2000); // up to 3 kept in memory: phone size is enough, a wide screen redraws once
+    var vp = page.getViewport({ scale: w / page.getViewport({ scale: 1 }).width });
+    var c = document.createElement('canvas');
+    c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+    await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+    pdf.destroy();
+    return { url: url, buf: buf, preview: c };
+  } catch (e) { console.warn('PDF vorladen:', e); return null; }
+}
+
+function renderOrdnerFiles(list) {
+  var container = document.getElementById('ordner-files-list');
+  if (!container) return;
+
+  if (!list || list.length === 0) {
+    container.innerHTML = uiEmptyHtml('Noch keine Dateien', canManageOrdner ? 'Lade über „Datei hochladen“ die erste Datei hoch.' : 'In diesem Ordner liegen noch keine Dateien.');
+    return;
+  }
+
+  container.innerHTML = '<div class="ui-label">Dateien</div>' + list.map(function(f) {
+    var size = f.file_size_bytes ? formatBytes(f.file_size_bytes) : '';
+    var date = f.created_at ? new Date(f.created_at).toLocaleDateString('de-DE') : '';
+    return '<div class="ui-row ordner-row" onclick="openOrdnerFileById(\'' + f.id + '\')">' +
+      '<span class="ui-tile-ico ordner-ico">' + uiIcon(ordnerFileKind(f.file_type, f.name)) + '</span>' +
+      '<div class="ui-row-main"><div class="ui-row-title">' + escOrdner(f.name) + '</div>' +
+        '<div class="ui-sub">' + [size, date].filter(Boolean).join(' · ') + '</div>' +
+        (f.note ? '<div class="ui-sub" style="color:var(--text);">' + escOrdner(f.note) + '</div>' : '') + '</div>' +
+      (canManageOrdner ? '<div class="ui-row-end"><button type="button" class="ui-icon-btn" aria-label="Datei-Aktionen" onclick="event.stopPropagation();ordnerFileMenu(\'' + f.id + '\')">' + uiIcon('dots') + '</button></div>' : '') +
+    '</div>';
+  }).join('');
+}
+
+// ── UPLOAD FILE ──
+function triggerOrdnerUpload() {
+  document.getElementById('ordner-file-input').click();
+}
+
+async function handleOrdnerFileInput(input) {
+  if (!aktuellerOrdner || !input.files || input.files.length === 0) return;
+  var files = Array.from(input.files);
+  input.value = '';
+  await runOrdnerUploads(aktuellerOrdner.id, files);
+}
+
+async function runOrdnerUploads(folderId, files) {
+  var uploadBtn = document.getElementById('ordner-upload-btn');
+  if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.textContent = 'Lädt hoch...'; }
+
+  var ok = 0, fail = 0;
+  for (var i = 0; i < files.length; i++) {
+    var success = await uploadOrdnerFile(folderId, files[i]);
+    if (success) ok++; else fail++;
+  }
+
+  if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.textContent = '+ Datei hochladen'; }
+  await fetchOrdnerFiles(folderId);
+  if (fail === 0) {
+    showToast('✅ ' + ok + ' Datei(en) hochgeladen!');
+  } else {
+    showToast(ok + ' hochgeladen, ' + fail + ' fehlgeschlagen – Details in der Browser-Konsole.', 'danger');
+  }
+}
+
+// → the new folder_files id, or false; name overrides file.name (shown name)
+async function uploadOrdnerFile(folderId, file, name) {
+  name = name || file.name;
+  var safeName = name
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
+    .replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue')
+    .replace(/ß/g, 'ss')
+    .replace(/[^a-zA-Z0-9\-_.]/g, '_');
+  var rand = Math.random().toString(36).slice(2, 7);
+  var filePath = folderId + '/' + Date.now() + '_' + rand + '_' + safeName;
+
+  var { error: upErr } = await supabaseClient.storage
+    .from('project-files')
+    .upload(filePath, file, { upsert: true, contentType: file.type || 'application/octet-stream' });
+
+  if (upErr) {
+    console.error('Storage upload error for "' + file.name + '":', upErr.message || upErr);
+    return false;
+  }
+
+  var { data: urlData } = supabaseClient.storage.from('project-files').getPublicUrl(filePath);
+  var publicUrl = urlData && urlData.publicUrl ? urlData.publicUrl : null;
+
+  var { data: row, error: dbErr } = await supabaseClient.from('folder_files').insert({
+    folder_id: folderId,
+    name: name,
+    file_url: publicUrl,
+    file_type: file.type || null,
+    file_size_bytes: file.size || null,
+    created_by: typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null
+  }).select('id').single();
+
+  if (dbErr) {
+    console.error('DB insert error for "' + file.name + '":', dbErr.message || dbErr);
+    // No row points to the uploaded object: remove it again (best effort)
+    await ordnerRemoveFiles([filePath]);
+    return false;
+  }
+  return row.id;
+}
+
+// storage.remove() reports failures as { error } instead of throwing: true only when the objects are really gone
+async function ordnerRemoveFiles(paths) {
+  if (!paths || !paths.length) return true;
+  try {
+    var { error } = await supabaseClient.storage.from('project-files').remove(paths);
+    if (error) { console.warn('Storage remove:', error.message || error); return false; }
+    return true;
+  } catch (e) { console.warn('Storage remove:', e); return false; }
+}
+
+async function deleteOrdnerFile(id, url) {
+  if (!confirm('Datei wirklich löschen?')) return;
+  try {
+    // DB first (row-checked: RLS answers with 0 rows), storage only after it succeeded
+    var { data: delRows, error } = await supabaseClient.from('folder_files').delete().eq('id', id).select('id');
+    if (error || !delRows || !delRows.length) throw error || new Error('Löschen abgelehnt');
+    var storageOk = true;
+    if (url) {
+      var parts = url.split('/project-files/');
+      if (parts.length > 1) storageOk = await ordnerRemoveFiles([parts[1]]);
+    }
+    showToast(storageOk ? 'Datei gelöscht.' : 'Datei gelöscht, aber der Speicher konnte nicht bereinigt werden.', storageOk ? undefined : 'danger');
+    if (aktuellerOrdner) await fetchOrdnerFiles(aktuellerOrdner.id);
+  } catch(e) { showToast('Fehler beim Löschen.', 'danger'); }
+}
+
+// Note shown under the file name (e.g. what to watch for in an Aufbauplan); empty text removes it
+async function editOrdnerFileNote(id) {
+  var f = (ordnerFiles || []).find(function(x) { return x.id === id; });
+  if (!f) return;
+  var text = prompt('Anmerkung zu „' + f.name + '“ (leer lassen zum Entfernen):', f.note || '');
+  if (text === null) return;
+  text = text.trim().slice(0, 500) || null;
+  if (text === (f.note || null)) return;
+  var { data, error } = await supabaseClient.from('folder_files').update({ note: text }).eq('id', id).select('id');
+  if (error || !data || !data.length) { console.error('Anmerkung speichern:', error); showToast('Fehler beim Speichern.', 'danger'); return; }
+  showToast(text ? 'Anmerkung gespeichert.' : 'Anmerkung entfernt.');
+  if (aktuellerOrdner) await fetchOrdnerFiles(aktuellerOrdner.id);
+}
+
+// ── ORDNER ERSTELLEN / BEARBEITEN ──
+// ── PL & EINSÄTZE (AL-Erinnerung) ──
+var EINSATZ_ACTIONS = ['Aufbau', 'Teilaufbau', 'Umbau', 'Teilabbau', 'Abbau'];
+var _ordnerUsers = null;            // active app_users {id, full_name, role}
+var _editEinsaetzeExisting = [];    // saved jobs of the folder being edited (for diffEinsaetze)
+var _ordnerFormReturnId = null;     // reopen this folder's detail view after saving
+var _ordnerAb = null;               // { file, parsed } Auftragsbestätigung picked in the form, uploaded on save
+var _ordnerStaff = {};              // job_no → order_staffing row, for the MA fields of tagged Einsätze
+
+// Name from the Bestätigung („Auf- & Abbauleitung“) → active AL/Admin: exact name, else the only one with all words
+function ordnerMatchAl(lead, users) {
+  var norm = function(x) { return String(x || '').toLowerCase().replace(/\s+/g, ' ').trim(); };
+  var cands = (users || []).filter(function(u) { return u.is_active !== false && (userHasRole(u, 'AL') || userHasRole(u, 'Admin')); });
+  var parts = String(lead || '').split(/,|\/|&|\bund\b/);
+  for (var i = 0; i < parts.length; i++) {
+    var p = norm(parts[i]);
+    if (!p) continue;
+    var exact = cands.filter(function(u) { return norm(u.full_name) === p; });
+    if (exact.length === 1) return exact[0].id;
+    var words = p.split(' ');
+    var some = cands.filter(function(u) { var n = norm(u.full_name).split(' '); return words.every(function(w) { return n.indexOf(w) !== -1; }); });
+    if (some.length === 1) return some[0].id;
+  }
+  return '';
+}
+
+// Einsatz rows from a parsed Bestätigung: Aufbau + Abbau per job, tagged with job_no/phase; have = 'job|phase' already in the form
+// A phase several jobs share (same time) is one row on the first job; also_jobs get 0 MA for it on save
+function ordnerAbRows(parsed, users, have) {
+  var jobs = (parsed && parsed.jobs) || [], shared = orderSharedPhases(jobs), out = [];
+  jobs.forEach(function(j) {
+    ['setup', 'teardown'].forEach(function(ph) {
+      var r = j[ph];
+      if (!r || !r.start || shared[j.jobNo + '|' + ph] || (have || {})[j.jobNo + '|' + ph]) return;
+      var also = Object.keys(shared).filter(function(k) { return shared[k] === j.jobNo && k.split('|')[1] === ph; })
+        .map(function(k) { return k.split('|')[0]; });
+      var row = { date: r.start.slice(0, 10), action: orderPhaseAction(j, ph), al_id: ordnerMatchAl(j.lead, users), job_no: j.jobNo, phase: ph };
+      if (also.length) row.also_jobs = also;
+      out.push(row);
+    });
+    // Further days of the day plan (2nd Aufbau day, Umbau, later Abbau days): plain Einsätze, once (on the primary job)
+    if (j.days && j.setup && !shared[j.jobNo + '|setup'] && !(have || {})[j.jobNo + '|setup']) {
+      j.days.forEach(function(d) {
+        if ((d.action === 'Aufbau' && d.date === j.setup.start.slice(0, 10)) || (d.action === 'Abbau' && j.teardown && d.date === j.teardown.start.slice(0, 10))) return;
+        out.push({ date: d.date, action: d.action, al_id: ordnerMatchAl(j.lead, users) });
+      });
+    }
+  });
+  var tagged = {};
+  out.forEach(function(r) { if (r.job_no) tagged[r.date + r.action] = true; });
+  out = out.filter(function(r) { return r.job_no || !tagged[r.date + r.action]; }); // a job's own phase that day covers it
+  return out.sort(function(a, b) { return a.date.localeCompare(b.date); });
+}
+
+// order_staffing upserts from the MA fields of tagged rows (earliest row per phase); only the phases present are written
+function ordnerStaffRows(rows) {
+  var by = {}, order = [];
+  (rows || []).filter(function(r) { return r.job_no && r.phase; })
+    .sort(function(a, b) { return String(a.date).localeCompare(String(b.date)); })
+    .forEach(function(r) {
+      if (!by[r.job_no]) { by[r.job_no] = { job_no: r.job_no }; order.push(r.job_no); }
+      var col = r.phase === 'setup' ? 'staff_setup' : 'staff_teardown', n = parseInt(r.staff, 10);
+      if (!(col in by[r.job_no])) by[r.job_no][col] = isNaN(n) ? null : Math.max(0, Math.min(99, n));
+      (r.also_jobs || []).forEach(function(a) {
+        if (!by[a]) { by[a] = { job_no: a }; order.push(a); }
+        if (!(col in by[a])) by[a][col] = 0;
+      });
+    });
+  return order.map(function(k) { return by[k]; });
+}
+
+async function loadOrdnerUsers() {
+  if (_ordnerUsers) return _ordnerUsers;
+  // Inactive users too: an already assigned AL/PL who left must still show up in the form
+  // Office roles read app_users (role_rates carry additional AL/PL roles for userHasRole); MA/Gast only get the rate-less directory
+  var office = ['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole);
+  var { data, error } = office
+    ? await supabaseClient.from('app_users').select('id, full_name, role, role_rates, is_active').order('full_name')
+    : await supabaseClient.rpc('user_directory');
+  if (error) { console.error('Ordner users:', error); return []; }
+  _ordnerUsers = (data || []).slice().sort(function(x, y) { return (x.full_name || '').localeCompare(y.full_name || ''); });
+  return _ordnerUsers;
+}
+
+function ordnerUserOptions(roles, selectedId, emptyLabel) {
+  var opts = emptyLabel !== undefined ? '<option value="">' + escOrdner(emptyLabel) + '</option>' : '';
+  return opts + (_ordnerUsers || []).filter(function(u) {
+    return roles.some(function(r) { return userHasRole(u, r); }) && (u.is_active !== false || u.id === selectedId);
+  }).map(function(u) {
+    return '<option value="' + u.id + '"' + (u.id === selectedId ? ' selected' : '') + '>' + escOrdner(u.full_name) +
+      (u.is_active === false ? ' (inaktiv)' : '') + '</option>';
+  }).join('');
+}
+
+function shortDateDE(iso) {
+  var p = (iso || '').split('-');
+  return p.length === 3 ? p[2] + '.' + p[1] + '.' : '—';
+}
+
+function addEinsatzRow(e) {
+  e = e || {};
+  var list = document.getElementById('ordner-einsatz-rows');
+  if (!list) return;
+  var row = document.createElement('div');
+  row.className = 'einsatz-row';
+  row.dataset.id = e.id || '';
+  row.dataset.job = e.job_no || '';
+  row.dataset.phase = e.phase || '';
+  row.dataset.also = (e.also_jobs || []).join(',');
+  var staff = e.job_no ? (_ordnerStaff[e.job_no] || {})[e.phase === 'setup' ? 'staff_setup' : 'staff_teardown'] : null;
+  row.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px; align-items:center;';
+  row.innerHTML =
+    '<input type="date" class="meta-input einsatz-date" style="flex:1 1 130px; margin:0;" value="' + escOrdner(e.date || '') + '">' +
+    '<select class="meta-input einsatz-action" style="flex:1 1 110px; margin:0;">' +
+      EINSATZ_ACTIONS.map(function(a) { return '<option' + (a === (e.action || 'Aufbau') ? ' selected' : '') + '>' + a + '</option>'; }).join('') +
+    '</select>' +
+    '<select class="meta-input einsatz-al" style="flex:2 1 160px; margin:0;">' + ordnerUserOptions(['AL', 'Admin'], e.al_id, '– AL wählen –') + '</select>' +
+    (e.job_no ? '<label class="einsatz-staff-wrap" style="font-size:12px; display:flex; align-items:center; gap:4px; white-space:nowrap;">MA gebraucht <input type="number" class="meta-input einsatz-staff" inputmode="numeric" min="0" max="99" style="width:64px; margin:0;" value="' + (staff == null ? '' : staff) + '"></label>' : '') +
+    '<label style="font-size:12px; display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" class="einsatz-cancelled"' + (e.cancelled ? ' checked' : '') + '> abgesagt/übernommen</label>' +
+    '<button type="button" class="btn" style="width:auto; padding:4px 10px; color:var(--danger);" title="Einsatz entfernen" onclick="this.parentElement.remove(); ordnerSyncDeleteField()">🗑</button>' +
+    (e.job_no ? '<div class="ui-sub" style="flex-basis:100%; order:-1; margin:0; font-weight:600;">Auftrag ' + escOrdner([e.job_no].concat(e.also_jobs || []).join(', ')) + ' · ' + (e.phase === 'setup' ? 'Aufbau' : 'Abbau') + ' – Datum und AL hier gelten auch für „Ich kann“</div>' : '');
+  list.appendChild(row);
+}
+
+// Moves the "Löschung am" field along with the Einsatz rows (unless the date was set by hand)
+function ordnerSyncDeleteField() {
+  var inp = document.getElementById('inp-ordner-ends');
+  var auto = ordnerAutoDeleteDate(readEinsatzRows()) || '';
+  if (inp) inp.value = ordnerNextDeleteValue(inp.value, _ordnerAutoValue, auto);
+  _ordnerAutoValue = auto;
+  ordnerEndsText();
+}
+
+// Folder form: the deletion date as text under the Einsätze (the date field opens via "ändern")
+function ordnerEndsText() {
+  var inp = document.getElementById('inp-ordner-ends'), out = document.getElementById('ordner-ends-text');
+  var p = String((inp && inp.value) || '').split('-');
+  if (out) out.textContent = p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : '—';
+}
+
+function readEinsatzRows() {
+  return Array.prototype.map.call(document.querySelectorAll('#ordner-einsatz-rows .einsatz-row'), function(row) {
+    var r = {
+      date: row.querySelector('.einsatz-date').value,
+      action: row.querySelector('.einsatz-action').value,
+      al_id: row.querySelector('.einsatz-al').value,
+      cancelled: row.querySelector('.einsatz-cancelled').checked
+    };
+    if (row.dataset.id) r.id = row.dataset.id;
+    if (row.dataset.job) { r.job_no = row.dataset.job; r.phase = row.dataset.phase; r.staff = row.querySelector('.einsatz-staff').value; }
+    if (row.dataset.also) r.also_jobs = row.dataset.also.split(',');
+    return r;
+  });
+}
+
+async function openOrdnerForm(id) {
+  // The form is a sheet over the current view; coming from a folder's detail view, refresh it after saving
+  var detail = document.getElementById('ordner-detail-view');
+  // Return to the folder that is open (a subfolder row's "Bearbeiten" passes the subfolder's id, not the open one)
+  _ordnerFormReturnId = id && detail && detail.style.display !== 'none' && aktuellerOrdner ? aktuellerOrdner.id : null;
+  editingOrdnerId = id || null;
+  var form = document.getElementById('ordner-form');
+  var nameInp = document.getElementById('inp-ordner-name');
+  var descInp = document.getElementById('inp-ordner-desc');
+  var title = document.getElementById('ordner-form-title');
+  var o = id ? alleOrdner.find(function(x) { return x.id === id; }) : null;
+  if (id && !o) return;
+  if (title) title.textContent = o ? 'Ordner bearbeiten' : 'Neuer Ordner';
+  if (nameInp) nameInp.value = o ? o.name : '';
+  if (descInp) descInp.value = o ? (o.description || '') : '';
+  var endsInp = document.getElementById('inp-ordner-ends');
+  if (endsInp) endsInp.value = o && o.ends_on ? o.ends_on : '';
+  ordnerEndsText();
+  var endsDetails = document.getElementById('ordner-ends-field');
+  if (endsDetails) endsDetails.open = false;
+  // Subfolders follow their top-level folder: no deletion date of their own
+  var endsField = document.getElementById('ordner-ends-field');
+  if (endsField) endsField.style.display = o && o.parent_id ? 'none' : '';
+  _ordnerAutoValue = '';
+  _ordnerAb = null;
+  _ordnerStaff = {};
+  var abInp = document.getElementById('inp-ordner-ab'), abSt = document.getElementById('ordner-ab-status');
+  if (abInp) abInp.value = '';
+  if (abSt) abSt.textContent = '';
+
+  await loadOrdnerUsers();
+  var plSel = document.getElementById('inp-ordner-pl');
+  if (plSel) plSel.innerHTML = ordnerUserOptions(['PL', 'Admin'], o ? o.pl_id : null, '– keine PL –');
+  var rows = document.getElementById('ordner-einsatz-rows');
+  if (rows) rows.innerHTML = '';
+  _editEinsaetzeExisting = [];
+  if (o) {
+    var { data, error } = await supabaseClient.from('einsaetze').select('id, date, action, al_id, cancelled, job_no, phase')
+      .eq('folder_id', o.id).order('date');
+    if (error) { console.error('Einsätze laden:', error); showToast('Einsätze konnten nicht geladen werden.', 'danger'); return; } // saving without them would duplicate jobs
+    _editEinsaetzeExisting = data || [];
+    await ordnerLoadStaff(_editEinsaetzeExisting.map(function(e) { return e.job_no; }));
+    _editEinsaetzeExisting.forEach(addEinsatzRow);
+  }
+  // Baseline for the follow rule: what the auto date is for the jobs as loaded
+  _ordnerAutoValue = ordnerAutoDeleteDate(readEinsatzRows()) || '';
+  if (rows && !rows.dataset.followBound) {
+    rows.dataset.followBound = '1';
+    rows.addEventListener('input', ordnerSyncDeleteField);
+    rows.addEventListener('change', ordnerSyncDeleteField);
+  }
+
+  if (form) form.style.display = 'block';
+  var fm = document.getElementById('ordner-form-modal'); if (fm) fm.classList.add('open');
+  if (nameInp) nameInp.focus();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function ordnerLoadStaff(jobNos) {
+  jobNos = jobNos.filter(function(j, i) { return j && jobNos.indexOf(j) === i; });
+  if (!jobNos.length) return;
+  var r = await supabaseClient.from('order_staffing').select('job_no, staff_setup, staff_teardown').in('job_no', jobNos);
+  if (r.error) { console.error('MA-Zahlen laden:', r.error); return; } // fields stay empty; saving then writes what is typed
+  (r.data || []).forEach(function(x) { _ordnerStaff[x.job_no] = x; });
+}
+
+// Picked Auftragsbestätigung: read it here, fill name (if empty) and one Aufbau/Abbau row per job; uploaded on save
+async function ordnerReadAb(input) {
+  var file = input.files && input.files[0], st = document.getElementById('ordner-ab-status');
+  _ordnerAb = null;
+  if (!file) { if (st) st.textContent = ''; return; }
+  if (st) st.textContent = 'Wird gelesen…';
+  var parsed;
+  try {
+    await loadPdfJs();
+    parsed = orderParse(orderLines(await readPlanPdf(await file.arrayBuffer(), { textOnly: true })));
+  } catch (err) {
+    console.error('Auftragsbestätigung lesen:', err);
+    if (st) st.textContent = 'Die PDF konnte nicht gelesen werden. Trag die Einsätze bitte von Hand ein.';
+    return;
+  }
+  if (!parsed.jobs.length) { if (st) st.textContent = 'Keine Aufträge in der PDF gefunden. Ist es eine Auftragsbestätigung aus easyjob?'; return; }
+  _ordnerAb = { file: file, parsed: parsed };
+  var nameInp = document.getElementById('inp-ordner-name');
+  if (nameInp && !nameInp.value.trim()) nameInp.value = [parsed.project, parsed.title].filter(Boolean).join(' ');
+  var have = {};
+  readEinsatzRows().forEach(function(r) { if (r.job_no) have[r.job_no + '|' + r.phase] = true; });
+  await ordnerLoadStaff(parsed.jobs.map(function(j) { return j.jobNo; }));
+  var rows = ordnerAbRows(parsed, _ordnerUsers, have);
+  rows.forEach(addEinsatzRow);
+  ordnerSyncDeleteField();
+  var noAl = rows.filter(function(r) { return !r.al_id; }).length;
+  if (st) st.textContent = parsed.jobs.length + (parsed.jobs.length === 1 ? ' Auftrag' : ' Aufträge') + ' erkannt, ' + rows.length + ' Einsätze eingetragen. Bitte Datum, AL und MA prüfen' +
+    (noAl ? ' (' + noAl + '× AL nicht erkannt)' : '') + '. Die PDF wird beim Speichern hochgeladen.';
+}
+
+function closeOrdnerForm() {
+  editingOrdnerId = null;
+  var fm = document.getElementById('ordner-form-modal');
+  if (fm) fm.classList.remove('open');
+  _ordnerFormReturnId = null; // cancelled: the detail view underneath is unchanged
+}
+
+// After a partly failed save: take the DB state as the new baseline and give form rows that were
+// already inserted their id, so the retry neither re-deletes nor inserts duplicates
+async function resyncEinsatzRows(folderId) {
+  var { data, error } = await supabaseClient.from('einsaetze').select('id, date, action, al_id, cancelled, job_no, phase').eq('folder_id', folderId);
+  if (error) { console.error('Einsätze neu laden:', error); return; }
+  _editEinsaetzeExisting = data || [];
+  var claimed = {};
+  document.querySelectorAll('#ordner-einsatz-rows .einsatz-row').forEach(function(row) { if (row.dataset.id) claimed[row.dataset.id] = true; });
+  document.querySelectorAll('#ordner-einsatz-rows .einsatz-row').forEach(function(row) {
+    if (row.dataset.id) return;
+    var r = { date: row.querySelector('.einsatz-date').value, action: row.querySelector('.einsatz-action').value, al_id: row.querySelector('.einsatz-al').value };
+    var match = _editEinsaetzeExisting.find(function(x) { return !claimed[x.id] && x.date === r.date && x.action === r.action && x.al_id === r.al_id; });
+    if (match) { row.dataset.id = match.id; claimed[match.id] = true; }
+  });
+}
+
+// Writes the job rows of a folder; every write is row-checked (RLS failures don't error)
+async function saveEinsaetze(folderId, edited) {
+  var d = diffEinsaetze(_editEinsaetzeExisting, edited);
+  if (d.remove.length) {
+    var { data: del, error: delErr } = await supabaseClient.from('einsaetze').delete().in('id', d.remove).select('id');
+    if (delErr || !del || del.length !== d.remove.length) throw delErr || new Error('Einsätze löschen abgelehnt');
+  }
+  for (var i = 0; i < d.update.length; i++) {
+    var u = d.update[i];
+    var { data: up, error: upErr } = await supabaseClient.from('einsaetze')
+      .update({ date: u.date, action: u.action, al_id: u.al_id, cancelled: u.cancelled }).eq('id', u.id).select('id');
+    if (upErr || !up || up.length !== 1) throw upErr || new Error('Einsatz aktualisieren abgelehnt');
+  }
+  if (d.insert.length) {
+    var rows = d.insert.map(function(r) { return Object.assign({ folder_id: folderId }, r); });
+    var { data: ins, error: insErr } = await supabaseClient.from('einsaetze').insert(rows).select('id');
+    if (insErr || !ins || ins.length !== rows.length) throw insErr || new Error('Einsätze anlegen abgelehnt');
+  }
+}
+
+// A second tap while the first save is still running would insert the folder twice
+var _ordnerSaving = false;
+async function saveOrdner() {
+  if (_ordnerSaving) return;
+  _ordnerSaving = true;
+  try { await saveOrdnerRun(); } finally { _ordnerSaving = false; }
+}
+
+async function saveOrdnerRun() {
+  if (typeof breadcrumb === 'function') breadcrumb('save:ordner');
+  var name = ((document.getElementById('inp-ordner-name') || {}).value || '').trim();
+  var desc = ((document.getElementById('inp-ordner-desc') || {}).value || '').trim();
+  var plId = ((document.getElementById('inp-ordner-pl') || {}).value || '') || null;
+  var einsaetze = readEinsatzRows();
+  if (!name) { showToast('Bitte einen Ordnernamen eingeben.', 'danger'); return; }
+  if (einsaetze.some(function(r) { return !r.date || !r.al_id; })) { showToast('Bitte Datum und AL für jeden Einsatz ausfüllen.', 'danger'); return; }
+  if (einsaetze.length && !plId) { showToast('Bitte eine Projektleitung wählen.', 'danger'); return; }
+
+  var payload = {
+    name: name,
+    description: desc || null,
+    pl_id: plId
+  };
+  // Deletion date: manual value, else auto from the jobs, else none (never deleted). Subfolders carry none.
+  var editing = editingOrdnerId ? alleOrdner.find(function(x) { return x.id === editingOrdnerId; }) : null;
+  if (!(editing && editing.parent_id)) {
+    payload.ends_on = ((document.getElementById('inp-ordner-ends') || {}).value || '') || ordnerAutoDeleteDate(einsaetze) || null;
+  }
+
+  var folderId = editingOrdnerId;
+  if (editingOrdnerId) {
+    var { data: upd, error } = await supabaseClient.from('project_folders').update(payload).eq('id', editingOrdnerId).select('id');
+    if (error || !upd || !upd.length) { showToast('Fehler: ' + (error ? error.message : 'Ordner nicht gespeichert'), 'danger'); return; }
+  } else {
+    // created_by only on insert: an edit must not hand the folder over to the editor
+    payload.created_by = typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null;
+    var { data: created, error: insErr } = await supabaseClient.from('project_folders').insert(payload).select('id').single();
+    if (insErr) { showToast('Fehler: ' + insErr.message, 'danger'); return; }
+    folderId = created.id;
+  }
+  var wasNew = !editingOrdnerId;
+  editingOrdnerId = folderId; // a retry after a failed job save must update this folder, not create another
+  try {
+    await saveEinsaetze(folderId, einsaetze);
+  } catch (e) {
+    console.error('Einsätze speichern:', e);
+    await resyncEinsatzRows(folderId);
+    showToast('Fehler beim Speichern der Einsätze', 'danger');
+    return;
+  }
+  // MA numbers of tagged Einsätze (the Aufträge tab reads the same table)
+  var staff = ordnerStaffRows(einsaetze);
+  if (staff.length) {
+    var { data: stRows, error: stErr } = await supabaseClient.from('order_staffing').upsert(staff, { onConflict: 'job_no' }).select('job_no');
+    if (stErr || !stRows || stRows.length !== staff.length) { console.error('MA-Zahlen speichern:', stErr); showToast('Einsätze gespeichert, aber die MA-Zahlen nicht. Bitte nochmal speichern.', 'danger'); return; }
+  }
+  // The picked Bestätigung goes into the folder, with its parse result so "Aufträge" and "Ich kann" see it at once
+  if (_ordnerAb) {
+    var ab = _ordnerAb, fileId = await uploadOrdnerFile(folderId, ab.file, orderIsAb(ab.file.name) ? ab.file.name : 'Auftragsbestätigung ' + ab.file.name);
+    if (!fileId) { showToast('Ordner gespeichert, aber die PDF nicht hochgeladen. Bitte nochmal speichern.', 'danger'); return; }
+    _ordnerAb = null; // a retry must not upload it twice
+    var pr = await supabaseClient.from('order_parsed').upsert({ file_id: fileId, parser_version: ORDER_PARSER_VERSION, result: ab.parsed }, { onConflict: 'file_id' });
+    if (pr.error) console.warn('Auftrag nicht zwischengespeichert (wird beim Öffnen von Aufträge gelesen):', pr.error);
+  }
+  showToast(wasNew ? '✅ Ordner erstellt.' : '✅ Ordner aktualisiert.');
+  // Push to ALs not told about this folder yet (the function decides who; a failure must not affect the save)
+  if (einsaetze.length) {
+    try {
+      supabaseClient.functions.invoke('notify-folder', { body: { folder_id: folderId } })
+        .then(function(r) { if (r.error) console.error('Ordner-Push:', r.error); })
+        .catch(function(e) { console.error('Ordner-Push:', e); });
+    } catch (e) { console.error('Ordner-Push:', e); }
+  }
+  var returnId = _ordnerFormReturnId;
+  _ordnerFormReturnId = null;
+  closeOrdnerForm();
+  await fetchOrdner();
+  if (returnId) await openOrdnerDetail(returnId);
+}
+
+// Notification tap opens ./index.html?open=ordner
+function handleOrdnerDeepLink() {
+  var params = new URLSearchParams(location.search);
+  if (params.get('open') !== 'ordner') return;
+  history.replaceState(null, '', location.pathname);
+  if (typeof currentUser === 'undefined' || !currentUser) return;
+  selectMode('ordner');
+}
+
+// Detail view: PL + jobs with protocol status
+async function renderOrdnerEinsaetze(folder) {
+  var box = document.getElementById('ordner-einsaetze');
+  if (!box) return;
+  box.style.display = 'none';
+  var { data: rows, error } = await supabaseClient.from('einsaetze')
+    .select('id, date, action, al_id, cancelled')
+    .eq('folder_id', folder.id).order('date');
+  var stale = function() { return !aktuellerOrdner || aktuellerOrdner.id !== folder.id; };
+  if (stale()) return;
+  if (error) { console.error('Einsätze:', error); return; }
+  if (!rows || !rows.length) return;
+  var alIds = rows.map(function(r) { return r.al_id; });
+  var dates = rows.map(function(r) { return r.date; });
+  var done = {};
+  // MA/Gast cannot read protocols: marker only for office roles
+  var { data: prots } = ['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole)
+    ? await supabaseClient.from('protocols').select('al_id, date').in('al_id', alIds).in('date', dates) : { data: [] };
+  (prots || []).forEach(function(p) { done[p.al_id + '|' + p.date] = true; });
+  await loadOrdnerUsers();
+  if (stale()) return;
+  var pl = (_ordnerUsers || []).find(function(u) { return u.id === folder.pl_id; });
+  var PILL = { done: ['ui-pill-ok', 'erledigt'], open: ['ui-pill-warn', 'Protokoll fehlt'], future: ['ui-pill-info', 'geplant'], cancelled: ['ui-pill-danger', 'entfällt'] };
+  var today = localDateStr();
+  box.className = 'ui-card';
+  box.innerHTML = '<div class="ui-label" style="margin:0 0 4px;">Einsätze</div>' +
+    '<div class="ui-sub" style="margin-bottom:6px;">Projektleitung: ' + escOrdner(pl ? pl.full_name : '—') + '</div>' +
+    rows.map(function(r) {
+      var alUser = (_ordnerUsers || []).find(function(u) { return u.id === r.al_id; });
+      var st = einsatzStatus(r, !!done[r.al_id + '|' + r.date], today), p = PILL[st] || PILL.future;
+      return '<div class="ordner-einsatz"><span>' + shortDateDE(r.date) + ' · ' + escOrdner(r.action) + ' · AL ' + escOrdner((alUser && alUser.full_name) || '—') + '</span>' +
+        '<span class="ui-pill ' + p[0] + '">' + p[1] + '</span></div>';
+    }).join('');
+  box.style.display = 'block';
+}
+
+
+// Collects the folder and all nested subfolder ids (depth-first over the cached list)
+function collectOrdnerTreeIds(rootId) {
+  var ids = [rootId];
+  for (var i = 0; i < ids.length; i++) {
+    /* eslint-disable no-loop-func */
+    alleOrdner.forEach(function(o) {
+      if (o.parent_id === ids[i] && ids.indexOf(o.id) === -1) ids.push(o.id);
+    });
+  }
+  return ids;
+}
+
+async function deleteCurrentOrdner() {
+  if (aktuellerOrdner) await deleteOrdner(aktuellerOrdner);
+}
+
+async function deleteOrdner(folder) {
+  // The cached list may miss subfolders another user created meanwhile: their files would be orphaned in storage
+  var { data: fresh } = await supabaseClient.from('project_folders').select('id, name, description, created_at, parent_id, pl_id, ends_on');
+  if (fresh) alleOrdner = fresh;
+  var treeIds = collectOrdnerTreeIds(folder.id);
+  var subCount = treeIds.length - 1;
+  var msg = 'Ordner "' + folder.name + '"' +
+    (subCount > 0 ? ' inkl. ' + subCount + ' Unterordner(n)' : '') +
+    ' und alle enthaltenen Dateien wirklich löschen?';
+  if (!confirm(msg)) return;
+
+  // Collect the storage paths of the whole subtree first (DB rows cascade via FK)
+  var { data: allFiles, error: filesErr } = await supabaseClient
+    .from('folder_files').select('file_url').in('folder_id', treeIds);
+  // Without the file list the storage objects could not be removed after the cascade: stop instead
+  if (filesErr) { showToast('Fehler: ' + filesErr.message, 'danger'); return; }
+  var paths = (allFiles || []).map(function(f) {
+    var parts = (f.file_url || '').split('/project-files/');
+    return parts.length > 1 ? parts[1] : null;
+  }).filter(Boolean);
+
+  // DB first (row-checked: RLS answers with 0 rows); storage is only cleaned up after the folder is really gone
+  var { data: delRows, error } = await supabaseClient.from('project_folders').delete().eq('id', folder.id).select('id');
+  if (error || !delRows || !delRows.length) { showToast('Fehler: ' + (error ? error.message : 'Löschen abgelehnt'), 'danger'); return; }
+  var storageOk = await ordnerRemoveFiles(paths);
+  showToast(storageOk ? 'Ordner gelöscht.' : 'Ordner gelöscht, aber Dateien konnten nicht aus dem Speicher entfernt werden.', storageOk ? undefined : 'danger');
+  var parentId = folder.parent_id;
+  closeOrdnerDetail();
+  await fetchOrdner();
+  if (parentId) await openOrdnerDetail(parentId);
+}
+
+// ── SHARED FILE VIEWER ──
+// Looks the file up by id — passing name/url through inline onclick strings
+// breaks as soon as a filename contains a quote character.
+// project-files is private: the stored public-style link only identifies the file (same parsing as cleanup-folders)
+function projectFilePath(fileUrl) {
+  var parts = String(fileUrl || '').split('/project-files/');
+  if (parts.length < 2) return null;
+  var p = parts.slice(1).join('/project-files/').split('?')[0];
+  try { p = decodeURIComponent(p); } catch (e) { /* keep the raw path */ }
+  return p || null;
+}
+
+// Temporary link (1 h) for viewing/downloading; null when the file can't be signed (offline, gone, no session)
+async function signedProjectFileUrl(fileUrl) {
+  var path = projectFilePath(fileUrl);
+  if (!path) return null;
+  try {
+    var res = await supabaseClient.storage.from('project-files').createSignedUrl(path, 3600);
+    return (res && !res.error && res.data && res.data.signedUrl) || null;
+  } catch (e) { return null; }
+}
+
+var _ordnerOpening = false; // double tap while the link is being signed must not open two viewers
+async function openOrdnerFileById(id) {
+  var f = ordnerFiles.find(function(x) { return x.id === id; });
+  if (!f || _ordnerOpening) return;
+  _ordnerOpening = true;
+  try {
+    var warm = _pdfWarm.ready[id] || null; // still loading: open the normal way instead of waiting behind the queue
+    var url = warm ? warm.url : await signedProjectFileUrl(f.file_url);
+    if (!url) { showToast('Datei konnte nicht geöffnet werden'); return; }
+    openFileViewer(url, f.name, f.file_type || '', warm);
+  } finally { _ordnerOpening = false; }
+}
+
+// 'image' | 'pdf' | 'file' (download only). HEIC/HEIF is not displayable in most browsers (Chrome/Android), so it is a file.
+function ordnerViewerKind(mimeType, url) {
+  var mime = String(mimeType || ''), u = String(url || '');
+  if (/image\/hei[cf]/i.test(mime) || /\.hei[cf](\?|$)/i.test(u)) return 'file';
+  if (/image\//i.test(mime) || /\.(jpe?g|png|gif|webp)(\?|$)/i.test(u)) return 'image';
+  if (/pdf/i.test(mime) || /\.pdf(\?|$)/i.test(u)) return 'pdf';
+  return 'file';
+}
+
+function openFileViewer(url, name, mimeType, warm) {
+  var modal = document.getElementById('produkt-viewer-modal');
+  var titleEl = document.getElementById('viewer-title');
+  var subtitleEl = document.getElementById('viewer-subtitle');
+  var body = document.getElementById('viewer-body');
+  var dlBtn = document.getElementById('viewer-download-btn');
+
+  if (titleEl) titleEl.textContent = name || 'Datei';
+  // The download button is shared with the product viewer, which hides/relabels it: restore it here
+  if (dlBtn) { dlBtn.href = url; dlBtn.textContent = '⬇ Download'; dlBtn.style.display = 'inline-flex'; }
+
+  var kind = ordnerViewerKind(mimeType, url);
+  var isImage = kind === 'image';
+  var isPdf = kind === 'pdf';
+  if (subtitleEl) subtitleEl.textContent = isImage ? 'Bild' : isPdf ? 'PDF' : 'Datei';
+
+  if (modal) modal.style.display = 'flex'; // visible first so the zoom viewer can measure its width
+  if (body) {
+    body.style.display = 'flex';
+    body.style.alignItems = 'center';
+    body.style.justifyContent = 'center';
+    body.style.touchAction = '';
+    if (isImage) {
+      mountZoomViewer(body, { kind: 'image', url: url });
+    } else if (isPdf) {
+      mountZoomViewer(body, { kind: 'pdf', url: url, data: warm && warm.buf ? warm.buf.slice(0) : null, preview: warm && warm.preview });
+    } else {
+      body.innerHTML = '<div style="color:#fff;padding:40px;text-align:center;">' +
+        '<div style="font-size:64px;margin-bottom:16px;">' + fileIcon(mimeType, name) + '</div>' +
+        '<div style="font-size:16px;margin-bottom:20px;">' + escOrdner(name) + '</div>' +
+        '<a href="' + escOrdner(url) + '" target="_blank" rel="noopener" class="btn primary" style="display:inline-block;width:auto;padding:12px 24px;text-decoration:none;">⬇ Herunterladen</a>' +
+        '</div>';
+    }
+  }
+  if (modal) modal.style.display = 'flex';
+}
+
+// ── ZOOMABLE VIEWER (PDF via PDF.js, images) ──
+// The page itself has user-scalable=no, so pinch/zoom is implemented here:
+// content width = fit-width * zoom; pinch + buttons + double-tap change `zoom`.
+var _zv = null; // current zoom viewer state
+
+// A finished touch → a tap { x, y, t } when it was short, did not move and had no second finger; else null
+function zvTap(touch, endT) {
+  if (!touch || touch.moved || touch.multi || endT - touch.t > 300) return null;
+  return { x: touch.x, y: touch.y, t: endT };
+}
+// Two taps make a double tap when they are close in time (under 300 ms) and place (under 40 px)
+function zvIsDoubleTap(prev, tap) {
+  return !!prev && !!tap && tap.t - prev.t < 300 && Math.hypot(tap.x - prev.x, tap.y - prev.y) < 40;
+}
+
+// pdf.js loads on first use (utils.js loadLib, shipped with the app, no CDN)
+function loadPdfJs() { return loadLib('pdfjs'); }
+
+function mountZoomViewer(body, opts) {
+  var token = {};
+  _zv = { token: token, zoom: 1, fitW: 0, pages: [], renderTimer: null, renderGen: 0 };
+  var zv = _zv;
+
+  body.innerHTML =
+    '<div style="position:relative;width:100%;height:100%;">' +
+      '<div id="zv-scroll" style="position:absolute;inset:0;overflow:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;">' +
+        '<div id="zv-content" style="margin:0 auto;"></div>' +
+      '</div>' +
+      '<div style="position:absolute;right:12px;bottom:12px;display:flex;gap:6px;z-index:5;">' +
+        '<button class="zv-btn" data-z="out">−</button>' +
+        '<button class="zv-btn" data-z="fit">⤢</button>' +
+        '<button class="zv-btn" data-z="in">+</button>' +
+      '</div>' +
+      '<div id="zv-status" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;pointer-events:none;">Lade…</div>' +
+    '</div>';
+  body.style.display = 'block';
+
+  var scroll = body.querySelector('#zv-scroll');
+  var content = body.querySelector('#zv-content');
+  var status = body.querySelector('#zv-status');
+  zv.scroll = scroll; zv.content = content;
+
+  function alive() { return _zv === zv && document.body.contains(scroll); }
+
+  function applyZoom(newZoom, cx, cy) {
+    newZoom = Math.max(1, Math.min(6, newZoom));
+    if (cx === undefined) { cx = scroll.clientWidth / 2; cy = scroll.clientHeight / 2; }
+    var ratio = newZoom / zv.zoom;
+    // keep the focal point stable while resizing
+    var px = (scroll.scrollLeft + cx) * ratio - cx;
+    var py = (scroll.scrollTop + cy) * ratio - cy;
+    zv.zoom = newZoom;
+    content.style.width = (zv.fitW * zv.zoom) + 'px';
+    scroll.scrollLeft = px;
+    scroll.scrollTop = py;
+    scheduleRerender();
+  }
+  zv.applyZoom = applyZoom;
+
+  function scheduleRerender() {
+    if (!zv.rerender) return;
+    clearTimeout(zv.renderTimer);
+    zv.renderTimer = setTimeout(function() { if (alive()) zv.rerender(); }, 250);
+  }
+
+  body.querySelectorAll('.zv-btn').forEach(function(b) {
+    b.addEventListener('click', function() {
+      var z = b.getAttribute('data-z');
+      if (z === 'in') applyZoom(zv.zoom * 1.4);
+      else if (z === 'out') applyZoom(zv.zoom / 1.4);
+      else applyZoom(1);
+    });
+  });
+
+  // Pinch zoom + double-tap. A tap is a short touch that did not move and was not part of a pinch: only two of those
+  // count as a double tap (two quick swipes while panning used to reset the zoom to the whole page)
+  var pinch = null, touch = null, lastTap = null;
+  function dist(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); }
+  scroll.addEventListener('touchstart', function(e) {
+    if (e.touches.length === 2) {
+      pinch = { d: dist(e.touches), z: zv.zoom };
+      if (touch) touch.multi = true;
+    } else if (e.touches.length === 1) {
+      touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), moved: false, multi: false };
+    } else if (touch) touch.multi = true;
+  }, { passive: false });
+  scroll.addEventListener('touchmove', function(e) {
+    if (touch && e.touches.length === 1 && Math.hypot(e.touches[0].clientX - touch.x, e.touches[0].clientY - touch.y) > 10) touch.moved = true;
+    if (pinch && e.touches.length === 2) {
+      e.preventDefault();
+      var r = scroll.getBoundingClientRect();
+      var cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+      var cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
+      applyZoom(pinch.z * dist(e.touches) / pinch.d, cx, cy);
+    }
+  }, { passive: false });
+  scroll.addEventListener('touchend', function(e) {
+    if (e.touches.length < 2) pinch = null;
+    if (e.touches.length || !touch) return;
+    var tap = zvTap(touch, Date.now());
+    touch = null;
+    if (!tap) { lastTap = null; return; }
+    if (zvIsDoubleTap(lastTap, tap)) {
+      lastTap = null;
+      var r = scroll.getBoundingClientRect();
+      applyZoom(zv.zoom > 1.2 ? 1 : 2.5, tap.x - r.left, tap.y - r.top);
+      e.preventDefault();
+    } else lastTap = tap;
+  }, { passive: false });
+  // Ctrl+wheel / trackpad pinch on desktop
+  scroll.addEventListener('wheel', function(e) {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    var r = scroll.getBoundingClientRect();
+    applyZoom(zv.zoom * Math.exp(-e.deltaY * 0.01), e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+
+  function setFitWidth() {
+    zv.fitW = Math.max(200, scroll.clientWidth);
+    content.style.width = (zv.fitW * zv.zoom) + 'px';
+  }
+
+  if (opts.kind === 'image') {
+    setFitWidth();
+    var img = new Image();
+    img.src = opts.url;
+    img.style.cssText = 'width:100%;height:auto;display:block;user-select:none;-webkit-user-drag:none;';
+    img.onload = function() { if (alive()) status.style.display = 'none'; };
+    img.onerror = function() { if (alive()) status.textContent = 'Bild konnte nicht geladen werden.'; };
+    content.appendChild(img);
+    return;
+  }
+
+  // PDF
+  setFitWidth();
+  // A warmed-up copy: page 1 shows its finished drawing at once, the file is not downloaded again
+  if (opts.preview) {
+    var pre = document.createElement('canvas');
+    pre.style.cssText = 'width:100%;height:auto;display:block;margin:0 0 8px;background:#fff;';
+    pre.width = opts.preview.width; pre.height = opts.preview.height;
+    pre.getContext('2d').drawImage(opts.preview, 0, 0);
+    content.appendChild(pre);
+    status.style.display = 'none';
+  }
+  loadPdfJs().then(function(pdfjs) {
+    return pdfjs.getDocument(opts.data ? { data: opts.data } : { url: opts.url }).promise;
+  }).then(function(pdf) {
+    if (!alive()) return;
+    status.style.display = 'none';
+    var chain = Promise.resolve();
+    for (var n = 1; n <= pdf.numPages; n++) {
+      (function(num) {
+        chain = chain.then(function() { return pdf.getPage(num); }).then(function(page) {
+          if (!alive()) return;
+          if (num === 1 && pre) { zv.pages.push({ page: page, canvas: pre, drawnW: pre.width }); return; }
+          var canvas = document.createElement('canvas');
+          canvas.style.cssText = 'width:100%;height:auto;display:block;margin:0 0 8px;background:#fff;';
+          content.appendChild(canvas);
+          zv.pages.push({ page: page, canvas: canvas, drawnW: 0 });
+        });
+      })(n);
+    }
+    zv.rerender = function() {
+      var gen = ++zv.renderGen;
+      // cap backing-store width to keep memory sane on phones; a page drawn sharp enough already is not drawn again
+      var w = ordnerPdfRenderWidth(zv.fitW, zv.zoom, window.devicePixelRatio);
+      zv.pages.reduce(function(p, item) {
+        return p.then(function() {
+          if (!alive() || gen !== zv.renderGen) return;
+          if (item.drawnW >= w.need) return;
+          var vp0 = item.page.getViewport({ scale: 1 });
+          var vp = item.page.getViewport({ scale: w.draw / vp0.width });
+          var c = item.canvas;
+          // render offscreen first so the old bitmap stays visible (no flicker)
+          var off = document.createElement('canvas');
+          off.width = Math.floor(vp.width); off.height = Math.floor(vp.height);
+          return item.page.render({ canvasContext: off.getContext('2d'), viewport: vp }).promise.then(function() {
+            if (!alive() || gen !== zv.renderGen) return;
+            c.width = off.width; c.height = off.height;
+            c.getContext('2d').drawImage(off, 0, 0);
+            item.drawnW = off.width;
+          });
+        });
+      }, Promise.resolve());
+    };
+    return chain.then(function() { if (alive()) zv.rerender(); });
+  }).catch(function(err) {
+    console.error('PDF viewer:', err);
+    if (!alive()) return;
+    body.style.display = 'flex';
+    body.innerHTML = pdfFallbackHtml(opts.url);
+  });
+}
+
+// pdf.js failed: offer the (signed) file as a download — never hand the private link to a third-party viewer
+function pdfFallbackHtml(url) {
+  return '<div style="padding:40px;text-align:center;color:#888;">' +
+    '<div style="margin-bottom:16px;">Vorschau nicht möglich.</div>' +
+    '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener" class="btn primary" style="display:inline-block;width:auto;padding:12px 24px;text-decoration:none;">⬇ Herunterladen</a></div>';
+}
+
+// ── UTILS ──
+function showOrdnerLoading(show) {
+  var el = document.getElementById('ordner-loading');
+  var grid = document.getElementById('ordner-grid');
+  if (el) el.style.display = show ? 'flex' : 'none';
+  if (grid) grid.style.display = show ? 'none' : 'block';
+}
+
+function fileIcon(mimeType, name) {
+  var t = (mimeType || '') + (name || '');
+  if (/image/i.test(t) || /\.(jpe?g|png|gif|webp|svg)/i.test(t)) return '🖼️';
+  if (/pdf/i.test(t) || /\.pdf/i.test(t)) return '📄';
+  if (/word|docx?/i.test(t) || /\.docx?/i.test(t)) return '📝';
+  if (/excel|xlsx?|spreadsheet/i.test(t) || /\.xlsx?/i.test(t)) return '📊';
+  if (/video/i.test(t) || /\.(mp4|mov|avi)/i.test(t)) return '🎬';
+  if (/zip|rar|7z/i.test(t) || /\.(zip|rar|7z)/i.test(t)) return '🗜️';
+  return '📎';
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function escOrdner(str) {
+  return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Redesign helpers ──
+// Folder actions in the top bar "…" (detail view); only with the right to manage folders
+function ordnerMenuItems(canManage, folderId) {
+  if (!canManage) return [];
+  return [
+    { label: 'Unterordner anlegen', action: 'createSubfolder' },
+    { label: 'PL & Einsätze', action: 'openOrdnerForm', args: [folderId] },
+    { label: 'Ordner löschen', action: 'deleteCurrentOrdner', danger: true }
+  ];
+}
+
+// Icon kind of a file row (image / video / file)
+function ordnerFileKind(mimeType, name) {
+  var t = (mimeType || '') + ' ' + (name || '');
+  if (/image/i.test(t) || /\.(jpe?g|png|gif|webp|svg|heic)\b/i.test(t)) return 'image';
+  if (/video/i.test(t) || /\.(mp4|mov|avi|webm)\b/i.test(t)) return 'video';
+  return 'file';
+}
+
+function ordnerFolderMenu(id) {
+  openUiMenu([{ label: 'Bearbeiten', action: 'openOrdnerForm', args: [id] }]);
+}
+
+function ordnerFileMenu(id) {
+  var f = (ordnerFiles || []).find(function(x) { return x.id === id; });
+  if (!f) return;
+  openUiMenu([
+    { label: 'Öffnen', action: 'openOrdnerFileById', args: [id] },
+    { label: f.note ? 'Anmerkung bearbeiten' : 'Anmerkung hinzufügen', action: 'editOrdnerFileNote', args: [id] },
+    { label: 'Datei löschen', action: 'deleteOrdnerFile', args: [id, f.file_url], danger: true }
+  ]);
+}
+
+function ordnerSetTitle(text) {
+  var t = document.getElementById('topbar-title');
+  if (t && typeof activeModule !== 'undefined' && activeModule === 'ordner') t.textContent = text;
+}
+
+if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
+  UI_TOPBAR_ITEMS.ordner = function() {
+    return aktuellerOrdner ? ordnerMenuItems(canManageOrdner, aktuellerOrdner.id) : [];
+  };
+}
