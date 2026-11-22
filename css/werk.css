@@ -293,3 +293,4 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .ordner-back { font-weight: 800; letter-spacing: .04em; text-transform: uppercase; font-size: 12px; }
 .ordner-card, .ordner-file-row { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); }
 .ordner-file-name { font-weight: 700; }
+.dash-nk { border: var(--w-bw) solid var(--w-line) !important; border-radius: var(--w-r-ctl) !important; background: var(--w-card); }
