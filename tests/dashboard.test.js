@@ -545,6 +545,21 @@ test('dashboard menu: PDF only in the Buchhaltung view with a person, recalc onl
   assert.deepEqual(plain(actions('work', null)), []);
 });
 
+test('dashboard menu: Admin reaches Fehlerberichte (the tab bar is hidden) and can close it again', () => {
+  const c2 = vm.createContext({ console: { log() {}, warn() {}, error() {} }, localStorage: { getItem: () => null }, document: { addEventListener() {} }, UI_TOPBAR_ITEMS: {}, DASH_VIEW_KEY: 'k', dashViewFromStored: () => 'prot' });
+  c2.window = c2;
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/dashboard.js'), 'utf8'), c2, { filename: 'dashboard.js' });
+  vm.runInContext('currentUser = { role: "Admin" }; canSeeCosts = function() { return false; }; dashboardCurrentWorker = null;', c2);
+  const items = view => { vm.runInContext('dashView = ' + JSON.stringify(view), c2); return plain(vm.runInContext('UI_TOPBAR_ITEMS.dashboard()', c2)); };
+  vm.runInContext('userRole = "Admin"', c2);
+  assert.ok(items('prot').some(i => i.label === 'Fehlerberichte' && i.action === 'switchDashTab' && i.args[0] === 'errors'));
+  const inErrors = items('errors');
+  assert.ok(inErrors.some(i => i.label === 'Fehlerberichte schließen' && i.args[0] === 'prot'));
+  assert.ok(!inErrors.some(i => i.label === 'Fehlerberichte'));
+  vm.runInContext('userRole = "PL"', c2);
+  assert.ok(!items('prot').some(i => /Fehler/.test(i.label)));
+});
+
 test('dashProtMatches: search finds the date as shown (dd.mm.yyyy) as well as ISO', () => {
   const p = { date: '2026-11-02', projects: { name: 'Gala', location: 'Estrel' }, al: { full_name: 'Anna' } };
   const m = ctx.dashProtMatches;
