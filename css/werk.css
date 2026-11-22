@@ -199,3 +199,46 @@ body { color: var(--w-ink); font-feature-settings: 'tnum' 0; -webkit-font-smooth
 body.w-has-tabbar .toast { bottom: calc(var(--w-tabbar-h) + 16px + env(safe-area-inset-bottom)); }
 body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 #auth-overlay > .ui-card > img { margin-left: 0 !important; }
+
+/* ══ Step 2: Wochenplan + Stundenzettel ══ */
+/* Wochenplan: the top bar already says "Wochenplan"; the upload button stays on the right */
+.wp-titlebar { justify-content: flex-end; margin-bottom: 0; }
+.wp-titlebar h2 { display: none; }
+#wp-upload-btn { margin-bottom: 12px; }
+.wp-weeknav button { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); background: var(--w-card); }
+.wp-day { border: var(--w-bw) solid var(--w-soft); border-radius: var(--w-r-ctl); background: var(--w-card); font-weight: 700; }
+.wp-day b { font-weight: 800; }
+.wp-day-mine { border-color: var(--w-line); }
+.wp-day-empty { opacity: .5; background: transparent; }
+.wp-today { background: var(--w-accent); border-color: var(--w-accent); color: var(--w-on-accent); }
+.wp-today b { color: var(--w-on-accent); }
+.wp-today em i, .wp-today.wp-day-mine em i { background: var(--w-on-accent); }
+.wp-dayhead { font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--w-ink); margin: 22px 2px 8px; }
+.wp-dayhead span { font-size: 12px; font-weight: 600; letter-spacing: .04em; color: var(--w-muted); }
+.wp-hero-label { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--w-muted); margin: 8px 2px 8px; }
+.wp-hero-date { font-size: 15px; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; }
+.wp-hero-time { font-size: 44px; font-weight: 800; letter-spacing: -.02em; }
+.wp-hero-venue { font-size: 19px; font-weight: 800; line-height: 1.2; }
+.wp-time b { font-size: 19px; font-weight: 800; }
+.wp-card-title, .ui-row-title { font-weight: 800; }
+/* Shift rows: ink outline; own shifts get the orange edge instead of an orange frame */
+.ui-row { border: var(--w-bw) solid var(--w-line); }
+.ui-row-me { border: var(--w-bw) solid var(--w-line); padding: 12px 14px; box-shadow: inset 4px 0 0 var(--w-accent); }
+.wp-chip { border-radius: var(--w-r-tag); border-width: var(--w-bw); font-weight: 600; }
+.wp-chip-me { border-color: var(--w-accent); background: var(--w-accent-bg); color: var(--w-accent-text); }
+.wp-hint { background: transparent; border: var(--w-bw) dashed var(--w-soft); border-radius: var(--w-r-ctl); }
+.wp-removed { border-radius: var(--w-r-ctl); border: var(--w-bw) solid var(--w-danger); }
+
+/* Stundenzettel: square day tiles; selected = ink, today = orange label, planned days dashed until hours are in */
+.ui-weeknav-label { font-weight: 800; }
+.ui-day { border: var(--w-bw) solid var(--w-soft); border-radius: var(--w-r-ctl); background: var(--w-card); color: var(--w-muted); font-weight: 600; }
+.ui-day b { font-weight: 800; }
+.ui-day.w-planned { border: var(--w-bw) dashed var(--w-accent); }
+.ui-day.w-planned.ui-dot-done, .ui-day.w-planned.ui-dot-signed { border-style: solid; border-color: var(--w-line); }
+.ui-day.w-today > span:first-child { color: var(--w-accent-text); font-weight: 800; }
+.ui-day.ui-day-active { background: var(--w-ink); border: var(--w-bw) solid var(--w-ink); color: var(--w-paper); }
+.ui-day.ui-day-active b, .ui-day.ui-day-active.w-today > span:first-child { color: var(--w-paper); }
+.ui-day i { border-radius: 1px; }
+.stunden-total .ui-num b { font-size: 44px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.stunden-total .ui-num span { font-size: 15px; font-weight: 800; color: var(--w-muted); text-transform: uppercase; letter-spacing: .06em; }
+.stunden-link { font-weight: 700; }
