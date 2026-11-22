@@ -44,3 +44,11 @@ test('sw: answers GET_VERSION with its cache name (Fehlerberichte)', () => {
   ctx._listeners.message({ data: { type: 'GET_VERSION' }, source: { postMessage: m => sent.push(m) } });
   assert.deepEqual(JSON.parse(JSON.stringify(sent)), [{ type: 'VERSION', version: vm.runInContext('CACHE', ctx) }]);
 });
+
+test('every LAZY_ASSETS file exists in the repo (incl. the Werkstatt font)', () => {
+  const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
+  const list = eval(sw.match(/const LAZY_ASSETS = (\[[\s\S]*?\]);/)[1]);
+  assert.ok(list.includes('fonts/archivo-latin-wght.woff2'));
+  assert.ok(list.includes('fonts/archivo-latin-ext-wght.woff2'));
+  for (const f of list) assert.ok(fs.existsSync(path.join(root, f)), f);
+});

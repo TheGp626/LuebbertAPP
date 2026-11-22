@@ -1,0 +1,121 @@
+/* ══ Werkstatt design layer (redesign 2026-11, branch redesign): tokens, font, components.
+   Loaded last. It also remaps the old tokens of style.css/ui.css, so screens that are not redesigned yet
+   already follow the Werkstatt look. New components use the w- prefix. ══ */
+
+@font-face {
+  font-family: 'Archivo'; font-style: normal; font-display: swap; font-weight: 100 900;
+  src: url(../fonts/archivo-latin-ext-wght.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Archivo'; font-style: normal; font-display: swap; font-weight: 100 900;
+  src: url(../fonts/archivo-latin-wght.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ── Tokens (light) + remap of the old tokens ── */
+:root {
+  --w-paper: #F4F1EA; --w-card: #FFFFFF; --w-ink: #16140F; --w-muted: #6B655A; --w-soft: #CFC9BC; --w-tint: #E9E4D8;
+  --w-line: #16140F; --w-accent: #FF5A1F; --w-on-accent: #16140F; --w-accent-text: #B33A0C; --w-accent-bg: #FFE3D6;
+  --w-hero: #16140F; --w-on-hero: #F4F1EA; --w-hero-muted: #B8B1A3; --w-bar: #16140F; --w-bar-muted: #8A8475;
+  --w-ok: #2F6B1E; --w-ok-bg: #E2EDD3; --w-warn: #8A4B00; --w-warn-bg: #F6E3C2; --w-danger: #B3261E; --w-danger-bg: #F8DCD8;
+  --w-r-ctl: 4px; --w-r-hero: 6px; --w-r-tag: 3px; --w-bw: 1.5px;
+  --w-s1: 4px; --w-s2: 8px; --w-s3: 12px; --w-s4: 16px; --w-s5: 24px; --w-s6: 32px;
+  --w-fast: 150ms; --w-slow: 250ms;
+  --w-font: 'Archivo', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --w-tabbar-h: 64px;
+
+  --bg: var(--w-paper); --bg2: var(--w-card); --bg3: var(--w-tint);
+  --text: var(--w-ink); --text2: var(--w-muted); --text3: #8A8475;
+  --border: rgba(22, 20, 15, .16); --border2: var(--w-ink);
+  --accent: var(--w-accent); --accent-bg: var(--w-accent-bg); --accent-text: var(--w-accent-text);
+  --danger: var(--w-danger); --radius: 4px; --radius-lg: 4px;
+  --r-control: 4px; --r-card: 4px; --r-hero: 6px;
+  --info: var(--w-accent-text); --info-bg: var(--w-accent-bg);
+  --warn: var(--w-warn); --warn-bg: var(--w-warn-bg); --ok: var(--w-ok); --ok-bg: var(--w-ok-bg); --danger-bg: var(--w-danger-bg);
+  --wp-warn-bg: var(--w-warn-bg); --wp-warn-text: var(--w-warn); --wp-new-bg: var(--w-ok-bg); --wp-new-text: var(--w-ok); --wp-danger-bg: var(--w-danger-bg);
+}
+[data-theme="dark"] {
+  --w-paper: #14120E; --w-card: #1E1B16; --w-ink: #F1ECE2; --w-muted: #A39C8E; --w-soft: #3A352C; --w-tint: #2C2821;
+  --w-line: #3A352C; --w-accent: #FF6A33; --w-on-accent: #14120E; --w-accent-text: #FF8A5C; --w-accent-bg: #3A1E12;
+  --w-hero: #F1ECE2; --w-on-hero: #14120E; --w-hero-muted: #5E584C; --w-bar: #0C0B08; --w-bar-muted: #7B7466;
+  --w-ok: #A6D67A; --w-ok-bg: #1E2E12; --w-warn: #F2B85C; --w-warn-bg: #3A2A0C; --w-danger: #F08A80; --w-danger-bg: #3A1614;
+  --text3: #7B7466; --border: rgba(241, 236, 226, .12); --border2: #5A5346;
+}
+@media (prefers-color-scheme: dark) {
+  [data-theme="auto"] {
+    --w-paper: #14120E; --w-card: #1E1B16; --w-ink: #F1ECE2; --w-muted: #A39C8E; --w-soft: #3A352C; --w-tint: #2C2821;
+    --w-line: #3A352C; --w-accent: #FF6A33; --w-on-accent: #14120E; --w-accent-text: #FF8A5C; --w-accent-bg: #3A1E12;
+    --w-hero: #F1ECE2; --w-on-hero: #14120E; --w-hero-muted: #5E584C; --w-bar: #0C0B08; --w-bar-muted: #7B7466;
+    --w-ok: #A6D67A; --w-ok-bg: #1E2E12; --w-warn: #F2B85C; --w-warn-bg: #3A2A0C; --w-danger: #F08A80; --w-danger-bg: #3A1614;
+    --text3: #7B7466; --border: rgba(241, 236, 226, .12); --border2: #5A5346;
+  }
+}
+
+/* ── Base ── */
+html, body { background: var(--w-paper); }
+body, button, input, select, textarea { font-family: var(--w-font); }
+body { color: var(--w-ink); font-feature-settings: 'tnum' 0; -webkit-font-smoothing: antialiased; }
+:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+/* ── Type ── */
+.w-date { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--w-muted); }
+.w-title { font-size: 40px; font-weight: 800; letter-spacing: -.02em; line-height: 1; margin: 2px 0 16px; color: var(--w-ink); }
+.w-label { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--w-muted); margin: 20px 0 8px; }
+.w-num { font-variant-numeric: tabular-nums; }
+
+/* ── Surfaces ── */
+.w-card { background: var(--w-card); border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); padding: var(--w-s3) var(--w-s4); }
+.w-hero { background: var(--w-hero); color: var(--w-on-hero); border-radius: var(--w-r-hero); padding: var(--w-s4); }
+.w-hero-title { font-size: 26px; font-weight: 800; line-height: 1.1; margin: 10px 0 2px; overflow-wrap: anywhere; }
+.w-hero-sub { font-size: 14px; color: var(--w-hero-muted); overflow-wrap: anywhere; }
+.w-hero-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+.w-hero a, .w-hero button.w-link { color: inherit; }
+.w-tag { display: inline-block; background: var(--w-accent); color: var(--w-on-accent); font-size: 11px; font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase; padding: 3px 7px; border-radius: var(--w-r-tag); line-height: 1.3; }
+.w-tag-quiet { background: transparent; color: inherit; box-shadow: inset 0 0 0 1.5px currentColor; }
+.w-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px;
+  background: var(--w-accent); color: var(--w-on-accent); font-size: 12px; font-weight: 800; border-radius: var(--w-r-tag); font-variant-numeric: tabular-nums; }
+
+/* List row: tappable line with title, small sub line and a trailing badge or arrow */
+.w-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 56px; text-align: left;
+  background: var(--w-card); color: var(--w-ink); border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl);
+  padding: 10px 14px; margin-bottom: 8px; font-size: 15px; font-weight: 700; cursor: pointer; }
+.w-row small { display: block; font-size: 12px; font-weight: 500; color: var(--w-muted); margin-top: 2px; }
+.w-row:active { background: var(--w-tint); }
+.w-row-arrow { font-weight: 800; color: var(--w-muted); }
+
+/* ── Buttons ── */
+.w-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 10px 16px;
+  background: var(--w-card); color: var(--w-ink); border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl);
+  font-size: 15px; font-weight: 700; cursor: pointer; text-decoration: none; }
+.w-btn:active { background: var(--w-tint); }
+.w-btn-primary { background: var(--w-ink); color: var(--w-paper); border-color: var(--w-ink); }
+.w-btn-primary:active { background: var(--w-ink); opacity: .85; }
+.w-btn-accent { background: var(--w-accent); color: var(--w-on-accent); border-color: var(--w-accent); }
+.w-btn-block { display: flex; width: 100%; }
+
+/* ── Week strip ── */
+.w-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+.w-week > div { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); text-align: center; padding: 6px 0;
+  font-size: 11px; font-weight: 700; line-height: 1.3; color: var(--w-ink); }
+.w-week > div b { display: block; font-size: 15px; font-variant-numeric: tabular-nums; }
+.w-week > .off { border-color: var(--w-soft); color: var(--w-muted); }
+.w-week > .today { background: var(--w-accent); border-color: var(--w-accent); color: var(--w-on-accent); }
+
+/* ── Banner, empty state ── */
+.w-banner { display: flex; align-items: center; gap: 12px; background: var(--w-warn-bg); color: var(--w-warn);
+  border: var(--w-bw) solid currentColor; border-radius: var(--w-r-ctl); padding: 10px 12px; margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+.w-banner > span { flex: 1; min-width: 0; }
+.w-banner .w-btn { min-height: 36px; padding: 6px 12px; font-size: 13px; }
+.w-empty { border: var(--w-bw) dashed var(--w-soft); border-radius: var(--w-r-hero); padding: var(--w-s5) var(--w-s4); text-align: center; }
+.w-empty b { display: block; font-size: 17px; font-weight: 800; margin-bottom: 4px; }
+.w-empty p { font-size: 14px; color: var(--w-muted); margin: 0 0 12px; }
+
+/* Avatars in the hero */
+.w-avs { display: inline-flex; }
+.w-av { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; margin-right: -6px; border-radius: 50%;
+  background: var(--w-hero-muted); color: var(--w-hero); font-size: 10px; font-weight: 800; box-shadow: 0 0 0 2px var(--w-hero); }
