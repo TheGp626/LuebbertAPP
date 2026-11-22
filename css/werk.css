@@ -158,3 +158,43 @@ body { color: var(--w-ink); font-feature-settings: 'tnum' 0; -webkit-font-smooth
 #erinnerung-banner { margin-top: 16px; }
 .w-banner-rows .w-row { font-size: 14px; min-height: 48px; }
 .w-foot { text-align: center; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--w-muted); margin-top: 28px; }
+
+/* ── Existing screens in Werkstatt style (overrides of ui.css/style.css; markup unchanged) ── */
+.ui-title { font-weight: 800; letter-spacing: -.02em; }
+.ui-card { border: var(--w-bw) solid var(--w-line); }
+/* Wochenplan's own-shift card holds details and buttons: stays a light card, marked by an orange edge */
+.ui-hero { border: var(--w-bw) solid var(--w-line); box-shadow: inset 4px 0 0 var(--w-accent); }
+
+/* Buttons: primary = ink; the main action of a sticky action bar is orange */
+.ui-btn { border: var(--w-bw) solid var(--w-line); font-weight: 700; }
+.ui-btn-primary { background: var(--w-ink); border-color: var(--w-ink); color: var(--w-paper); }
+.ui-btn-primary:active { background: var(--w-ink); }
+.ui-actionbar .ui-btn-primary, .wp-actions .ui-btn-primary { background: var(--w-accent); border-color: var(--w-accent); color: var(--w-on-accent); }
+.ui-btn-danger { color: var(--w-danger); }
+
+/* Fields: 1.5px outline, orange focus */
+.ui-field input, .ui-field select, .ui-field textarea { border: var(--w-bw) solid var(--w-line); background: var(--w-card); }
+.ui-field input:focus, .ui-field select:focus, .ui-field textarea:focus { border-color: var(--w-accent); box-shadow: none; outline: 2px solid var(--w-accent); outline-offset: 0; }
+.ui-field > span { font-weight: 600; color: var(--w-muted); }
+
+/* Pills: square tags */
+.ui-pill { border-radius: var(--w-r-tag); font-weight: 800; letter-spacing: .04em; text-transform: uppercase; font-size: 10.5px; }
+
+/* Segmented controls: ink outline, active = ink fill */
+.ui-seg { background: transparent; border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); padding: 0; overflow: hidden; }
+.ui-seg > button { border-radius: 0; font-weight: 700; color: var(--w-ink); }
+.ui-seg > button + button { border-left: var(--w-bw) solid var(--w-line); }
+.ui-seg > button.active { background: var(--w-ink); color: var(--w-paper); box-shadow: none; }
+
+/* Login */
+#auth-overlay > .ui-card { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-hero); text-align: left !important; }
+#auth-title { font-size: 34px; line-height: 1; margin-top: 4px; }
+#auth-overlay .ui-btn-primary { background: var(--w-accent); border-color: var(--w-accent); color: var(--w-on-accent); min-height: 52px; font-size: 16px; }
+
+/* Sheets, modals, toasts */
+.sig-modal-inner { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-hero); }
+.sig-modal.ui-sheet > .sig-modal-inner { border-width: var(--w-bw) 0 0; }
+.toast { border: var(--w-bw) solid var(--w-line); font-weight: 600; }
+/* With the tab bar: toasts above it, action bars need no extra safe-area padding (the tab bar has it) */
+body.w-has-tabbar .toast { bottom: calc(var(--w-tabbar-h) + 16px + env(safe-area-inset-bottom)); }
+body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
