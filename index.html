@@ -13,7 +13,7 @@
 
   <link rel="stylesheet" href="css/style.css?v=43">
   <link rel="stylesheet" href="css/ui.css?v=47">
-  <link rel="stylesheet" href="css/werk.css?v=6">
+  <link rel="stylesheet" href="css/werk.css?v=7">
 </head>
 
 <body>
@@ -142,7 +142,7 @@
     <!-- ══════════ PROTOKOLL PAGE ══════════ -->
     <div class="page" id="page-protokoll">
       <div class="prot-scroll" id="prot-scroll">
-        <div class="prot-nav-wrap"><div class="ui-chipbar" id="prot-section-nav"></div></div>
+        <div class="prot-nav-wrap"><div class="prot-step-count" id="prot-step-count"></div><div class="ui-chipbar" id="prot-section-nav"></div></div>
         <div class="ui-page">
 
           <!-- Section: Basis -->
@@ -243,7 +243,8 @@
           <span class="ui-sub">Nachkalkulation</span>
           <b><span id="prot-total-cost">0,00</span> €</b>
         </div>
-        <button type="button" class="ui-btn ui-btn-primary" style="flex:0 0 auto; min-width:140px;" onclick="saveProtokoll()">Senden</button>
+        <button type="button" class="ui-btn" id="prot-back-btn" style="flex:0 0 auto; display:none;" onclick="protStepBack()">Zurück</button>
+        <button type="button" class="ui-btn ui-btn-primary" id="prot-next-btn" style="flex:0 0 auto; min-width:120px;" onclick="protNextOrSend()">Weiter</button>
       </div>
     </div>
 
@@ -959,7 +960,7 @@
   <script src="js/settings.js?v=15"></script>
   <script src="js/mitarbeiter.js?v=4"></script>
   <script src="js/stundenzettel.js?v=38"></script>
-  <script src="js/protokoll.js?v=60"></script>
+  <script src="js/protokoll.js?v=61"></script>
   <script src="js/erinnerung.js?v=15"></script>
   <script src="js/plan-pdf.js?v=3"></script>
   <script src="js/plan-parser.js?v=27"></script>

@@ -242,3 +242,20 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .stunden-total .ui-num b { font-size: 44px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .stunden-total .ui-num span { font-size: 15px; font-weight: 800; color: var(--w-muted); text-transform: uppercase; letter-spacing: .06em; }
 .stunden-link { font-weight: 700; }
+
+/* ══ Step 3: Protokoll as a step-by-step flow (js/protokoll.js protGoStep) ══ */
+.prot-stepped .ui-section { display: none; }
+.prot-stepped .ui-section.prot-step-on { display: block; }
+.prot-nav-wrap { background: var(--w-paper); border-bottom: var(--w-bw) solid var(--w-line); }
+.prot-step-count { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--w-muted); margin: 0 0 6px 2px; }
+.ui-chip { border: var(--w-bw) solid var(--w-soft); border-radius: var(--w-r-ctl); font-weight: 700; background: var(--w-card); }
+.ui-chip-on { background: var(--w-card); color: var(--w-ink); border-color: var(--w-line); }
+.ui-chip .prot-step-n { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; border-radius: 2px;
+  background: var(--w-tint); color: var(--w-ink); font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ui-chip .prot-step-n .ui-ico { width: 13px; height: 13px; stroke-width: 3; }
+.ui-chip-on .prot-step-n { background: var(--w-ok-bg); color: var(--w-ok); }
+.ui-chip.prot-step-cur { background: var(--w-ink); color: var(--w-paper); border-color: var(--w-ink); }
+.ui-chip.prot-step-cur .prot-step-n { background: var(--w-accent); color: var(--w-on-accent); }
+.prot-stepped .ui-section.prot-step-on { animation: w-step-in var(--w-slow) ease-out; }
+@keyframes w-step-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+.prot-stepped .ui-section-head .ui-label { font-size: 24px; font-weight: 800; letter-spacing: -.01em; text-transform: none; color: var(--w-ink); }

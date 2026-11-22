@@ -1130,3 +1130,14 @@ test('markProtMailed: a correction saved after the mailed version stays pending'
   ctx.markProtMailed(7, '2026-11-20T10:00:00.000Z');
   assert.deepEqual(saved.map(e => e.mailed), [true, false, false]); // the 10:00:10 edit and another protocol stay open
 });
+
+test('protStepState: one section at a time, clamped, unknown step falls back to the first', () => {
+  const ids = ['basis', 'transport', 'equipment', 'personal', 'vorkommnisse', 'unterschrift'];
+  const s = id => plain(ctx.protStepState(ids, id));
+  assert.deepEqual(s('basis'), { index: 0, total: 6, first: true, last: false, prev: null, next: 'transport' });
+  assert.deepEqual(s('unterschrift'), { index: 5, total: 6, first: false, last: true, prev: 'vorkommnisse', next: null });
+  assert.equal(s('transport').index, 1);
+  // Zusatzauftrag hides Transport and Personal: a step that disappeared falls back to the first one
+  assert.deepEqual(plain(ctx.protStepState(['basis', 'equipment', 'vorkommnisse', 'unterschrift'], 'personal')).index, 0);
+  assert.equal(plain(ctx.protStepState(ids, undefined)).index, 0);
+});
