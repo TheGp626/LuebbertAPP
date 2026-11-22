@@ -758,6 +758,7 @@ async function saveOrdner() {
 }
 
 async function saveOrdnerRun() {
+  if (typeof breadcrumb === 'function') breadcrumb('save:ordner');
   var name = ((document.getElementById('inp-ordner-name') || {}).value || '').trim();
   var desc = ((document.getElementById('inp-ordner-desc') || {}).value || '').trim();
   var plId = ((document.getElementById('inp-ordner-pl') || {}).value || '') || null;

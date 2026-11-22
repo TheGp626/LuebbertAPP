@@ -556,3 +556,28 @@ button.opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset:
 
 /* Running tap action (ui.js uiGuardTap): the button waits until it is done */
 button[aria-busy="true"], .ui-btn[aria-busy="true"] { opacity: .6; pointer-events: none; cursor: progress; }
+
+/* Fehlerberichte: tappable crash toast (above the login overlay), Problem melden */
+.toast { z-index: 10003; } /* above the login overlay (10000) and the Problem-melden sheet (10001) */
+.toast.toast-tap { pointer-events: auto; cursor: pointer; }
+#problem-modal { z-index: 10001; }
+#problem-modal textarea { width: 100%; box-sizing: border-box; min-height: 72px; resize: vertical; font: inherit; margin-bottom: 12px; }
+.problem-check { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 4px 0 6px; }
+.problem-link { background: none; border: 0; color: inherit; opacity: .7; font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; padding: 8px; margin-top: 12px; }
+#problem-tech-pre { font-size: 11px; max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word; background: var(--bg2); border-radius: 8px; padding: 8px; margin: 6px 0 0; }
+.problem-actions { display: flex; gap: 8px; margin-top: 14px; }
+.problem-actions .ui-btn { flex: 1; }
+.opt-problem { margin-top: 26px; }
+.opt-problem + .opt-logout { margin-top: 10px; }
+/* Dashboard tab Fehler (js/fehler.js) */
+.fehler-view .ui-seg { margin-bottom: 8px; }
+.fehler-filters { margin-bottom: 10px; }
+.fehler-row.fehler-new { border-left: 3px solid var(--accent); }
+.fehler-head { cursor: pointer; }
+.fehler-msg { font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fehler-text { font-size: 14px; white-space: pre-wrap; word-break: break-word; margin-bottom: 6px; }
+.fehler-pre { font-size: 11px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; background: var(--bg); border-radius: 8px; padding: 8px; margin: 4px 0 8px; }
+.fehler-actions { display: flex; gap: 6px; margin-top: 8px; }
+.fehler-actions .ui-btn { flex: 1; }
+.fehler-count { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 99px; background: var(--accent); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+.fehler-empty { padding: 16px 0; text-align: center; }

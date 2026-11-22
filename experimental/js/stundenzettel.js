@@ -1265,6 +1265,7 @@ function szFutureDayIdx(mon, days, today) {
 }
 
 async function saveWeek() {
+  if (typeof breadcrumb === 'function') breadcrumb('save:stundenzettel');
   if (!szStoreKey()) { showToast('Bitte zuerst anmelden'); return; }
   var d = collectData(); if (!d.name) { showToast('Bitte Namen eingeben'); return; }
   var future = szFutureDayIdx(getMondayFromWeekVal(d.weekStart), d.days, new Date());
