@@ -1,4 +1,4 @@
-const CACHE = 'stundenzettel-v231';
+const CACHE = 'stundenzettel-v232';
 // Product media, shared by the live app and /experimental/ (same origin, same files)
 const MEDIA_CACHE = 'luebbert-media-v1';
 // Loaded by the app only when needed (utils.js loadLib), so index.html doesn't name them: precached here for offline use
@@ -145,6 +145,8 @@ function trimMedia(c) {
 
 self.addEventListener('message', e => {
   if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
+  // Fehlerberichte (js/errors.js) send this cache name as the app version
+  if (e.data && e.data.type === 'GET_VERSION' && e.source) e.source.postMessage({ type: 'VERSION', version: CACHE });
 });
 
 // ── Web Push (AL-Erinnerungen) ──

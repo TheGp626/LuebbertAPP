@@ -85,3 +85,134 @@ test('queue cap drops oldest', () => {
   assert.equal(q[0].i, 5);
   assert.equal(q[49].i, 54);
 });
+
+// ── Runtime: fake browser around errors.js ──
+function browserCtx(extra) {
+  const store = {};
+  const handlers = {};
+  const c = vm.createContext(Object.assign({
+    console,
+    setTimeout: () => 0,
+    window: { addEventListener: (t, f) => { handlers[t] = f; } },
+    navigator: { onLine: true, userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/130.0 Mobile' },
+    location: { origin: 'https://a.b', pathname: '/LuebbertAPP/', hash: '' },
+    localStorage: {
+      getItem: k => (k in store ? store[k] : null),
+      setItem: (k, v) => { store[k] = String(v); },
+      removeItem: k => { delete store[k]; },
+    },
+  }, extra || {}));
+  vm.runInContext(SRC, c, { filename: 'errors.js' });
+  c._store = store; c._handlers = handlers;
+  return c;
+}
+const queueOf = c => JSON.parse(c._store['luebbert-err-queue'] || '[]');
+
+test('reportError queues a scrubbed payload', () => {
+  const c = browserCtx();
+  c.reportError(new Error("no 'Max'"), { where: 'protokoll.save' });
+  const q = queueOf(c);
+  assert.equal(q.length, 1);
+  assert.equal(q[0].kind, 'error');
+  assert.ok(!/Max/.test(q[0].p.message));
+  assert.equal(q[0].p.where, 'protokoll.save');
+  assert.equal(q[0].p.source, 'catch');
+  assert.match(q[0].p.fingerprint, /^[0-9a-f]{16}$/);
+  assert.equal(q[0].p.device, 'Android 14 Chrome, Tab');
+});
+
+test('session cap 20', () => {
+  const c = browserCtx();
+  for (let i = 0; i < 25; i++) c.reportError(new Error('e' + i));
+  assert.equal(queueOf(c).length, 20);
+});
+
+test('same fingerprint once per session', () => {
+  const c = browserCtx();
+  const e = new Error('same');
+  c.reportError(e); c.reportError(e); c.reportError(e);
+  assert.equal(queueOf(c).length, 1);
+});
+
+test('noise is dropped', () => {
+  const c = browserCtx();
+  c.reportError({ message: 'Script error.' });
+  assert.equal(queueOf(c).length, 0);
+});
+
+test('reportError swallows its own failures', () => {
+  const c = browserCtx({ supabaseClient: { rpc: () => { throw new Error('boom'); } } });
+  c.localStorage.setItem = () => { throw new Error('full'); };
+  assert.doesNotThrow(() => c.reportError(new Error('x')));
+});
+
+test('flush without supabaseClient keeps queue', async () => {
+  const c = browserCtx();
+  c.reportError(new Error('early'));
+  await c.flushErrorQueue();
+  assert.equal(queueOf(c).length, 1);
+});
+
+test('flush sends and removes; failed send stays', async () => {
+  const calls = [];
+  let fail = true;
+  const c = browserCtx({ supabaseClient: { rpc: async (n, a) => { calls.push([n, a]); return { error: fail ? { message: 'down' } : null }; } } });
+  c.reportError(new Error('one'));
+  await c.flushErrorQueue();
+  assert.equal(queueOf(c).length, 1);
+  fail = false;
+  await c.flushErrorQueue();
+  assert.equal(queueOf(c).length, 0);
+  assert.equal(calls.at(-1)[0], 'log_error');
+  assert.equal(calls.at(-1)[1].p.message, 'one');
+});
+
+test('flush skipped while offline', async () => {
+  const calls = [];
+  const c = browserCtx({ supabaseClient: { rpc: async () => { calls.push(1); return { error: null }; } } });
+  c.navigator.onLine = false;
+  c.reportError(new Error('off'));
+  await c.flushErrorQueue();
+  assert.equal(calls.length, 0);
+  assert.equal(queueOf(c).length, 1);
+});
+
+test('breadcrumb ring 20 and in payload', () => {
+  const c = browserCtx();
+  for (let i = 0; i < 25; i++) c.breadcrumb('nav:' + i);
+  c.reportError(new Error('with crumbs'));
+  const bc = queueOf(c)[0].p.breadcrumbs;
+  assert.equal(bc.length, 20);
+  assert.equal(bc[0].a, 'nav:5');
+});
+
+test('window error and unhandled rejection are caught and fire onUncaughtError', () => {
+  const c = browserCtx();
+  let fired = 0;
+  c.onUncaughtError(() => { fired++; });
+  c._handlers.error({ error: new Error('boom') });
+  c._handlers.unhandledrejection({ reason: new Error('rejected') });
+  c._handlers.error({ message: 'Script error.' });
+  const q = queueOf(c);
+  assert.deepEqual(q.map(e => e.p.source), ['window', 'promise']);
+  assert.equal(fired, 2);
+});
+
+test('recentFingerprints lists errors of the last minutes', () => {
+  const c = browserCtx();
+  const e = new Error('r1');
+  c.reportError(e);
+  c.reportError(e);
+  assert.equal(c.recentFingerprints(10).length, 1);
+  c.reportError(new Error('r2'));
+  assert.equal(c.recentFingerprints(10).length, 2);
+});
+
+test('app version per build: test copy has its own key', () => {
+  const c = browserCtx();
+  c._store['luebbert-app-version'] = 'stundenzettel-v231';
+  assert.equal(c.getAppVersion(), 'stundenzettel-v231');
+  const e = browserCtx({ location: { origin: 'https://a.b', pathname: '/LuebbertAPP/experimental/', hash: '' } });
+  e._store['luebbert-app-version'] = 'stundenzettel-v231';
+  assert.equal(e.getAppVersion(), '?');
+});
