@@ -552,6 +552,7 @@ async function initWochenplan() {
   if (typeof syncPushSubscription === 'function') syncPushSubscription();
   await wpRenderPushHint();
   wpSetView(wpView);
+  wpLoadInbox(); // not awaited: the banner fills in when ready (never throws)
 }
 
 // Future ISO weeks (Mo–So) that have order slots but no plan_weeks row; ascending, ids 'v-<ISO year>-<KW>'
@@ -971,6 +972,57 @@ async function wpOrderApply(jobNo, phase, on) {
 
 // ── IMPORT ──
 
+// ── PLAN-POSTFACH: PDFs that poll-plan-inbox took from the app's mailbox, waiting for PL/Admin ──
+var wpInboxRows = [];
+var wpInboxPolled = 0;
+
+async function wpLoadInbox() {
+  var box = document.getElementById('wp-inbox');
+  if (!box) return;
+  if (!wpCanUpload()) { box.innerHTML = ''; return; }
+  try {
+    await wpRenderInbox();
+    // Cron fills the inbox every 15 min; also look when the page opens (at most every 5 min)
+    if (Date.now() - wpInboxPolled > 300000) {
+      wpInboxPolled = Date.now();
+      var p = await supabaseClient.functions.invoke('poll-plan-inbox', { body: {} });
+      if (!p.error && p.data && p.data.stored) await wpRenderInbox();
+    }
+  } catch (e) { console.error('Plan-Postfach:', e); }
+}
+
+async function wpRenderInbox() {
+  var box = document.getElementById('wp-inbox');
+  var r = await supabaseClient.from('plan_inbox').select('id, file_name, storage_path, received_at').eq('status', 'neu').order('received_at', { ascending: false });
+  if (r.error) { box.innerHTML = ''; return; } // table not there yet or no right to read: no banner
+  wpInboxRows = r.data || [];
+  box.innerHTML = wpInboxRows.map(function(x) {
+    return '<div class="ui-card" style="margin-bottom:10px;"><div class="wp-card-title">Neuer Plan per Mail</div>' +
+      '<div class="wp-sub" style="margin-bottom:10px;">' + wpEsc(x.file_name) + ' · ' + wpEsc(new Date(x.received_at).toLocaleDateString('de-DE')) + '</div>' +
+      '<button class="btn" data-id="' + x.id + '" onclick="wpInboxOpen(this.dataset.id)">Prüfen</button> ' +
+      '<button class="btn" data-id="' + x.id + '" onclick="wpInboxDiscard(this.dataset.id)">Verwerfen</button></div>';
+  }).join('');
+}
+
+async function wpInboxOpen(id) {
+  var row = wpInboxRows.find(function(x) { return x.id === id; });
+  if (!row) return;
+  var d = await supabaseClient.storage.from('plan-inbox').download(row.storage_path);
+  if (d.error || !d.data) { console.error('Plan-Postfach laden:', d.error); showToast('Die PDF konnte nicht geladen werden.', 'danger'); return; }
+  await wpImportFile(new File([d.data], row.file_name, { type: 'application/pdf' }), id);
+}
+
+async function wpInboxMark(id, status) {
+  var r = await supabaseClient.from('plan_inbox').update({ status: status, handled_by: wpMe(), handled_at: new Date().toISOString() }).eq('id', id).select('id');
+  if (r.error) console.error('Plan-Postfach markieren:', r.error);
+  return !r.error;
+}
+
+async function wpInboxDiscard(id) {
+  if (!confirm('Diesen Plan aus dem Postfach verwerfen?')) return;
+  if (await wpInboxMark(id, 'verworfen')) await wpRenderInbox(); else showToast('Nicht verworfen. Prüf deine Verbindung.', 'danger');
+}
+
 function wpPickFile() {
   if (!wpCanUpload()) { showToast('Nur PL und Admin können Pläne hochladen.', 'danger'); return; }
   var inp = document.getElementById('wp-file');
@@ -982,6 +1034,11 @@ async function wpFileChosen(input) {
   var file = input.files && input.files[0];
   if (!file) return;
   if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') { showToast('Wähl eine PDF-Datei aus.', 'danger'); return; }
+  return wpImportFile(file, null);
+}
+
+// Reads a plan PDF and opens the import preview. inboxId: the plan_inbox row it came from (marked importiert on save).
+async function wpImportFile(file, inboxId) {
   showToast('Plan wird gelesen…', 'info');
   var parsed;
   try {
@@ -1040,7 +1097,7 @@ async function wpFileChosen(input) {
         parsed.warnings.push('Diese Woche wurde im Besetzungsplaner gebaut. Mit „Übernehmen“ ersetzt die PDF den veröffentlichten Plan; der Entwurf unter „Planen“ passt danach nicht mehr dazu.');
     } catch (dwErr) { /* hint only */ }
   }
-  wpImport = { parsed: parsed, fileName: file.name, existing: ex || null, unresolved: unresolved };
+  wpImport = { parsed: parsed, fileName: file.name, existing: ex || null, unresolved: unresolved, inboxId: inboxId || null };
   wpRenderImport();
 }
 
@@ -1243,6 +1300,7 @@ async function wpSaveImport() {
       try { await wpImport.afterSave(weekId); } catch (hookErr) { console.error('Nach dem Speichern:', hookErr); }
     }
 
+    if (wpImport.inboxId) await wpInboxMark(wpImport.inboxId, 'importiert');
     showToast('Wochenplan KW ' + p.kw + ' gespeichert');
     if (oldNotDeleted) showToast('Die alten Einsätze der Woche konnten nicht gelöscht werden – Einsätze erscheinen doppelt. Bitte beim Admin melden.', 'danger');
     wpImport = null;
