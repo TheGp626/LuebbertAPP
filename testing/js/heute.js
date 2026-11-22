@@ -24,11 +24,12 @@ function heuteWeekStrip(todayStr, ownDates) {
   return out;
 }
 
-// Days Monday..yesterday of this week with an own plan shift but no Stundenzettel entry (today is still running)
-function heuteMissingHourDays(todayStr, planDates, entryDates) {
+// Days Monday..yesterday of this week with an own plan shift but no Stundenzettel entry (today is still running).
+// runningDate: the date of last night's shift that is still running after midnight (nextOwnShift) → not missing yet
+function heuteMissingHourDays(todayStr, planDates, entryDates, runningDate) {
   var mon = heuteMonday(todayStr), entries = entryDates || [], seen = {};
   return (planDates || []).filter(function(d) {
-    if (d < mon || d >= todayStr || seen[d] || entries.indexOf(d) !== -1) return false;
+    if (d < mon || d >= todayStr || d === runningDate || seen[d] || entries.indexOf(d) !== -1) return false;
     seen[d] = true; return true;
   }).sort();
 }
@@ -95,7 +96,8 @@ async function renderHeuteCrew(seq) {
   var week = document.getElementById('heute-week'), todo = document.getElementById('heute-todo');
   if (!week || !todo) return;
   var me = currentUser.id, today = localDateStr(), mon = heuteMonday(today);
-  if (!week.innerHTML) week.innerHTML = heuteWeekHtml(heuteWeekStrip(today, []));
+  week.innerHTML = heuteWeekHtml(heuteWeekStrip(today, []));
+  todo.innerHTML = '';
   if (typeof supabaseClient === 'undefined') return;
   var res;
   try {
@@ -115,7 +117,11 @@ async function renderHeuteCrew(seq) {
   week.innerHTML = heuteWeekHtml(heuteWeekStrip(today, ownDates));
   var rows = '';
   if (!res[2].error) {
-    var missing = heuteMissingHourDays(today, ownDates, (res[2].data || []).map(function(r) { return r.shift_date; }));
+    // Last night's shift still running (the hero's cached next shift is dated yesterday): its hours come later
+    var cur = null;
+    try { cur = readNextShiftCache(localStorage.getItem(NEXT_SHIFT_KEY), me); } catch (e) { /* storage blocked */ }
+    var missing = heuteMissingHourDays(today, ownDates, (res[2].data || []).map(function(r) { return r.shift_date; }),
+      cur && cur.date < today ? cur.date : null);
     if (missing.length) {
       var days = heuteWeekStrip(today, []).map(function(x) { return x.date; });
       rows += heuteRow('selectMode(\'stunden\')', 'Stunden KW ' + wpIsoWeek(today),

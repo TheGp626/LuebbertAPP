@@ -1,4 +1,4 @@
-const CACHE = 'stundenzettel-exp-tst-536ed24';
+const CACHE = 'stundenzettel-exp-tst-c5d2ca6';
 // Product media, shared by the live app and /experimental/ (same origin, same files)
 const MEDIA_CACHE = 'luebbert-media-v1';
 // Loaded by the app only when needed (utils.js loadLib), so index.html doesn't name them: precached here for offline use
