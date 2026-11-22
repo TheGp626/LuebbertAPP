@@ -650,6 +650,39 @@ function renderWeekStrip() {
       strip.appendChild(tile);
     })(i);
   }
+  _stundenPlanned = [];
+  _stundenMonIso = localDateStr(mon);
+  stundenMarkTiles();
+  stundenLoadPlanned(_stundenMonIso);
+}
+
+// Werkstatt: today and the days with an own plan shift are marked in the strip, so a missing day stands out
+var _stundenPlanned = [], _stundenMonIso = null;
+function stundenTileExtra(i) {
+  var today = localDateStr(), d = _stundenMonIso && typeof heuteAddDays === 'function' ? heuteAddDays(_stundenMonIso, i) : null;
+  return (d === today ? ' w-today' : '') + (_stundenPlanned[i] ? ' w-planned' : '');
+}
+function stundenMarkTiles() {
+  for (var i = 0; i < 7; i++) {
+    var t = document.getElementById('dayw-' + i);
+    if (!t) continue;
+    t.classList.remove('w-today', 'w-planned');
+    stundenTileExtra(i).trim().split(' ').filter(Boolean).forEach(function(c) { t.classList.add(c); });
+    if (_stundenPlanned[i]) t.setAttribute('title', 'Laut Plan im Einsatz'); else t.removeAttribute('title');
+  }
+}
+// Offline or failed: no plan marks, never an error
+async function stundenLoadPlanned(monIso) {
+  var me = (typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null;
+  if (!me || typeof supabaseClient === 'undefined' || typeof heuteWeekStrip !== 'function') return;
+  var res;
+  try {
+    res = await supabaseClient.from('plan_assignments').select('shift:plan_shifts!inner(date)').eq('user_id', me)
+      .gte('shift.date', monIso).lte('shift.date', heuteAddDays(monIso, 6));
+  } catch (e) { return; }
+  if (res.error || monIso !== _stundenMonIso || !currentUser || currentUser.id !== me) return;
+  _stundenPlanned = heuteWeekStrip(monIso, (res.data || []).map(function(r) { return r.shift && r.shift.date; })).map(function(x) { return x.has; });
+  stundenMarkTiles();
 }
 
 function selectDay(i) {
@@ -682,7 +715,7 @@ function updateBubble(dayIdx) {
   }
   var status = dayStatus(shifts, signed);
   var tile = document.getElementById('dayw-' + dayIdx);
-  if (tile) tile.className = 'ui-day' + (activeDayIdx === dayIdx ? ' ui-day-active' : '') + (status !== 'empty' ? ' ui-dot-' + status : '');
+  if (tile) tile.className = 'ui-day' + (activeDayIdx === dayIdx ? ' ui-day-active' : '') + (status !== 'empty' ? ' ui-dot-' + status : '') + stundenTileExtra(dayIdx);
   if (totalMins > 0) {
     var h = totalMins / 60;
     bubble.textContent = h % 1 === 0 ? h.toFixed(0) : h.toFixed(1).replace('.', ',');

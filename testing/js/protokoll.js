@@ -1091,10 +1091,15 @@ function renderProtSectionNav() {
   if (!nav) return;
   var st = protSectionStatus(protState, protBasisValues(), { transport: protTransportOpened });
   var side = !!protState.sideOf || protSideOn();
-  nav.innerHTML = PROT_SECTIONS.filter(function(s) { return !side || (s[0] !== 'transport' && s[0] !== 'personal'); }).map(function(s) {
-    return '<button type="button" class="ui-chip' + (st[s[0]] ? ' ui-chip-on' : '') + '" onclick="scrollProtSection(\'' + s[0] + '\')">' +
-      (st[s[0]] ? uiIcon('check') : '') + s[1] + '</button>';
+  var vis = PROT_SECTIONS.filter(function(s) { return !side || (s[0] !== 'transport' && s[0] !== 'personal'); });
+  var step = protStepState(vis.map(function(s) { return s[0]; }), protStep);
+  protStep = vis[step.index][0];
+  nav.innerHTML = vis.map(function(s, i) {
+    var cur = s[0] === protStep;
+    return '<button type="button" class="ui-chip' + (st[s[0]] ? ' ui-chip-on' : '') + (cur ? ' prot-step-cur' : '') + '"' + (cur ? ' aria-current="step"' : '') +
+      ' onclick="scrollProtSection(\'' + s[0] + '\')"><span class="prot-step-n">' + (st[s[0]] && !cur ? uiIcon('check') : (i + 1)) + '</span>' + s[1] + '</button>';
   }).join('');
+  protApplyStep(step);
   var pill = document.getElementById('prot-sig-pill');
   if (pill) {
     pill.className = 'ui-pill ' + (protState.signature ? 'ui-pill-ok' : 'ui-pill-warn');
@@ -1102,11 +1107,52 @@ function renderProtSectionNav() {
   }
 }
 
-function scrollProtSection(id) {
-  var el = document.getElementById('prot-sec-' + id);
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  if (id === 'transport' && !protTransportOpened) { protTransportOpened = true; renderProtSectionNav(); }
+// Werkstatt step 3: the form is a step-by-step flow, one section at a time (the others stay in the DOM, only hidden,
+// so drafts, validation and saving work as before). The chips jump to any step; Senden sits on the last step.
+var protStep = 'basis', _protStepAt = 0;
+function protStepState(ids, current) {
+  var i = Math.max(0, ids.indexOf(current));
+  return { index: i, total: ids.length, first: i === 0, last: i === ids.length - 1, prev: i > 0 ? ids[i - 1] : null, next: i < ids.length - 1 ? ids[i + 1] : null };
 }
+function protApplyStep(step) {
+  var scroll = document.getElementById('prot-scroll');
+  if (!scroll || !scroll.classList) return;
+  scroll.classList.add('prot-stepped');
+  PROT_SECTIONS.forEach(function(s) {
+    var el = document.getElementById('prot-sec-' + s[0]);
+    if (el) el.classList.toggle('prot-step-on', s[0] === protStep);
+  });
+  var back = document.getElementById('prot-back-btn'), next = document.getElementById('prot-next-btn');
+  if (back) back.style.display = step.first ? 'none' : '';
+  if (next) next.textContent = step.last ? 'Senden' : 'Weiter';
+  var count = document.getElementById('prot-step-count');
+  if (count) count.textContent = 'Schritt ' + (step.index + 1) + ' von ' + step.total;
+}
+function protGoStep(id) {
+  protStep = id;
+  _protStepAt = Date.now();
+  if (id === 'transport') protTransportOpened = true;
+  renderProtSectionNav();
+  var scroll = document.getElementById('prot-scroll');
+  if (scroll) scroll.scrollTop = 0;
+  var cur = document.querySelector('#prot-section-nav .prot-step-cur');
+  if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
+}
+function protCurrentStep() {
+  var side = !!protState.sideOf || protSideOn();
+  var ids = PROT_SECTIONS.map(function(s) { return s[0]; }).filter(function(id) { return !side || (id !== 'transport' && id !== 'personal'); });
+  return protStepState(ids, protStep);
+}
+function protStepBack() { var s = protCurrentStep(); if (s.prev) protGoStep(s.prev); }
+// The same button turns from Weiter into Senden: a tap within 500 ms of a step change (double tap) does not send
+function protNextOrSend() {
+  var s = protCurrentStep();
+  if (!s.last) { protGoStep(s.next); return; }
+  if (Date.now() - _protStepAt < 500) return;
+  saveProtokoll();
+}
+// Kept for older callers (chips, links): jumping to a section means opening its step
+function scrollProtSection(id) { protGoStep(id); }
 
 // Aktion as a segmented control; the hidden #prot-action select stays the data source
 function syncProtActionSeg() {
@@ -1210,6 +1256,7 @@ function protDraftOwner() {
 
 // Empties the form state and fields without touching localStorage (used when a foreign draft is discarded)
 function resetProtFormState() {
+  protStep = 'basis';
   protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null, editingId: null, editingLocalId: null, signature: null, sideOf: null, shortages: null };
   protOpenRows = {};
   renderProtShortages();
@@ -1264,6 +1311,7 @@ function loadProtDraft() {
 
 function clearProtForm(skipConfirm) {
   if (!skipConfirm && !confirm('Gesamtes Protokoll löschen?')) return;
+  protStep = 'basis'; // a new protocol starts at step 1
   localStorage.removeItem('luebbert_protokoll_draft');
   protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null };
   protOpenRows = {};
@@ -1340,7 +1388,7 @@ function protLongerThanAl(personnel, alId) {
 // ── PROTOKOLL SAVE (replaces PDF Export) ──
 async function saveProtokoll() {
   var side = protState.sideOf || null;
-  if (protSideOn() && !side) { showToast('Bitte das Hauptprotokoll auswählen, bei dem dieser Zusatzauftrag mitlief.', 'danger'); return; }
+  if (protSideOn() && !side) { protGoStep('basis'); showToast('Bitte das Hauptprotokoll auswählen, bei dem dieser Zusatzauftrag mitlief.', 'danger'); return; }
   var missing = side ? [] : protIncompleteNames(protState.personnel);
   if (missing.length && !confirm('Ohne Start- oder Endzeit: ' + missing.join(', ') + '.\n\n' +
       (missing.length === 1 ? 'Diese Person wird' : 'Diese Personen werden') + ' nicht mitgespeichert und fehlen bei den Stunden. Trotzdem senden?')) return;
@@ -1358,7 +1406,7 @@ async function saveProtokoll() {
   var minorWarn = protMinorWarnings(protState.personnel);
   if (minorWarn.length && !confirm('Unter 18:\n' + minorWarn.join('\n') + '\n\nErlaubt sind nur 6–20 Uhr und höchstens 8 Std am Tag. Trotzdem senden?')) return;
   var jobNo = protJobNo((document.getElementById('prot-job') || {}).value);
-  if (!protJobNoValid(jobNo)) { showToast('Die Projektnummer sieht so aus: 26-0447 (oder mit Auftrag: 26-0447.01). Bitte korrigieren oder leer lassen.', 'danger'); return; }
+  if (!protJobNoValid(jobNo)) { protGoStep('basis'); showToast('Die Projektnummer sieht so aus: 26-0447 (oder mit Auftrag: 26-0447.01). Bitte korrigieren oder leer lassen.', 'danger'); return; }
   calcProtCosts(); // the shown total may be stale (restored draft, rates loaded late)
   var usersLoaded = appUsers.length > 0;
   var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded);
@@ -1464,14 +1512,14 @@ async function saveProtokoll() {
   if (!protSaveArchive(archive)) {
     if (!isSynced) {
       // Neither on the server nor on the phone: keep the form filled so nothing is lost
-      if (btn) { btn.disabled = false; btn.textContent = 'Senden'; }
+      if (btn) { btn.disabled = false; btn.textContent = protCurrentStep().last ? 'Senden' : 'Weiter'; }
       showToast('Speicher dieses Handys ist voll und keine Verbindung: Protokoll nicht gesichert. Bitte mit Internet erneut senden.', 'danger');
       return;
     }
     showToast('Gespeichert. Der Verlauf auf diesem Handy ist voll, das Protokoll steht aber auf dem Server.', 'info');
   }
   
-  if (btn) { btn.disabled = false; btn.textContent = 'Senden'; }
+  if (btn) { btn.disabled = false; btn.textContent = protCurrentStep().last ? 'Senden' : 'Weiter'; }
   // Mail in the background so Senden never waits on SMTP (registered as in-flight before the history retry runs)
   if (isSynced) sendMailForEntry(entry, true);
   protDayDrivers.key = null; // next form (same date, no editingId) must not reuse the hints of this protocol
@@ -2070,6 +2118,7 @@ function loadProtFromHistory(id) {
   if (!entry) { showToast('Nicht gefunden'); return; }
 
   if (!confirm('Dieses Protokoll in das Formular laden? Nicht gespeicherte Änderungen gehen verloren.')) return;
+  protStep = 'basis'; // a loaded protocol opens at step 1
 
   // Hydrate DOM fields (al/pl handled separately via protState.alId/plId)
   var fieldMap = { event: 'prot-event', location: 'prot-location', date: 'prot-date', action: 'prot-action', damages: 'prot-damages', incidents: 'prot-incidents', feedback: 'prot-feedback' };

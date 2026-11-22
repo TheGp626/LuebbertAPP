@@ -199,3 +199,100 @@ body { color: var(--w-ink); font-feature-settings: 'tnum' 0; -webkit-font-smooth
 body.w-has-tabbar .toast { bottom: calc(var(--w-tabbar-h) + 16px + env(safe-area-inset-bottom)); }
 body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 #auth-overlay > .ui-card > img { margin-left: 0 !important; }
+
+/* ══ Step 2: Wochenplan + Stundenzettel ══ */
+/* Wochenplan: the top bar already says "Wochenplan"; the upload button stays on the right */
+#wp-main > .wp-titlebar { justify-content: flex-end; margin-bottom: 0; }
+#wp-main > .wp-titlebar h2 { display: none; } /* "Plan prüfen" in the import keeps its title */
+#wp-upload-btn { margin-bottom: 12px; }
+.wp-weeknav button { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); background: var(--w-card); }
+.wp-day { border: var(--w-bw) solid var(--w-soft); border-radius: var(--w-r-ctl); background: var(--w-card); font-weight: 700; }
+.wp-day b { font-weight: 800; }
+.wp-day-mine { border-color: var(--w-line); }
+.wp-day-empty { opacity: .5; background: transparent; }
+.wp-today { background: var(--w-accent); border-color: var(--w-accent); color: var(--w-on-accent); }
+.wp-today b { color: var(--w-on-accent); }
+.wp-today em i, .wp-today.wp-day-mine em i { background: var(--w-on-accent); }
+.wp-dayhead { font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--w-ink); margin: 22px 2px 8px; }
+.wp-dayhead span { font-size: 12px; font-weight: 600; letter-spacing: .04em; color: var(--w-muted); }
+.wp-hero-label { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--w-muted); margin: 8px 2px 8px; }
+.wp-hero-date { font-size: 15px; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; }
+.wp-hero-time { font-size: 44px; font-weight: 800; letter-spacing: -.02em; }
+.wp-hero-venue { font-size: 19px; font-weight: 800; line-height: 1.2; }
+.wp-time b { font-size: 19px; font-weight: 800; }
+.wp-card-title, .ui-row-title { font-weight: 800; }
+/* Shift rows: ink outline; own shifts get the orange edge instead of an orange frame */
+.ui-row { border: var(--w-bw) solid var(--w-line); }
+.ui-row-me { border: var(--w-bw) solid var(--w-line); padding: 12px 14px; box-shadow: inset 4px 0 0 var(--w-accent); }
+.wp-chip { border-radius: var(--w-r-tag); border-width: var(--w-bw); font-weight: 600; }
+.wp-chip-me { border-color: var(--w-accent); background: var(--w-accent-bg); color: var(--w-accent-text); }
+.wp-hint { background: transparent; border: var(--w-bw) dashed var(--w-soft); border-radius: var(--w-r-ctl); }
+.wp-removed { border-radius: var(--w-r-ctl); border: var(--w-bw) solid var(--w-danger); }
+
+/* Stundenzettel: square day tiles; selected = ink, today = orange label, planned days dashed until hours are in */
+.ui-weeknav-label { font-weight: 800; }
+.ui-day { border: var(--w-bw) solid var(--w-soft); border-radius: var(--w-r-ctl); background: var(--w-card); color: var(--w-muted); font-weight: 600; }
+.ui-day b { font-weight: 800; }
+.ui-day.w-planned { border: var(--w-bw) dashed var(--w-accent); }
+.ui-day.w-planned.ui-dot-done, .ui-day.w-planned.ui-dot-signed { border-style: solid; border-color: var(--w-line); }
+.ui-day.w-today > span:first-child { color: var(--w-accent-text); font-weight: 800; }
+.ui-day.ui-day-active { background: var(--w-ink); border: var(--w-bw) solid var(--w-ink); color: var(--w-paper); }
+.ui-day.ui-day-active b, .ui-day.ui-day-active.w-today > span:first-child { color: var(--w-paper); }
+.ui-day i { border-radius: 1px; }
+.stunden-total .ui-num b { font-size: 44px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.stunden-total .ui-num span { font-size: 15px; font-weight: 800; color: var(--w-muted); text-transform: uppercase; letter-spacing: .06em; }
+.stunden-link { font-weight: 700; }
+
+/* ══ Step 3: Protokoll as a step-by-step flow (js/protokoll.js protGoStep) ══ */
+.prot-stepped .ui-section { display: none; }
+.prot-stepped .ui-section.prot-step-on { display: block; }
+.prot-nav-wrap { background: var(--w-paper); border-bottom: var(--w-bw) solid var(--w-line); }
+.prot-step-count { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--w-muted); margin: 0 0 6px 2px; }
+.ui-chip { border: var(--w-bw) solid var(--w-soft); border-radius: var(--w-r-ctl); font-weight: 700; background: var(--w-card); }
+/* Filter chips elsewhere (Fehlerberichte) keep a clear on state; the Protokoll steps show theirs with the number box */
+.ui-chip-on { background: var(--w-accent-bg); color: var(--w-accent-text); border-color: var(--w-accent); }
+#prot-section-nav .ui-chip-on { background: var(--w-card); color: var(--w-ink); border-color: var(--w-line); }
+.ui-chip .prot-step-n { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; border-radius: 2px;
+  background: var(--w-tint); color: var(--w-ink); font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ui-chip .prot-step-n .ui-ico { width: 13px; height: 13px; stroke-width: 3; }
+.ui-chip-on .prot-step-n { background: var(--w-ok-bg); color: var(--w-ok); }
+.ui-chip.prot-step-cur { background: var(--w-ink); color: var(--w-paper); border-color: var(--w-ink); }
+.ui-chip.prot-step-cur .prot-step-n { background: var(--w-accent); color: var(--w-on-accent); }
+.prot-stepped .ui-section.prot-step-on { animation: w-step-in var(--w-slow) ease-out; }
+@keyframes w-step-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+.prot-stepped .ui-section-head .ui-label { font-size: 24px; font-weight: 800; letter-spacing: -.01em; text-transform: none; color: var(--w-ink); }
+#prot-next-btn { margin-left: auto; }
+
+/* ══ Step 4: office screens (Übersicht/Dashboard, Personal, Aufträge) ══ */
+/* The top bar names the screen; the old in-page headline goes */
+.ord-h { display: none; }
+.ord-summary { margin-top: 4px; font-weight: 600; }
+.ord-day, .ui-label { font-size: 11px; font-weight: 800; letter-spacing: .1em; color: var(--w-muted); }
+.ord-card, .ord-inbox { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); background: var(--w-card); }
+.ord-slot { border: var(--w-bw) solid var(--w-soft); border-radius: var(--w-r-ctl); background: var(--w-paper); }
+.ord-title { font-weight: 800; }
+.ord-pill { border-radius: var(--w-r-tag); font-weight: 800; letter-spacing: .03em; text-transform: uppercase; font-size: 10.5px; }
+.ord-pill-new { background: var(--w-accent); color: var(--w-on-accent); }
+.ord-bar { border-radius: 1px; }
+/* Repeated list actions are ink; orange stays for the one main action of a screen (white on orange failed 4.5:1) */
+.ord-accept { background: var(--w-ink); color: var(--w-paper); border-radius: var(--w-r-ctl); font-weight: 800; }
+.ord-step { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); }
+/* Key figures: big tabular number, small uppercase label */
+.ui-stat { background: var(--w-card); border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); }
+.ui-stat span { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--w-muted); }
+.ui-stat b { font-size: 30px; font-weight: 800; letter-spacing: -.02em; }
+.ui-table th { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--w-muted); border-bottom: var(--w-bw) solid var(--w-line); }
+.dash-worker-row > .ui-row-title { font-weight: 800; }
+
+/* ══ Step 5: Produkte + Projektordner ══ */
+.produkt-card { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); padding: 8px; }
+.produkt-thumb, .produkt-pdf-thumb, .produkt-video-thumb-wrap { border-radius: 2px; }
+.produkt-pdf-thumb { background: var(--w-tint); }
+.produkt-name { font-weight: 800; letter-spacing: -.005em; }
+.produkt-card-menu { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); }
+.produkt-cover-badge { border-radius: var(--w-r-tag); }
+.ordner-ico { border-radius: var(--w-r-ctl) !important; background: var(--w-accent-bg) !important; color: var(--w-accent-text) !important; box-shadow: inset 0 0 0 1.5px var(--w-accent); }
+.ordner-back { font-weight: 800; letter-spacing: .04em; text-transform: uppercase; font-size: 12px; }
+.ordner-card, .ordner-file-row { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); }
+.ordner-file-name { font-weight: 700; }
+.dash-nk { border: var(--w-bw) solid var(--w-line) !important; border-radius: var(--w-r-ctl) !important; background: var(--w-card); }
