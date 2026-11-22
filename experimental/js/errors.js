@@ -117,7 +117,15 @@ function _errQueueWrite(q) {
 
 function _errEnqueue(kind, p) {
   _errQueueWrite(errQueuePut(_errQueueRead(), { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8), kind: kind, p: p }, 50));
-  flushErrorQueue();
+  // Never call supabase synchronously: inside an auth callback that waits on supabase-js's auth lock forever
+  setTimeout(flushErrorQueue, 0);
+}
+
+// A request that never settles (auth lock, dead connection) must not block sending for the rest of the page load
+function _errWithTimeout(promise) {
+  return Promise.race([promise, new Promise(function (_, reject) {
+    setTimeout(function () { reject(new Error('timeout')); }, 15000);
+  })]);
 }
 
 function _errStandalone() {
@@ -214,12 +222,12 @@ function flushErrorQueue() {
         var q = _errQueueRead();
         if (!q.length) return;
         var entry = q[0];
-        var res = await supabaseClient.rpc(entry.kind === 'report' ? 'report_problem' : 'log_error', { p: entry.p });
+        var res = await _errWithTimeout(supabaseClient.rpc(entry.kind === 'report' ? 'report_problem' : 'log_error', { p: entry.p }));
         if (!res || res.error) return;
         _errQueueWrite(_errQueueRead().filter(function (e) { return e.id !== entry.id; }));
       }
     } catch (e) {
-      /* offline or client not ready: stays queued */
+      setTimeout(flushErrorQueue, 30000); // timeout or network: stays queued, try again later
     } finally {
       _errFlushing = null;
     }
