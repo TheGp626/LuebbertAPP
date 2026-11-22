@@ -102,7 +102,7 @@ revoke all on function public.app_error_rate_ok(text, int, int) from public, ano
 create or replace function public.log_error(p jsonb)
 returns void language plpgsql security definer set search_path = public as $$
 declare
-  v_uid  uuid := (select auth.uid());
+  v_uid  uuid;
   v_fp   text := left(nullif(btrim(coalesce(p->>'fingerprint', '')), ''), 64);
   v_ver  text := left(coalesce(nullif(btrim(p->>'version'), ''), '?'), 60);
   v_src  text := case when p->>'source' in ('window', 'promise', 'catch') then p->>'source' else 'catch' end;
@@ -118,12 +118,14 @@ begin
       from (select e, i from jsonb_array_elements(p->'breadcrumbs') with ordinality t(e, i) order by i desc limit 20) s;
     if octet_length(v_bc::text) > 4000 then v_bc := '[]'; end if;
   end if;
+  -- only ids that exist in app_users (FK); a session of a deleted user counts as logged out
+  select id into v_uid from public.app_users where id = (select auth.uid());
   if v_uid is not null then v_role := public.app_role(); end if;
 
   insert into public.app_errors as a (fingerprint, message, stack, source, where_, versions, last_version,
                                       last_user_id, last_role, last_device, last_breadcrumbs, last_context)
   values (v_fp, left(coalesce(p->>'message', ''), 1000), left(p->>'stack', 4096), v_src, left(p->>'where', 100),
-          array[v_ver], v_ver, v_uid, v_role, left(p->>'device', 120), v_bc, v_ctx)
+          case when v_ver = '?' then '{}'::text[] else array[v_ver] end, v_ver, v_uid, v_role, left(p->>'device', 120), v_bc, v_ctx)
   on conflict (fingerprint) do update set
     count            = a.count + 1,
     last_seen        = now(),
@@ -132,8 +134,9 @@ begin
     where_           = coalesce(excluded.where_, a.where_),
     last_version     = excluded.last_version,
     -- a version never seen on this row reopens a fixed bug; old cached clients (known versions) don't
-    status           = case when a.status = 'behoben' and not (v_ver = any (a.versions)) then 'neu' else a.status end,
-    versions         = case when v_ver = any (a.versions) then a.versions
+    -- '?' = version not known yet (very early error): never reopens and is not listed
+    status           = case when a.status = 'behoben' and v_ver <> '?' and not (v_ver = any (a.versions)) then 'neu' else a.status end,
+    versions         = case when v_ver = '?' or v_ver = any (a.versions) then a.versions
                             else (a.versions || v_ver)[greatest(1, cardinality(a.versions) - 8):] end,
     last_user_id     = excluded.last_user_id,
     last_role        = excluded.last_role,
@@ -141,7 +144,7 @@ begin
     last_breadcrumbs = excluded.last_breadcrumbs,
     last_context     = excluded.last_context;
 
-  if v_uid is not null and exists (select 1 from public.app_users where id = v_uid) then
+  if v_uid is not null then
     insert into public.app_error_users (fingerprint, user_id) values (v_fp, v_uid) on conflict do nothing;
     get diagnostics v_new = row_count;
     if v_new > 0 then update public.app_errors set users_affected = users_affected + 1 where fingerprint = v_fp; end if;

@@ -24,10 +24,13 @@ function scrubText(s) {
     .replace(/"[^"\n]*"/g, SCRUB_MASK)
     .replace(/„[^“”"\n]*[“”"]/g, SCRUB_MASK)
     .replace(/“[^”\n]*”/g, SCRUB_MASK)
+    .replace(/‚[^‘’'\n]*[‘’']/g, SCRUB_MASK)
+    .replace(/‘[^’\n]*’/g, SCRUB_MASK)
     .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, SCRUB_MASK)
     // Phone-like runs, then any other run of 4+ digits; never the line:col of a stack frame
-    .replace(/(?<![\w:.+])\+?\d[\d \/-]{6,}\d/g, SCRUB_MASK)
-    .replace(/(?<![\w:.])\d{4,}/g, SCRUB_MASK);
+    // (capture group instead of a lookbehind: iOS Safari < 16.4 can't parse lookbehinds)
+    .replace(/(^|[^\w:.+])\+?\d[\d \/-]{6,}\d/g, '$1' + SCRUB_MASK)
+    .replace(/(^|[^\w:.])\d{4,}/g, '$1' + SCRUB_MASK);
 }
 
 // First frame of a stack: Chrome/Firefox "at …" line, Safari "fn@url" line
@@ -126,7 +129,7 @@ function _errStandalone() {
 function _errScreen() {
   try {
     var page = typeof document !== 'undefined' && document.querySelector && document.querySelector('.page.active');
-    return ((page && page.id) || '') + (location.hash || '');
+    return (page && page.id) || ''; // page id only: a URL hash could carry data
   } catch (e) { return ''; }
 }
 

@@ -558,7 +558,8 @@ button.opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset:
 button[aria-busy="true"], .ui-btn[aria-busy="true"] { opacity: .6; pointer-events: none; cursor: progress; }
 
 /* Fehlerberichte: tappable crash toast (above the login overlay), Problem melden */
-.toast.toast-tap { pointer-events: auto; cursor: pointer; z-index: 10002; }
+.toast { z-index: 10003; } /* above the login overlay (10000) and the Problem-melden sheet (10001) */
+.toast.toast-tap { pointer-events: auto; cursor: pointer; }
 #problem-modal { z-index: 10001; }
 #problem-modal textarea { width: 100%; box-sizing: border-box; min-height: 72px; resize: vertical; font: inherit; margin-bottom: 12px; }
 .problem-check { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 4px 0 6px; }

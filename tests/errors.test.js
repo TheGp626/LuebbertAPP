@@ -254,3 +254,19 @@ test('network failures while offline are not reported', () => {
   c.console.error('Week Sync Error:', new TypeError('Failed to fetch'));
   assert.equal(queueOf(c).length, 1);
 });
+
+test('review: no regex lookbehind (SyntaxError on iOS Safari < 16.4 would kill errors.js)', () => {
+  assert.ok(!/\(\?<[!=]/.test(SRC));
+});
+
+test('review: German single low quotes are masked', () => {
+  const c = vm.createContext({ console });
+  vm.runInContext(SRC, c);
+  assert.equal(c.scrubText('Name ‚Lena Beispiel‘ fehlt'), 'Name ‹x› fehlt');
+  assert.equal(c.scrubText('Tel 0170 1234567, at p.js:10234:5'), 'Tel ‹x›, at p.js:10234:5');
+});
+
+test('review: screen (location.hash) is scrubbed', () => {
+  const c = browserCtx({ location: { origin: 'https://a.b', pathname: '/', hash: '#name=Max&tel=01701234567' } });
+  assert.ok(!/Max|01701234567/.test(c.errorContextSnapshot().screen));
+});

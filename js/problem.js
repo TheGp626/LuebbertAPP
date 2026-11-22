@@ -60,7 +60,9 @@ function sendProblemForm() {
     _problemSnapshot(),
     typeof recentFingerprints === 'function' ? recentFingerprints(10) : []);
   if (!p) { showToast('Bitte kurz beschreiben, was passiert ist.', 'danger'); return; }
-  if (typeof queueReport === 'function') queueReport(p);
+  // errors.js failed to load (very old browser): say so instead of a false "Danke"
+  if (typeof queueReport !== 'function') { showToast('Senden geht gerade nicht. Bitte lade die App neu.', 'danger'); return; }
+  queueReport(p);
   closeProblemForm();
   showToast(navigator.onLine === false ? 'Wird gesendet, sobald du online bist' : 'Danke, ist angekommen');
 }

@@ -30,6 +30,11 @@ begin
   select status, versions into st, vs from public.app_errors where fingerprint = 'zz-check';
   if st <> 'neu' then raise exception 'new version must reopen, got %', st; end if;
   if vs <> array['vA', 'vB'] then raise exception 'versions %', vs; end if;
+  perform public.log_error(jsonb_build_object('fingerprint', 'zz-check', 'version', '?'));
+  update public.app_errors set status = 'behoben' where fingerprint = 'zz-check';
+  perform public.log_error(jsonb_build_object('fingerprint', 'zz-check', 'version', '?'));
+  select status, versions into st, vs from public.app_errors where fingerprint = 'zz-check';
+  if st <> 'behoben' or '?' = any (vs) then raise exception 'unknown version must not reopen or be listed: % %', st, vs; end if;
   update public.app_errors set status = 'ignoriert' where fingerprint = 'zz-check';
   perform public.log_error(jsonb_build_object('fingerprint', 'zz-check', 'version', 'vC'));
   select status into st from public.app_errors where fingerprint = 'zz-check';
@@ -61,6 +66,12 @@ begin
   if n <> 2000 then raise exception 'wanted not cut: %', n; end if;
   if (select fingerprints from public.bug_reports where id = rid) <> array['zz-check'] then raise exception 'fingerprints'; end if;
   if (select user_id from public.bug_reports where id = rid) <> u1 then raise exception 'user_id'; end if;
+
+  -- session of a user without app_users row: no FK error, counts as logged out
+  delete from public.app_error_rate;
+  perform set_config('request.jwt.claims', json_build_object('sub', gen_random_uuid(), 'role', 'authenticated')::text, true);
+  perform public.log_error(jsonb_build_object('fingerprint', 'zz-check4', 'version', 'vA'));
+  if (select last_user_id from public.app_errors where fingerprint = 'zz-check4') is not null then raise exception 'ghost uid stored'; end if;
 
   -- logged out (PIN screen)
   perform set_config('request.jwt.claims', '{}', true);

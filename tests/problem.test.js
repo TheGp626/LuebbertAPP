@@ -25,3 +25,15 @@ test('buildProblemPayload: with tech info the snapshot goes along; texts cut at 
   assert.deepEqual(p.context, snap);
   assert.equal(p.wanted.length, 2000);
 });
+
+test('review: without errors.js (queueReport missing) the form says it failed, not Danke', () => {
+  const toasts = [];
+  const val = { 'problem-wanted': { value: 'x' }, 'problem-happened': { value: '' }, 'problem-tech': { checked: false } };
+  const c = vm.createContext({ console, navigator: { onLine: true }, showToast: (m, t) => toasts.push([m, t]),
+    document: { getElementById: id => val[id] || { classList: { remove() {} } } } });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/problem.js'), 'utf8'), c);
+  c.sendProblemForm();
+  assert.equal(toasts.length, 1);
+  assert.equal(toasts[0][1], 'danger');
+  assert.ok(!/Danke/.test(toasts[0][0]));
+});
