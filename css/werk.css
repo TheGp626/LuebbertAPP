@@ -259,3 +259,37 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .prot-stepped .ui-section.prot-step-on { animation: w-step-in var(--w-slow) ease-out; }
 @keyframes w-step-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
 .prot-stepped .ui-section-head .ui-label { font-size: 24px; font-weight: 800; letter-spacing: -.01em; text-transform: none; color: var(--w-ink); }
+#prot-next-btn { margin-left: auto; }
+
+/* ══ Step 4: office screens (Übersicht/Dashboard, Personal, Aufträge) ══ */
+/* The top bar names the screen; the old in-page headline goes */
+.ord-h { display: none; }
+.ord-summary { margin-top: 4px; font-weight: 600; }
+.ord-day, .ui-label { font-size: 11px; font-weight: 800; letter-spacing: .1em; color: var(--w-muted); }
+.ord-card, .ord-inbox { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); background: var(--w-card); }
+.ord-slot { border: var(--w-bw) solid var(--w-soft); border-radius: var(--w-r-ctl); background: var(--w-paper); }
+.ord-title { font-weight: 800; }
+.ord-pill { border-radius: var(--w-r-tag); font-weight: 800; letter-spacing: .03em; text-transform: uppercase; font-size: 10.5px; }
+.ord-pill-new { background: var(--w-accent); color: var(--w-on-accent); }
+.ord-bar { border-radius: 1px; }
+/* Repeated list actions are ink; orange stays for the one main action of a screen (white on orange failed 4.5:1) */
+.ord-accept { background: var(--w-ink); color: var(--w-paper); border-radius: var(--w-r-ctl); font-weight: 800; }
+.ord-step { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); }
+/* Key figures: big tabular number, small uppercase label */
+.ui-stat { background: var(--w-card); border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); }
+.ui-stat span { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--w-muted); }
+.ui-stat b { font-size: 30px; font-weight: 800; letter-spacing: -.02em; }
+.ui-table th { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--w-muted); border-bottom: var(--w-bw) solid var(--w-line); }
+.dash-worker-row > .ui-row-title { font-weight: 800; }
+
+/* ══ Step 5: Produkte + Projektordner ══ */
+.produkt-card { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); padding: 8px; }
+.produkt-thumb, .produkt-pdf-thumb, .produkt-video-thumb-wrap { border-radius: 2px; }
+.produkt-pdf-thumb { background: var(--w-tint); }
+.produkt-name { font-weight: 800; letter-spacing: -.005em; }
+.produkt-card-menu { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); }
+.produkt-cover-badge { border-radius: var(--w-r-tag); }
+.ordner-ico { border-radius: var(--w-r-ctl) !important; background: var(--w-accent-bg) !important; color: var(--w-accent-text) !important; box-shadow: inset 0 0 0 1.5px var(--w-accent); }
+.ordner-back { font-weight: 800; letter-spacing: .04em; text-transform: uppercase; font-size: 12px; }
+.ordner-card, .ordner-file-row { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); }
+.ordner-file-name { font-weight: 700; }
