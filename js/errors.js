@@ -189,6 +189,9 @@ function reportError(err, opts) {
 
 function onUncaughtError(cb) { _errUncaughtCbs.push(cb); }
 
+// "Problem melden" (js/problem.js): same queue, sent via report_problem
+function queueReport(p) { _errEnqueue('report', p); }
+
 function _errUncaught(err, source) {
   if (!reportError(err, { source: source })) return;
   _errUncaughtCbs.forEach(function (cb) { try { cb(); } catch (e) { /* a broken callback must not loop */ } });

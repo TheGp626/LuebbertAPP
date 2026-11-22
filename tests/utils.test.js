@@ -249,3 +249,25 @@ test('autoPause: adults vs. unter 18 (JArbSchG)', () => {
     assert.ok(!(net > 360 && p < 60) && !(net > 270 && p < 30), 'raw ' + raw);
   }
 });
+
+test('showToast: onTap makes the toast tappable once; a plain toast clears it', () => {
+  const cls = new Set();
+  const t = { textContent: '', onclick: null, classList: { add: c => cls.add(c), remove: c => cls.delete(c), toggle: (c, on) => on ? cls.add(c) : cls.delete(c) } };
+  const timers = [];
+  const showToast = new Function('document', 'setTimeout', 'clearTimeout', grab('showToast') + '; return showToast;')(
+    { getElementById: () => t }, (fn, ms) => { timers.push([fn, ms]); return timers.length; }, () => {});
+  let taps = 0;
+  showToast('Da ist was schiefgelaufen.', 'danger', () => { taps++; });
+  assert.ok(cls.has('toast-tap'));
+  assert.equal(timers.at(-1)[1], 6000);
+  t.onclick();
+  assert.equal(taps, 1);
+  assert.ok(!cls.has('show') && !cls.has('toast-tap'));
+  assert.equal(t.onclick, null);
+  showToast('Danke', null, () => { taps++; });
+  showToast('Ok');
+  assert.equal(t.onclick, null);
+  assert.ok(!cls.has('toast-tap'));
+  timers.at(-1)[0]();
+  assert.ok(!cls.has('show'));
+});

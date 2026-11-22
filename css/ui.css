@@ -556,3 +556,15 @@ button.opt-row:focus-visible { outline: 2px solid var(--accent); outline-offset:
 
 /* Running tap action (ui.js uiGuardTap): the button waits until it is done */
 button[aria-busy="true"], .ui-btn[aria-busy="true"] { opacity: .6; pointer-events: none; cursor: progress; }
+
+/* Fehlerberichte: tappable crash toast (above the login overlay), Problem melden */
+.toast.toast-tap { pointer-events: auto; cursor: pointer; z-index: 10002; }
+#problem-modal { z-index: 10001; }
+#problem-modal textarea { width: 100%; box-sizing: border-box; min-height: 72px; resize: vertical; font: inherit; margin-bottom: 12px; }
+.problem-check { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 4px 0 6px; }
+.problem-link { background: none; border: 0; color: inherit; opacity: .7; font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; padding: 8px; margin-top: 12px; }
+#problem-tech-pre { font-size: 11px; max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word; background: var(--bg2); border-radius: 8px; padding: 8px; margin: 6px 0 0; }
+.problem-actions { display: flex; gap: 8px; margin-top: 14px; }
+.problem-actions .ui-btn { flex: 1; }
+.opt-problem { margin-top: 26px; }
+.opt-problem + .opt-logout { margin-top: 10px; }

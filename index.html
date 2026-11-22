@@ -12,7 +12,7 @@
 
 
   <link rel="stylesheet" href="css/style.css?v=43">
-  <link rel="stylesheet" href="css/ui.css?v=45">
+  <link rel="stylesheet" href="css/ui.css?v=46">
 </head>
 
 <body>
@@ -36,6 +36,7 @@
       <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="ui-btn ui-btn-primary ui-btn-block" style="margin-bottom: 12px;">Anmelden</button>
       <div class="ui-sub" style="font-size: 12px;">Powered by Supabase</div>
     </div>
+    <button type="button" class="problem-link" onclick="openProblemForm()">Problem melden</button>
   </div>
 
   <div class="app">
@@ -780,6 +781,7 @@
         </div>
       </div>
 
+      <button type="button" class="ui-btn ui-btn-block opt-problem" onclick="openProblemForm()">Problem melden</button>
       <button type="button" class="ui-btn ui-btn-block ui-btn-danger opt-logout" onclick="handleLogout()">Abmelden</button>
     </div>
   </div>
@@ -938,13 +940,14 @@
   </div>
 
   <!-- Scripts -->
-  <script src="js/errors.js?v=1"></script>
+  <script src="js/errors.js?v=2"></script>
+  <script src="js/problem.js?v=1"></script>
   <script src="vendor/supabase-js-2.119.0.js"></script>
   <script src="js/supabase-config.js?v=10"></script>
   <script src="js/auth.js?v=42"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=19"></script>
-  <script src="js/utils.js?v=27"></script>
+  <script src="js/utils.js?v=28"></script>
   <script src="js/ui.js?v=6"></script>
   <script src="js/changelog.js?v=2"></script>
   <script src="js/settings.js?v=15"></script>
