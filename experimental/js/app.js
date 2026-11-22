@@ -90,7 +90,7 @@ function moduleTitle(m) {
 // Called by switchDashTab: remembers the view (settings are never restored) and retitles the top bar
 function setDashView(view) {
   dashView = view;
-  if (view !== 'settings') localStorage.setItem(DASH_VIEW_KEY, view);
+  if (view !== 'settings' && view !== 'errors') localStorage.setItem(DASH_VIEW_KEY, view);
   var topTitle = document.getElementById('topbar-title');
   if (topTitle && activeModule === 'dashboard') topTitle.textContent = moduleTitle('dashboard');
 }

@@ -1094,10 +1094,18 @@ if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
     if (view === 'prot' && canSeeCosts(currentUser)) items.push({ label: 'Kosten aller Protokolle neu berechnen', action: 'recalcAllProtocolCosts' });
     if (view === 'work' && typeof dashboardCurrentWorker !== 'undefined' && dashboardCurrentWorker) items.push({ label: 'Monat als PDF (' + (dashboardCurrentWorker.full_name || 'Mitarbeiter') + ')', action: 'exportDashboardMonthlyPDF' });
     // The tab bar is hidden (tiles open one view each): settings and the way back are reachable from here
+    var isAdmin = typeof userRole !== 'undefined' && userRole === 'Admin';
+    var back = function() { return dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY)); };
     if (typeof dashView !== 'undefined' && dashView === 'settings') {
-      items.push({ label: 'Einstellungen schließen', action: 'switchDashTab', args: [dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY))] });
-    } else if (typeof userRole !== 'undefined' && userRole === 'Admin') {
+      items.push({ label: 'Einstellungen schließen', action: 'switchDashTab', args: [back()] });
+    } else if (isAdmin) {
       items.push({ label: 'Einstellungen', action: 'switchDashTab', args: ['settings'] });
+    }
+    // Fehlerberichte (js/fehler.js): Admin only, same pattern as the settings
+    if (typeof dashView !== 'undefined' && dashView === 'errors') {
+      items.push({ label: 'Fehlerberichte schließen', action: 'switchDashTab', args: [back()] });
+    } else if (isAdmin) {
+      items.push({ label: 'Fehlerberichte', action: 'switchDashTab', args: ['errors'] });
     }
     return items;
   };
