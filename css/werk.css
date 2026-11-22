@@ -28,7 +28,7 @@
   --w-tabbar-h: 64px;
 
   --bg: var(--w-paper); --bg2: var(--w-card); --bg3: var(--w-tint);
-  --text: var(--w-ink); --text2: var(--w-muted); --text3: #8A8475;
+  --text: var(--w-ink); --text2: var(--w-muted); --text3: #746D60;
   --border: rgba(22, 20, 15, .16); --border2: var(--w-ink);
   --accent: var(--w-accent); --accent-bg: var(--w-accent-bg); --accent-text: var(--w-accent-text);
   --danger: var(--w-danger); --radius: 4px; --radius-lg: 4px;
@@ -40,17 +40,17 @@
 [data-theme="dark"] {
   --w-paper: #14120E; --w-card: #1E1B16; --w-ink: #F1ECE2; --w-muted: #A39C8E; --w-soft: #3A352C; --w-tint: #2C2821;
   --w-line: #3A352C; --w-accent: #FF6A33; --w-on-accent: #14120E; --w-accent-text: #FF8A5C; --w-accent-bg: #3A1E12;
-  --w-hero: #F1ECE2; --w-on-hero: #14120E; --w-hero-muted: #5E584C; --w-bar: #0C0B08; --w-bar-muted: #7B7466;
+  --w-hero: #F1ECE2; --w-on-hero: #14120E; --w-hero-muted: #5E584C; --w-bar: #0C0B08; --w-bar-muted: #8A8373;
   --w-ok: #A6D67A; --w-ok-bg: #1E2E12; --w-warn: #F2B85C; --w-warn-bg: #3A2A0C; --w-danger: #F08A80; --w-danger-bg: #3A1614;
-  --text3: #7B7466; --border: rgba(241, 236, 226, .12); --border2: #5A5346;
+  --text3: #8A8373; --border: rgba(241, 236, 226, .12); --border2: #5A5346;
 }
 @media (prefers-color-scheme: dark) {
   [data-theme="auto"] {
     --w-paper: #14120E; --w-card: #1E1B16; --w-ink: #F1ECE2; --w-muted: #A39C8E; --w-soft: #3A352C; --w-tint: #2C2821;
     --w-line: #3A352C; --w-accent: #FF6A33; --w-on-accent: #14120E; --w-accent-text: #FF8A5C; --w-accent-bg: #3A1E12;
-    --w-hero: #F1ECE2; --w-on-hero: #14120E; --w-hero-muted: #5E584C; --w-bar: #0C0B08; --w-bar-muted: #7B7466;
+    --w-hero: #F1ECE2; --w-on-hero: #14120E; --w-hero-muted: #5E584C; --w-bar: #0C0B08; --w-bar-muted: #8A8373;
     --w-ok: #A6D67A; --w-ok-bg: #1E2E12; --w-warn: #F2B85C; --w-warn-bg: #3A2A0C; --w-danger: #F08A80; --w-danger-bg: #3A1614;
-    --text3: #7B7466; --border: rgba(241, 236, 226, .12); --border2: #5A5346;
+    --text3: #8A8373; --border: rgba(241, 236, 226, .12); --border2: #5A5346;
   }
 }
 
@@ -198,3 +198,4 @@ body { color: var(--w-ink); font-feature-settings: 'tnum' 0; -webkit-font-smooth
 /* With the tab bar: toasts above it, action bars need no extra safe-area padding (the tab bar has it) */
 body.w-has-tabbar .toast { bottom: calc(var(--w-tabbar-h) + 16px + env(safe-area-inset-bottom)); }
 body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
+#auth-overlay > .ui-card > img { margin-left: 0 !important; }
