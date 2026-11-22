@@ -93,6 +93,7 @@ function setDashView(view) {
   if (view !== 'settings' && view !== 'errors') localStorage.setItem(DASH_VIEW_KEY, view);
   var topTitle = document.getElementById('topbar-title');
   if (topTitle && activeModule === 'dashboard') topTitle.textContent = moduleTitle('dashboard');
+  if (typeof navPaint === 'function') navPaint();
 }
 
 function selectMode(m, view) {
@@ -170,6 +171,7 @@ function selectMode(m, view) {
     // Needs the session for the queries; a module restored before login is initialised from handleSession
     if (typeof initAuftraege === 'function' && typeof currentUser !== 'undefined' && currentUser) initAuftraege();
   }
+  if (typeof navPaint === 'function') navPaint();
 }
 
 function exitToMenu() {
@@ -189,6 +191,7 @@ function exitToMenu() {
 
   updateTopBarSub();
   if (typeof renderHome === 'function') renderHome();
+  if (typeof navPaint === 'function') navPaint();
 }
 
 function navigate(page) {

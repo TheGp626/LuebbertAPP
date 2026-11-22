@@ -419,6 +419,7 @@ function handleSession(user) {
     window.currentUserCanDrive     = false;
     window.currentUserIsMinor      = false;
     authSelectedUserId = null;
+    if (typeof navPaint === 'function') navPaint();
     if (userChanged && typeof buildDays === 'function') buildDays(true); // no editor content of the logged-out user stays in memory
     const nameInp = document.getElementById('auth-name-input');
     if (nameInp) nameInp.value = '';
@@ -464,6 +465,9 @@ function enforceUI() {
     if (userRole !== 'Admin' && errTab.classList.contains('active') && typeof switchDashTab === 'function') switchDashTab('prot');
     if (userRole === 'Admin' && typeof loadErrorsBadge === 'function') loadErrorsBadge();
   }
+  // Gast has no Heute tab: start in the Produktdatenbank
+  if (userRole === 'Gast' && currentUser && typeof activeModule !== 'undefined' && !activeModule && typeof selectMode === 'function') selectMode('produkte');
+  if (typeof navPaint === 'function') navPaint();
 }
 
 async function handleAuthSubmit() {

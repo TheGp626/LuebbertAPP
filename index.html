@@ -13,7 +13,7 @@
 
   <link rel="stylesheet" href="css/style.css?v=43">
   <link rel="stylesheet" href="css/ui.css?v=47">
-  <link rel="stylesheet" href="css/werk.css?v=1">
+  <link rel="stylesheet" href="css/werk.css?v=2">
 </head>
 
 <body>
@@ -43,9 +43,6 @@
   <div class="app">
     <!-- ── MODULE TOP BAR (hidden on the start page) ── -->
     <div class="ui-topbar" id="topbar" style="display: none;">
-      <button type="button" class="ui-topbar-back" id="back-to-menu-btn" onclick="exitToMenu()" title="Zum Hauptmenü">
-        <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>Menü
-      </button>
       <div class="ui-topbar-mid">
         <div class="ui-topbar-title" id="topbar-title"></div>
         <div class="ui-topbar-sub" id="top-bar-sub"></div>
@@ -78,9 +75,6 @@
       <div class="ui-home">
         <div class="ui-home-head">
           <div class="ui-sub" id="home-date"></div>
-          <button type="button" class="ui-icon-btn" onclick="openSettingsModal()" aria-label="Optionen">
-            <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
-          </button>
         </div>
         <h1 class="ui-title ui-home-hello" id="home-hello" onclick="titleTap()">Hallo</h1>
         <div id="home-next"></div>
@@ -600,6 +594,14 @@
       </div>
     </div>
   </div>
+    <!-- ── WERKSTATT TAB BAR (js/nav.js) ── -->
+    <nav id="w-tabbar" class="w-tabbar" aria-label="Hauptnavigation" hidden></nav>
+    <div id="w-more" class="w-more" aria-hidden="true" onclick="if(event.target===this)closeMoreSheet()">
+      <div class="w-more-sheet" role="dialog" aria-modal="true" aria-label="Mehr">
+        <div class="w-label" style="margin-top:0">Mehr</div>
+        <div class="w-more-list"></div>
+      </div>
+    </div>
   </div>
 
   <!-- ── MEDIA LIGHTBOX ── -->
@@ -948,11 +950,12 @@
   <script src="js/problem.js?v=1"></script>
   <script src="vendor/supabase-js-2.119.0.js"></script>
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=44"></script>
+  <script src="js/auth.js?v=45"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=19"></script>
   <script src="js/utils.js?v=28"></script>
-  <script src="js/ui.js?v=6"></script>
+  <script src="js/ui.js?v=7"></script>
+  <script src="js/nav.js?v=1"></script>
   <script src="js/changelog.js?v=2"></script>
   <script src="js/settings.js?v=15"></script>
   <script src="js/mitarbeiter.js?v=4"></script>
@@ -968,11 +971,11 @@
   <script src="js/wochenplan.js?v=41"></script>
   <script src="js/material.js?v=5"></script>
   <script src="js/home.js?v=11"></script>
-  <script src="js/dashboard.js?v=65"></script>
+  <script src="js/dashboard.js?v=66"></script>
   <script src="js/fehler.js?v=1"></script>
   <script src="js/produkte.js?v=22"></script>
   <script src="js/ordner.js?v=39"></script>
-  <script src="js/app.js?v=31"></script>
+  <script src="js/app.js?v=32"></script>
 </body>
 
 </html>
