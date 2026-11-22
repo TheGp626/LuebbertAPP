@@ -457,6 +457,13 @@ function enforceUI() {
     setTab.style.display = userRole === 'Admin' ? '' : 'none';
     if (userRole !== 'Admin' && setTab.classList.contains('active') && typeof switchDashTab === 'function') switchDashTab('prot');
   }
+  // Fehlerberichte tab: Admin only as well (RLS lets nobody else read the tables)
+  const errTab = document.getElementById('dash-tab-errors');
+  if (errTab) {
+    errTab.style.display = userRole === 'Admin' ? '' : 'none';
+    if (userRole !== 'Admin' && errTab.classList.contains('active') && typeof switchDashTab === 'function') switchDashTab('prot');
+    if (userRole === 'Admin' && typeof loadErrorsBadge === 'function') loadErrorsBadge();
+  }
 }
 
 async function handleAuthSubmit() {

@@ -79,7 +79,7 @@ var MODULE_TITLES = { stunden: 'Stundenzettel', protokoll: 'Protokoll', dashboar
   produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan', auftraege: 'Aufträge' };
 
 // The office dashboard is opened from two tiles; each shows one view ('prot' | 'work'), Admin settings come via "…"
-var DASH_VIEW_TITLES = { prot: 'Protokoll-Übersicht', work: 'Personal', settings: 'Einstellungen' };
+var DASH_VIEW_TITLES = { prot: 'Protokoll-Übersicht', work: 'Personal', settings: 'Einstellungen', errors: 'Fehlerberichte' };
 var DASH_VIEW_KEY = 'luebbert_dash_view';
 var dashView = dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY));
 

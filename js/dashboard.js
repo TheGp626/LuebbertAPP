@@ -58,14 +58,17 @@ function switchDashTab(tab) {
   document.getElementById('dash-tab-prot').classList.toggle('active', tab === 'prot');
   document.getElementById('dash-tab-work').classList.toggle('active', tab === 'work');
   document.getElementById('dash-tab-settings').classList.toggle('active', tab === 'settings');
+  document.getElementById('dash-tab-errors').classList.toggle('active', tab === 'errors');
 
   document.getElementById('dash-view-prot').style.display = tab === 'prot' ? 'block' : 'none';
   document.getElementById('dash-view-work').style.display = tab === 'work' ? 'block' : 'none';
   document.getElementById('dash-view-settings').style.display = tab === 'settings' ? 'block' : 'none';
+  document.getElementById('dash-view-errors').style.display = tab === 'errors' ? 'block' : 'none';
 
   if (typeof setDashView === 'function') setDashView(tab);
 
   if (tab === 'settings' && typeof renderSettingsTab === 'function') renderSettingsTab();
+  if (tab === 'errors' && typeof renderErrorsTab === 'function') renderErrorsTab();
 
   // Reload on every entry: the "neue Stunden" badges must not show a stale snapshot
   if (tab === 'work') loadDashboardWorkers();

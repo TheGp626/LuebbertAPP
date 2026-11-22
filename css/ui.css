@@ -568,3 +568,15 @@ button[aria-busy="true"], .ui-btn[aria-busy="true"] { opacity: .6; pointer-event
 .problem-actions .ui-btn { flex: 1; }
 .opt-problem { margin-top: 26px; }
 .opt-problem + .opt-logout { margin-top: 10px; }
+/* Dashboard tab Fehler (js/fehler.js) */
+.fehler-view .ui-seg { margin-bottom: 8px; }
+.fehler-filters { margin-bottom: 10px; }
+.fehler-row.fehler-new { border-left: 3px solid var(--accent); }
+.fehler-head { cursor: pointer; }
+.fehler-msg { font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fehler-text { font-size: 14px; white-space: pre-wrap; word-break: break-word; margin-bottom: 6px; }
+.fehler-pre { font-size: 11px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; background: var(--bg); border-radius: 8px; padding: 8px; margin: 4px 0 8px; }
+.fehler-actions { display: flex; gap: 6px; margin-top: 8px; }
+.fehler-actions .ui-btn { flex: 1; }
+.fehler-count { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 99px; background: var(--accent); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+.fehler-empty { padding: 16px 0; text-align: center; }

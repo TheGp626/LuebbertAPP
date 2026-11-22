@@ -268,10 +268,12 @@
           <button type="button" id="dash-tab-prot" class="active" onclick="switchDashTab('prot')">Protokolle</button>
           <button type="button" id="dash-tab-work" onclick="switchDashTab('work')">Personal</button>
           <button type="button" id="dash-tab-settings" style="display: none;" onclick="switchDashTab('settings')">Einstellungen</button>
+          <button type="button" id="dash-tab-errors" style="display: none;" onclick="switchDashTab('errors')">Fehler</button>
         </div>
 
         <!-- TAB: EINSTELLUNGEN (Admin only, js/settings.js) -->
         <div id="dash-view-settings" class="table-card set-card" style="display: none;"></div>
+        <div id="dash-view-errors" class="fehler-view" style="display: none;"></div>
 
         <!-- TAB: PROTOKOLLE -->
         <div id="dash-view-prot" style="display: block;">
@@ -944,7 +946,7 @@
   <script src="js/problem.js?v=1"></script>
   <script src="vendor/supabase-js-2.119.0.js"></script>
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=42"></script>
+  <script src="js/auth.js?v=43"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=19"></script>
   <script src="js/utils.js?v=28"></script>
@@ -964,10 +966,11 @@
   <script src="js/wochenplan.js?v=40"></script>
   <script src="js/material.js?v=5"></script>
   <script src="js/home.js?v=11"></script>
-  <script src="js/dashboard.js?v=62"></script>
+  <script src="js/dashboard.js?v=63"></script>
+  <script src="js/fehler.js?v=1"></script>
   <script src="js/produkte.js?v=22"></script>
   <script src="js/ordner.js?v=38"></script>
-  <script src="js/app.js?v=28"></script>
+  <script src="js/app.js?v=29"></script>
 </body>
 
 </html>

@@ -485,6 +485,22 @@ test('switchDashTab(work) reloads the employees on every entry', () => {
   assert.equal(loads, 2);
 });
 
+test('switchDashTab(errors) shows the Fehler view and renders it; other tabs hide it', () => {
+  const els = {};
+  ctx.document.getElementById = id => (els[id] = els[id] || { id, on: false, classList: { toggle(c, v) { els[id].on = v; } }, style: {} });
+  let renders = 0;
+  ctx.__r = () => { renders++; };
+  run('renderErrorsTab = function() { __r(); }');
+  run("switchDashTab('errors')");
+  assert.equal(els['dash-view-errors'].style.display, 'block');
+  assert.equal(els['dash-view-prot'].style.display, 'none');
+  assert.ok(els['dash-tab-errors'].on);
+  assert.equal(renders, 1);
+  run("switchDashTab('prot')");
+  assert.equal(els['dash-view-errors'].style.display, 'none');
+  assert.equal(renders, 1);
+});
+
 test('deactivateWorker: rows must be touched (RLS), otherwise no success message', async () => {
   const sb = mkSb(() => ({ data: [], error: null }));
   ctx.supabaseClient = sb; ctx.confirm = () => true;
