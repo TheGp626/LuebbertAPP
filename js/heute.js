@@ -53,6 +53,27 @@ function heuteOpenSlotCount(shifts, me, role, canDrive, todayStr, myInterestKeys
   }).length;
 }
 
+// Office hero: today's plan entries, their venues (each once) and the people on them (agency firms do not count)
+function heuteTodaySummary(todayShifts, agency) {
+  var ag = agency || (typeof WP_AGENCY !== 'undefined' ? WP_AGENCY : []), venues = [], people = {};
+  (todayShifts || []).forEach(function(s) {
+    if (s.venue && venues.indexOf(s.venue) === -1) venues.push(s.venue);
+    (s.plan_assignments || []).forEach(function(a) {
+      if (ag.indexOf(a.role) !== -1) return;
+      var k = a.user_id || ('n:' + a.name);
+      if (k) people[k] = true;
+    });
+  });
+  return { count: (todayShifts || []).length, venues: venues, people: Object.keys(people).length };
+}
+
+// Buchhaltung: protocols that still have at least one shift with status "offen" (hours not booked yet)
+function heuteUnbookedProtocols(protocols, shifts) {
+  var open = {};
+  (shifts || []).forEach(function(s) { if (s.status === 'offen') open[s.protocol_id] = true; });
+  return (protocols || []).filter(function(p) { return open[p.id]; }).length;
+}
+
 /* ── DOM part (browser only) ── */
 
 var _heuteSeq = 0;
@@ -107,17 +128,76 @@ async function renderHeuteCrew(seq) {
   todo.innerHTML = rows ? '<div class="w-label">Zu tun</div>' + rows : '';
 }
 
+function heuteCount(res) { return res && !res.error && typeof res.count === 'number' ? res.count : 0; }
+function heuteEuro(n) { return (Number(n) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
+function heuteDm(iso) { return iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.'; }
+
+// Office part: PL/Admin see today's plan and what waits for them; Buchhaltung sees the current billing period.
+// Offline or a failed query → nothing is shown, never an error.
+async function renderHeuteOffice(seq) {
+  var box = document.getElementById('heute-office');
+  var week = document.getElementById('heute-week'), todo = document.getElementById('heute-todo');
+  if (week) week.innerHTML = '';
+  if (todo) todo.innerHTML = '';
+  if (!box || typeof supabaseClient === 'undefined') return;
+  var me = currentUser.id, today = localDateStr(), head = { count: 'exact', head: true }, html = '', rows = '';
+  try {
+    if (userRole === 'Buchhaltung') {
+      var cutoff = typeof dashBillingCutoff === 'function' ? dashBillingCutoff() : 20;
+      var bk = getBillingKeyForDate(new Date(), cutoff), range = dashBillingRange(bk.key, cutoff);
+      var b = await Promise.all([
+        supabaseClient.from('protocols').select('id, total_cost').gte('date', range.from).lte('date', range.to).range(0, 4999),
+        supabaseClient.from('shifts').select('protocol_id, status, protocols!inner(date)').eq('status', 'offen')
+          .gte('protocols.date', range.from).lte('protocols.date', range.to).range(0, 4999)
+      ]);
+      if (seq !== _heuteSeq || !currentUser || currentUser.id !== me || b[0].error) return;
+      var prots = b[0].data || [], sum = prots.reduce(function(t, p) { return t + (Number(p.total_cost) || 0); }, 0);
+      html = '<div class="w-hero"><span class="w-tag">Abrechnung ' + heuteDm(range.from) + '–' + heuteDm(range.to) + '</span>' +
+        '<div class="w-hero-title w-num">' + heuteEuro(sum) + '</div>' +
+        '<div class="w-hero-sub">' + prots.length + (prots.length === 1 ? ' Protokoll' : ' Protokolle') + ' in diesem Zeitraum</div>' +
+        '<div class="w-hero-foot"><span></span><button type="button" class="w-btn w-btn-accent" onclick="selectMode(\'dashboard\', \'prot\')">Protokolle</button></div></div>';
+      var unbooked = b[1].error ? 0 : heuteUnbookedProtocols(prots, b[1].data);
+      if (unbooked) rows += heuteRow('selectMode(\'dashboard\', \'prot\')', 'Stunden nicht gebucht', 'Protokolle mit offenen Schichten', unbooked);
+    } else {
+      var sees = !!window.currentUserSeesInterest;
+      var r = await Promise.all([
+        supabaseClient.from('plan_shifts').select('id, venue, plan_assignments(user_id, name, role)').eq('date', today),
+        sees ? supabaseClient.from('order_applications').select('*', head).eq('status', 'offen') : null,
+        sees ? supabaseClient.from('plan_shift_interest').select('*', head).eq('status', 'offen') : null,
+        supabaseClient.from('protocols').select('*', head).eq('date', today).is('mailed_at', null),
+        supabaseClient.from('plan_inbox').select('*', head).eq('status', 'neu')
+      ]);
+      if (seq !== _heuteSeq || !currentUser || currentUser.id !== me) return;
+      if (!r[0].error) {
+        var t = heuteTodaySummary(r[0].data || []);
+        html = t.count ? '<div class="w-hero" role="button" tabindex="0" onclick="selectMode(\'wochenplan\')">' +
+            '<span class="w-tag">' + t.count + (t.count === 1 ? ' Einsatz' : ' Einsätze') + ' heute</span>' +
+            '<div class="w-hero-title">' + escapeHtml(t.venues[0] || '—') + '</div>' +
+            (t.venues.length > 1 ? '<div class="w-hero-sub">+ ' + escapeHtml(t.venues.slice(1).join(', ')) + '</div>' : '') +
+            '<div class="w-hero-foot"><span>' + t.people + (t.people === 1 ? ' Person' : ' Leute') + ' eingeteilt</span><span>Plan →</span></div></div>'
+          : '<div class="w-empty"><b>Heute keine Einsätze</b><p>Im Plan siehst du die nächsten Tage.</p>' +
+            '<button type="button" class="w-btn" onclick="selectMode(\'wochenplan\')">Zum Plan</button></div>';
+      }
+      var apps = heuteCount(r[1]) + heuteCount(r[2]), prot = heuteCount(r[3]), inbox = heuteCount(r[4]);
+      if (apps) rows += heuteRow('selectMode(\'' + (allowed('auftraege') ? 'auftraege' : 'wochenplan') + '\')', 'Bewerbungen', 'Warten auf deine Entscheidung', apps);
+      if (prot) rows += heuteRow('selectMode(\'dashboard\', \'prot\')', 'Protokolle', 'Heute, noch nicht verschickt', prot);
+      if (inbox) rows += heuteRow('selectMode(\'wochenplan\')', 'Plan-Postfach', 'Neue Pläne zum Einlesen', inbox);
+    }
+  } catch (e) { return; }
+  box.innerHTML = html + (rows ? '<div class="w-label">Braucht dich</div>' + rows : '');
+  function allowed(m) { return typeof moduleAllowedForRole === 'function' && moduleAllowedForRole(m, userRole); }
+}
+
 async function renderHeute() {
   if (typeof currentUser === 'undefined' || !currentUser) return;
   var seq = ++_heuteSeq;
   var office = document.getElementById('heute-office');
   if (office) office.innerHTML = '';
   if (userRole === 'MA' || userRole === 'AL') return renderHeuteCrew(seq);
-  // Office roles (PL/Admin/Buchhaltung): Task 5
-  if (typeof renderHeuteOffice === 'function') return renderHeuteOffice(seq);
+  return renderHeuteOffice(seq); // PL, Admin, Buchhaltung
 }
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { heuteWeekStrip: heuteWeekStrip, heuteMissingHourDays: heuteMissingHourDays, heuteOpenSlotCount: heuteOpenSlotCount,
-    heuteAddDays: heuteAddDays, heuteMonday: heuteMonday };
+    heuteAddDays: heuteAddDays, heuteMonday: heuteMonday, heuteTodaySummary: heuteTodaySummary, heuteUnbookedProtocols: heuteUnbookedProtocols };
 }

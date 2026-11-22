@@ -102,7 +102,7 @@ function homeShowNext(shift) {
   // A cached shift can be outdated by now: run it through the same filter as the live list
   var s = shift && homeNextAllowed(userRole, moduleAllowedForRole) ? nextOwnShift([shift], new Date()) : null;
   if (s && typeof _wpShiftCache !== 'undefined') _wpShiftCache[s.id] = s; // "Protokoll starten" on the card reads it from there
-  box.innerHTML = s ? homeNextHtml(s) : homeNextAllowed(userRole, moduleAllowedForRole)
+  box.innerHTML = s ? homeNextHtml(s) : (userRole === 'MA' || userRole === 'AL')
     ? '<div class="w-empty"><b>Kein Einsatz geplant</b><p>Sobald du im Wochenplan stehst, siehst du ihn hier.</p>' +
       '<button type="button" class="w-btn" onclick="selectMode(\'wochenplan\')">Zum Plan</button></div>' : '';
 }

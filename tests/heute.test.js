@@ -46,3 +46,23 @@ test('helpers tolerate empty/undefined input', () => {
   assert.deepEqual(H.heuteMissingHourDays('2026-11-24', undefined, undefined), []);
   assert.equal(H.heuteWeekStrip('2026-11-24', undefined).filter(d => d.has).length, 0);
 });
+
+test('today summary', () => {
+  const sh = [{ venue: 'Messe Hamburg', plan_assignments: [{ user_id: 'a', name: 'Max' }, { user_id: 'b', name: 'Lena' }] },
+              { venue: 'CCH', plan_assignments: [{ user_id: 'a', name: 'Max' }, { user_id: null, name: 'Tom' }] }];
+  assert.deepEqual(H.heuteTodaySummary(sh), { count: 2, venues: ['Messe Hamburg', 'CCH'], people: 3 });
+  assert.deepEqual(H.heuteTodaySummary([]), { count: 0, venues: [], people: 0 });
+  assert.deepEqual(H.heuteTodaySummary(undefined), { count: 0, venues: [], people: 0 });
+});
+
+test('today summary: same venue once, agency people do not count', () => {
+  const sh = [{ venue: 'CCH', plan_assignments: [{ user_id: null, name: 'Firma X', role: 'Fremdfirma' }] }, { venue: 'CCH', plan_assignments: [] }];
+  assert.deepEqual(H.heuteTodaySummary(sh, ['Fremdfirma']), { count: 2, venues: ['CCH'], people: 0 });
+});
+
+test('unbooked protocols', () => {
+  assert.equal(H.heuteUnbookedProtocols([{ id: 'p1' }, { id: 'p2' }],
+    [{ protocol_id: 'p1', status: 'eingetragen' }, { protocol_id: 'p2', status: 'offen' }]), 1);
+  assert.equal(H.heuteUnbookedProtocols([{ id: 'p1' }], [{ protocol_id: 'p1', status: 'offen' }, { protocol_id: 'p1', status: 'offen' }, { protocol_id: 'p9', status: 'offen' }]), 1);
+  assert.equal(H.heuteUnbookedProtocols(undefined, undefined), 0);
+});
