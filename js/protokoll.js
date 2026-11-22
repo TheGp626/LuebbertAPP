@@ -1547,6 +1547,7 @@ function protShiftDeleteError(requested, deleted) {
 }
 
 async function syncProtokollToSupabase(data, targetId, out) {
+  if (typeof breadcrumb === 'function') breadcrumb('save:protokoll');
   var editId = (targetId === undefined) ? protState.editingId : targetId;
   if (typeof supabaseClient === 'undefined') return false;
   try {

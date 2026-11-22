@@ -467,6 +467,7 @@ function enforceUI() {
 }
 
 async function handleAuthSubmit() {
+  if (typeof breadcrumb === 'function') breadcrumb('login');
   const btn0 = document.getElementById('auth-submit-btn');
   if (btn0 && btn0.disabled) return; // login already running (double Enter)
   const nameInp = document.getElementById('auth-name-input');
@@ -549,6 +550,7 @@ async function handleAuthSubmit() {
 }
 
 async function handleLogout() {
+  if (typeof breadcrumb === 'function') breadcrumb('logout');
   if (!confirm('Möchtest du dich wirklich abmelden?')) return;
   
   await signOutLocal();

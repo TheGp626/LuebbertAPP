@@ -55,6 +55,7 @@ const BUCHHALTUNG_MIN_HOURS = 3;         // Minimum booking floor in hours
 const BUCHHALTUNG_MIN_HOURS_ENABLED = true; // Set to false to show raw hours
 
 function switchDashTab(tab) {
+  if (typeof breadcrumb === 'function') breadcrumb('dash:' + tab);
   document.getElementById('dash-tab-prot').classList.toggle('active', tab === 'prot');
   document.getElementById('dash-tab-work').classList.toggle('active', tab === 'work');
   document.getElementById('dash-tab-settings').classList.toggle('active', tab === 'settings');

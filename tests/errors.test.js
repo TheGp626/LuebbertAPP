@@ -91,7 +91,7 @@ function browserCtx(extra) {
   const store = {};
   const handlers = {};
   const c = vm.createContext(Object.assign({
-    console,
+    console: { log() {}, warn() {}, error() {} }, // own copy: errors.js wraps it
     setTimeout: () => 0,
     window: { addEventListener: (t, f) => { handlers[t] = f; } },
     navigator: { onLine: true, userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/130.0 Mobile' },
@@ -215,4 +215,42 @@ test('app version per build: test copy has its own key', () => {
   const e = browserCtx({ location: { origin: 'https://a.b', pathname: '/LuebbertAPP/experimental/', hash: '' } });
   e._store['luebbert-app-version'] = 'stundenzettel-v231';
   assert.equal(e.getAppVersion(), '?');
+});
+
+test('console.error with an error object is reported, label becomes where', () => {
+  const c = browserCtx();
+  c.console.error('Plan speichern:', new Error("insert failed for 'Max'"));
+  const q = queueOf(c);
+  assert.equal(q.length, 1);
+  assert.equal(q[0].p.where, 'Plan speichern:');
+  assert.ok(!/Max/.test(q[0].p.message));
+});
+
+test('console.warn with a Supabase error object is reported; plain logs are not', () => {
+  const c = browserCtx();
+  c.console.warn('Unter 18:', { message: 'permission denied for table staff_minors', code: '42501' });
+  c.console.warn('Protokoll-PDF zu groß für Mail, sende ohne Anhang:', 12345678);
+  c.console.error('nur Text');
+  c.console.error(null);
+  assert.deepEqual(queueOf(c).map(e => e.p.message), ['permission denied for table staff_minors']);
+});
+
+test('the original console still gets the call', () => {
+  const seen = [];
+  const c = browserCtx({ console: { log() {}, warn() {}, error: (...a) => seen.push(a) } });
+  const e = new Error('x');
+  c.console.error('A:', e);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0][1], e);
+});
+
+test('network failures while offline are not reported', () => {
+  const c = browserCtx();
+  c.navigator.onLine = false;
+  c.console.error('Week Sync Error:', new TypeError('Failed to fetch'));
+  c.reportError(new TypeError('Load failed'));
+  assert.equal(queueOf(c).length, 0);
+  c.navigator.onLine = true;
+  c.console.error('Week Sync Error:', new TypeError('Failed to fetch'));
+  assert.equal(queueOf(c).length, 1);
 });

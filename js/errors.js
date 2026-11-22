@@ -162,6 +162,8 @@ function reportError(err, opts) {
     var msg = err == null ? '' : typeof err === 'string' ? err : err.message != null ? String(err.message) : String(err);
     var stack = err && err.stack ? String(err.stack) : '';
     if (isNoiseError(msg, stack, typeof location !== 'undefined' ? location.origin : '')) return false;
+    // A request failing while the phone is offline is expected, not a bug
+    if (typeof navigator !== 'undefined' && navigator.onLine === false && /Failed to fetch|Load failed|NetworkError|network error/i.test(msg)) return false;
     var fp = errorFingerprint(msg, stack);
     _errRecent.push({ fp: fp, t: Date.now() });
     if (_errRecent.length > 50) _errRecent.shift();
@@ -222,7 +224,31 @@ function flushErrorQueue() {
   return _errFlushing;
 }
 
+// The app logs failures as console.error/warn('Label:', err) in ~200 places: report those centrally
+// (the label becomes "where"). Plain text logs without an error object are not reported.
+function _errWrapConsole() {
+  ['error', 'warn'].forEach(function (lvl) {
+    var orig = console[lvl];
+    if (typeof orig !== 'function' || orig._errWrapped) return;
+    var wrapped = function () {
+      orig.apply(console, arguments);
+      try {
+        var where = null, err = null;
+        for (var i = 0; i < arguments.length; i++) {
+          var a = arguments[i];
+          if (!err && a && typeof a === 'object' && typeof a.message === 'string') err = a;
+          else if (where == null && typeof a === 'string') where = a;
+        }
+        if (err) reportError(err, { where: where });
+      } catch (e) { /* never break logging */ }
+    };
+    wrapped._errWrapped = true;
+    console[lvl] = wrapped;
+  });
+}
+
 function _errInit() {
+  _errWrapConsole();
   window.addEventListener('error', function (e) {
     var err = e && e.error ? e.error
       : { message: e && e.message, stack: e && e.filename ? 'at ' + e.filename + ':' + e.lineno + ':' + e.colno : '' };
