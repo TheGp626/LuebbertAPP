@@ -1,9 +1,9 @@
-const CACHE = 'stundenzettel-exp-tst-af6305a';
+const CACHE = 'stundenzettel-exp-tst-536ed24';
 // Product media, shared by the live app and /experimental/ (same origin, same files)
 const MEDIA_CACHE = 'luebbert-media-v1';
 // Loaded by the app only when needed (utils.js loadLib), so index.html doesn't name them: precached here for offline use
 const LAZY_ASSETS = ['vendor/jspdf-2.5.1.umd.min.js', 'vendor/pdfjs-3.11.174/pdf.min.js', 'vendor/pdfjs-3.11.174/pdf.worker.min.js',
-  'vendor/chart-4.6.1.umd.min.js'];
+  'vendor/chart-4.6.1.umd.min.js', 'fonts/archivo-latin-wght.woff2', 'fonts/archivo-latin-ext-wght.woff2'];
 
 // Offline start needs every script/stylesheet of index.html (own files + CDN libs): the install step reads
 // index.html and caches whatever it references, so this list never has to be kept in sync by hand.
