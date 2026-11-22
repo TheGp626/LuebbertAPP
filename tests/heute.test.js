@@ -66,3 +66,22 @@ test('unbooked protocols', () => {
   assert.equal(H.heuteUnbookedProtocols([{ id: 'p1' }], [{ protocol_id: 'p1', status: 'offen' }, { protocol_id: 'p1', status: 'offen' }, { protocol_id: 'p9', status: 'offen' }]), 1);
   assert.equal(H.heuteUnbookedProtocols(undefined, undefined), 0);
 });
+
+test('night shift: a shift dated yesterday still running counts for its date, and its hours are not "missing" yet', () => {
+  // 00:30 on Wed 25.11: Tuesday's "Abbau 0.30 Uhr" is still running (nextOwnShift returns it)
+  assert.equal(H.heuteWeekStrip('2026-11-25', ['2026-11-24'])[1].has, true);
+  assert.deepEqual(H.heuteMissingHourDays('2026-11-25', ['2026-11-23', '2026-11-24'], [], '2026-11-24'), ['2026-11-23']);
+  assert.deepEqual(H.heuteMissingHourDays('2026-11-25', ['2026-11-23', '2026-11-24'], []), ['2026-11-23', '2026-11-24']);
+});
+
+test('crew render never keeps the previous user\'s strip and rows (shared phone)', async () => {
+  const vm = require('node:vm'), fs = require('fs'), path = require('path');
+  const els = { 'heute-week': { innerHTML: 'OLD-STRIP' }, 'heute-todo': { innerHTML: 'OLD-ROWS' }, 'heute-office': { innerHTML: '' } };
+  const ctx = { document: { getElementById: id => els[id] || null }, currentUser: { id: 'lena' }, userRole: 'MA',
+    localDateStr: () => '2026-11-25', window: {}, module: undefined };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/heute.js'), 'utf8'), ctx);
+  await vm.runInContext('renderHeute()', ctx); // offline: no supabaseClient
+  assert.ok(!els['heute-week'].innerHTML.includes('OLD-STRIP'));
+  assert.equal(els['heute-todo'].innerHTML, '');
+});
