@@ -270,3 +270,25 @@ test('review: screen (location.hash) is scrubbed', () => {
   const c = browserCtx({ location: { origin: 'https://a.b', pathname: '/', hash: '#name=Max&tel=01701234567' } });
   assert.ok(!/Max|01701234567/.test(c.errorContextSnapshot().screen));
 });
+
+test('e2e: reportError never calls the rpc synchronously (supabase auth lock inside callbacks)', () => {
+  let calls = 0;
+  const c = browserCtx({ supabaseClient: { rpc: () => { calls++; return Promise.resolve({ error: null }); } } });
+  c.reportError(new Error('sync?'));
+  assert.equal(calls, 0);
+});
+
+test('e2e: a hung rpc times out, so later flushes still send', async () => {
+  const timers = [];
+  let calls = 0;
+  const c = browserCtx({ setTimeout: (fn, ms) => { timers.push([fn, ms]); return timers.length; },
+    supabaseClient: { rpc: () => { calls++; return calls === 1 ? new Promise(() => {}) : Promise.resolve({ error: null }); } } });
+  c.reportError(new Error('hang'));
+  const p = c.flushErrorQueue();
+  timers.filter(t => t[1] === 15000).forEach(t => t[0]());
+  await p;
+  assert.equal(queueOf(c).length, 1);
+  assert.ok(timers.some(t => t[1] === 30000), 'retry scheduled');
+  await c.flushErrorQueue();
+  assert.equal(queueOf(c).length, 0);
+});
