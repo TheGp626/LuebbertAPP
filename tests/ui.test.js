@@ -59,7 +59,7 @@ test('buttons disabled during Senden / Speichern are found by the JS selectors',
   assert.match(prot, /querySelector\('#page-protokoll \.ui-actionbar \.ui-btn-primary'\)/);
   assert.match(prod, /querySelector\('#produkt-form \.ui-btn-primary'\)/);
   const protPage = html.slice(html.indexOf('id="page-protokoll"'), html.indexOf('id="page-protokoll-history"'));
-  assert.match(protPage, /class="ui-actionbar"[\s\S]*class="ui-btn ui-btn-primary"[^>]*onclick="saveProtokoll\(\)"/);
+  assert.match(protPage, /class="ui-actionbar"[\s\S]*class="ui-btn ui-btn-primary"[^>]*onclick="protNextOrSend\(\)"/); // Werkstatt step 3: Weiter on every step, Senden on the last
   const prodForm = html.slice(html.indexOf('id="produkt-form"'), html.indexOf('PRODUKT VIEWER MODAL'));
   assert.match(prodForm, /class="ui-btn ui-btn-primary" onclick="saveProdukt\(\)"/);
 });

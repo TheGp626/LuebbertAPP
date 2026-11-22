@@ -1504,14 +1504,14 @@ async function saveProtokoll() {
   if (!protSaveArchive(archive)) {
     if (!isSynced) {
       // Neither on the server nor on the phone: keep the form filled so nothing is lost
-      if (btn) { btn.disabled = false; btn.textContent = 'Senden'; }
+      if (btn) { btn.disabled = false; btn.textContent = protCurrentStep().last ? 'Senden' : 'Weiter'; }
       showToast('Speicher dieses Handys ist voll und keine Verbindung: Protokoll nicht gesichert. Bitte mit Internet erneut senden.', 'danger');
       return;
     }
     showToast('Gespeichert. Der Verlauf auf diesem Handy ist voll, das Protokoll steht aber auf dem Server.', 'info');
   }
   
-  if (btn) { btn.disabled = false; btn.textContent = 'Senden'; }
+  if (btn) { btn.disabled = false; btn.textContent = protCurrentStep().last ? 'Senden' : 'Weiter'; }
   // Mail in the background so Senden never waits on SMTP (registered as in-flight before the history retry runs)
   if (isSynced) sendMailForEntry(entry, true);
   protDayDrivers.key = null; // next form (same date, no editingId) must not reuse the hints of this protocol
