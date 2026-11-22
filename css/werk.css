@@ -202,8 +202,8 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 
 /* ══ Step 2: Wochenplan + Stundenzettel ══ */
 /* Wochenplan: the top bar already says "Wochenplan"; the upload button stays on the right */
-.wp-titlebar { justify-content: flex-end; margin-bottom: 0; }
-.wp-titlebar h2 { display: none; }
+#wp-main > .wp-titlebar { justify-content: flex-end; margin-bottom: 0; }
+#wp-main > .wp-titlebar h2 { display: none; } /* "Plan prüfen" in the import keeps its title */
 #wp-upload-btn { margin-bottom: 12px; }
 .wp-weeknav button { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); background: var(--w-card); }
 .wp-day { border: var(--w-bw) solid var(--w-soft); border-radius: var(--w-r-ctl); background: var(--w-card); font-weight: 700; }
@@ -249,7 +249,9 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .prot-nav-wrap { background: var(--w-paper); border-bottom: var(--w-bw) solid var(--w-line); }
 .prot-step-count { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--w-muted); margin: 0 0 6px 2px; }
 .ui-chip { border: var(--w-bw) solid var(--w-soft); border-radius: var(--w-r-ctl); font-weight: 700; background: var(--w-card); }
-.ui-chip-on { background: var(--w-card); color: var(--w-ink); border-color: var(--w-line); }
+/* Filter chips elsewhere (Fehlerberichte) keep a clear on state; the Protokoll steps show theirs with the number box */
+.ui-chip-on { background: var(--w-accent-bg); color: var(--w-accent-text); border-color: var(--w-accent); }
+#prot-section-nav .ui-chip-on { background: var(--w-card); color: var(--w-ink); border-color: var(--w-line); }
 .ui-chip .prot-step-n { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; border-radius: 2px;
   background: var(--w-tint); color: var(--w-ink); font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .ui-chip .prot-step-n .ui-ico { width: 13px; height: 13px; stroke-width: 3; }

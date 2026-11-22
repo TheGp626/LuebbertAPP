@@ -1109,7 +1109,7 @@ function renderProtSectionNav() {
 
 // Werkstatt step 3: the form is a step-by-step flow, one section at a time (the others stay in the DOM, only hidden,
 // so drafts, validation and saving work as before). The chips jump to any step; Senden sits on the last step.
-var protStep = 'basis';
+var protStep = 'basis', _protStepAt = 0;
 function protStepState(ids, current) {
   var i = Math.max(0, ids.indexOf(current));
   return { index: i, total: ids.length, first: i === 0, last: i === ids.length - 1, prev: i > 0 ? ids[i - 1] : null, next: i < ids.length - 1 ? ids[i + 1] : null };
@@ -1130,6 +1130,7 @@ function protApplyStep(step) {
 }
 function protGoStep(id) {
   protStep = id;
+  _protStepAt = Date.now();
   if (id === 'transport') protTransportOpened = true;
   renderProtSectionNav();
   var scroll = document.getElementById('prot-scroll');
@@ -1143,7 +1144,13 @@ function protCurrentStep() {
   return protStepState(ids, protStep);
 }
 function protStepBack() { var s = protCurrentStep(); if (s.prev) protGoStep(s.prev); }
-function protNextOrSend() { var s = protCurrentStep(); if (s.last) saveProtokoll(); else protGoStep(s.next); }
+// The same button turns from Weiter into Senden: a tap within 500 ms of a step change (double tap) does not send
+function protNextOrSend() {
+  var s = protCurrentStep();
+  if (!s.last) { protGoStep(s.next); return; }
+  if (Date.now() - _protStepAt < 500) return;
+  saveProtokoll();
+}
 // Kept for older callers (chips, links): jumping to a section means opening its step
 function scrollProtSection(id) { protGoStep(id); }
 
@@ -1304,6 +1311,7 @@ function loadProtDraft() {
 
 function clearProtForm(skipConfirm) {
   if (!skipConfirm && !confirm('Gesamtes Protokoll löschen?')) return;
+  protStep = 'basis'; // a new protocol starts at step 1
   localStorage.removeItem('luebbert_protokoll_draft');
   protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null };
   protOpenRows = {};
@@ -1380,7 +1388,7 @@ function protLongerThanAl(personnel, alId) {
 // ── PROTOKOLL SAVE (replaces PDF Export) ──
 async function saveProtokoll() {
   var side = protState.sideOf || null;
-  if (protSideOn() && !side) { showToast('Bitte das Hauptprotokoll auswählen, bei dem dieser Zusatzauftrag mitlief.', 'danger'); return; }
+  if (protSideOn() && !side) { protGoStep('basis'); showToast('Bitte das Hauptprotokoll auswählen, bei dem dieser Zusatzauftrag mitlief.', 'danger'); return; }
   var missing = side ? [] : protIncompleteNames(protState.personnel);
   if (missing.length && !confirm('Ohne Start- oder Endzeit: ' + missing.join(', ') + '.\n\n' +
       (missing.length === 1 ? 'Diese Person wird' : 'Diese Personen werden') + ' nicht mitgespeichert und fehlen bei den Stunden. Trotzdem senden?')) return;
@@ -1398,7 +1406,7 @@ async function saveProtokoll() {
   var minorWarn = protMinorWarnings(protState.personnel);
   if (minorWarn.length && !confirm('Unter 18:\n' + minorWarn.join('\n') + '\n\nErlaubt sind nur 6–20 Uhr und höchstens 8 Std am Tag. Trotzdem senden?')) return;
   var jobNo = protJobNo((document.getElementById('prot-job') || {}).value);
-  if (!protJobNoValid(jobNo)) { showToast('Die Projektnummer sieht so aus: 26-0447 (oder mit Auftrag: 26-0447.01). Bitte korrigieren oder leer lassen.', 'danger'); return; }
+  if (!protJobNoValid(jobNo)) { protGoStep('basis'); showToast('Die Projektnummer sieht so aus: 26-0447 (oder mit Auftrag: 26-0447.01). Bitte korrigieren oder leer lassen.', 'danger'); return; }
   calcProtCosts(); // the shown total may be stale (restored draft, rates loaded late)
   var usersLoaded = appUsers.length > 0;
   var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded);
@@ -2110,6 +2118,7 @@ function loadProtFromHistory(id) {
   if (!entry) { showToast('Nicht gefunden'); return; }
 
   if (!confirm('Dieses Protokoll in das Formular laden? Nicht gespeicherte Änderungen gehen verloren.')) return;
+  protStep = 'basis'; // a loaded protocol opens at step 1
 
   // Hydrate DOM fields (al/pl handled separately via protState.alId/plId)
   var fieldMap = { event: 'prot-event', location: 'prot-location', date: 'prot-date', action: 'prot-action', damages: 'prot-damages', incidents: 'prot-incidents', feedback: 'prot-feedback' };

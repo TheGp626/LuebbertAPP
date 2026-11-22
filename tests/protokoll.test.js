@@ -1141,3 +1141,31 @@ test('protStepState: one section at a time, clamped, unknown step falls back to 
   assert.deepEqual(plain(ctx.protStepState(['basis', 'equipment', 'vorkommnisse', 'unterschrift'], 'personal')).index, 0);
   assert.equal(plain(ctx.protStepState(ids, undefined)).index, 0);
 });
+
+test('step flow: a new or loaded protocol always starts at Basis', () => {
+  run('protStep = "unterschrift"');
+  try { ctx.clearProtForm(true); } catch (e) { /* the rest needs the real DOM */ }
+  assert.equal(run('protStep'), 'basis');
+  run('protStep = "unterschrift"');
+  store.luebbert_protokoll_history = JSON.stringify([{ id: 'h1', data: {} }]);
+  run('confirm = function() { return true; }');
+  try { ctx.loadProtFromHistory('h1'); } catch (e) { /* idem */ }
+  assert.equal(run('protStep'), 'basis');
+});
+
+test('step flow: a fast double tap on Weiter never sends; Senden needs its own tap on the last step', () => {
+  run('var sent = 0; saveProtokoll = function() { sent++; }; protStep = "vorkommnisse"');
+  ctx.protNextOrSend();
+  assert.equal(run('protStep'), 'unterschrift');
+  ctx.protNextOrSend(); // second tap of a double tap, same spot, button now says Senden
+  assert.equal(run('sent'), 0);
+  run('_protStepAt = Date.now() - 1000');
+  ctx.protNextOrSend();
+  assert.equal(run('sent'), 1);
+});
+
+test('step flow: Basis errors on Senden open the Basis step', async () => {
+  run('protStep = "unterschrift"; protSideOn = function() { return true; }');
+  await ctx.saveProtokoll();
+  assert.equal(run('protStep'), 'basis');
+});
