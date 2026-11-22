@@ -12,7 +12,7 @@
 
 
   <link rel="stylesheet" href="css/style.css?v=43">
-  <link rel="stylesheet" href="css/ui.css?v=45">
+  <link rel="stylesheet" href="css/ui.css?v=46">
 </head>
 
 <body>
@@ -36,6 +36,7 @@
       <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="ui-btn ui-btn-primary ui-btn-block" style="margin-bottom: 12px;">Anmelden</button>
       <div class="ui-sub" style="font-size: 12px;">Powered by Supabase</div>
     </div>
+    <button type="button" class="problem-link" onclick="openProblemForm()">Problem melden</button>
   </div>
 
   <div class="app">
@@ -267,10 +268,12 @@
           <button type="button" id="dash-tab-prot" class="active" onclick="switchDashTab('prot')">Protokolle</button>
           <button type="button" id="dash-tab-work" onclick="switchDashTab('work')">Personal</button>
           <button type="button" id="dash-tab-settings" style="display: none;" onclick="switchDashTab('settings')">Einstellungen</button>
+          <button type="button" id="dash-tab-errors" style="display: none;" onclick="switchDashTab('errors')">Fehler</button>
         </div>
 
         <!-- TAB: EINSTELLUNGEN (Admin only, js/settings.js) -->
         <div id="dash-view-settings" class="table-card set-card" style="display: none;"></div>
+        <div id="dash-view-errors" class="fehler-view" style="display: none;"></div>
 
         <!-- TAB: PROTOKOLLE -->
         <div id="dash-view-prot" style="display: block;">
@@ -780,6 +783,7 @@
         </div>
       </div>
 
+      <button type="button" class="ui-btn ui-btn-block opt-problem" onclick="openProblemForm()">Problem melden</button>
       <button type="button" class="ui-btn ui-btn-block ui-btn-danger opt-logout" onclick="handleLogout()">Abmelden</button>
     </div>
   </div>
@@ -938,18 +942,20 @@
   </div>
 
   <!-- Scripts -->
+  <script src="js/errors.js?v=4"></script>
+  <script src="js/problem.js?v=1"></script>
   <script src="vendor/supabase-js-2.119.0.js"></script>
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=42"></script>
+  <script src="js/auth.js?v=44"></script>
   <script src="js/logo.js?v=9"></script>
   <script src="js/formulas.js?v=19"></script>
-  <script src="js/utils.js?v=27"></script>
+  <script src="js/utils.js?v=28"></script>
   <script src="js/ui.js?v=6"></script>
   <script src="js/changelog.js?v=2"></script>
   <script src="js/settings.js?v=15"></script>
   <script src="js/mitarbeiter.js?v=4"></script>
-  <script src="js/stundenzettel.js?v=36"></script>
-  <script src="js/protokoll.js?v=59"></script>
+  <script src="js/stundenzettel.js?v=37"></script>
+  <script src="js/protokoll.js?v=60"></script>
   <script src="js/erinnerung.js?v=14"></script>
   <script src="js/plan-pdf.js?v=3"></script>
   <script src="js/plan-parser.js?v=27"></script>
@@ -957,13 +963,14 @@
   <script src="js/order-slots.js?v=5"></script>
   <script src="js/planer.js?v=11"></script>
   <script src="js/auftraege.js?v=14"></script>
-  <script src="js/wochenplan.js?v=40"></script>
+  <script src="js/wochenplan.js?v=41"></script>
   <script src="js/material.js?v=5"></script>
   <script src="js/home.js?v=11"></script>
-  <script src="js/dashboard.js?v=62"></script>
+  <script src="js/dashboard.js?v=64"></script>
+  <script src="js/fehler.js?v=1"></script>
   <script src="js/produkte.js?v=22"></script>
-  <script src="js/ordner.js?v=38"></script>
-  <script src="js/app.js?v=28"></script>
+  <script src="js/ordner.js?v=39"></script>
+  <script src="js/app.js?v=30"></script>
 </body>
 
 </html>

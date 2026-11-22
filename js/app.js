@@ -79,7 +79,7 @@ var MODULE_TITLES = { stunden: 'Stundenzettel', protokoll: 'Protokoll', dashboar
   produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan', auftraege: 'Aufträge' };
 
 // The office dashboard is opened from two tiles; each shows one view ('prot' | 'work'), Admin settings come via "…"
-var DASH_VIEW_TITLES = { prot: 'Protokoll-Übersicht', work: 'Personal', settings: 'Einstellungen' };
+var DASH_VIEW_TITLES = { prot: 'Protokoll-Übersicht', work: 'Personal', settings: 'Einstellungen', errors: 'Fehlerberichte' };
 var DASH_VIEW_KEY = 'luebbert_dash_view';
 var dashView = dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY));
 
@@ -96,6 +96,7 @@ function setDashView(view) {
 }
 
 function selectMode(m, view) {
+  if (typeof breadcrumb === 'function') breadcrumb('mode:' + m);
   // Role-based guards (only once a user is logged in — during module restore
   // on page load the role is not resolved yet and the auth overlay blocks input)
   var loggedIn = typeof currentUser !== 'undefined' && currentUser;
@@ -191,6 +192,7 @@ function exitToMenu() {
 }
 
 function navigate(page) {
+  if (typeof breadcrumb === 'function') breadcrumb('nav:' + page);
   document.querySelectorAll('.page').forEach(function (p) { p.classList.remove('active'); });
   document.querySelectorAll('.top-tab').forEach(function (b) { b.classList.remove('active'); });
   
@@ -207,6 +209,7 @@ function navigate(page) {
 }
 
 function navigateProt(page) {
+  if (typeof breadcrumb === 'function') breadcrumb('prot:' + page);
   document.querySelectorAll('.page').forEach(function (p) { p.classList.remove('active'); });
   document.getElementById('prot-nav').querySelectorAll('.top-tab').forEach(function (b) { b.classList.remove('active'); });
 

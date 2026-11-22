@@ -116,3 +116,9 @@ test('uiGuardTap: sync throw and non-promise results are passed on', () => {
   assert.throws(() => h(), /x/);
   assert.equal(h.length, 0);
 });
+
+test('review: toasts sit above the login overlay (10000) and the Problem-melden sheet (10001)', () => {
+  const css = require('fs').readFileSync(require('path').join(__dirname, '../css/ui.css'), 'utf8');
+  const zs = [...css.matchAll(/(^|\n)\.toast\s*\{[^}]*z-index:\s*(\d+)/g)].map(m => +m[2]);
+  assert.ok(zs.length && Math.max(...zs) > 10001, 'z-index ' + zs);
+});

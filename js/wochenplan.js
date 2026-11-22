@@ -1199,6 +1199,7 @@ function wpCancelImport() {
 }
 
 async function wpSaveImport() {
+  if (typeof breadcrumb === 'function') breadcrumb('save:plan');
   if (!wpImport) return;
   var btn = document.getElementById('wp-save-btn');
   btn.disabled = true; btn.textContent = 'Speichert…';

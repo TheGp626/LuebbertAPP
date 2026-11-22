@@ -166,14 +166,23 @@ function compressSignature(base64, callback) {
   img.src = base64;
 }
 
-function showToast(msg, type) {
+// onTap (optional): the toast can be tapped once and stays 6 s (crash hint "Tippen, um es zu melden")
+function showToast(msg, type, onTap) {
   var t = document.getElementById('toast');
   if (!t) return;
   t.textContent = msg;
   if (type === 'danger') t.classList.add('toast-danger'); else t.classList.remove('toast-danger');
+  var hide = function () { t.classList.remove('show'); t.classList.remove('toast-tap'); t.onclick = null; };
+  if (onTap) {
+    t.classList.add('toast-tap');
+    t.onclick = function () { hide(); onTap(); };
+  } else {
+    t.classList.remove('toast-tap');
+    t.onclick = null;
+  }
   t.classList.add('show');
   if (t._toastTimer) clearTimeout(t._toastTimer);
-  t._toastTimer = setTimeout(function () { t.classList.remove('show'); }, 2200);
+  t._toastTimer = setTimeout(hide, onTap ? 6000 : 2200);
 }
 
 function escapeHtml(str) {
