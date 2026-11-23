@@ -103,7 +103,7 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - eigene seite unter **/admin** (oder kachel „Admin“ auf der startseite), adresse bleibt `…/#admin`, `#admin/settings`, `#admin/errors`
 - **übersicht:** schichten im laufenden monat mit vergleich zum vormonat bis zum gleichen tag, stunden, leute im einsatz, protokolle. dazu schichten gesamt, letzter monat, protokolle gesamt, Ø stunden pro schicht, ein balkendiagramm der letzten 12 monate (tippen zeigt schichten + stunden, auch als tabelle), wer die meisten schichten hat, verteilung nach funktion und wochentag
 - **einstellungen:** erinnerungen, pushes, protokoll-mail, abteilungs-mails, stichtag, verdienstgrenzen, fahrzeug- und stundensätze, test-push
-- **fehler:** automatische fehlerberichte und „problem melden“-meldungen, mit status neu / gesehen / behoben / ignoriert. neue zählen als badge auf der kachel
+- **fehler:** automatische fehlerberichte und „problem melden“-meldungen, mit status neu / gesehen / behoben / ignoriert. neue zählen als badge auf der kachel. ein fehler, der seit 2 app-versionen und 3 tagen nicht mehr kam, wird beim öffnen automatisch auf behoben gesetzt (kommt er wieder, steht er wieder auf neu). verbindungsabbrüche werden gar nicht erst gemeldet
 
 ---
 
@@ -148,7 +148,7 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - projektdateien sind privat, öffnen nur mit kurzlebigem link aus der app.
 - datenbank in der EU (supabase, irland).
 - die login-mail hinter jeder PIN ist zufällig (nicht aus der user-id gebaut), sonst könnte man supabase auth direkt fragen und die 5-versuche-sperre umgehen.
-- das admin-passwort liegt nur als bcrypt-hash in `app_secrets`, prüfen darf es nur der server. einstellungen speichern geht nur als admin.
+- das admin-passwort liegt nur als bcrypt-hash in `app_secrets`, prüfen darf es nur der server. einstellungen speichern und test-push gehen seit 23.11.26 ohne passwort, die datenbank prüft nur die rolle admin (`save_app_settings`, migration `20261127_admin_ohne_passwort.sql`).
 - edge functions: der anon-key ist öffentlich und zählt als "gültiges jwt". testmodus, dry runs und `force` gehen deshalb nur mit admin-login (`_shared/caller.ts`), cron läuft ohne.
 - produktbilder: nur jpg/png/gif/webp (kein svg), links aus der datenbank werden nur als `https://` benutzt.
 - pentest vom 17.11.26: `supabase/migrations/20261117_security_haertung.sql`, prüfung in `supabase/tests/security_haertung_check.sql`.

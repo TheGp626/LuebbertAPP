@@ -581,6 +581,7 @@ button[aria-busy="true"], .ui-btn[aria-busy="true"] { opacity: .6; pointer-event
 .fehler-actions .ui-btn { flex: 1; }
 .fehler-count { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 99px; background: var(--accent); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
 .fehler-empty { padding: 16px 0; text-align: center; }
+.fehler-auto { margin: -2px 2px 10px; }
 .home-problem { margin-top: 24px; }
 
 /* ══ Admin page (/admin, js/admin.js) ══ */
