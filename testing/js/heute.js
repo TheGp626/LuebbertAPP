@@ -75,6 +75,25 @@ function heuteUnbookedProtocols(protocols, shifts) {
   return (protocols || []).filter(function(p) { return open[p.id]; }).length;
 }
 
+// "Dein Monat": one person's billing period. row = dashMonthSummary row (or null: no shifts yet), limit = own limit or the
+// default for the Art der Anstellung, range = {from, to}. → what the card shows; warn from 90 % of the limit
+function heuteMonthModel(row, limit, range, todayStr) {
+  var mins = row ? row.mins : 0, pay = row && row.pay != null ? row.pay : null;
+  var lim = row && row.limit ? row.limit : (limit > 0 ? limit : null);
+  var pct = pay != null && lim ? Math.round(pay / lim * 100) : null;
+  var p = String(range.to).split('-').map(Number), t = String(todayStr).split('-').map(Number);
+  var daysLeft = Math.max(0, Math.round((Date.UTC(p[0], p[1] - 1, p[2]) - Date.UTC(t[0], t[1] - 1, t[2])) / 86400000));
+  return { hours: Math.round(mins / 6) / 10, shifts: row ? row.shifts : 0, pay: pay, limit: lim, pct: pct,
+    level: pct == null ? null : pct > 100 ? 'over' : pct >= 90 ? 'warn' : 'ok',
+    left: lim && pay != null ? Math.max(0, Math.round((lim - pay) * 100) / 100) : null, daysLeft: daysLeft };
+}
+
+// Monster counter (RPC monster_patryk): { cans, hours } → text, null when unknown
+function heuteMonsterText(m) {
+  if (!m || typeof m.cans !== 'number') return null;
+  return 'Patryk hat bisher ' + m.cans.toLocaleString('de-DE') + ' Monster Energy getrunken';
+}
+
 /* ── DOM part (browser only) ── */
 
 var _heuteSeq = 0;
@@ -132,6 +151,55 @@ async function renderHeuteCrew(seq) {
   var open = heuteOpenSlotCount(shifts, me, userRole, !!window.currentUserCanDrive, today, keys);
   if (open > 0) rows += heuteRow('selectMode(\'wochenplan\')', 'Offene Schichten', 'Du kannst dich melden', open);
   todo.innerHTML = rows ? '<div class="w-label">Zu tun</div>' + rows : '';
+}
+
+// "Dein Monat" card: own shifts of the current billing period, pay with the own rates, share of the earnings limit.
+// Uses dashMonthSummary (dashboard.js) so the numbers match the Monatsabschluss. Offline / failed read → no card.
+async function renderHeuteMonth(seq) {
+  var box = document.getElementById('heute-month');
+  if (!box) return;
+  box.innerHTML = '';
+  if (typeof supabaseClient === 'undefined' || typeof dashMonthSummary !== 'function' || userRole === 'Gast') return;
+  var me = currentUser.id, cutoff = typeof dashBillingCutoff === 'function' ? dashBillingCutoff() : 20;
+  var bk = getBillingKeyForDate(new Date(), cutoff), range = dashBillingRange(bk.key, cutoff);
+  // Same fetch as the Monatsabschluss: by work date (a few days margin, dashMonthSummary cuts exactly); shifts without their own date carry the protocol's
+  var f = heuteAddDays(range.from, -3), t = heuteAddDays(range.to, 3);
+  var cols = 'id, user_id, start_time, end_time, pause_mins, position_role, status, shift_date, created_at, ';
+  var res;
+  try {
+    res = await Promise.all([
+      supabaseClient.from('shifts').select(cols + 'protocols(date)').eq('user_id', me).gte('shift_date', f).lte('shift_date', t).range(0, 999),
+      supabaseClient.from('shifts').select(cols + 'protocols!inner(date)').eq('user_id', me).is('shift_date', null).gte('protocols.date', f).lte('protocols.date', t).range(0, 999),
+      supabaseClient.from('app_users').select('id, full_name, role, employment_type, is_fest, role_rates, app_user_private(hourly_rate_conni, income_limit)').eq('id', me).maybeSingle()
+    ]);
+  } catch (e) { return; }
+  if (seq !== _heuteSeq || !currentUser || currentUser.id !== me || res[0].error || res[1].error || res[2].error || !res[2].data) return;
+  var user = typeof flattenPrivate === 'function' ? flattenPrivate(res[2].data) : res[2].data;
+  var seen = {}, own = (res[0].data || []).concat(res[1].data || []).filter(function(s) { if (seen[s.id]) return false; seen[s.id] = true; return true; });
+  var sum = dashMonthSummary(own, [user], bk.key, cutoff);
+  var fallback = typeof mitDefaultLimit === 'function' ? mitDefaultLimit(user) : null;
+  var m = heuteMonthModel(sum.rows[0] || null, fallback, range, localDateStr());
+  var bar = m.pct != null ? '<div class="w-month-bar w-month-' + m.level + '"><i style="width:' + Math.min(100, m.pct) + '%"></i></div>' +
+    '<div class="w-month-limit">' + (m.level === 'over' ? 'Über deiner Verdienstgrenze von ' + heuteEuro(m.limit) + ' — sag bitte im Büro Bescheid.'
+      : m.pct + ' % von ' + heuteEuro(m.limit) + ' · noch ' + heuteEuro(m.left) + ' frei') + '</div>' : '';
+  box.innerHTML = '<div class="w-label">Dein Monat</div><div class="w-month" role="button" tabindex="0" onclick="selectMode(\'stunden\'); if (typeof navigate === \'function\') navigate(\'history\')">' +
+    '<div class="w-month-top"><span class="w-tag">Abrechnung ' + escapeHtml(bk.label.split(' ')[0]) + ' · ' + heuteDm(range.from) + '–' + heuteDm(range.to) + '</span>' +
+    '<span class="w-month-days">' + (m.daysLeft ? 'noch ' + m.daysLeft + (m.daysLeft === 1 ? ' Tag' : ' Tage') : 'letzter Tag') + '</span></div>' +
+    '<div class="w-month-stats"><div><b class="w-num">' + String(m.hours).replace('.', ',') + '</b><span>Stunden</span></div>' +
+    '<div><b class="w-num">' + m.shifts + '</b><span>' + (m.shifts === 1 ? 'Schicht' : 'Schichten') + '</span></div>' +
+    (m.pay != null ? '<div><b class="w-num">≈ ' + Math.round(m.pay).toLocaleString('de-DE') + ' €</b><span>Verdienst</span></div>' : '') + '</div>' + bar + '</div>';
+}
+
+async function renderHeuteMonster(seq) {
+  var box = document.getElementById('heute-monster');
+  if (!box) return;
+  if (typeof supabaseClient === 'undefined' || userRole === 'Gast') { box.innerHTML = ''; return; }
+  var r;
+  try { r = await supabaseClient.rpc('monster_patryk'); } catch (e) { return; }
+  if (seq !== _heuteSeq) return;
+  var text = r && !r.error ? heuteMonsterText(r.data) : null; // RPC missing on an older database → nothing
+  box.innerHTML = text ? '<div class="w-monster"><img src="icons/monsta_can.png" alt="" width="18" height="18"><span>' + escapeHtml(text) +
+    '</span><small>1 Dose pro 5 Stunden Arbeit</small></div>' : '';
 }
 
 function heuteCount(res) { return res && !res.error && typeof res.count === 'number' ? res.count : 0; }
@@ -199,11 +267,14 @@ async function renderHeute() {
   var seq = ++_heuteSeq;
   var office = document.getElementById('heute-office');
   if (office) office.innerHTML = '';
+  renderHeuteMonth(seq);
+  renderHeuteMonster(seq);
   if (userRole === 'MA' || userRole === 'AL') return renderHeuteCrew(seq);
   return renderHeuteOffice(seq); // PL, Admin, Buchhaltung
 }
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { heuteWeekStrip: heuteWeekStrip, heuteMissingHourDays: heuteMissingHourDays, heuteOpenSlotCount: heuteOpenSlotCount,
-    heuteAddDays: heuteAddDays, heuteMonday: heuteMonday, heuteTodaySummary: heuteTodaySummary, heuteUnbookedProtocols: heuteUnbookedProtocols };
+    heuteAddDays: heuteAddDays, heuteMonday: heuteMonday, heuteTodaySummary: heuteTodaySummary, heuteUnbookedProtocols: heuteUnbookedProtocols,
+    heuteMonthModel: heuteMonthModel, heuteMonsterText: heuteMonsterText };
 }

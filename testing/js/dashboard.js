@@ -1322,7 +1322,35 @@ async function dashLoadMonthSummary() {
     months[r.id] = dashBuildMonthWeeks(shifts.filter(function(s) { return s.user_id === r.id; }), key, r.name);
   });
   dashSummaryFromMonths(sum, months);
-  return { key: key, label: monthLabelFromKey(key), range: r, sum: sum, months: months, users: userById };
+  return { key: key, label: monthLabelFromKey(key), range: r, sum: sum, months: months, users: userById, shifts: shifts };
+}
+
+// "Monat verbuchen": ids of the month's shifts (people with an account) that are not booked yet, and how many people they belong to
+function dashUnbookedInMonth(shifts, key, cutoff) {
+  var people = {}, ids = dashShiftsInMonth((shifts || []).filter(function(s) { return s.user_id && s.status !== 'eingetragen'; }), key, cutoff)
+    .map(function(s) { people[s.user_id] = true; return s.id; });
+  return { ids: ids, people: Object.keys(people).length };
+}
+
+// Books every open shift of the chosen billing month in one go (Buchhaltung/Admin), in chunks; counts only rows the database changed
+async function dashBookMonth() {
+  if (!dashMayBook(typeof userRole !== 'undefined' ? userRole : null)) return;
+  var data;
+  try { data = await dashLoadMonthSummary(); } catch (err) { console.error('Monat verbuchen:', err); showToast('Daten konnten nicht geladen werden.', 'danger'); return; }
+  if (!data) return;
+  var open = dashUnbookedInMonth(data.shifts, data.key, dashBillingCutoff());
+  if (!open.ids.length) { showToast('In ' + data.label + ' ist schon alles verbucht.'); return; }
+  if (!confirm(open.ids.length + (open.ids.length === 1 ? ' offene Schicht' : ' offene Schichten') + ' von ' + open.people + (open.people === 1 ? ' Person' : ' Personen') +
+    ' in ' + data.label + ' als „eingetragen“ verbuchen?')) return;
+  var done = 0;
+  for (var i = 0; i < open.ids.length; i += 200) {
+    var r = await supabaseClient.from('shifts').update({ status: 'eingetragen' }).in('id', open.ids.slice(i, i + 200)).select('id');
+    if (r.error) { console.warn('Monat verbuchen:', r.error); break; }
+    done += (r.data || []).length;
+  }
+  if (done < open.ids.length) showToast(done + ' von ' + open.ids.length + ' verbucht. Der Rest ging nicht, versuch es nochmal.', 'danger');
+  else showToast(data.label + ': ' + done + (done === 1 ? ' Schicht' : ' Schichten') + ' verbucht.');
+  if (typeof loadDashboardWorkers === 'function') loadDashboardWorkers(); // the "neue Stunden" badges
 }
 
 // Overview hours (and pay, share of the limit, totals) from the built Stundenzettel months
