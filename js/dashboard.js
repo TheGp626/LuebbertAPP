@@ -2314,6 +2314,8 @@ function renderDashPeShifts() {
         '<label class="ui-field"><span>Ende</span><input type="time" id="pe-sh-end-' + i + '" value="' + escapeHtml(r.end || '') + '" oninput="updateDashPeShift(' + i + ',\'end\',this.value)"></label>' +
         '<label class="ui-field"><span>Pause</span><input type="number" inputmode="numeric" id="pe-sh-pause-' + i + '" placeholder="Min" value="' + escapeHtml(r.pause || 0) + '" oninput="updateDashPeShift(' + i + ',\'pause\',this.value)"></label>' +
       '</div>' +
+      '<div class="prot-pause-warn" id="pe-sh-pwarn-' + i + '"' + (typeof protShortBreaks === 'function' && protShortBreaks([r]).length ? '' : ' hidden') + '>' +
+        (typeof protPauseHintText === 'function' ? escapeHtml(protPauseHintText(r).replace('beim Senden', 'beim Speichern')) : '') + '</div>' +
       '<button type="button" class="ui-btn ui-btn-danger prot-remove" onclick="removeDashPeShift(' + i + ')">Person entfernen</button>' +
     '</div>';
   }).join('');
@@ -2338,13 +2340,35 @@ function updateDashPeShift(idx, field, val) {
   r[field] = val;
   if (field === 'pos') { r.legacy = false; r.type = null; } // another function: the person's current type applies
   if (field === 'pause') r.pauseTouched = true;
-  // A new row suggests the break from its length until the break was typed by hand
-  if ((field === 'start' || field === 'end') && !r.id && !r.pauseTouched && r.start && r.end) {
+  // Changed times suggest the break from the new length (also for people already in the protocol: an old
+  // 0-min break must not survive a correction from 10–14 to 10–18) until the break is typed by hand here
+  if ((field === 'start' || field === 'end') && !r.pauseTouched && r.start && r.end) {
     var raw = (timeToMins(r.end) || 0) - (timeToMins(r.start) || 0);
     r.pause = autoPause(raw < 0 ? raw + 1440 : raw, typeof isMinorUser === 'function' && isMinorUser(r.userId));
     var el = document.getElementById('pe-sh-pause-' + idx);
     if (el) el.value = r.pause;
   }
+  dashPePauseHint(idx);
+}
+
+// Break under the legal minimum in the editor: same hint and rule as the protocol form (protokoll.js protShortBreaks)
+function dashPePauseHint(idx) {
+  var el = document.getElementById('pe-sh-pwarn-' + idx), r = _editProtShifts[idx];
+  if (!el || !r || typeof protShortBreaks !== 'function') return;
+  var short = protShortBreaks([r]).length > 0;
+  el.hidden = !short;
+  if (short) el.textContent = protPauseHintText(r).replace('beim Senden', 'beim Speichern');
+}
+
+// Rows this edit gives too little break: new people, or changed times / break. Old protocols that already had a
+// short break can still be edited (notes, AL …) without being asked; only what is changed now needs a reason.
+function dashPeNewShortBreaks(oldShifts, rows) {
+  if (typeof protShortBreaks !== 'function') return [];
+  var hhmm = function(t) { return (t || '').substring(0, 5); };
+  return protShortBreaks((rows || []).filter(function(r) {
+    var o = r.id ? (oldShifts || []).find(function(s) { return s.id === r.id; }) : null;
+    return !o || hhmm(o.start_time) !== r.start || hhmm(o.end_time) !== r.end || (parseInt(o.pause_mins, 10) || 0) !== (parseInt(r.pause, 10) || 0);
+  }));
 }
 
 function addDashPeShift() {
@@ -2447,6 +2471,17 @@ async function saveDashProtEdit() {
   if (_editProtShifts.some(function(r) { return !r.userId && !(r.name || '').trim(); })) {
     showToast('Bitte bei jeder Person einen Namen angeben.', 'danger');
     return;
+  }
+
+  // Too little break created by this edit → reason into "Besondere Vorkommnisse" (like the protocol form); asked once
+  const incEl = document.getElementById('pe-incidents');
+  const shortNow = dashPeNewShortBreaks(p.shifts || [], _editProtShifts);
+  if (shortNow.length && incEl && (incEl.value || '').indexOf(PROT_SHORT_BREAK) === -1) {
+    const why = prompt('Weniger Pause als gesetzlich vorgeschrieben (über 6 Std. mind. 30 min, über 9 Std. mind. 45 min):\n' + shortNow.join('\n') +
+      '\n\nWarum war keine oder weniger Pause möglich? (Pflicht)', '');
+    if (!why || !why.trim()) { showToast('Ohne Begründung wird nicht gespeichert. Oder trag die Pause ein.', 'danger'); return; }
+    incEl.value = PROT_SHORT_BREAK + ' (' + shortNow.join(', ') + '): ' + why.trim() +
+      (incEl.value.trim() && incEl.value.trim() !== 'nein' ? '\n' + incEl.value.trim() : '');
   }
 
   const alVal = document.getElementById('pe-al').value.trim();
