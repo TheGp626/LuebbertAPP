@@ -316,12 +316,14 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 
 
 /* Plan einlesen (js/planlesen.js) */
-.pl-root { padding: var(--w-s4) var(--w-s4) calc(var(--w-tabbar-h) + 24px); max-width: 1280px; margin: 0 auto; box-sizing: border-box; }
+#page-planlesen { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+.pl-root { padding: var(--w-s4) var(--w-s4) calc(var(--w-tabbar-h) + 24px); width: 100%; max-width: 1280px; margin: 0 auto; box-sizing: border-box; min-width: 0; }
 .pl-intro { background: var(--w-card); border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-hero); padding: var(--w-s4); margin-bottom: var(--w-s4); }
 .pl-intro b { font-size: 17px; font-weight: 800; }
 .pl-intro p { margin: 6px 0 12px; font-size: 14px; color: var(--w-muted); line-height: 1.45; }
 .pl-pick { display: inline-flex; cursor: pointer; }
-.pl-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.pl-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; min-width: 0; }
+.pl-head > div:first-child { flex: 1; min-width: 0; }
 .pl-head b { display: block; font-size: 16px; font-weight: 800; overflow-wrap: anywhere; }
 .pl-head small { display: block; font-size: 12px; color: var(--w-muted); margin-top: 2px; }
 .pl-head-btns { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -372,13 +374,13 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
   .pl-side { display: none; }
   .pl-mob { display: block; }
   .pl-layout { gap: 10px; }
-  .pl-stage { max-height: 33vh; overflow: auto; -webkit-overflow-scrolling: touch; }
-  .pl-stage.pl-zoomed { max-height: 33vh; }
+  .pl-stage { max-height: 33vh; max-height: 33dvh; overflow: auto; -webkit-overflow-scrolling: touch; }
+  .pl-stage.pl-zoomed { max-height: 33vh; max-height: 33dvh; }
   .pl-list-tab .pl-stagewrap { display: none; }
   .pl-head small { display: none; }
 }
 @media (max-width: 859px) and (max-height: 700px) {
-  .pl-stage, .pl-stage.pl-zoomed { max-height: 24vh; }
+  .pl-stage, .pl-stage.pl-zoomed { max-height: 24vh; max-height: 24dvh; }
   .pl-head { display: none; }
   .pl-intro.pl-loaded { margin-bottom: 6px; }
 

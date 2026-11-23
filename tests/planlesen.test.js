@@ -123,3 +123,10 @@ test('plNameOptions: used names first, then plan words, remembered, products; fi
   assert.equal(o[0].used, true); assert.equal(o[1].used, false);
   assert.deepEqual(P.plNameOptions('tisch', ['Stuhl Berlin'], ['Stehtisch Ø80'], ['Banketttisch'], []).map(x => x.name), ['Stehtisch Ø80', 'Banketttisch']);
 });
+
+test('plPrettyName: upload prefix and underscores out, ordinary names unchanged', () => {
+  assert.equal(P.plPrettyName('1794984825112_bd6q3_IPM_AG_FBF26_Setup_Foyer_3_Luebbert-1_kopia.pdf'), 'IPM AG FBF26 Setup Foyer 3 Luebbert-1 kopia');
+  assert.equal(P.plPrettyName('PE26_ShowTheater_261106.pdf'), 'PE26 ShowTheater 261106');
+  assert.equal(P.plPrettyName('Raumplan.PDF'), 'Raumplan');
+  assert.equal(P.plPrettyName(''), 'Plan');
+});

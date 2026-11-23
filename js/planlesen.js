@@ -267,6 +267,12 @@ function plNameOptions(query, used, remembered, products, suggest) {
   return out.slice(0, 60);
 }
 
+// "1794984825112_bd6q3_IPM_AG_FBF26_Setup_Foyer_3.pdf" → "IPM AG FBF26 Setup Foyer 3": upload prefixes (timestamp + id) and underscores out
+function plPrettyName(file) {
+  var s = String(file || '').replace(/\.pdf$/i, '').replace(/^\d{10,}_[a-z0-9]{3,8}_/i, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return s || String(file || 'Plan');
+}
+
 function plCsv(rows, title) {
   var cell = function(v) { var t = String(v == null ? '' : v); if (/^[=+\-@]/.test(t)) t = "'" + t; return /[;"\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
   return '﻿' + (title ? cell(title) + '\r\n' : '') + 'Artikel;Anzahl\r\n' + rows.map(function(r) { return cell(r.name) + ';' + r.count; }).join('\r\n') + '\r\n';
@@ -349,7 +355,7 @@ async function plOpenFile(file) {
   try {
     var buf = await file.arrayBuffer();
     _pl.doc = await pdfjsLib.getDocument({ data: buf }).promise;
-    _pl.file = file.name.replace(/\.pdf$/i, '');
+    _pl.file = plPrettyName(file.name);
     await plShowPage(1);
   } catch (e) {
     console.warn('Plan einlesen:', e);
@@ -679,5 +685,5 @@ function plDownloadCsv() {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { plParseOps: plParseOps, plMeasure: plMeasure, plGroup: plGroup, plSymbolKey: plSymbolKey, plMatchMemory: plMatchMemory, plCleanLabel: plCleanLabel,
-    plSuggestNames: plSuggestNames, plTitleZone: plTitleZone, plWithoutZone: plWithoutZone, plMaterialList: plMaterialList, plCsv: plCsv, plFitZoom: plFitZoom, plNextOpen: plNextOpen, plNameOptions: plNameOptions, plMayUse: plMayUse, PL_OP: PL_OP };
+    plSuggestNames: plSuggestNames, plTitleZone: plTitleZone, plWithoutZone: plWithoutZone, plMaterialList: plMaterialList, plCsv: plCsv, plPrettyName: plPrettyName, plFitZoom: plFitZoom, plNextOpen: plNextOpen, plNameOptions: plNameOptions, plMayUse: plMayUse, PL_OP: PL_OP };
 }
