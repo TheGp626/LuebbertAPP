@@ -1396,3 +1396,6 @@ canvas#historyChart {
 .ordner-upload-bar { margin: 16px -24px 0; }
 @media (max-width: 767px) { .ordner-upload-bar { margin: 16px -16px 0; } }
 #ordner-detail-view.drag-over { outline: 2px dashed var(--accent); outline-offset: 4px; border-radius: var(--r-card); }
+/* Break under the legal minimum (js/protokoll.js protPauseHint): still allowed, needs a reason when sending */
+.prot-pause-warn { margin: -4px 2px 12px; padding: 8px 10px; border-radius: 8px; background: var(--warn-bg, #FAEEDA); color: var(--warn, #854F0B); font-size: 13px; line-height: 1.4; }
+.prot-pause-warn[hidden] { display: none; }

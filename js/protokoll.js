@@ -833,6 +833,8 @@ function renderProtPersonnel() {
           '<label class="ui-field"><span>Ende</span><input type="time" value="' + (p.end || '') + '" oninput="updateProtPersonnel(' + i + ', \'end\', this.value)"/></label>' +
           '<label class="ui-field"><span>Pause</span><input type="number" placeholder="Min" value="' + (p.pause || '0') + '" oninput="updateProtPersonnel(' + i + ', \'pause\', this.value)"/></label>' +
         '</div>' +
+        // Always present (hidden when the break is enough), toggled by protPauseHint without a re-render
+        '<div class="prot-pause-warn" id="prot-pwarn-' + i + '"' + (protShortBreaks([p]).length ? '' : ' hidden') + '>' + protPauseHintText(p) + '</div>' +
         // A plain link opens reliably in iOS/Android PWAs, a window.open after the save would be popup-blocked
         (p.pos === 'Zenjob' ? '<a class="ui-btn" href="' + PROT_ZENJOB_RATE_URL + '" target="_blank" rel="noopener" style="margin-bottom:8px;">Bei Zenjob bewerten ↗</a>' : '') +
         '<button type="button" class="ui-btn ui-btn-danger prot-remove" onclick="removeProtPersonnel(' + i + ')">Person entfernen</button>' +
@@ -889,6 +891,17 @@ function renderProtPersonnelAfterPicker() {
   renderProtPersonnel();
 }
 
+function protPauseHintText(p) {
+  return 'Gesetzlich mind. ' + protPauseMin(p) + ' min Pause bei dieser Arbeitszeit. Weniger geht, braucht beim Senden aber eine Begründung.';
+}
+function protPauseHint(i) {
+  var el = document.getElementById('prot-pwarn-' + i), p = protState.personnel[i];
+  if (!el || !p) return;
+  var short = protShortBreaks([p]).length > 0;
+  el.hidden = !short;
+  if (short) el.textContent = protPauseHintText(p);
+}
+
 function updateProtPersonnel(idx, field, val) {
   // Old AL times, tracked separately: an end must never be compared with other rows' start (or vice versa)
   var oldStart = protState.personnel[idx].start, oldEnd = protState.personnel[idx].end;
@@ -934,6 +947,8 @@ function updateProtPersonnel(idx, field, val) {
   }
   var sum = document.getElementById('prot-psum-' + idx);
   if (sum) sum.textContent = protPersonSummary(protState.personnel[idx]);
+  // break hint: this row, and every row when the AL's times were copied to the others
+  (idx === 0 ? protState.personnel.map(function(_, i) { return i; }) : [idx]).forEach(protPauseHint);
   var title = document.getElementById('prot-pname-' + idx);
   if (title) title.textContent = protState.personnel[idx].name || protState.personnel[idx].tempName || 'Ohne Name';
 
@@ -1318,6 +1333,21 @@ function protMinorWarnings(personnel) {
   }).filter(Boolean);
 }
 
+// Legal minimum break for a row (ArbZG: over 6 h → 30 min, over 9 h → 45 min; under 18 stricter, utils.js autoPause).
+// The break stays editable, but less than this needs a reason when sending (lands in "Vorkommnisse" like "Länger als AL").
+function protPauseMin(p) {
+  var s = timeToMins(p.start), e = timeToMins(p.end);
+  if (s === null || e === null || isNaN(s) || isNaN(e)) return 0;
+  if (e <= s) e += 1440;
+  return autoPause(e - s, protMinor(p.userId));
+}
+var PROT_SHORT_BREAK = 'Pause unter gesetzlichem Minimum';
+// → ['Peer 0 min (mind. 30)', …] for rows with both times and less break than the law asks
+function protShortBreaks(personnel) {
+  return (personnel || []).filter(function(p) { return p.start && p.end && (parseInt(p.pause, 10) || 0) < protPauseMin(p); })
+    .map(function(p) { return (p.name || p.tempName || 'Ohne Name') + ' ' + (parseInt(p.pause, 10) || 0) + ' min (mind. ' + protPauseMin(p) + ')'; });
+}
+
 var PROT_LONGER_THAN_AL = 'Länger als AL';
 function protLongerThanAl(personnel, alId) {
   var alStart = null;
@@ -1353,6 +1383,14 @@ async function saveProtokoll() {
       ' länger gearbeitet als der Aufbauleiter.\n\nBitte kurz begründen (Pflicht):', '');
     if (!why || !why.trim()) { showToast('Ohne Begründung wird nicht gesendet.', 'danger'); return; }
     incEl.value = PROT_LONGER_THAN_AL + ' (' + longer.join(', ') + '): ' + why.trim() +
+      (incEl.value.trim() && incEl.value.trim() !== 'nein' ? '\n' + incEl.value.trim() : '');
+  }
+  var short = side ? [] : protShortBreaks(protState.personnel);
+  if (short.length && incEl && (incEl.value || '').indexOf(PROT_SHORT_BREAK) === -1) {
+    var whyBreak = prompt('Weniger Pause als gesetzlich vorgeschrieben (über 6 Std. mind. 30 min, über 9 Std. mind. 45 min):\n' + short.join('\n') +
+      '\n\nWarum war keine oder weniger Pause möglich? (Pflicht)', '');
+    if (!whyBreak || !whyBreak.trim()) { showToast('Ohne Begründung wird nicht gesendet. Oder trag die Pause ein.', 'danger'); return; }
+    incEl.value = PROT_SHORT_BREAK + ' (' + short.join(', ') + '): ' + whyBreak.trim() +
       (incEl.value.trim() && incEl.value.trim() !== 'nein' ? '\n' + incEl.value.trim() : '');
   }
   var minorWarn = protMinorWarnings(protState.personnel);
