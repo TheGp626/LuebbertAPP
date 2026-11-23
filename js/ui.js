@@ -20,7 +20,8 @@ var UI_ICONS = {
   edit: '<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>',
   download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
   upload: '<path d="M12 16V5M7 10l5-5 5 5M5 20h14"/>',
-  check: '<path d="M5 12l5 5 9-10"/>'
+  check: '<path d="M5 12l5 5 9-10"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>'
 };
 
 function uiIcon(name) {

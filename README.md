@@ -97,7 +97,13 @@ angefangen als kleiner Stundenzettel für mich selbst, jetzt irgendwie eine halb
 - mitarbeiter anlegen, bearbeiten, deaktivieren — PL, buchhaltung, admin
 - PIN zurücksetzen direkt beim mitarbeiter, button neben "bearbeiten" (admin → alle, PL → AL/MA, AL → MA)
 - schalter "Plant den Wochenplan" und "Sieht Bewerbungen" pro person, vergibt nur der admin
-- **einstellungen (admin):** erinnerungen, pushes, protokoll-mail, stichtag, fahrzeugsätze an/aus bzw. einstellen
+- einstellungen und fehlerberichte sind auf die admin-seite umgezogen (siehe unten)
+
+### 🛡️ Admin-Seite (nur Admin)
+- eigene seite unter **/admin** (oder kachel „Admin“ auf der startseite), adresse bleibt `…/#admin`, `#admin/settings`, `#admin/errors`
+- **übersicht:** schichten im laufenden monat mit vergleich zum vormonat bis zum gleichen tag, stunden, leute im einsatz, protokolle. dazu schichten gesamt, letzter monat, protokolle gesamt, noch nicht verbucht, ein balkendiagramm der letzten 12 monate (tippen zeigt schichten + stunden, auch als tabelle), wer die meisten schichten hat, verteilung nach funktion und wochentag
+- **einstellungen:** erinnerungen, pushes, protokoll-mail, abteilungs-mails, stichtag, verdienstgrenzen, fahrzeug- und stundensätze, test-push
+- **fehler:** automatische fehlerberichte und „problem melden“-meldungen, mit status neu / gesehen / behoben / ignoriert. neue zählen als badge auf der kachel
 
 ---
 

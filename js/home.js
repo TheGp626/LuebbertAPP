@@ -12,7 +12,8 @@ var HOME_TILES = [
   { mode: 'ordner', label: 'Projektordner', icon: 'folder' },
   // The office dashboard is two tiles: same module (role guard), different view
   { mode: 'dashboard', view: 'prot', id: 'dashboard-prot', label: 'Protokoll-Übersicht', icon: 'file' },
-  { mode: 'dashboard', view: 'work', id: 'dashboard-work', label: 'Personal', icon: 'chart' }
+  { mode: 'dashboard', view: 'work', id: 'dashboard-work', label: 'Personal', icon: 'chart' },
+  { mode: 'admin', label: 'Admin', icon: 'shield' }
 ];
 
 // Stored dashboard view ('prot' | 'work'); the old single "dashboard" mode has none → protocols
@@ -159,6 +160,8 @@ function renderHome() {
       return '<button type="button" class="ui-tile" id="btn-select-' + (t.id || t.mode) + '" onclick="selectMode(\'' + t.mode + '\'' + (t.view ? ', \'' + t.view + '\'' : '') + ')">' +
         '<span class="ui-tile-ico">' + uiIcon(t.icon) + '</span><span>' + t.label + '</span></button>';
     }).join('');
+    // Admin tile: count of new error reports (js/admin.js keeps the last one known)
+    if (typeof adminSetErrorsBadge === 'function' && typeof _admin !== 'undefined') adminSetErrorsBadge(_admin.errorsNew);
   }
   var cached = null;
   try { cached = readNextShiftCache(localStorage.getItem(NEXT_SHIFT_KEY), currentUser.id); } catch (e) { /* ignore */ }
