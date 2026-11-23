@@ -107,8 +107,25 @@ function plGroup(shapes, opts) {
       else { cur = { kind: k, per: m.per, area: m.area, members: [m] }; groups.push(cur); }
     });
   });
+  // CAD files sometimes hold the same symbol twice on the same spot (copied over itself): invisible on paper, counted once
+  groups.forEach(function(g) { var d = plDedupe(g.members); g.dupes = g.members.length - d.length; g.members = d; });
   groups = groups.filter(function(g) { return g.members.length >= minCount; });
   return plMergeParts(groups);
+}
+
+// Members whose centre lies within a hair (0.5 pt or 3 % of their size) of an earlier one are the same drawn symbol
+function plDedupe(members) {
+  var out = [], grid = {};
+  members.forEach(function(m) {
+    var tol = Math.max(0.5, m.diag * 0.03), gx = Math.round(m.cx / 4), gy = Math.round(m.cy / 4), dup = false;
+    for (var x = gx - 1; x <= gx + 1 && !dup; x++) for (var y = gy - 1; y <= gy + 1 && !dup; y++) {
+      dup = (grid[x + ',' + y] || []).some(function(o) { return Math.abs(o.cx - m.cx) <= tol && Math.abs(o.cy - m.cy) <= tol; });
+    }
+    if (dup) return;
+    (grid[gx + ',' + gy] = grid[gx + ',' + gy] || []).push(m);
+    out.push(m);
+  });
+  return out;
 }
 
 // A symbol drawn from several parts (filled square + outline, table top + legs) yields groups at the same spots:
@@ -123,7 +140,7 @@ function plMergeParts(groups) {
   });
   return kept.map(function(g) {
     var d = g.members[0].diag;
-    return { kind: g.kind, per: g.per, area: g.area, diag: d, count: g.members.length, parts: g.parts || 1, members: g.members };
+    return { kind: g.kind, per: g.per, area: g.area, diag: d, count: g.members.length, parts: g.parts || 1, dupes: g.dupes || 0, members: g.members };
   });
 }
 
@@ -709,7 +726,8 @@ function plDrawGroups() {
     var a = _pl.names[i];
     return '<div class="pl-group' + (a.ignore ? ' pl-off' : '') + (_pl.sel === i ? ' pl-sel' : '') + '">' +
       '<button type="button" class="pl-thumb" style="--c:' + plColor(i) + '" onclick="plSelect(' + i + ')" aria-label="Auf dem Plan zeigen"><img alt="" src="' + plPreview(g) + '"></button>' +
-      '<div class="pl-gbody"><div class="pl-gcount"><b class="w-num">' + g.count + '×</b>' + (a.known ? '<span class="pl-known">erkannt</span>' : '') + '</div>' +
+      '<div class="pl-gbody"><div class="pl-gcount"><b class="w-num">' + g.count + '×</b>' + (a.known ? '<span class="pl-known">erkannt</span>' : '') +
+        (g.dupes ? '<span class="pl-dupes" title="Im Plan doppelt übereinander gezeichnet, nur einmal gezählt">+' + g.dupes + ' doppelt</span>' : '') + '</div>' +
       '<input type="text" class="pl-name" list="pl-products" placeholder="' + escapeHtml(g.suggest ? 'z. B. ' + g.suggest : 'Name, z. B. Stehtisch') + '" value="' + escapeHtml(a.name || '') + '"' +
         ' onchange="plSetName(' + i + ', this.value)"' + (a.ignore ? ' disabled' : '') + '></div>' +
       '<button type="button" class="pl-hide" onclick="plToggleIgnore(' + i + ')" aria-label="' + (a.ignore ? 'Wieder zählen' : 'Nicht zählen') + '">' + (a.ignore ? '↺' : '×') + '</button>' +
@@ -799,7 +817,8 @@ function plDrawCard() {
   box.innerHTML = '<div class="pl-card" id="pl-card-inner" style="--c:' + plColor(i) + '">' +
     '<div class="pl-card-top"><span class="w-num">' + (i + 1) + ' / ' + _pl.groups.length + '</span>' +
       (a.known ? '<span class="pl-known">erkannt</span>' : '') + '<span class="pl-card-open">' + (open ? open + ' offen' : 'alles erledigt ✓') + '</span></div>' +
-    '<div class="pl-card-main"><img alt="" src="' + plPreview(g, 72) + '"><div><b class="w-num">' + g.count + '×</b><small>auf dem Plan markiert</small></div></div>' +
+    '<div class="pl-card-main"><img alt="" src="' + plPreview(g, 72) + '"><div><b class="w-num">' + g.count + '×</b><small>auf dem Plan markiert' +
+      (g.dupes ? ' · ' + g.dupes + ' doppelt gezeichnet, nicht mitgezählt' : '') + '</small></div></div>' +
     (a.ignore ? '<div class="pl-card-ignored">Wird nicht gezählt</div>'
       : '<button type="button" class="pl-card-name' + (a.name ? ' pl-has' : '') + '" onclick="plOpenNameSheet(' + i + ')">' +
           (a.name ? escapeHtml(a.name) : 'Benennen …') + '<span aria-hidden="true">✎</span></button>' +
@@ -902,5 +921,5 @@ function plDownloadCsv() {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { plParseOps: plParseOps, plMeasure: plMeasure, plGroup: plGroup, plSymbolKey: plSymbolKey, plMatchMemory: plMatchMemory, plCleanLabel: plCleanLabel,
-    plSuggestNames: plSuggestNames, plTitleZone: plTitleZone, plWithoutZone: plWithoutZone, plMaterialList: plMaterialList, plCsv: plCsv, plPrettyName: plPrettyName, plFitZoom: plFitZoom, plNextOpen: plNextOpen, plNameOptions: plNameOptions, plMayUse: plMayUse, PL_OP: PL_OP };
+    plDedupe: plDedupe, plSuggestNames: plSuggestNames, plTitleZone: plTitleZone, plWithoutZone: plWithoutZone, plMaterialList: plMaterialList, plCsv: plCsv, plPrettyName: plPrettyName, plFitZoom: plFitZoom, plNextOpen: plNextOpen, plNameOptions: plNameOptions, plMayUse: plMayUse, PL_OP: PL_OP };
 }

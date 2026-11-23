@@ -346,6 +346,7 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .pl-gbody { flex: 1; min-width: 0; }
 .pl-gcount { display: flex; align-items: center; gap: 6px; }
 .pl-gcount b { font-size: 17px; font-weight: 800; }
+.pl-dupes { font-size: 10px; font-weight: 700; color: var(--w-muted); }
 .pl-known { font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--w-ok); background: var(--w-ok-bg); padding: 1px 5px; border-radius: 3px; }
 .pl-name { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px 8px; font: inherit; font-size: 14px; border: 1px solid var(--w-soft); border-radius: 3px; background: var(--w-paper); color: var(--w-ink); }
 .pl-name:focus { outline: none; border-color: var(--w-accent); }
