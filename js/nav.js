@@ -16,6 +16,8 @@ var NAV_ITEMS = {
   ordner: { id: 'ordner', label: 'Ordner', icon: 'folder', mode: 'ordner' },
   // Admin page (js/admin.js): Übersicht, Einstellungen, Fehlerberichte
   admin: { id: 'admin', label: 'Admin', icon: 'shield', mode: 'admin' },
+  // Floor plan PDF → material list (js/planlesen.js)
+  planlesen: { id: 'planlesen', label: 'Plan einlesen', icon: 'layout', mode: 'planlesen' },
   optionen: { id: 'optionen', label: 'Optionen', icon: 'user', mode: null, action: 'openSettingsModal' },
   problem: { id: 'problem', label: 'Problem melden', icon: 'help', mode: null, action: 'openProblemForm' },
   mehr: { id: 'mehr', label: 'Mehr', icon: 'menu', mode: null, action: 'openMoreSheet' }
@@ -24,9 +26,9 @@ var NAV_ITEMS = {
 // Approved table (design 2026-11-22): bottom tabs and "Mehr" per role
 var NAV_ROLES = {
   MA: { tabs: ['heute', 'plan', 'zettel'], more: ['auftraege', 'produkte', 'ordner'] },
-  AL: { tabs: ['heute', 'plan', 'protokoll', 'zettel'], more: ['auftraege', 'uebersicht', 'personal', 'produkte', 'ordner'] },
-  PL: { tabs: ['heute', 'plan', 'auftraege', 'protokolle'], more: ['personal', 'zettel', 'produkte', 'ordner'] },
-  Admin: { tabs: ['heute', 'plan', 'auftraege', 'protokolle'], more: ['admin', 'personal', 'zettel', 'produkte', 'ordner'] },
+  AL: { tabs: ['heute', 'plan', 'protokoll', 'zettel'], more: ['auftraege', 'uebersicht', 'personal', 'produkte', 'ordner', 'planlesen'] },
+  PL: { tabs: ['heute', 'plan', 'auftraege', 'protokolle'], more: ['personal', 'zettel', 'produkte', 'ordner', 'planlesen'] },
+  Admin: { tabs: ['heute', 'plan', 'auftraege', 'protokolle'], more: ['admin', 'personal', 'zettel', 'produkte', 'ordner', 'planlesen'] },
   Buchhaltung: { tabs: ['heute', 'protokolle', 'personal'], more: ['auftraege', 'plan', 'zettel', 'produkte', 'ordner'] },
   Gast: { tabs: ['produkte', 'ordner'], more: [] }
 };

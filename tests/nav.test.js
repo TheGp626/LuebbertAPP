@@ -24,9 +24,9 @@ test('tabs per role (spec table)', () => {
 
 test('Mehr per role', () => {
   assert.deepEqual(more('MA'), ['produkte', 'ordner', 'optionen', 'problem']);
-  assert.deepEqual(more('AL'), ['uebersicht', 'personal', 'produkte', 'ordner', 'optionen', 'problem']);
-  assert.deepEqual(more('PL'), ['personal', 'zettel', 'produkte', 'ordner', 'optionen', 'problem']);
-  assert.deepEqual(more('Admin'), ['admin', 'personal', 'zettel', 'produkte', 'ordner', 'optionen', 'problem']);
+  assert.deepEqual(more('AL'), ['uebersicht', 'personal', 'produkte', 'ordner', 'planlesen', 'optionen', 'problem']);
+  assert.deepEqual(more('PL'), ['personal', 'zettel', 'produkte', 'ordner', 'planlesen', 'optionen', 'problem']);
+  assert.deepEqual(more('Admin'), ['admin', 'personal', 'zettel', 'produkte', 'ordner', 'planlesen', 'optionen', 'problem']);
   assert.deepEqual(more('Buchhaltung'), ['plan', 'zettel', 'produkte', 'ordner', 'optionen', 'problem']);
   assert.deepEqual(more('MA', true).slice(0, 1), ['auftraege']); // sees plan interest → Aufträge under Mehr
   assert.deepEqual(more('Gast'), []);

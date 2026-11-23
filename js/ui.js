@@ -27,6 +27,7 @@ var UI_ICONS = {
   alert: '<path d="M12 3l10 18H2zM12 10v5M12 18v.5"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4M12 17v.5"/>',
+  layout: '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 10h7v10M14 4v6h7"/><rect x="13.5" y="13.5" width="3" height="3"/>',
   shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>'
 };
 
