@@ -356,3 +356,85 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .pl-ml-btns { display: flex; gap: 8px; margin-top: 10px; }
 .pl-hint { font-size: 13px; color: var(--w-muted); margin: 8px 2px; line-height: 1.4; }
 @media (max-width: 860px) { .pl-layout { grid-template-columns: minmax(0, 1fr); } }
+.pl-pick-2 { display: none; }
+.pl-intro.pl-loaded .pl-pick-1 { display: none; }
+.pl-intro.pl-loaded .pl-pick-2 { display: inline; }
+.pl-mob { display: none; }
+
+/* Phones: plan on top, one symbol at a time on a card below, names from a full-screen list */
+@media (max-width: 859px) {
+  .pl-root { padding: 10px 12px calc(var(--w-tabbar-h) + 16px); }
+  .pl-intro.pl-loaded { display: flex; align-items: center; justify-content: flex-end; padding: 0; margin: 0 0 -38px; border: 0; background: none; position: relative; z-index: 2; }
+  .pl-intro.pl-loaded b, .pl-intro.pl-loaded p { display: none; }
+  .pl-intro.pl-loaded .pl-pick { min-height: 0; padding: 6px 12px; font-size: 13px; background: var(--w-card); color: var(--w-ink); }
+  .pl-head { margin-bottom: 8px; padding-right: 120px; }
+  .pl-head b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl-side { display: none; }
+  .pl-mob { display: block; }
+  .pl-layout { gap: 10px; }
+  .pl-stage { max-height: 33vh; overflow: auto; -webkit-overflow-scrolling: touch; }
+  .pl-stage.pl-zoomed { max-height: 33vh; }
+  .pl-list-tab .pl-stagewrap { display: none; }
+  .pl-head small { display: none; }
+}
+@media (max-width: 859px) and (max-height: 700px) {
+  .pl-stage, .pl-stage.pl-zoomed { max-height: 24vh; }
+  .pl-head { display: none; }
+  .pl-intro.pl-loaded { margin-bottom: 6px; }
+
+  .pl-tabs { margin-bottom: 10px; }
+  .pl-tab-n { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 99px; background: var(--w-accent); color: var(--w-on-accent); font-size: 11px; font-weight: 800; line-height: 18px; }
+}
+.pl-card { background: var(--w-card); border: var(--w-bw) solid var(--w-line); border-left: 6px solid var(--c); border-radius: var(--w-r-hero); padding: 12px 14px; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.pl-card-top { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--w-muted); }
+.pl-card-open { margin-left: auto; }
+.pl-card-main { display: flex; align-items: center; gap: 14px; margin: 10px 0 12px; }
+.pl-card-main img { width: 72px; height: 72px; border: 2px solid var(--c); border-radius: 4px; background: #fff; }
+.pl-card-main b { display: block; font-size: 34px; font-weight: 800; line-height: 1; }
+.pl-card-main small { display: block; font-size: 12px; color: var(--w-muted); margin-top: 4px; }
+.pl-card-name { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 52px; padding: 0 14px; border: 2px dashed var(--w-soft); border-radius: var(--w-r-ctl); background: var(--w-paper); color: var(--w-muted); font: inherit; font-size: 17px; font-weight: 700; text-align: left; cursor: pointer; }
+.pl-card-name.pl-has { border-style: solid; border-color: var(--w-line); color: var(--w-ink); }
+.pl-card-name span { font-size: 18px; color: var(--w-muted); }
+.pl-card-ignored { min-height: 52px; display: flex; align-items: center; justify-content: center; border-radius: var(--w-r-ctl); background: var(--w-tint); color: var(--w-muted); font-weight: 700; }
+.pl-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.pl-chip { min-height: 38px; padding: 0 12px; border: var(--w-bw) solid var(--w-line); border-radius: 99px; background: var(--w-card); color: var(--w-ink); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.pl-chip:active { background: var(--w-accent); }
+.pl-card-nav { display: grid; grid-template-columns: 56px 1fr 56px; gap: 8px; margin-top: 12px; }
+.pl-card-nav .w-btn { min-height: 48px; justify-content: center; font-size: 22px; font-weight: 800; }
+.pl-card-nav .pl-card-skip { font-size: 15px; }
+.pl-sheet { position: fixed; inset: 0; z-index: 10001; display: none; flex-direction: column; background: var(--w-paper); padding: calc(env(safe-area-inset-top) + 10px) 12px 12px; }
+.pl-sheet.open { display: flex; }
+.pl-sheet-head { display: flex; align-items: center; gap: 12px; }
+.pl-sheet-head img { width: 44px; height: 44px; border: 1.5px solid var(--w-line); border-radius: 4px; background: #fff; }
+.pl-sheet-head b { display: block; font-size: 18px; font-weight: 800; }
+.pl-sheet-head small { font-size: 12px; color: var(--w-muted); }
+.pl-sheet-head .pl-hide { margin-left: auto; width: 44px; height: 44px; font-size: 26px; }
+.pl-sheet-q { margin: 12px 0 8px; min-height: 50px; padding: 0 14px; font: inherit; font-size: 17px; border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); background: var(--w-card); color: var(--w-ink); }
+.pl-sheet-q:focus { outline: none; box-shadow: 0 0 0 3px var(--w-accent); }
+.pl-sheet-list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.pl-opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid var(--w-soft); background: none; color: var(--w-ink); font: inherit; font-size: 16px; font-weight: 600; text-align: left; cursor: pointer; }
+.pl-opt:active { background: var(--w-tint); }
+.pl-opt small { font-size: 11px; font-weight: 700; color: var(--w-ok); }
+.pl-opt-new { color: var(--w-accent-text); font-weight: 800; }
+
+/* Phones: compact card (after the base card rules so it wins) */
+@media (max-width: 859px) {
+  .pl-card { padding: 10px 12px; }
+  .pl-card-main { margin: 6px 0 8px; gap: 12px; }
+  .pl-card-main img { width: 56px; height: 56px; }
+  .pl-card-main b { font-size: 28px; }
+  .pl-card-name, .pl-card-ignored { min-height: 48px; }
+  .pl-card-nav { margin-top: 8px; }
+  .pl-card-nav .w-btn { min-height: 46px; }
+}
+@media (max-width: 859px) and (max-height: 700px) {
+  .pl-card-main { margin: 4px 0 6px; }
+  .pl-card-main img { width: 40px; height: 40px; }
+  .pl-card-main b { font-size: 22px; }
+  .pl-card-main small { display: none; }
+  .pl-card-name, .pl-card-ignored { min-height: 44px; font-size: 16px; }
+  .pl-chips .pl-chip { min-height: 34px; }
+  .pl-card-nav .w-btn { min-height: 42px; }
+  .pl-tabs { margin-bottom: 6px; }
+  .pl-tabs > button { min-height: 34px; }
+}
