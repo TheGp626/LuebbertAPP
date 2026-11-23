@@ -516,6 +516,35 @@ test('saveProtokoll: MA longer than AL → no reason sends nothing; reason lands
   assert.equal(asked, 1); // already explained → resend does not ask again
 });
 
+test('protShortBreaks: under the legal minimum (over 6 h 30 min, over 9 h 45 min); exactly 6 h needs none', () => {
+  const rows = [
+    { name: 'Paul', start: '10:00', end: '18:00', pause: '0' },
+    { name: 'Edib', start: '10:00', end: '18:00', pause: '30' },
+    { name: 'Peer', start: '07:00', end: '17:00', pause: '30' },
+    { name: 'Lena', start: '08:00', end: '14:00', pause: '0' },
+    { isTemp: true, tempName: 'Zoe', start: '22:00', end: '05:00', pause: '15' },
+    { name: 'Dora', start: '08:00', end: '', pause: '0' },
+  ];
+  assert.deepEqual(plain(run('protShortBreaks')(rows)), ['Paul 0 min (mind. 30)', 'Peer 30 min (mind. 45)', 'Zoe 15 min (mind. 30)']);
+  assert.equal(run('protPauseMin')({ start: '10:00', end: '18:00' }), 30);
+  assert.equal(run('protPauseMin')({ start: '10:00', end: '' }), 0);
+});
+
+test('saveProtokoll: break under the minimum → no reason sends nothing; reason lands in Vorkommnisse, asked once', async () => {
+  dom['prot-total-cost'] = { textContent: '0,00' };
+  dom['prot-incidents'] = { value: 'nein' };
+  ctx.prompt = () => '';
+  run('protState.alId = "al"; protState.personnel = [{ pos: "AL", userId: "al", name: "Ali", start: "10:00", end: "18:00", pause: "0" }]');
+  await run('saveProtokoll()');
+  assert.equal(sb.calls.length, 0);
+  let asked = 0;
+  ctx.prompt = () => { asked++; return 'Durchgearbeitet, Kunde wollte früher fertig sein'; };
+  await run('saveProtokoll()').catch(() => {});
+  assert.equal(dom['prot-incidents'].value, 'Pause unter gesetzlichem Minimum (Ali 0 min (mind. 30)): Durchgearbeitet, Kunde wollte früher fertig sein');
+  await run('saveProtokoll()').catch(() => {});
+  assert.equal(asked, 1);
+});
+
 test('loading another protocol or resetting the form closes all rows (no stale open state)', () => {
   store['luebbert_protokoll_history'] = JSON.stringify([{ id: 'h1', event: 'Gala', personnel: [{ pos: 'MA', name: 'Max', start: '08:00', end: '16:00' }], transports: [] }]);
   ctx.confirm = () => true;
