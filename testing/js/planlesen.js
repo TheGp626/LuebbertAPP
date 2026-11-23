@@ -254,17 +254,18 @@ function plNextOpen(names, count, from, dir) {
   return -1;
 }
 
-// Name choices for the sheet: used in this plan first, then remembered, products, words from the plan; filtered by the query
-function plNameOptions(query, used, remembered, products, suggest) {
+// Name choices for the sheet: the Auftrag's articles first, then names used in this plan, words from the plan,
+// remembered names and products; filtered by the query, each name once
+function plNameOptions(query, used, remembered, products, suggest, order) {
   var q = String(query || '').trim().toLowerCase(), seen = {}, out = [];
-  [used, suggest, remembered, products].forEach(function(list, src) {
+  [order, used, suggest, remembered, products].forEach(function(list, src) {
     (list || []).forEach(function(n) {
       var s = String(n || '').trim(), k = s.toLowerCase();
       if (!s || seen[k] || (q && k.indexOf(q) === -1)) return;
-      seen[k] = true; out.push({ name: s, used: src === 0 });
+      seen[k] = true; out.push({ name: s, used: src === 1, order: src === 0 });
     });
   });
-  return out.slice(0, 60);
+  return out.slice(0, 80);
 }
 
 // "1794984825112_bd6q3_IPM_AG_FBF26_Setup_Foyer_3.pdf" → "IPM AG FBF26 Setup Foyer 3": upload prefixes (timestamp + id) and underscores out
@@ -290,6 +291,7 @@ function plMayUse(role) { return ['AL', 'PL', 'Admin'].indexOf(role) !== -1; }
 
 async function initPlanlesen() {
   if (!document.getElementById('pl-file')) plRenderShell(); // a plan already open stays open when coming back
+  plDrawSaved();
   _pl.memory = await plLoadMemory();
   // Product names as suggestions for the name fields (the Produktdatenbank may not have been opened yet)
   if (typeof supabaseClient !== 'undefined' && (typeof alleProdukte === 'undefined' || !alleProdukte.length)) {
@@ -329,19 +331,23 @@ function plRenderShell() {
     '<div class="pl-intro">' +
       '<b>Raumplan als PDF</b><p>Die App sucht gleiche Symbole (Stühle, Tische, Stehtische …) und zählt sie. Du benennst jede Gruppe einmal, beim nächsten Plan erkennt sie die Symbole wieder. Der Plan bleibt auf dem Gerät.</p>' +
       '<label class="w-btn w-btn-accent pl-pick"><span class="pl-pick-1">PDF wählen</span><span class="pl-pick-2">Anderer Plan</span><input type="file" accept="application/pdf" id="pl-file" hidden></label>' +
+      '<div id="pl-saved"></div>' +
     '</div>' +
     '<div id="pl-work" hidden>' +
       '<div class="pl-head"><div><b id="pl-title"></b><small id="pl-sub"></small></div><div class="pl-head-btns" id="pl-pages"></div></div>' +
+      '<div class="pl-jobbar" id="pl-jobbar"></div>' +
       '<div class="pl-layout">' +
         '<div class="pl-stagewrap"><div class="pl-stage" id="pl-stage"><canvas id="pl-canvas"></canvas><svg id="pl-overlay"></svg></div>' +
           '<button type="button" class="w-btn pl-zoom" id="pl-zoom" onclick="plToggleZoom()">Vergrößern</button></div>' +
         '<div class="pl-side"><div class="w-label">Gefundene Symbole</div><div id="pl-groups"></div>' +
-          '<div class="w-label">Materialliste</div><div id="pl-list"></div></div>' +
+          '<div class="w-label">Materialliste</div><div id="pl-list"></div>' +
+          '<div id="pl-cmp-wrap" hidden><div class="w-label">Abgleich mit dem Auftrag</div><div id="pl-cmp"></div></div></div>' +
         // phones: one symbol at a time on a card, the material list on its own tab
         '<div class="pl-mob">' +
           '<div class="ui-seg pl-tabs" role="tablist"><button type="button" role="tab" id="pl-tab-sym" class="active" onclick="plSetTab(\'sym\')">Symbole</button>' +
-            '<button type="button" role="tab" id="pl-tab-list" onclick="plSetTab(\'list\')">Liste</button></div>' +
-          '<div id="pl-card"></div><div id="pl-mlist" hidden></div>' +
+            '<button type="button" role="tab" id="pl-tab-list" onclick="plSetTab(\'list\')">Liste</button>' +
+            '<button type="button" role="tab" id="pl-tab-cmp" onclick="plSetTab(\'cmp\')" hidden>Abgleich</button></div>' +
+          '<div id="pl-card"></div><div id="pl-mlist" hidden></div><div id="pl-mcmp" hidden></div>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -349,18 +355,42 @@ function plRenderShell() {
 }
 
 async function plOpenFile(file) {
+  _pl.fp = null; _pl.job = null;
+  await plOpenBuffer(await file.arrayBuffer(), plPrettyName(file.name));
+}
+
+// saved: a job_floorplans row being edited (its names and Auftrag come back, saving updates it)
+async function plOpenBuffer(buf, name, saved) {
   if (_pl.busy) return;
   if (typeof needLib === 'function' && !(await needLib('pdfjs'))) return;
   _pl.busy = true;
   try {
-    var buf = await file.arrayBuffer();
+    _pl.buf = buf.slice(0); // pdf.js hands the buffer to its worker; this copy is what gets uploaded
     _pl.doc = await pdfjsLib.getDocument({ data: buf }).promise;
-    _pl.file = plPrettyName(file.name);
-    await plShowPage(1);
+    _pl.file = name;
+    _pl.fp = saved || null;
+    await plShowPage(saved ? saved.page || 1 : 1);
+    if (saved) plApplySaved(saved);
   } catch (e) {
     console.warn('Plan einlesen:', e);
     showToast('Die PDF konnte nicht gelesen werden.', 'danger');
   } finally { _pl.busy = false; }
+}
+
+// Names of a saved plan back onto the groups (same symbol = same signature, or within the size tolerance)
+function plApplySaved(saved) {
+  var mem = {};
+  ((saved.result && saved.result.groups) || []).forEach(function(g) { if (g.sig) mem[g.sig] = { name: g.name, ignore: false }; });
+  _pl.groups.forEach(function(g, i) {
+    var hit = mem[g.sig] ? { entry: mem[g.sig] } : plMatchMemory(mem, g);
+    if (hit) _pl.names[i] = { name: hit.entry.name, ignore: false, known: true };
+  });
+  if (saved.job_no) plLoadJobs().then(function(jobs) {
+    var j = jobs.find(function(x) { return x.jobNo === saved.job_no; });
+    _pl.job = j || { jobNo: saved.job_no, name: saved.title, room: saved.room, items: [] };
+    plDraw();
+  });
+  plDraw();
 }
 
 async function plShowPage(no) {
@@ -395,6 +425,7 @@ async function plShowPage(no) {
     if (PL_TITLE_WORDS.test(String(t.str).trim())) title.push({ x: t.transform[4], y: t.transform[5] });
     var w = plCleanLabel(t.str); if (w) labels.push({ text: w, x: t.transform[4], y: t.transform[5] });
   });
+  _pl.dates = typeof pjTitleDates === 'function' ? pjTitleDates(tc.items.map(function(t) { return t.str; })) : { from: null, to: null };
   var view = page.view, zone = plTitleZone(title, view[2] - view[0], view[3] - view[1]);
   var groups = plWithoutZone(plGroup(shapes, { minDiag: pageDiag * 0.0025, maxDiag: pageDiag * 0.09 }), zone, 3);
   var suggest = plSuggestNames(groups, labels);
@@ -474,7 +505,189 @@ function plDraw() {
   svg.innerHTML = html;
   plDrawGroups();
   plDrawList();
+  plDrawJob();
   plDrawCard();
+}
+
+// ── Auftrag: choose it, compare with its articles, save the plan to it ──
+
+// Jobs of all read Auftragsbestätigungen (order_parsed; Admin/PL and planners may read it), newest first
+async function plLoadJobs() {
+  if (_pl.jobs) return _pl.jobs;
+  var out = [];
+  try {
+    var r = await supabaseClient.from('order_parsed').select('result');
+    if (!r.error) (r.data || []).forEach(function(row) {
+      ((row.result && row.result.jobs) || []).forEach(function(j) {
+        var day = (j.setup && j.setup.start) || (j.event && j.event.start) || (j.teardown && j.teardown.start) || '';
+        out.push({ jobNo: j.jobNo, name: j.name || '', room: j.room || '', day: String(day).slice(0, 10),
+          last: String((j.teardown && (j.teardown.end || j.teardown.start)) || day).slice(0, 10), items: pjOrderItems(j) });
+      });
+    });
+  } catch (e) { /* offline or not allowed: Projektnummer by hand */ }
+  var seen = {};
+  return (_pl.jobs = out.filter(function(j) { if (!j.jobNo || seen[j.jobNo]) return false; seen[j.jobNo] = true; return true; })
+    .sort(function(a, b) { return b.day.localeCompare(a.day); }));
+}
+
+function plDrawJob() {
+  var bar = document.getElementById('pl-jobbar');
+  if (!bar) return;
+  var j = _pl.job, canSave = typeof pjCanSave === 'function' && pjCanSave(typeof userRole !== 'undefined' ? userRole : null);
+  bar.innerHTML = '<button type="button" class="pl-jobpick' + (j ? ' on' : '') + '" onclick="plOpenJobSheet()">' +
+      (j ? '<b>' + escapeHtml(j.jobNo) + '</b> ' + escapeHtml(j.name || '') : 'Auftrag wählen') + '<span aria-hidden="true">▾</span></button>' +
+    (canSave ? '<button type="button" class="w-btn w-btn-accent" onclick="plOpenSaveSheet()">' + (_pl.fp ? 'Speichern' : 'Am Auftrag speichern') + '</button>' : '');
+  var rows = j && j.items && j.items.length ? pjCompare(plMaterialList(_pl.groups, _pl.names).rows, j.items) : null;
+  var html = rows ? plCompareHtml(rows) : '';
+  var wrap = document.getElementById('pl-cmp-wrap'), tab = document.getElementById('pl-tab-cmp');
+  if (wrap) wrap.hidden = !rows;
+  if (tab) {
+    tab.hidden = !rows;
+    var bad = rows ? rows.filter(function(r) { return r.status !== 'ok'; }).length : 0;
+    tab.innerHTML = 'Abgleich' + (bad ? ' <span class="pl-tab-n">' + bad + '</span>' : '');
+    if (!rows && _pl.tab === 'cmp') plSetTab('sym', true);
+  }
+  var a = document.getElementById('pl-cmp'), b = document.getElementById('pl-mcmp');
+  if (a) a.innerHTML = html;
+  if (b) b.innerHTML = html;
+}
+
+var PL_CMP_LABEL = { ok: 'passt', mehr: 'mehr im Plan', weniger: 'weniger im Plan', nurPlan: 'nicht im Auftrag', nurAuftrag: 'nicht im Plan' };
+function plCompareHtml(rows) {
+  var bad = rows.filter(function(r) { return r.status !== 'ok'; }).length;
+  return '<div class="pl-cmp-sum ' + (bad ? 'warn' : 'ok') + '">' + (bad ? bad + (bad === 1 ? ' Abweichung' : ' Abweichungen') + ' zwischen Plan und Auftrag' : 'Plan und Auftrag passen zusammen') + '</div>' +
+    '<div class="pl-cmp">' + rows.map(function(r) {
+      var d = r.status === 'ok' ? '✓' : (r.diff > 0 ? '+' : '') + r.diff;
+      return '<div class="pl-cmp-row pl-cmp-' + r.status + '"><div class="pl-cmp-n"><b>' + escapeHtml(r.order || r.plan) + '</b>' +
+        '<small>' + escapeHtml(PL_CMP_LABEL[r.status]) + (r.match === 'aehnlich' && r.plan !== r.order ? ' · im Plan „' + escapeHtml(r.plan) + '“' : '') + '</small></div>' +
+        '<span class="pl-cmp-q w-num" title="Auftrag">' + (r.order ? r.orderQty : '–') + '</span><span class="pl-cmp-q w-num" title="Plan">' + (r.plan ? r.planQty : '–') + '</span>' +
+        '<span class="pl-cmp-d w-num">' + d + '</span></div>';
+    }).join('') + '</div><div class="pl-cmp-legend"><span></span><span>Auftrag</span><span>Plan</span><span>±</span></div>';
+}
+
+async function plOpenJobSheet() {
+  var m = plSheet();
+  m.innerHTML = '<div class="pl-sheet-head"><div><b>Welcher Auftrag?</b><small>Die Artikel des Auftrags stehen dann beim Benennen ganz oben</small></div>' +
+      '<button type="button" class="pl-hide" onclick="plCloseNameSheet()" aria-label="Schließen">×</button></div>' +
+    '<input type="search" id="pl-job-q" class="pl-sheet-q" placeholder="Projektnummer, Kunde oder Raum" autocomplete="off">' +
+    '<div class="pl-sheet-list" id="pl-job-list"><p class="pl-hint">Lädt …</p></div>';
+  m.classList.add('open');
+  var jobs = await plLoadJobs(), q = document.getElementById('pl-job-q');
+  var draw = function() {
+    var t = q.value.trim().toLowerCase(), from = (_pl.dates && _pl.dates.from) || '';
+    var list = jobs.filter(function(j) { return !t || (j.jobNo + ' ' + j.name + ' ' + j.room).toLowerCase().indexOf(t) !== -1; });
+    // jobs around the plan's dates first
+    if (from) list = list.slice().sort(function(a, b) { return Math.abs(new Date(a.day) - new Date(from)) - Math.abs(new Date(b.day) - new Date(from)); });
+    var manual = /^\d{2}-\d{4}(\.\d{2})?$/.test(q.value.trim()) && !jobs.some(function(j) { return j.jobNo === q.value.trim(); });
+    document.getElementById('pl-job-list').innerHTML =
+      (manual ? '<button type="button" class="pl-opt pl-opt-new" data-j="' + escapeHtml(q.value.trim()) + '" onclick="plPickJob(this.dataset.j)">' + escapeHtml(q.value.trim()) + ' übernehmen (ohne Abgleich)</button>' : '') +
+      (_pl.job ? '<button type="button" class="pl-opt" onclick="plPickJob(\'\')">Keinen Auftrag</button>' : '') +
+      list.slice(0, 60).map(function(j) {
+        return '<button type="button" class="pl-opt" data-j="' + escapeHtml(j.jobNo) + '" onclick="plPickJob(this.dataset.j)"><span><b>' + escapeHtml(j.jobNo) + '</b> ' + escapeHtml(j.name) +
+          '<small class="pl-opt-sub">' + escapeHtml([j.room, j.day ? j.day.slice(8, 10) + '.' + j.day.slice(5, 7) + '.' : '', j.items.length + ' Artikel'].filter(Boolean).join(' · ')) + '</small></span></button>';
+      }).join('') +
+      (!jobs.length ? '<p class="pl-hint">Keine gelesenen Auftragsbestätigungen gefunden. Tippe die Projektnummer ein (z. B. 26-0447.01).</p>' : '');
+  };
+  q.addEventListener('input', draw);
+  draw();
+  setTimeout(function() { q.focus(); }, 50);
+}
+
+function plPickJob(no) {
+  plCloseNameSheet();
+  if (!no) { _pl.job = null; plDraw(); return; }
+  var j = (_pl.jobs || []).find(function(x) { return x.jobNo === no; });
+  _pl.job = j || { jobNo: no, name: '', room: '', day: '', items: [] };
+  plDraw();
+  if (_pl.job.items.length) showToast(_pl.job.items.length + ' Artikel aus dem Auftrag stehen beim Benennen oben.');
+}
+
+function plSheet() {
+  var m = document.getElementById('pl-sheet');
+  if (!m) { m = document.createElement('div'); m.id = 'pl-sheet'; m.className = 'pl-sheet'; document.body.appendChild(m); }
+  return m;
+}
+
+function plOpenSaveSheet() {
+  var j = _pl.job || {}, d = _pl.dates || {}, fp = _pl.fp || {};
+  var named = plMaterialList(_pl.groups, _pl.names).rows.length;
+  var m = plSheet();
+  m.innerHTML = '<div class="pl-sheet-head"><div><b>Raumplan speichern</b><small>Die Crew sieht ihn dann am Einsatz im Wochenplan und auf „Heute“</small></div>' +
+      '<button type="button" class="pl-hide" onclick="plCloseNameSheet()" aria-label="Schließen">×</button></div>' +
+    '<div class="pl-form">' +
+      '<label class="ui-field"><span>Titel</span><input id="pl-s-title" maxlength="160" value="' + escapeHtml(fp.title || j.name || _pl.file) + '"></label>' +
+      '<label class="ui-field"><span>Raum / Ort</span><input id="pl-s-room" maxlength="120" placeholder="z. B. Foyer 3" value="' + escapeHtml(fp.room || j.room || '') + '"></label>' +
+      '<div class="pl-form-row"><label class="ui-field"><span>Von</span><input type="date" id="pl-s-from" value="' + escapeHtml(fp.date_from || d.from || j.day || '') + '"></label>' +
+        '<label class="ui-field"><span>Bis</span><input type="date" id="pl-s-to" value="' + escapeHtml(fp.date_to || d.to || j.last || '') + '"></label></div>' +
+      '<label class="ui-field"><span>Projektnummer</span><input id="pl-s-job" maxlength="10" placeholder="26-0447.01" value="' + escapeHtml(fp.job_no || j.jobNo || '') + '"></label>' +
+      (named ? '' : '<p class="pl-hint">Noch nichts benannt: auf dem Plan der Crew wären keine Teile zum Antippen.</p>') +
+      '<p class="set-error" id="pl-s-err"></p>' +
+      '<button type="button" class="w-btn w-btn-accent pl-s-go" id="pl-s-go" onclick="plSavePlan()">Speichern</button>' +
+    '</div>';
+  m.classList.add('open');
+}
+
+async function plSavePlan() {
+  var v = function(id) { return document.getElementById(id).value.trim(); };
+  var title = v('pl-s-title'), room = v('pl-s-room'), from = v('pl-s-from') || null, to = v('pl-s-to') || null, job = v('pl-s-job').replace(/\s+/g, '') || null;
+  var err = document.getElementById('pl-s-err'), btn = document.getElementById('pl-s-go');
+  err.textContent = '';
+  if (!title) { err.textContent = 'Bitte einen Titel eintragen.'; return; }
+  if (job && !/^\d{2}-\d{4}(\.\d{2})?$/.test(job)) { err.textContent = 'Die Projektnummer sieht so aus: 26-0447 oder 26-0447.01.'; return; }
+  if (from && to && to < from) { err.textContent = '„Bis“ liegt vor „Von“.'; return; }
+  btn.disabled = true; btn.textContent = 'Speichert …';
+  try {
+    var path = _pl.fp && _pl.fp.file_path;
+    if (!path) {
+      path = 'floorplans/' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2)) + '.pdf';
+      var up = await supabaseClient.storage.from('project-files').upload(path, new Blob([_pl.buf], { type: 'application/pdf' }), { contentType: 'application/pdf', upsert: false });
+      if (up.error) throw up.error;
+    }
+    var row = { job_no: job, title: title, room: room, date_from: from, date_to: to, file_path: path, page: _pl.pageNo || 1,
+      result: pjResultOf(_pl.groups, _pl.names, plColor), updated_at: new Date().toISOString() };
+    var me = (typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null;
+    var r = _pl.fp && _pl.fp.id
+      ? await supabaseClient.from('job_floorplans').update(row).eq('id', _pl.fp.id).select('*')
+      : await supabaseClient.from('job_floorplans').insert(Object.assign({ created_by: me }, row)).select('*');
+    if (r.error || !r.data || !r.data.length) throw r.error || new Error('nicht gespeichert');
+    _pl.fp = r.data[0];
+    plCloseNameSheet();
+    showToast('Gespeichert. Die Crew sieht den Raumplan jetzt am Einsatz.');
+    if (typeof pjLoadIndex === 'function') pjLoadIndex(true).then(plDrawSaved);
+    plDrawJob();
+  } catch (e) {
+    console.warn('Raumplan speichern:', e);
+    err.textContent = 'Speichern ging nicht. Prüf die Verbindung und versuch es nochmal.';
+  } finally {
+    var b = document.getElementById('pl-s-go'); if (b) { b.disabled = false; b.textContent = 'Speichern'; }
+  }
+}
+
+// Saved plans on the start of the page: open the viewer, PL/Admin can also edit
+async function plDrawSaved() {
+  var box = document.getElementById('pl-saved');
+  if (!box || typeof pjLoadIndex !== 'function') return;
+  var list = await pjLoadIndex(), canEdit = pjCanSave(typeof userRole !== 'undefined' ? userRole : null);
+  box.innerHTML = list.length ? '<div class="w-label">Gespeicherte Raumpläne</div>' + list.slice(0, 12).map(function(fp) {
+    return '<div class="pl-saved-row"><span><b>' + escapeHtml(fp.title) + '</b><small>' + escapeHtml([fp.room, pjDateRange(fp), fp.job_no].filter(Boolean).join(' · ')) + '</small></span>' +
+      '<button type="button" class="w-btn" onclick="pjOpenViewer(\'' + fp.id + '\')">Ansehen</button>' +
+      (canEdit ? '<button type="button" class="w-btn" onclick="plEditSaved(\'' + fp.id + '\')">Bearbeiten</button>' : '') + '</div>';
+  }).join('') : '';
+}
+
+async function plEditSaved(id) {
+  try {
+    var r = await supabaseClient.from('job_floorplans').select('*').eq('id', id).maybeSingle();
+    if (r.error || !r.data) throw r.error || new Error('not found');
+    var url = (await supabaseClient.storage.from('project-files').createSignedUrl(r.data.file_path, 3600)).data;
+    var res = await fetch(url.signedUrl);
+    if (!res.ok) throw new Error('download ' + res.status);
+    _pl.job = null;
+    await plOpenBuffer(await res.arrayBuffer(), r.data.title, r.data);
+  } catch (e) {
+    console.warn('Raumplan bearbeiten:', e);
+    showToast('Der Plan konnte nicht geladen werden.', 'danger');
+  }
 }
 
 function plPreview(g, size) {
@@ -556,17 +769,16 @@ function plGo(i) {
 
 function plSetTab(t, quiet) {
   _pl.tab = t;
-  var a = document.getElementById('pl-tab-sym'), b = document.getElementById('pl-tab-list');
-  if (a) a.classList.toggle('active', t === 'sym');
-  if (b) b.classList.toggle('active', t === 'list');
-  var card = document.getElementById('pl-card'), ml = document.getElementById('pl-mlist');
+  ['sym', 'list', 'cmp'].forEach(function(k) { var el = document.getElementById('pl-tab-' + k); if (el) el.classList.toggle('active', t === k); });
+  var card = document.getElementById('pl-card'), ml = document.getElementById('pl-mlist'), mc = document.getElementById('pl-mcmp');
   if (card) card.hidden = t !== 'sym';
   if (ml) ml.hidden = t !== 'list';
+  if (mc) mc.hidden = t !== 'cmp';
   var lay = document.querySelector('.pl-layout');
-  if (lay) lay.classList.toggle('pl-list-tab', t === 'list'); // phones: the list gets the whole screen
+  if (lay) lay.classList.toggle('pl-list-tab', t !== 'sym'); // phones: the list gets the whole screen
   if (quiet) return;
   plDraw();
-  if (t === 'list') plSetZoom(1); else plFocus(_pl.cur);
+  if (t !== 'sym') plSetZoom(1); else plFocus(_pl.cur);
 }
 
 // Phone card: one symbol, big thumbnail, quick names, ‹ Nicht zählen ›; swipe left/right to move on
@@ -581,7 +793,9 @@ function plDrawCard() {
   if (!g) { box.innerHTML = '<div class="w-empty"><b>Keine Symbole gefunden</b><p>Ist das ein gescannter Plan? Dann geht es nur mit einer PDF aus dem CAD-Programm.</p></div>'; return; }
   var i = _pl.cur, a = _pl.names[i], open = 0;
   _pl.groups.forEach(function(x, k) { var b = _pl.names[k]; if (!b.ignore && !String(b.name || '').trim()) open++; });
-  var chips = plNameOptions('', plUsedNames(i), [], [], g.suggest ? [g.suggest] : []).slice(0, 4);
+  // quick names: Auftrag articles most similar to the plan word first, then names already used here
+  var orderNames = _pl.job && _pl.job.items ? _pl.job.items.map(function(it) { return it.name; }) : [];
+  var chips = plNameOptions('', plUsedNames(i), [], [], g.suggest ? [g.suggest] : [], orderNames).slice(0, 4);
   box.innerHTML = '<div class="pl-card" id="pl-card-inner" style="--c:' + plColor(i) + '">' +
     '<div class="pl-card-top"><span class="w-num">' + (i + 1) + ' / ' + _pl.groups.length + '</span>' +
       (a.known ? '<span class="pl-known">erkannt</span>' : '') + '<span class="pl-card-open">' + (open ? open + ' offen' : 'alles erledigt ✓') + '</span></div>' +
@@ -639,12 +853,15 @@ function plDrawNameOptions() {
   var m = document.getElementById('pl-sheet'), i = +m.dataset.i, q = document.getElementById('pl-sheet-q').value;
   var remembered = Object.keys(_pl.memory || {}).map(function(k) { return _pl.memory[k].name; });
   var products = (typeof alleProdukte !== 'undefined' && Array.isArray(alleProdukte) && alleProdukte.length) ? alleProdukte.map(function(p) { return p.name; }) : (_pl.products || []);
-  var opts = plNameOptions(q, plUsedNames(i), remembered, products, _pl.groups[i].suggest ? [_pl.groups[i].suggest] : []);
+  var orderNames = _pl.job && _pl.job.items ? _pl.job.items.map(function(it) { return it.name; }) : [];
+  var opts = plNameOptions(q, plUsedNames(i), remembered, products, _pl.groups[i].suggest ? [_pl.groups[i].suggest] : [], orderNames);
   var exact = opts.some(function(o) { return o.name.toLowerCase() === q.trim().toLowerCase(); });
   document.getElementById('pl-sheet-list').innerHTML =
     (q.trim() && !exact ? '<button type="button" class="pl-opt pl-opt-new" data-n="' + escapeHtml(q.trim()) + '" onclick="plPickName(this.dataset.n)">„' + escapeHtml(q.trim()) + '“ übernehmen</button>' : '') +
-    opts.map(function(o) { return '<button type="button" class="pl-opt" data-n="' + escapeHtml(o.name) + '" onclick="plPickName(this.dataset.n)">' + escapeHtml(o.name) +
-      (o.used ? '<small>schon in diesem Plan</small>' : '') + '</button>'; }).join('') +
+    opts.map(function(o) {
+      var qty = o.order ? (_pl.job.items.find(function(it) { return it.name === o.name; }) || {}).qty : null;
+      return '<button type="button" class="pl-opt' + (o.order ? ' pl-opt-order' : '') + '" data-n="' + escapeHtml(o.name) + '" onclick="plPickName(this.dataset.n)">' + escapeHtml(o.name) +
+        (o.order ? '<small>Auftrag · ' + qty + '×</small>' : o.used ? '<small>schon in diesem Plan</small>' : '') + '</button>'; }).join('') +
     (!opts.length && !q.trim() ? '<p class="pl-hint">Tippe einen Namen, z. B. „Stehtisch Ø80“. Beim nächsten Plan wird er wieder vorgeschlagen.</p>' : '');
 }
 
