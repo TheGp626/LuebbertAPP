@@ -2,7 +2,7 @@
 // Day 1–5 after the job → Web Push to the AL; from day 6 one mail to the PL (retried until day 10).
 // Jobs come from project folders (einsaetze) and, when switched on, from the Wochenplan (AL + date).
 // Cron runs several times in the 9:00 hour; reminder_log / plan_reminder_log make later runs no-ops and retry failures.
-// Body: { mode? ("evening" → evening push), force?, only_user_id?, dry_run? (list only, send/log nothing), plan_override? (daily dry runs: treat plan reminders as on) } or { mode: "test", user_id, pin } (test push)
+// Body: { mode? ("evening" → evening push), force?, only_user_id?, dry_run? (list only, send/log nothing), plan_override? (daily dry runs: treat plan reminders as on) } or { mode: "test", user_id } (test push, Admin only)
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, pendingPlIds, testPush, testPushResult, dropWaivedPlanRows, LOOKBACK_DAYS } from './reminders.mjs';
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
@@ -279,14 +279,11 @@ async function runEvening(db: Db, input: Input, settings: Record<string, unknown
   return json({ pushed, users: pushes.length, removed_subscriptions: removed });
 }
 
-// Test push from the admin settings tab: one fixed message to all devices of one user, nothing logged.
-// Needs a logged-in Admin plus the admin password (the anon key is public, so the password alone could be guessed).
+// Test push from the admin page: one fixed message to all devices of one user, nothing logged.
+// A logged-in Admin is enough (checked from the JWT in callerRole); old apps still send a pin, it is ignored.
 async function runTest(db: Db, input: Input, now: Date, isAdmin: boolean) {
   if (!isAdmin) return json({ error: 'forbidden' }, 403);
-  if (!input.user_id || !input.pin) return json({ error: 'missing_input' }, 400);
-  const { data: okPin, error: pinErr } = await db.rpc('verify_admin_pin', { input_pin: input.pin });
-  if (pinErr) { console.error('send-reminders: pin check failed', pinErr); return json({ error: 'db_error' }, 500); }
-  if (!okPin) return json({ error: 'invalid_pin' }, 403);
+  if (!input.user_id) return json({ error: 'missing_input' }, 400);
   if (!vapidReady()) return json({ error: 'vapid_not_configured' }, 500);
   return json(testPushResult(await pushTo(db, input.user_id, testPush(now.toISOString()))));
 }

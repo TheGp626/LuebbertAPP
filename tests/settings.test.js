@@ -116,6 +116,58 @@ test('saveSettingsTab: a network exception from the rpc shows an error instead o
   assert.equal(btn.disabled, false);
 });
 
+function saveSandbox(rpc, promptAnswer) {
+  const vm = require('vm'), fs = require('fs'), path = require('path');
+  const err = { textContent: '' }, btn = { disabled: false, textContent: '' }, calls = [], toasts = [];
+  let prompts = 0;
+  const sandbox = vm.createContext({
+    console: { log() {}, warn() {}, error() {} },
+    localStorage: global.localStorage,
+    document: { getElementById: id => id === 'set-error' ? err : id === 'set-save-btn' ? btn : id === 'set-evening_push_hour' ? { value: '18' } : id === 'set-billing_cutoff' ? { value: '21' } : { checked: false },
+      querySelectorAll: sel => /set-personnel|set-dep/.test(sel) ? [] : [{ querySelector: sel => ({ value: /name/.test(sel) ? 'PKW' : '20' }) }] },
+    showToast: m => toasts.push(m),
+    prompt: () => { prompts++; return promptAnswer; },
+    currentUser: { id: 'me' },
+    supabaseClient: { rpc: (name, args) => { calls.push([name, args]); return Promise.resolve(rpc(name, args)); } },
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/settings.js'), 'utf8'), sandbox, { filename: 'settings.js' });
+  vm.runInContext('_settingsRendered = _readSettingsForm(); _settingsRendered.billing_cutoff = 20; renderSettingsTab = async function() {};', sandbox);
+  return { run: () => vm.runInContext('saveSettingsTab()', sandbox), err, calls, toasts, prompts: () => prompts };
+}
+
+test('saveSettingsTab: an Admin saves with save_app_settings, no password prompt', async () => {
+  const t = saveSandbox(() => ({ data: {}, error: null }));
+  await t.run();
+  assert.equal(t.prompts(), 0);
+  assert.deepEqual(t.calls.map(c => c[0]), ['save_app_settings']);
+  assert.deepEqual(JSON.parse(JSON.stringify(t.calls[0][1])), { changes: { billing_cutoff: 21 } });
+  assert.deepEqual(t.toasts, ['Gespeichert']);
+});
+
+test('saveSettingsTab: database without the new function → old RPC with the password (asked once)', async () => {
+  const t = saveSandbox(name => name === 'save_app_settings'
+    ? { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.save_app_settings(changes)' } }
+    : { data: {}, error: null }, 'geheim');
+  await t.run();
+  assert.equal(t.prompts(), 1);
+  assert.deepEqual(t.calls.map(c => c[0]), ['save_app_settings', 'set_app_settings']);
+  assert.equal(t.calls[1][1].input_pin, 'geheim');
+});
+
+test('saveSettingsTab: forbidden (not Admin) gets a clear message, no prompt', async () => {
+  const t = saveSandbox(() => ({ data: null, error: { code: 'P0001', message: 'forbidden' } }));
+  await t.run();
+  assert.equal(t.prompts(), 0);
+  assert.match(t.err.textContent, /Nur Admins/);
+});
+
+test('settingsRpcMissing: only the "function not found" answers', () => {
+  assert.equal(S.settingsRpcMissing({ code: 'PGRST202', message: 'x' }), true);
+  assert.equal(S.settingsRpcMissing({ code: '42883', message: 'function public.save_app_settings(jsonb) does not exist' }), true);
+  assert.equal(S.settingsRpcMissing({ code: 'P0001', message: 'forbidden' }), false);
+  assert.equal(S.settingsRpcMissing({ code: 'P0001', message: 'invalid_setting: billing_cutoff' }), false);
+});
+
 test('validPersonnelRates: exactly the 4 types × MA/AL/Fahrer, numbers 0–1000; validateSettings uses it', () => {
   const ok = { Minijob: { MA: 21.5, AL: 25, Fahrer: 30 }, Midijob: { MA: 21.5, AL: 25, Fahrer: 30 },
     Rechnung: { MA: 30, AL: 35, Fahrer: 40 }, Fest: { MA: 0, AL: 0, Fahrer: 0 } };
