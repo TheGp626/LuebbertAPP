@@ -899,3 +899,28 @@ test('dashWorkerList: groups Aushilfen and Fest', () => {
   assert.deepEqual(plain(ctx.dashWorkerList(w, {}, '', '', 'fest')).map(x => x.id).sort(), ['b', 'c']);
   assert.equal(plain(ctx.dashWorkerList(w, {}, '')).length, 4);
 });
+
+test('protocol editor: changed times recalculate the break also for people already in the protocol, a typed break stays', () => {
+  ctx.document.getElementById = () => null;
+  run("_editProtShifts = [{ id: 's1', userId: 'u1', name: 'Anna', pos: 'MA', start: '10:00', end: '14:00', pause: 0 }]");
+  run("updateDashPeShift(0, 'end', '18:00')");
+  assert.equal(run('_editProtShifts[0].pause'), 30, '10–14 corrected to 10–18: the old 0 min does not survive');
+  run("updateDashPeShift(0, 'pause', '15')");
+  run("updateDashPeShift(0, 'end', '18:30')");
+  assert.equal(run('_editProtShifts[0].pause'), '15', 'typed by hand → kept');
+});
+
+test('dashPeNewShortBreaks: only breaks this edit makes too short need a reason; untouched old rows do not', () => {
+  const old = [
+    { id: 's1', start_time: '10:00:00', end_time: '18:00:00', pause_mins: 0 },   // old 0-min break, untouched
+    { id: 's2', start_time: '10:00:00', end_time: '14:00:00', pause_mins: 0 },   // will be lengthened
+  ];
+  const rows = [
+    { id: 's1', name: 'Alt', start: '10:00', end: '18:00', pause: 0 },
+    { id: 's2', name: 'Bert', start: '10:00', end: '18:00', pause: 0 },
+    { name: 'Neu', start: '07:00', end: '17:00', pause: 30 },
+    { name: 'Okay', start: '10:00', end: '18:00', pause: 30 },
+  ];
+  assert.deepEqual(plain(run('dashPeNewShortBreaks')(old, rows)), ['Bert 0 min (mind. 30)', 'Neu 30 min (mind. 45)']);
+  assert.deepEqual(plain(run('dashPeNewShortBreaks')(old, [rows[0]])), []);
+});
