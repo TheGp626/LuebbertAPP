@@ -44,8 +44,9 @@ test('tab targets', () => {
   assert.equal(t.optionen.action, 'openSettingsModal');
   assert.equal(t.problem.action, 'openProblemForm');
   const ad = N.navTabs('Admin', allowed).more;
-  assert.equal(ad.find(x => x.id === 'einstellungen').view, 'settings');
-  assert.equal(ad.find(x => x.id === 'fehler').view, 'errors');
+  assert.equal(ad.find(x => x.id === 'admin').mode, 'admin');
+  assert.ok(!ad.some(x => x.id === 'einstellungen' || x.id === 'fehler'));
+  for (const r of ['MA', 'AL', 'PL', 'Buchhaltung', 'Gast']) assert.ok(!N.navTabs(r, allowed).more.some(x => x.id === 'admin'), r);
   assert.equal(N.navTabs('AL', allowed).more.find(x => x.id === 'uebersicht').view, 'prot');
   assert.equal(N.navTabs('AL', allowed).tabs.find(x => x.id === 'protokoll').mode, 'protokoll');
 });

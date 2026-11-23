@@ -485,20 +485,13 @@ test('switchDashTab(work) reloads the employees on every entry', () => {
   assert.equal(loads, 2);
 });
 
-test('switchDashTab(errors) shows the Fehler view and renders it; other tabs hide it', () => {
+test('switchDashTab: the dashboard only knows its two views (settings and Fehler live on the Admin page)', () => {
   const els = {};
   ctx.document.getElementById = id => (els[id] = els[id] || { id, on: false, classList: { toggle(c, v) { els[id].on = v; } }, style: {} });
-  let renders = 0;
-  ctx.__r = () => { renders++; };
-  run('renderErrorsTab = function() { __r(); }');
-  run("switchDashTab('errors')");
-  assert.equal(els['dash-view-errors'].style.display, 'block');
-  assert.equal(els['dash-view-prot'].style.display, 'none');
-  assert.ok(els['dash-tab-errors'].on);
-  assert.equal(renders, 1);
+  run('loadDashboardWorkers = function() {}');
   run("switchDashTab('prot')");
-  assert.equal(els['dash-view-errors'].style.display, 'none');
-  assert.equal(renders, 1);
+  assert.deepEqual(Object.keys(els).sort(), ['dash-tab-prot', 'dash-tab-work', 'dash-view-prot', 'dash-view-work']);
+  assert.equal(els['dash-view-prot'].style.display, 'block');
 });
 
 test('deactivateWorker: rows must be touched (RLS), otherwise no success message', async () => {
@@ -545,19 +538,17 @@ test('dashboard menu: PDF only in the Buchhaltung view with a person, recalc onl
   assert.deepEqual(plain(actions('work', null)), []);
 });
 
-test('dashboard menu: Admin reaches Fehlerberichte (the tab bar is hidden) and can close it again', () => {
+test('dashboard menu: Admin gets a way to the Admin page, nobody else does', () => {
   const c2 = vm.createContext({ console: { log() {}, warn() {}, error() {} }, localStorage: { getItem: () => null }, document: { addEventListener() {} }, UI_TOPBAR_ITEMS: {}, DASH_VIEW_KEY: 'k', dashViewFromStored: () => 'prot' });
   c2.window = c2;
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/dashboard.js'), 'utf8'), c2, { filename: 'dashboard.js' });
-  vm.runInContext('currentUser = { role: "Admin" }; canSeeCosts = function() { return false; }; dashboardCurrentWorker = null;', c2);
-  const items = view => { vm.runInContext('dashView = ' + JSON.stringify(view), c2); return plain(vm.runInContext('UI_TOPBAR_ITEMS.dashboard()', c2)); };
+  vm.runInContext('currentUser = { role: "Admin" }; canSeeCosts = function() { return false; }; dashboardCurrentWorker = null; dashView = "prot";', c2);
+  const items = () => plain(vm.runInContext('UI_TOPBAR_ITEMS.dashboard()', c2));
   vm.runInContext('userRole = "Admin"', c2);
-  assert.ok(items('prot').some(i => i.label === 'Fehlerberichte' && i.action === 'switchDashTab' && i.args[0] === 'errors'));
-  const inErrors = items('errors');
-  assert.ok(inErrors.some(i => i.label === 'Fehlerberichte schließen' && i.args[0] === 'prot'));
-  assert.ok(!inErrors.some(i => i.label === 'Fehlerberichte'));
+  assert.ok(items().some(i => i.label === 'Admin-Seite' && i.action === 'selectMode' && i.args[0] === 'admin'));
+  assert.ok(!items().some(i => /Fehler|Einstellungen/.test(i.label)));
   vm.runInContext('userRole = "PL"', c2);
-  assert.ok(!items('prot').some(i => /Fehler/.test(i.label)));
+  assert.ok(!items().some(i => /Admin/.test(i.label)));
 });
 
 test('dashProtMatches: search finds the date as shown (dd.mm.yyyy) as well as ISO', () => {

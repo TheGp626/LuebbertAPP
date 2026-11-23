@@ -1,6 +1,6 @@
 /**
  * Admin settings (table app_settings): switches for reminders, push, protocol mails and the billing cut-off.
- * Everyone reads them (cached for offline use); only the Admin tab in the Office Dashboard writes them,
+ * Everyone reads them (cached for offline use); only the Admin page (/admin → Einstellungen, js/admin.js) writes them,
  * through the RPC set_app_settings, which checks the admin password on the server.
  * Defaults mirror supabase/functions/_shared/settings-defaults.mjs.
  */
@@ -137,7 +137,7 @@ async function loadAppSettings() {
   return _appSettings;
 }
 
-// ── ADMIN TAB (Office Dashboard → Einstellungen) ──
+// ── ADMIN PAGE → Einstellungen ──
 
 var SETTINGS_SWITCHES = [
   { group: 'Erinnerungen und Push', items: [
@@ -164,7 +164,7 @@ var SETTINGS_SWITCHES = [
 function _settingsEsc(s) { return (typeof escapeHtml === 'function') ? escapeHtml(String(s == null ? '' : s)) : String(s == null ? '' : s); }
 
 async function renderSettingsTab() {
-  var box = document.getElementById('dash-view-settings');
+  var box = document.getElementById('admin-view-settings');
   if (!box) return;
   box.innerHTML = '<div class="wp-empty">Lädt…</div>';
   await loadAppSettings();

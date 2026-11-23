@@ -11,8 +11,8 @@
   <title>LÜBBERT APP</title>
 
 
-  <link rel="stylesheet" href="css/style.css?v=43">
-  <link rel="stylesheet" href="css/ui.css?v=47">
+  <link rel="stylesheet" href="css/style.css?v=44">
+  <link rel="stylesheet" href="css/ui.css?v=48">
   <link rel="stylesheet" href="css/werk.css?v=10">
 </head>
 
@@ -255,6 +255,20 @@
       </div>
     </div>
 
+    <!-- ══════════ ADMIN PAGE (/admin, Admin only, js/admin.js) ══════════ -->
+    <div class="page" id="page-admin">
+      <div class="admin-wrap">
+        <div class="ui-seg admin-tabs" role="tablist" aria-label="Admin">
+          <button type="button" role="tab" id="admin-tab-stats" class="active" onclick="switchAdminTab('stats')">Übersicht</button>
+          <button type="button" role="tab" id="admin-tab-settings" onclick="switchAdminTab('settings')">Einstellungen</button>
+          <button type="button" role="tab" id="admin-tab-errors" onclick="switchAdminTab('errors')">Fehler</button>
+        </div>
+        <div id="admin-view-stats" role="tabpanel"></div>
+        <div id="admin-view-settings" role="tabpanel" class="set-card admin-settings" hidden></div>
+        <div id="admin-view-errors" role="tabpanel" class="fehler-view" hidden></div>
+      </div>
+    </div>
+
     <!-- ══════════ OFFICE DASHBOARD PAGE ══════════ -->
     <div class="page" id="page-dashboard">
       <div class="dash-container">
@@ -263,13 +277,7 @@
         <div class="ui-seg dash-tabs" role="tablist" style="display: none;">
           <button type="button" id="dash-tab-prot" class="active" onclick="switchDashTab('prot')">Protokolle</button>
           <button type="button" id="dash-tab-work" onclick="switchDashTab('work')">Personal</button>
-          <button type="button" id="dash-tab-settings" style="display: none;" onclick="switchDashTab('settings')">Einstellungen</button>
-          <button type="button" id="dash-tab-errors" style="display: none;" onclick="switchDashTab('errors')">Fehler</button>
         </div>
-
-        <!-- TAB: EINSTELLUNGEN (Admin only, js/settings.js) -->
-        <div id="dash-view-settings" class="table-card set-card" style="display: none;"></div>
-        <div id="dash-view-errors" class="fehler-view" style="display: none;"></div>
 
         <!-- TAB: PROTOKOLLE -->
         <div id="dash-view-prot" style="display: block;">
@@ -955,9 +963,9 @@
   <script src="js/formulas.js?v=19"></script>
   <script src="js/utils.js?v=28"></script>
   <script src="js/ui.js?v=7"></script>
-  <script src="js/nav.js?v=1"></script>
+  <script src="js/nav.js?v=2"></script>
   <script src="js/changelog.js?v=2"></script>
-  <script src="js/settings.js?v=15"></script>
+  <script src="js/settings.js?v=16"></script>
   <script src="js/mitarbeiter.js?v=4"></script>
   <script src="js/stundenzettel.js?v=38"></script>
   <script src="js/protokoll.js?v=63"></script>
@@ -973,7 +981,8 @@
   <script src="js/home.js?v=13"></script>
   <script src="js/heute.js?v=3"></script>
   <script src="js/dashboard.js?v=66"></script>
-  <script src="js/fehler.js?v=1"></script>
+  <script src="js/fehler.js?v=2"></script>
+  <script src="js/admin.js?v=1"></script>
   <script src="js/produkte.js?v=22"></script>
   <script src="js/ordner.js?v=39"></script>
   <script src="js/app.js?v=32"></script>

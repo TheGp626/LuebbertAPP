@@ -1,4 +1,4 @@
-// Dashboard tab "Fehler" (Admin only, RLS enforces it): automatic error reports (app_errors) and
+// Admin page tab "Fehler" (/admin, js/admin.js; Admin only, RLS enforces it): automatic error reports (app_errors) and
 // "Problem melden" reports (bug_reports). Status per entry: neu → gesehen / behoben / ignoriert.
 // A bug marked behoben comes back as neu when a version it was never seen on reports it (log_error RPC).
 
@@ -23,8 +23,7 @@ function _fehlerDate(ts) {
 }
 
 function _fehlerSetBadge(n) {
-  var tab = document.getElementById('dash-tab-errors');
-  if (tab) tab.innerHTML = 'Fehler' + (n ? ' <span class="fehler-count">' + n + '</span>' : '');
+  if (typeof adminSetErrorsBadge === 'function') adminSetErrorsBadge(n);
 }
 
 // On Admin login: only the two counts, so the badge shows before the tab is opened
@@ -37,7 +36,7 @@ async function loadErrorsBadge() {
 }
 
 async function renderErrorsTab() {
-  var box = document.getElementById('dash-view-errors');
+  var box = document.getElementById('admin-view-errors');
   if (!box) return;
   if (!_fehler.loaded) box.innerHTML = '<div class="ui-sub">Lade…</div>';
   var res = await Promise.all([
@@ -100,7 +99,7 @@ function _fehlerReportHtml(r) {
 }
 
 function drawErrorsTab() {
-  var box = document.getElementById('dash-view-errors');
+  var box = document.getElementById('admin-view-errors');
   if (!box) return;
   var isErr = _fehler.list === 'errors';
   var version = typeof getAppVersion === 'function' ? getAppVersion() : '?';
