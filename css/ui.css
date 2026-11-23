@@ -593,7 +593,7 @@ button[aria-busy="true"], .ui-btn[aria-busy="true"] { opacity: .6; pointer-event
 /* Hero: the month's headline number */
 .admin-hero { position: relative; overflow: hidden; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 18px;
   padding: 20px; margin-bottom: 12px; border-radius: var(--r-hero); color: #fff;
-  background: radial-gradient(120% 140% at 100% 0%, rgba(255,255,255,.18) 0%, rgba(255,255,255,0) 55%), linear-gradient(135deg, #185FA5 0%, #0f3f70 100%); }
+  background: radial-gradient(120% 140% at 100% 0%, rgba(255,255,255,.18) 0%, rgba(255,255,255,0) 55%), linear-gradient(135deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 62%, #000) 100%); }
 .admin-hero::after { content: ''; position: absolute; right: -40px; bottom: -60px; width: 220px; height: 220px; border-radius: 50%; border: 28px solid rgba(255,255,255,.06); pointer-events: none; }
 .admin-hero-main { position: relative; z-index: 1; }
 .admin-eyebrow { font-size: 13px; font-weight: 600; letter-spacing: .02em; opacity: .85; }
@@ -636,6 +636,7 @@ button[aria-busy="true"], .ui-btn[aria-busy="true"] { opacity: .6; pointer-event
 .admin-col-lbl { height: 22px; line-height: 24px; text-align: center; font-size: 11px; color: var(--text2); }
 .admin-col-now .admin-col-lbl { color: var(--text); font-weight: 700; }
 .admin-tip { position: absolute; top: 0; z-index: 2; display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; border-radius: 10px; background: var(--text); color: var(--bg); font-size: 12px; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+.admin-tip[hidden] { display: none; }
 .admin-tip b { font-size: 13px; }
 .admin-table summary { font-size: 13px; color: var(--accent-text); cursor: pointer; padding: 4px 0; }
 .admin-table .ui-table { margin-top: 8px; }
