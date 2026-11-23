@@ -58,18 +58,11 @@ function switchDashTab(tab) {
   if (typeof breadcrumb === 'function') breadcrumb('dash:' + tab);
   document.getElementById('dash-tab-prot').classList.toggle('active', tab === 'prot');
   document.getElementById('dash-tab-work').classList.toggle('active', tab === 'work');
-  document.getElementById('dash-tab-settings').classList.toggle('active', tab === 'settings');
-  document.getElementById('dash-tab-errors').classList.toggle('active', tab === 'errors');
 
   document.getElementById('dash-view-prot').style.display = tab === 'prot' ? 'block' : 'none';
   document.getElementById('dash-view-work').style.display = tab === 'work' ? 'block' : 'none';
-  document.getElementById('dash-view-settings').style.display = tab === 'settings' ? 'block' : 'none';
-  document.getElementById('dash-view-errors').style.display = tab === 'errors' ? 'block' : 'none';
 
   if (typeof setDashView === 'function') setDashView(tab);
-
-  if (tab === 'settings' && typeof renderSettingsTab === 'function') renderSettingsTab();
-  if (tab === 'errors' && typeof renderErrorsTab === 'function') renderErrorsTab();
 
   // Reload on every entry: the "neue Stunden" badges must not show a stale snapshot
   if (tab === 'work') loadDashboardWorkers();
@@ -1093,20 +1086,8 @@ if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
     var items = [];
     if (view === 'prot' && canSeeCosts(currentUser)) items.push({ label: 'Kosten aller Protokolle neu berechnen', action: 'recalcAllProtocolCosts' });
     if (view === 'work' && typeof dashboardCurrentWorker !== 'undefined' && dashboardCurrentWorker) items.push({ label: 'Monat als PDF (' + (dashboardCurrentWorker.full_name || 'Mitarbeiter') + ')', action: 'exportDashboardMonthlyPDF' });
-    // The tab bar is hidden (tiles open one view each): settings and the way back are reachable from here
-    var isAdmin = typeof userRole !== 'undefined' && userRole === 'Admin';
-    var back = function() { return dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY)); };
-    if (typeof dashView !== 'undefined' && dashView === 'settings') {
-      items.push({ label: 'Einstellungen schließen', action: 'switchDashTab', args: [back()] });
-    } else if (isAdmin) {
-      items.push({ label: 'Einstellungen', action: 'switchDashTab', args: ['settings'] });
-    }
-    // Fehlerberichte (js/fehler.js): Admin only, same pattern as the settings
-    if (typeof dashView !== 'undefined' && dashView === 'errors') {
-      items.push({ label: 'Fehlerberichte schließen', action: 'switchDashTab', args: [back()] });
-    } else if (isAdmin) {
-      items.push({ label: 'Fehlerberichte', action: 'switchDashTab', args: ['errors'] });
-    }
+    // Einstellungen and Fehlerberichte moved to the Admin page (/admin, js/admin.js)
+    if (typeof userRole !== 'undefined' && userRole === 'Admin') items.push({ label: 'Admin-Seite', action: 'selectMode', args: ['admin'] });
     return items;
   };
 }

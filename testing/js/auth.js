@@ -399,6 +399,10 @@ function handleSession(user) {
     // Wochenplan restored from before the login needs the user to load "Meine Schichten"
     if (!wpDeepLink && typeof activeModule !== 'undefined' && activeModule === 'wochenplan' && typeof initWochenplan === 'function') initWochenplan();
     if (typeof activeModule !== 'undefined' && activeModule === 'auftraege' && typeof initAuftraege === 'function') initAuftraege();
+    // /admin or #admin link → open the admin page; a restored admin page needs the role to load its numbers
+    const adminDeepLink = typeof adminTabFromHash === 'function' && adminTabFromHash(location.hash);
+    if (adminDeepLink && typeof handleAdminDeepLink === 'function') handleAdminDeepLink();
+    else if (typeof activeModule !== 'undefined' && activeModule === 'admin' && typeof initAdmin === 'function') initAdmin();
     // If Projektordner is already rendered, re-render with correct permissions
     if (typeof activeModule !== 'undefined' && activeModule === 'ordner' &&
         typeof renderOrdner === 'function' && typeof alleOrdner !== 'undefined') {
@@ -441,6 +445,7 @@ function moduleAllowedForRole(m, role) {
   if (m === 'protokoll') return role !== 'MA';
   if (m === 'auftraege') return role === 'Admin' || role === 'PL' || !!(typeof window !== 'undefined' && window.currentUserSeesInterest);
   if (m === 'dashboard') return ['AL', 'PL', 'Buchhaltung', 'Admin'].indexOf(role) !== -1;
+  if (m === 'admin') return role === 'Admin';
   return true;
 }
 
@@ -452,19 +457,8 @@ function enforceUI() {
       typeof exitToMenu === 'function') {
     exitToMenu();
   }
-  // Settings tab only for the Admin role (saving additionally needs the admin password)
-  const setTab = document.getElementById('dash-tab-settings');
-  if (setTab) {
-    setTab.style.display = userRole === 'Admin' ? '' : 'none';
-    if (userRole !== 'Admin' && setTab.classList.contains('active') && typeof switchDashTab === 'function') switchDashTab('prot');
-  }
-  // Fehlerberichte tab: Admin only as well (RLS lets nobody else read the tables)
-  const errTab = document.getElementById('dash-tab-errors');
-  if (errTab) {
-    errTab.style.display = userRole === 'Admin' ? '' : 'none';
-    if (userRole !== 'Admin' && errTab.classList.contains('active') && typeof switchDashTab === 'function') switchDashTab('prot');
-    if (userRole === 'Admin' && typeof loadErrorsBadge === 'function') loadErrorsBadge();
-  }
+  // Admin page (/admin: Übersicht, Einstellungen, Fehler): the tile shows the count of new error reports
+  if (userRole === 'Admin' && typeof loadErrorsBadge === 'function') loadErrorsBadge();
   // Gast has no Heute tab: start in the Produktdatenbank
   if (userRole === 'Gast' && currentUser && typeof activeModule !== 'undefined' && !activeModule && typeof selectMode === 'function') selectMode('produkte');
   if (typeof navPaint === 'function') navPaint();

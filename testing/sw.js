@@ -1,4 +1,4 @@
-const CACHE = 'stundenzettel-exp-tst-62c48a9';
+const CACHE = 'stundenzettel-exp-tst-e53c605';
 // Product media, shared by the live app and /experimental/ (same origin, same files)
 const MEDIA_CACHE = 'luebbert-media-v1';
 // Loaded by the app only when needed (utils.js loadLib), so index.html doesn't name them: precached here for offline use
@@ -75,6 +75,12 @@ self.addEventListener('fetch', e => {
     // and the page reloads itself (SW_UPDATED / controllerchange in app.js). Only the app page itself, by path.
     const path = new URL(e.request.url).pathname;
     const scopePath = new URL(self.registration.scope).pathname;
+    // /admin/ is only a short address for the app's Admin page: answer with the redirect here, so the stub page
+    // (admin/index.html) never replaces the offline copy of the app below, and it works offline too
+    if (path === scopePath + 'admin' || path === scopePath + 'admin/' || path === scopePath + 'admin/index.html') {
+      e.respondWith(Response.redirect(new URL('./#admin', self.registration.scope).href, 302));
+      return;
+    }
     if (path === scopePath || path === scopePath + 'index.html') {
       e.respondWith(caches.open(CACHE).then(c => c.match('./index.html')).then(cached => cached || fetch(new Request(e.request, { cache: 'no-cache' }))
         .then(res => {

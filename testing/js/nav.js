@@ -14,8 +14,8 @@ var NAV_ITEMS = {
   auftraege: { id: 'auftraege', label: 'Aufträge', icon: 'file', mode: 'auftraege' },
   produkte: { id: 'produkte', label: 'Produkte', icon: 'box', mode: 'produkte' },
   ordner: { id: 'ordner', label: 'Ordner', icon: 'folder', mode: 'ordner' },
-  einstellungen: { id: 'einstellungen', label: 'Einstellungen', icon: 'settings', mode: 'dashboard', view: 'settings' },
-  fehler: { id: 'fehler', label: 'Fehlerberichte', icon: 'alert', mode: 'dashboard', view: 'errors' },
+  // Admin page (js/admin.js): Übersicht, Einstellungen, Fehlerberichte
+  admin: { id: 'admin', label: 'Admin', icon: 'shield', mode: 'admin' },
   optionen: { id: 'optionen', label: 'Optionen', icon: 'user', mode: null, action: 'openSettingsModal' },
   problem: { id: 'problem', label: 'Problem melden', icon: 'help', mode: null, action: 'openProblemForm' },
   mehr: { id: 'mehr', label: 'Mehr', icon: 'menu', mode: null, action: 'openMoreSheet' }
@@ -26,7 +26,7 @@ var NAV_ROLES = {
   MA: { tabs: ['heute', 'plan', 'zettel'], more: ['auftraege', 'produkte', 'ordner'] },
   AL: { tabs: ['heute', 'plan', 'protokoll', 'zettel'], more: ['auftraege', 'uebersicht', 'personal', 'produkte', 'ordner'] },
   PL: { tabs: ['heute', 'plan', 'auftraege', 'protokolle'], more: ['personal', 'zettel', 'produkte', 'ordner'] },
-  Admin: { tabs: ['heute', 'plan', 'auftraege', 'protokolle'], more: ['personal', 'zettel', 'produkte', 'ordner', 'einstellungen', 'fehler'] },
+  Admin: { tabs: ['heute', 'plan', 'auftraege', 'protokolle'], more: ['admin', 'personal', 'zettel', 'produkte', 'ordner'] },
   Buchhaltung: { tabs: ['heute', 'protokolle', 'personal'], more: ['auftraege', 'plan', 'zettel', 'produkte', 'ordner'] },
   Gast: { tabs: ['produkte', 'ordner'], more: [] }
 };

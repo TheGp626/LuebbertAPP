@@ -1,7 +1,8 @@
 /**
  * Admin settings (table app_settings): switches for reminders, push, protocol mails and the billing cut-off.
- * Everyone reads them (cached for offline use); only the Admin tab in the Office Dashboard writes them,
- * through the RPC set_app_settings, which checks the admin password on the server.
+ * Everyone reads them (cached for offline use); only the Admin page (/admin → Einstellungen, js/admin.js) writes them,
+ * through the RPC save_app_settings, which checks the Admin role on the server (no password since 23.11.2026).
+ * Until that migration is applied the old RPC set_app_settings with the admin password is used as a fallback.
  * Defaults mirror supabase/functions/_shared/settings-defaults.mjs.
  */
 
@@ -29,7 +30,7 @@ var APP_SETTINGS_DEFAULTS = {
 var APP_SETTINGS_CACHE_KEY = 'luebbert_app_settings';
 var _appSettings = Object.assign({}, APP_SETTINGS_DEFAULTS);
 var _appSettingsMeta = null;   // { updated_at, updated_by } of the newest change
-var _settingsPin = null;       // admin password, memory only, for this session
+var _settingsPin = null;       // admin password, memory only; only for the fallback before the migration
 var _appSettingsFresh = false; // last load came from the server (not cache/defaults)
 var _settingsRendered = null;  // values the settings form was rendered with
 
@@ -137,7 +138,7 @@ async function loadAppSettings() {
   return _appSettings;
 }
 
-// ── ADMIN TAB (Office Dashboard → Einstellungen) ──
+// ── ADMIN PAGE → Einstellungen ──
 
 var SETTINGS_SWITCHES = [
   { group: 'Erinnerungen und Push', items: [
@@ -164,7 +165,7 @@ var SETTINGS_SWITCHES = [
 function _settingsEsc(s) { return (typeof escapeHtml === 'function') ? escapeHtml(String(s == null ? '' : s)) : String(s == null ? '' : s); }
 
 async function renderSettingsTab() {
-  var box = document.getElementById('dash-view-settings');
+  var box = document.getElementById('admin-view-settings');
   if (!box) return;
   box.innerHTML = '<div class="wp-empty">Lädt…</div>';
   await loadAppSettings();
@@ -292,6 +293,25 @@ var SETTINGS_LABELS = { evening_push_hour: 'Uhrzeit Abend-Push', billing_cutoff:
   department_routes: 'Abteilungs-Mails (Bereich → Abteilung)', inactive_months: 'Lange kein Einsatz (1–24 Monate)',
   income_limit_minijob: 'Verdienstgrenze Minijob (0–100000 €)', income_limit_midijob: 'Verdienstgrenze Midijob (0–100000 €)' };
 
+// The new RPC is missing (migration 20261127 not applied yet): PostgREST answers PGRST202 / 404
+function settingsRpcMissing(error) {
+  var m = String((error && (error.code || '')) + ' ' + (error && error.message || ''));
+  return /PGRST202|42883|Could not find the function|does not exist/i.test(m);
+}
+
+// Save as Admin: the role is the check. Returns { error } like supabase.rpc; falls back to the password RPC on old databases.
+async function _settingsSaveRpc(changes) {
+  var res = await supabaseClient.rpc('save_app_settings', { changes: changes });
+  if (!res.error || !settingsRpcMissing(res.error)) return res;
+  if (!_settingsPin) {
+    var pin = prompt('Admin-Passwort zum Speichern der Einstellungen:');
+    if (!pin) return { error: { message: 'cancelled' } };
+    _settingsPin = pin;
+  }
+  var actor = (typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null;
+  return supabaseClient.rpc('set_app_settings', { input_pin: _settingsPin, changes: changes, actor: actor });
+}
+
 async function saveSettingsTab() {
   var err = document.getElementById('set-error'), btn = document.getElementById('set-save-btn');
   err.textContent = '';
@@ -301,24 +321,20 @@ async function saveSettingsTab() {
   if (bad) { err.textContent = 'Ungültiger Wert für ' + (SETTINGS_LABELS[bad] || bad) + '.'; return; }
   var changes = changedSettings(_settingsRendered, form);
   if (!Object.keys(changes).length) { showToast('Keine Änderungen'); return; }
-  if (!_settingsPin) {
-    var pin = prompt('Admin-Passwort zum Speichern der Einstellungen:');
-    if (!pin) return;
-    _settingsPin = pin;
-  }
   btn.disabled = true; btn.textContent = 'Speichert…';
   try {
-    var actor = (typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null;
     var error = null;
     try {
-      error = (await supabaseClient.rpc('set_app_settings', { input_pin: _settingsPin, changes: changes, actor: actor })).error;
+      error = (await _settingsSaveRpc(changes)).error;
     } catch (e) { // network failure throws instead of answering with an error
-      console.error('Einstellungen speichern:', e);
+      console.warn('Einstellungen speichern:', e);
       error = { message: 'network' };
     }
     if (error) {
       var msg = String(error.message || '');
+      if (msg === 'cancelled') return;
       if (/invalid_pin/.test(msg)) { _settingsPin = null; err.textContent = 'Passwort falsch.'; return; }
+      if (/forbidden/.test(msg)) { err.textContent = 'Nur Admins dürfen die Einstellungen ändern.'; return; }
       var m = /invalid_setting: (\w+)/.exec(msg);
       err.textContent = m ? 'Ungültiger Wert für ' + (SETTINGS_LABELS[m[1]] || m[1]) + '.' : 'Speichern fehlgeschlagen. Prüf die Verbindung und versuch es erneut.';
       return;
@@ -339,29 +355,37 @@ function testPushMessage(data) {
   return 'Test-Push fehlgeschlagen. Versuch es später erneut.';
 }
 
+async function _testPushInvoke(me, pin) {
+  var body = { mode: 'test', user_id: me };
+  if (pin) body.pin = pin;
+  var r = await supabaseClient.functions.invoke('send-reminders', { body: body });
+  var resBody = null;
+  if (r.error) { try { resBody = r.error.context && await r.error.context.json(); } catch (e) { /* no JSON body */ } }
+  return { r: r, body: resBody };
+}
+
 async function sendTestPush() {
   var err = document.getElementById('set-error'), btn = document.getElementById('set-testpush-btn');
   var me = (typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null;
   if (!me || !btn) return;
   err.textContent = '';
-  if (!_settingsPin) {
-    var pin = prompt('Admin-Passwort für den Test-Push:');
-    if (!pin) return;
-    _settingsPin = pin;
-  }
   btn.disabled = true; btn.textContent = 'Sendet…';
   try {
-    var r = await supabaseClient.functions.invoke('send-reminders', { body: { mode: 'test', user_id: me, pin: _settingsPin } });
-    if (r.error) {
-      // non-2xx: the body holds the reason
-      var body = null;
-      try { body = r.error.context && await r.error.context.json(); } catch (e) { /* no JSON body */ }
-      if (body && body.error === 'invalid_pin') { _settingsPin = null; err.textContent = 'Passwort falsch.'; return; }
-      console.error('Test-Push:', r.error, body);
+    // A logged-in Admin is enough; an older server still wants the password (missing_input / invalid_pin) → ask once
+    var a = await _testPushInvoke(me, _settingsPin);
+    if (a.r.error && a.body && (a.body.error === 'missing_input' || a.body.error === 'invalid_pin')) {
+      var pin = prompt('Admin-Passwort für den Test-Push:');
+      if (!pin) return;
+      _settingsPin = pin;
+      a = await _testPushInvoke(me, pin);
+      if (a.r.error && a.body && a.body.error === 'invalid_pin') { _settingsPin = null; err.textContent = 'Passwort falsch.'; return; }
+    }
+    if (a.r.error) {
+      console.warn('Test-Push:', a.r.error, a.body);
       err.textContent = testPushMessage(null);
       return;
     }
-    showToast(testPushMessage(r.data));
+    showToast(testPushMessage(a.r.data));
   } finally {
     btn.disabled = false; btn.textContent = 'Senden';
   }
@@ -370,6 +394,6 @@ async function sendTestPush() {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { APP_SETTINGS_DEFAULTS: APP_SETTINGS_DEFAULTS, appSetting: appSetting, appSettingsFromCache: appSettingsFromCache,
     validateSettings: validateSettings, changedSettings: changedSettings, testPushMessage: testPushMessage,
-    validVehicleRates: validVehicleRates, validDepartmentRoutes: validDepartmentRoutes, readVehicleRates: readVehicleRates, validPersonnelRates: validPersonnelRates,
+    settingsRpcMissing: settingsRpcMissing, validVehicleRates: validVehicleRates, validDepartmentRoutes: validDepartmentRoutes, readVehicleRates: readVehicleRates, validPersonnelRates: validPersonnelRates,
     SETTINGS_SWITCHES: SETTINGS_SWITCHES };
 }
