@@ -130,3 +130,14 @@ test('plPrettyName: upload prefix and underscores out, ordinary names unchanged'
   assert.equal(P.plPrettyName('Raumplan.PDF'), 'Raumplan');
   assert.equal(P.plPrettyName(''), 'Plan');
 });
+
+test('plGroup: a symbol drawn twice on the same spot counts once, the duplicates are reported', () => {
+  const shapes = [];
+  for (let i = 0; i < 30; i++) shapes.push({ pts: chunk(rotRect(i * 30, 0, 18, 6, 35).coords), curved: false, fill: null, stroke: '#000000' });
+  for (const i of [0, 1, 28, 29]) shapes.push({ pts: chunk(rotRect(i * 30, 0, 18, 6, 35).coords), curved: false, fill: null, stroke: '#000000' }); // copied over itself
+  const g = P.plGroup(shapes, { minDiag: 2, maxDiag: 80 });
+  assert.equal(g.length, 1); assert.equal(g[0].count, 30); assert.equal(g[0].dupes, 4);
+  // neighbours a few points apart are not duplicates
+  const near = [0, 4, 8].map(x => ({ cx: x, cy: 0, diag: 3 }));
+  assert.equal(P.plDedupe(near).length, 3);
+});

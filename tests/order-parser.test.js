@@ -361,3 +361,36 @@ test('orderIsBillingJob: a position that is only a discount or credit is no Eins
   assert.equal(ctx.orderIsBillingJob(job('Saal A', ['Stuhlhusse', 'Rabatt Stammkunde'])), false);
   assert.equal(ctx.orderIsBillingJob(job('Leer', [])), false);
 });
+
+test('orderParse: page footer without a "Datum:" header after it (Projekt format) does not swallow the next page', () => {
+  const r = plain(ctx.orderParse([
+    'Auftragsbestätigung 26-0369 / 261124_Estrel_PE26 Partner Event',
+    '26-0369.01 / Showtheater',
+    'Lieferadresse: Estrel Berlin', 'Showtheater',
+    'Aufbau: 23.11.2026 08:00 - 23.11.2026 18:00',
+    'Abbau: 24.11.2026 22:00 - 25.11.2026 02:00',
+    'Pos. Anzahl Bezeichnung Einzelpreis Faktor Gesamt',
+    '1 30 Stehtischbrücke "Berlin" 95,00 1,00 2.850,00',
+    '6 48 Barhocker "Leo" 18,00 1,00 864,00',
+    'mit weißer Holzsitzschale',
+    'Geschäftsführung Bankverbindung Tel: +49 30 1234567-0',
+    'Sonja Muster Deutsche Bank Berliner Volksbank Berlin Fax:',
+    'HRB 12345FF IBAN: DE00 0000 0000 0000 0000 00 IBAN: DE00 0000 0000 0000 0000 00 info@example.de',
+    'Projekt: 261124_Estrel_PE26',
+    'Partner Event des',
+    'Volkswagen und Audi',
+    'Pos. Anzahl Bezeichnung Einzelpreis Faktor Gesamt',
+    '7 54 Stehtischbrückendekoration "S" 32,00 1,00 1.728,00',
+    'Größe S: kleine Vasen mit Schnittblumen und Pflanzen im',
+    '8 30 Stehtisch "Berlin" 45,00 1,00 1.350,00',
+    '9 30 Stehtischdekoration "S" 16,00 1,00 480,00',
+    '10 138 Kerzenglas 1,00 1,00 138,00',
+    '11 138 Gellicht 3,80 1,00 524,40',
+    'Zwischensumme Showtheater: 11.230,40',
+  ]));
+  assert.equal(r.jobs.length, 1);
+  const items = r.jobs[0].materials.flatMap(g => g.items).map(i => i.qty + '× ' + i.name);
+  assert.deepEqual(items, ['30× Stehtischbrücke "Berlin"', '48× Barhocker "Leo"', '54× Stehtischbrückendekoration "S"', '30× Stehtisch "Berlin"',
+    '30× Stehtischdekoration "S"', '138× Kerzenglas', '138× Gellicht']);
+  assert.ok(!/Partner Event|Volkswagen|IBAN/.test(r.jobs[0].notes), 'footer and page header stay out of the notes');
+});
