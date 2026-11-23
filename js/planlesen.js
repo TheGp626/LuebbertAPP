@@ -235,6 +235,38 @@ function plMaterialList(groups, names) {
   return { rows: rows, unnamed: unnamed };
 }
 
+// Zoom and scroll so that box ([x0,y0,x1,y1] in unzoomed px) fills the stage with some margin; zoom between 1 and maxZoom
+function plFitZoom(box, stageW, stageH, maxZoom) {
+  var w = Math.max(1, box[2] - box[0]), h = Math.max(1, box[3] - box[1]), pad = 0.18;
+  var z = Math.min(stageW / (w * (1 + pad * 2)), stageH / (h * (1 + pad * 2)));
+  z = Math.max(1, Math.min(maxZoom || 6, z));
+  var cx = (box[0] + box[2]) / 2 * z, cy = (box[1] + box[3]) / 2 * z;
+  return { zoom: z, left: Math.max(0, cx - stageW / 2), top: Math.max(0, cy - stageH / 2) };
+}
+
+// Next group (from `from`, direction dir) that still needs a decision: no name and not hidden; -1 when all are done
+function plNextOpen(names, count, from, dir) {
+  dir = dir || 1;
+  for (var k = 1; k <= count; k++) {
+    var i = ((from + dir * k) % count + count) % count, a = names[i] || {};
+    if (!a.ignore && !String(a.name || '').trim()) return i;
+  }
+  return -1;
+}
+
+// Name choices for the sheet: used in this plan first, then remembered, products, words from the plan; filtered by the query
+function plNameOptions(query, used, remembered, products, suggest) {
+  var q = String(query || '').trim().toLowerCase(), seen = {}, out = [];
+  [used, suggest, remembered, products].forEach(function(list, src) {
+    (list || []).forEach(function(n) {
+      var s = String(n || '').trim(), k = s.toLowerCase();
+      if (!s || seen[k] || (q && k.indexOf(q) === -1)) return;
+      seen[k] = true; out.push({ name: s, used: src === 0 });
+    });
+  });
+  return out.slice(0, 60);
+}
+
 function plCsv(rows, title) {
   var cell = function(v) { var t = String(v == null ? '' : v); if (/^[=+\-@]/.test(t)) t = "'" + t; return /[;"\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
   return '﻿' + (title ? cell(title) + '\r\n' : '') + 'Artikel;Anzahl\r\n' + rows.map(function(r) { return cell(r.name) + ';' + r.count; }).join('\r\n') + '\r\n';
@@ -243,7 +275,9 @@ function plCsv(rows, title) {
 /* ── Page (browser only) ── */
 
 var PL_COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#9a6324', '#469990', '#808000', '#000075', '#bfef45'];
-var _pl = { doc: null, page: null, pageNo: 1, vp: null, groups: [], names: {}, sel: null, file: '', memory: {}, products: [], busy: false };
+var _pl = { doc: null, page: null, pageNo: 1, vp: null, groups: [], names: {}, sel: null, file: '', memory: {}, products: [], busy: false,
+  zoom: 1, cur: 0, tab: 'sym' };
+function plIsMobile() { return typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 859px)').matches; }
 var PL_MEMORY_KEY = 'luebbert_plan_symbols';
 
 function plMayUse(role) { return ['AL', 'PL', 'Admin'].indexOf(role) !== -1; }
@@ -288,7 +322,7 @@ function plRenderShell() {
   box.innerHTML =
     '<div class="pl-intro">' +
       '<b>Raumplan als PDF</b><p>Die App sucht gleiche Symbole (Stühle, Tische, Stehtische …) und zählt sie. Du benennst jede Gruppe einmal, beim nächsten Plan erkennt sie die Symbole wieder. Der Plan bleibt auf dem Gerät.</p>' +
-      '<label class="w-btn w-btn-accent pl-pick">PDF wählen<input type="file" accept="application/pdf" id="pl-file" hidden></label>' +
+      '<label class="w-btn w-btn-accent pl-pick"><span class="pl-pick-1">PDF wählen</span><span class="pl-pick-2">Anderer Plan</span><input type="file" accept="application/pdf" id="pl-file" hidden></label>' +
     '</div>' +
     '<div id="pl-work" hidden>' +
       '<div class="pl-head"><div><b id="pl-title"></b><small id="pl-sub"></small></div><div class="pl-head-btns" id="pl-pages"></div></div>' +
@@ -297,6 +331,12 @@ function plRenderShell() {
           '<button type="button" class="w-btn pl-zoom" id="pl-zoom" onclick="plToggleZoom()">Vergrößern</button></div>' +
         '<div class="pl-side"><div class="w-label">Gefundene Symbole</div><div id="pl-groups"></div>' +
           '<div class="w-label">Materialliste</div><div id="pl-list"></div></div>' +
+        // phones: one symbol at a time on a card, the material list on its own tab
+        '<div class="pl-mob">' +
+          '<div class="ui-seg pl-tabs" role="tablist"><button type="button" role="tab" id="pl-tab-sym" class="active" onclick="plSetTab(\'sym\')">Symbole</button>' +
+            '<button type="button" role="tab" id="pl-tab-list" onclick="plSetTab(\'list\')">Liste</button></div>' +
+          '<div id="pl-card"></div><div id="pl-mlist" hidden></div>' +
+        '</div>' +
       '</div>' +
     '</div>';
   document.getElementById('pl-file').addEventListener('change', function(e) { if (e.target.files[0]) plOpenFile(e.target.files[0]); });
@@ -322,6 +362,8 @@ async function plShowPage(no) {
   var page = await _pl.doc.getPage(no);
   _pl.page = page;
   document.getElementById('pl-work').hidden = false;
+  var intro = document.querySelector('.pl-intro');
+  if (intro) intro.classList.add('pl-loaded'); // once a plan is open only "Anderer Plan" stays
   document.getElementById('pl-title').textContent = _pl.file;
   document.getElementById('pl-sub').textContent = 'Seite ' + no + ' von ' + _pl.doc.numPages + ' · wird gelesen …';
   document.getElementById('pl-pages').innerHTML = _pl.doc.numPages > 1 ? Array.from({ length: _pl.doc.numPages }, function(_, i) {
@@ -359,24 +401,51 @@ async function plShowPage(no) {
     if (hit) g.sig = hit.key; // keep updating the entry it was recognised by
     _pl.names[i] = hit ? { name: hit.entry.name, ignore: hit.entry.ignore, known: true } : { name: '', ignore: false };
   });
-  _pl.sel = null;
+  _pl.sel = null; _pl.tab = 'sym';
+  var first = plNextOpen(_pl.names, _pl.groups.length, -1, 1);
+  _pl.cur = first === -1 ? 0 : first;
   document.getElementById('pl-sub').textContent = 'Seite ' + no + ' von ' + _pl.doc.numPages + ' · ' + _pl.groups.length + ' Symbolgruppen, ' +
     _pl.groups.reduce(function(n, g) { return n + g.count; }, 0) + ' Teile';
+  plSetTab('sym', true);
   plDraw();
+  if (plIsMobile() && _pl.groups.length) plFocus(_pl.cur);
 }
 
 function plColor(i) { return PL_COLORS[i % PL_COLORS.length]; }
 
-// Phones: pinch-zoom is off app-wide, so the plan zooms 2.5× inside a scrolling box
-function plToggleZoom() {
+// Pinch-zoom is off app-wide, so the plan zooms inside a scrolling box
+function plSetZoom(z, left, top) {
   var stage = document.getElementById('pl-stage'), canvas = document.getElementById('pl-canvas'), svg = document.getElementById('pl-overlay'), vp = _pl.vp;
   if (!stage || !vp) return;
-  _pl.zoom = _pl.zoom === 1 ? 2.5 : 1;
-  var w = vp.width * _pl.zoom, h = vp.height * _pl.zoom;
+  _pl.zoom = z;
+  var w = vp.width * z, h = vp.height * z;
   canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
   svg.style.width = w + 'px'; svg.style.height = h + 'px';
-  stage.classList.toggle('pl-zoomed', _pl.zoom !== 1);
-  document.getElementById('pl-zoom').textContent = _pl.zoom === 1 ? 'Vergrößern' : 'Ganzer Plan';
+  svg.setAttribute('width', w); svg.setAttribute('height', h);
+  stage.classList.toggle('pl-zoomed', z !== 1);
+  stage.scrollLeft = left || 0; stage.scrollTop = top || 0;
+  var btn = document.getElementById('pl-zoom');
+  if (btn) btn.textContent = z === 1 ? (plIsMobile() && _pl.groups.length ? 'Zum Symbol' : 'Vergrößern') : 'Ganzer Plan';
+}
+
+function plToggleZoom() {
+  if (_pl.zoom !== 1) { plSetZoom(1); return; }
+  if (plIsMobile() && _pl.groups[_pl.cur]) plFocus(_pl.cur);
+  else plSetZoom(2.5, 0, 0);
+}
+
+// The plan zooms to where the group's symbols are (all of them in view)
+function plFocus(i) {
+  var g = _pl.groups[i], vp = _pl.vp, stage = document.getElementById('pl-stage');
+  if (!g || !vp || !stage) return;
+  var box = [Infinity, Infinity, -Infinity, -Infinity];
+  g.members.forEach(function(m) {
+    var p = vp.convertToViewportRectangle(m.bbox);
+    box[0] = Math.min(box[0], p[0], p[2]); box[1] = Math.min(box[1], p[1], p[3]);
+    box[2] = Math.max(box[2], p[0], p[2]); box[3] = Math.max(box[3], p[1], p[3]);
+  });
+  var f = plFitZoom(box, stage.clientWidth, stage.clientHeight, 6);
+  plSetZoom(f.zoom, f.left, f.top);
 }
 
 function plDraw() {
@@ -387,7 +456,8 @@ function plDraw() {
   _pl.groups.forEach(function(g, i) {
     var a = _pl.names[i];
     if (a.ignore) return;
-    if (_pl.sel !== null && _pl.sel !== i) return;
+    var only = plIsMobile() ? (_pl.tab === 'sym' ? _pl.cur : null) : _pl.sel;
+    if (only !== null && only !== i) return;
     g.members.forEach(function(m) {
       var p = vp.convertToViewportRectangle(m.bbox);
       var x = Math.min(p[0], p[2]), y = Math.min(p[1], p[3]), w = Math.abs(p[2] - p[0]), h = Math.abs(p[3] - p[1]);
@@ -398,13 +468,14 @@ function plDraw() {
   svg.innerHTML = html;
   plDrawGroups();
   plDrawList();
+  plDrawCard();
 }
 
-function plPreview(g) {
+function plPreview(g, size) {
   var canvas = document.getElementById('pl-canvas'), vp = _pl.vp, dpr = canvas.width / vp.width;
   var p = vp.convertToViewportRectangle(g.members[0].bbox);
   var x = Math.min(p[0], p[2]), y = Math.min(p[1], p[3]), w = Math.abs(p[2] - p[0]), h = Math.abs(p[3] - p[1]), pad = Math.max(w, h) * 0.35 + 2;
-  var c = document.createElement('canvas'), side = 44 * 2;
+  var c = document.createElement('canvas'), side = (size || 44) * 2;
   c.width = side; c.height = side;
   var ctx = c.getContext('2d'), sw = (Math.max(w, h) + pad * 2) * dpr;
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, side, side);
@@ -444,20 +515,142 @@ function plSelect(i) {
   if (_pl.sel !== null && st && window.innerWidth < 860 && st.scrollIntoView) st.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function plSetName(i, v) {
+function plSetName(i, v, advance) {
   var a = _pl.names[i];
   a.name = String(v || '').trim().slice(0, 80);
   a.known = false;
+  if (a.name) a.ignore = false;
   plRemember(_pl.groups[i].sig, { name: a.name, ignore: false });
-  plDrawList();
+  if (advance) plAdvance(i); else { plDrawList(); plDrawCard(); }
 }
 
-function plToggleIgnore(i) {
+function plToggleIgnore(i, advance) {
   var a = _pl.names[i];
   a.ignore = !a.ignore;
   plRemember(_pl.groups[i].sig, { name: a.name || '', ignore: a.ignore });
   if (_pl.sel === i) _pl.sel = null;
+  if (advance && a.ignore) { plAdvance(i); return; }
   plDraw();
+}
+
+// Phones: after a decision on to the next open symbol (or stay when everything is done)
+function plAdvance(i) {
+  var next = plNextOpen(_pl.names, _pl.groups.length, i, 1);
+  if (next === -1) { plDraw(); showToast('Alle Symbole erledigt. Die Liste steht unter „Liste“.'); return; }
+  plGo(next);
+}
+
+function plGo(i) {
+  var n = _pl.groups.length;
+  if (!n) return;
+  _pl.cur = ((i % n) + n) % n;
+  plDraw();
+  plFocus(_pl.cur);
+}
+
+function plSetTab(t, quiet) {
+  _pl.tab = t;
+  var a = document.getElementById('pl-tab-sym'), b = document.getElementById('pl-tab-list');
+  if (a) a.classList.toggle('active', t === 'sym');
+  if (b) b.classList.toggle('active', t === 'list');
+  var card = document.getElementById('pl-card'), ml = document.getElementById('pl-mlist');
+  if (card) card.hidden = t !== 'sym';
+  if (ml) ml.hidden = t !== 'list';
+  var lay = document.querySelector('.pl-layout');
+  if (lay) lay.classList.toggle('pl-list-tab', t === 'list'); // phones: the list gets the whole screen
+  if (quiet) return;
+  plDraw();
+  if (t === 'list') plSetZoom(1); else plFocus(_pl.cur);
+}
+
+// Phone card: one symbol, big thumbnail, quick names, ‹ Nicht zählen ›; swipe left/right to move on
+function plDrawCard() {
+  var box = document.getElementById('pl-card');
+  if (!box) return;
+  var ml = plMaterialList(_pl.groups, _pl.names), tabList = document.getElementById('pl-tab-list');
+  if (tabList) tabList.innerHTML = 'Liste' + (ml.rows.length ? ' <span class="pl-tab-n">' + ml.rows.length + '</span>' : '');
+  var mlist = document.getElementById('pl-mlist');
+  if (mlist) mlist.innerHTML = document.getElementById('pl-list').innerHTML;
+  var g = _pl.groups[_pl.cur];
+  if (!g) { box.innerHTML = '<div class="w-empty"><b>Keine Symbole gefunden</b><p>Ist das ein gescannter Plan? Dann geht es nur mit einer PDF aus dem CAD-Programm.</p></div>'; return; }
+  var i = _pl.cur, a = _pl.names[i], open = 0;
+  _pl.groups.forEach(function(x, k) { var b = _pl.names[k]; if (!b.ignore && !String(b.name || '').trim()) open++; });
+  var chips = plNameOptions('', plUsedNames(i), [], [], g.suggest ? [g.suggest] : []).slice(0, 4);
+  box.innerHTML = '<div class="pl-card" id="pl-card-inner" style="--c:' + plColor(i) + '">' +
+    '<div class="pl-card-top"><span class="w-num">' + (i + 1) + ' / ' + _pl.groups.length + '</span>' +
+      (a.known ? '<span class="pl-known">erkannt</span>' : '') + '<span class="pl-card-open">' + (open ? open + ' offen' : 'alles erledigt ✓') + '</span></div>' +
+    '<div class="pl-card-main"><img alt="" src="' + plPreview(g, 72) + '"><div><b class="w-num">' + g.count + '×</b><small>auf dem Plan markiert</small></div></div>' +
+    (a.ignore ? '<div class="pl-card-ignored">Wird nicht gezählt</div>'
+      : '<button type="button" class="pl-card-name' + (a.name ? ' pl-has' : '') + '" onclick="plOpenNameSheet(' + i + ')">' +
+          (a.name ? escapeHtml(a.name) : 'Benennen …') + '<span aria-hidden="true">✎</span></button>' +
+        (chips.length && !a.name ? '<div class="pl-chips">' + chips.map(function(c) {
+          return '<button type="button" class="pl-chip" data-n="' + escapeHtml(c.name) + '" onclick="plSetName(' + i + ', this.dataset.n, true)">' + escapeHtml(c.name) + '</button>';
+        }).join('') + '</div>' : '')) +
+    '<div class="pl-card-nav"><button type="button" class="w-btn" onclick="plGo(' + (i - 1) + ')" aria-label="Vorheriges Symbol">‹</button>' +
+      '<button type="button" class="w-btn pl-card-skip" onclick="plToggleIgnore(' + i + ', true)">' + (a.ignore ? 'Doch zählen' : 'Nicht zählen') + '</button>' +
+      '<button type="button" class="w-btn" onclick="plGo(' + (i + 1) + ')" aria-label="Nächstes Symbol">›</button></div>' +
+  '</div>';
+  plBindSwipe(document.getElementById('pl-card-inner'));
+}
+
+function plUsedNames(except) {
+  var out = [];
+  Object.keys(_pl.names).forEach(function(k) { var n = _pl.names[k] && _pl.names[k].name; if (+k !== except && n && !_pl.names[k].ignore) out.push(n); });
+  return out;
+}
+
+function plBindSwipe(el) {
+  if (!el) return;
+  var x0 = null, y0 = null;
+  el.addEventListener('pointerdown', function(e) { x0 = e.clientX; y0 = e.clientY; });
+  el.addEventListener('pointerup', function(e) {
+    if (x0 === null) return;
+    var dx = e.clientX - x0, dy = e.clientY - y0; x0 = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) plGo(_pl.cur + (dx < 0 ? 1 : -1));
+  });
+}
+
+// Full-screen name picker: search, names already used in this plan first, then remembered names and products
+function plOpenNameSheet(i) {
+  var g = _pl.groups[i];
+  if (!g) return;
+  var m = document.getElementById('pl-sheet');
+  if (!m) { m = document.createElement('div'); m.id = 'pl-sheet'; m.className = 'pl-sheet'; document.body.appendChild(m); }
+  m.innerHTML = '<div class="pl-sheet-head"><img alt="" src="' + plPreview(g, 44) + '"><div><b>Wie heißt das?</b><small class="w-num">' + g.count + '× auf dem Plan</small></div>' +
+      '<button type="button" class="pl-hide" onclick="plCloseNameSheet()" aria-label="Schließen">×</button></div>' +
+    '<input type="search" id="pl-sheet-q" class="pl-sheet-q" placeholder="Suchen oder neuen Namen tippen" autocomplete="off" enterkeyhint="done" value="' + escapeHtml(_pl.names[i].name || '') + '">' +
+    '<div class="pl-sheet-list" id="pl-sheet-list"></div>';
+  m.dataset.i = i;
+  m.classList.add('open');
+  var q = document.getElementById('pl-sheet-q');
+  q.addEventListener('input', plDrawNameOptions);
+  q.addEventListener('keydown', function(e) { if (e.key === 'Enter' && q.value.trim()) plPickName(q.value); });
+  plDrawNameOptions();
+  setTimeout(function() { q.focus(); q.select(); }, 50);
+}
+
+function plDrawNameOptions() {
+  var m = document.getElementById('pl-sheet'), i = +m.dataset.i, q = document.getElementById('pl-sheet-q').value;
+  var remembered = Object.keys(_pl.memory || {}).map(function(k) { return _pl.memory[k].name; });
+  var products = (typeof alleProdukte !== 'undefined' && Array.isArray(alleProdukte) && alleProdukte.length) ? alleProdukte.map(function(p) { return p.name; }) : (_pl.products || []);
+  var opts = plNameOptions(q, plUsedNames(i), remembered, products, _pl.groups[i].suggest ? [_pl.groups[i].suggest] : []);
+  var exact = opts.some(function(o) { return o.name.toLowerCase() === q.trim().toLowerCase(); });
+  document.getElementById('pl-sheet-list').innerHTML =
+    (q.trim() && !exact ? '<button type="button" class="pl-opt pl-opt-new" data-n="' + escapeHtml(q.trim()) + '" onclick="plPickName(this.dataset.n)">„' + escapeHtml(q.trim()) + '“ übernehmen</button>' : '') +
+    opts.map(function(o) { return '<button type="button" class="pl-opt" data-n="' + escapeHtml(o.name) + '" onclick="plPickName(this.dataset.n)">' + escapeHtml(o.name) +
+      (o.used ? '<small>schon in diesem Plan</small>' : '') + '</button>'; }).join('') +
+    (!opts.length && !q.trim() ? '<p class="pl-hint">Tippe einen Namen, z. B. „Stehtisch Ø80“. Beim nächsten Plan wird er wieder vorgeschlagen.</p>' : '');
+}
+
+function plPickName(n) {
+  var m = document.getElementById('pl-sheet'), i = +m.dataset.i;
+  plCloseNameSheet();
+  plSetName(i, n, plIsMobile());
+}
+
+function plCloseNameSheet() {
+  var m = document.getElementById('pl-sheet');
+  if (m) m.classList.remove('open');
 }
 
 function plDrawList() {
@@ -486,5 +679,5 @@ function plDownloadCsv() {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { plParseOps: plParseOps, plMeasure: plMeasure, plGroup: plGroup, plSymbolKey: plSymbolKey, plMatchMemory: plMatchMemory, plCleanLabel: plCleanLabel,
-    plSuggestNames: plSuggestNames, plTitleZone: plTitleZone, plWithoutZone: plWithoutZone, plMaterialList: plMaterialList, plCsv: plCsv, plMayUse: plMayUse, PL_OP: PL_OP };
+    plSuggestNames: plSuggestNames, plTitleZone: plTitleZone, plWithoutZone: plWithoutZone, plMaterialList: plMaterialList, plCsv: plCsv, plFitZoom: plFitZoom, plNextOpen: plNextOpen, plNameOptions: plNameOptions, plMayUse: plMayUse, PL_OP: PL_OP };
 }

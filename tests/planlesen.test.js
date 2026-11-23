@@ -99,3 +99,27 @@ test('plMatchMemory: a named symbol is found again with a small size difference,
 });
 
 function chunk(flat) { const out = []; for (let i = 0; i < flat.length; i += 2) out.push([flat[i], flat[i + 1]]); return out; }
+
+test('plFitZoom: a small cluster zooms in and is centred, a spread-out group stays at the whole plan', () => {
+  const f = P.plFitZoom([100, 100, 140, 120], 360, 300, 6);
+  assert.ok(f.zoom > 4 && f.zoom <= 6, 'zoomed in: ' + f.zoom);
+  assert.ok(Math.abs((f.left + 180) / f.zoom - 120) < 1 && Math.abs((f.top + 150) / f.zoom - 110) < 1, 'centred');
+  assert.equal(P.plFitZoom([0, 0, 360, 260], 360, 300, 6).zoom, 1);
+  assert.equal(P.plFitZoom([0, 0, 1, 1], 360, 300, 6).zoom, 6, 'capped');
+});
+
+test('plNextOpen: next group without name and not hidden, wrapping around; -1 when all are done', () => {
+  const names = { 0: { name: 'Stuhl' }, 1: { name: '' }, 2: { ignore: true }, 3: {} };
+  assert.equal(P.plNextOpen(names, 4, 1, 1), 3);
+  assert.equal(P.plNextOpen(names, 4, 3, 1), 1);
+  assert.equal(P.plNextOpen(names, 4, 3, -1), 1);
+  assert.equal(P.plNextOpen({ 0: { name: 'a' }, 1: { ignore: true } }, 2, 0, 1), -1);
+  assert.equal(P.plNextOpen(names, 4, -1, 1), 1, 'start before the first');
+});
+
+test('plNameOptions: used names first, then plan words, remembered, products; filtered and without duplicates', () => {
+  const o = P.plNameOptions('', ['Stuhl Berlin'], ['Stehtisch Ø80', 'stuhl berlin'], ['Banketttisch', 'Stehtisch Ø80'], ['Hochtisch']);
+  assert.deepEqual(o.map(x => x.name), ['Stuhl Berlin', 'Hochtisch', 'Stehtisch Ø80', 'Banketttisch']);
+  assert.equal(o[0].used, true); assert.equal(o[1].used, false);
+  assert.deepEqual(P.plNameOptions('tisch', ['Stuhl Berlin'], ['Stehtisch Ø80'], ['Banketttisch'], []).map(x => x.name), ['Stehtisch Ø80', 'Banketttisch']);
+});
