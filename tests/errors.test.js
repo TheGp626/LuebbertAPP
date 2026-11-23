@@ -78,6 +78,14 @@ test('noise filter', () => {
   assert.equal(ctx.isNoiseError('', '', 'https://a.b'), true);
 });
 
+test('network drops are noise in every browser wording, real TypeErrors are not', () => {
+  for (const m of ['Failed to fetch', 'TypeError: Failed to fetch', 'StorageUnknownError: Failed to fetch',
+    'TypeError: NetworkError when attempting to fetch resource.', 'Load failed', 'TypeError: Load failed', 'Network request failed'])
+    assert.equal(ctx.isNoiseError(m, '', 'https://a.b'), true, m);
+  assert.equal(ctx.isNoiseError('TypeError: Failed to fetch dynamically imported module x', 'at f (https://a.b/js/p.js:1:1)', 'https://a.b'), false);
+  assert.equal(ctx.isNoiseError('nicht gespeichert', 'at f (https://a.b/js/p.js:1:1)', 'https://a.b'), false);
+});
+
 test('queue cap drops oldest', () => {
   let q = [];
   for (let i = 0; i < 55; i++) q = ctx.errQueuePut(q, { i }, 50);
@@ -244,7 +252,7 @@ test('the original console still gets the call', () => {
   assert.equal(seen[0][1], e);
 });
 
-test('network failures while offline are not reported', () => {
+test('network failures are not reported, offline or not (phones report "online" on a dead connection)', () => {
   const c = browserCtx();
   c.navigator.onLine = false;
   c.console.error('Week Sync Error:', new TypeError('Failed to fetch'));
@@ -252,6 +260,9 @@ test('network failures while offline are not reported', () => {
   assert.equal(queueOf(c).length, 0);
   c.navigator.onLine = true;
   c.console.error('Week Sync Error:', new TypeError('Failed to fetch'));
+  c.console.warn('Profilbilder laden:', new TypeError('NetworkError when attempting to fetch resource.'));
+  assert.equal(queueOf(c).length, 0);
+  c.console.error('Verknüpfung speichern:', new Error('nicht gespeichert'));
   assert.equal(queueOf(c).length, 1);
 });
 

@@ -344,7 +344,9 @@ async function ordSetLink(sel) {
       link = { plan_date: parts[0], plan_key: parts[0] ? parts.slice(1).join('|') : null };
       r = await q.upsert({ job_no: job, phase: phase, plan_date: link.plan_date, plan_key: link.plan_key }, { onConflict: 'job_no,phase' }).select('job_no');
     }
-    if (r.error || !r.data || !r.data.length) throw r.error || new Error('nicht gespeichert'); // RLS: 0 rows, no error
+    // RLS: 0 rows, no error. Except "Automatisch" on an order that never had a manual link: nothing to delete, already done
+    var nothingToDelete = v === 'auto' && !_ordCtx.links[k];
+    if (r.error || ((!r.data || !r.data.length) && !nothingToDelete)) throw r.error || new Error('nicht gespeichert');
     if (link) _ordCtx.links[k] = link; else delete _ordCtx.links[k];
   } catch (err) {
     console.error('Verknüpfung speichern:', err);

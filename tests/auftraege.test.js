@@ -471,6 +471,14 @@ test('fix: ordSetLink treats 0 changed rows as not saved', async () => {
   assert.equal(vm.runInContext('_ordCtx.links["26-0415.01|setup"].plan_key', ctx), 'k1');
 });
 
+test('fix: ordSetLink "Automatisch" without a stored link is no error (nothing to delete)', async () => {
+  setCtx({ links: {} });
+  ctx.ordRenderList = () => {}; let toast = null; ctx.showToast = (m, t) => { toast = t; };
+  ctx.supabaseClient = { from: () => { const b = { delete: () => b, eq: () => b, select: () => Promise.resolve({ data: [], error: null }) }; return b; } };
+  await ctx.ordSetLink({ dataset: { job: '26-0415.01', phase: 'setup' }, value: 'auto' });
+  assert.equal(toast, null);
+});
+
 // ── „Hätten laut Verfügbarkeit Zeit“ ──
 const U = (id, extra) => Object.assign({ id, full_name: 'N ' + id, role: 'MA', is_active: true, availability_enabled: true, can_drive: false }, extra || {});
 function availCtx(extra) {

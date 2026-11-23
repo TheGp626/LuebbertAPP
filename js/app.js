@@ -390,7 +390,9 @@ window.addEventListener('DOMContentLoaded', function() {
     });
 
     navigator.serviceWorker.register('sw.js').then(function(reg) {
-      reg.update(); // proactively check for a new sw.js on every page load
+      // proactively check for a new sw.js on every page load; no network → just try again next start
+      var upd = reg.update();
+      if (upd && upd.catch) upd.catch(function() {});
       if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
     }).catch(function() {});
   }
