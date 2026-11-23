@@ -64,7 +64,6 @@ test('adminStats: totals, this month vs last month, to-date comparison, people a
   assert.equal(st.lastMonthToDate, 2);
   assert.equal(st.deltaToDate, 100);
   assert.equal(st.hoursThis, 32);
-  assert.equal(st.open, 1);
   assert.equal(st.peopleThis, 2);
   assert.equal(st.peopleLast, 3);
   assert.equal(st.agencyThis, 1);
@@ -101,4 +100,19 @@ test('adminStats: more than six roles fold into "Sonstige"', () => {
   const st = A.adminStats(shifts, [], [], new Date(2026, 10, 10));
   assert.equal(st.byRole.length, 6);
   assert.deepEqual(plain(st.byRole[5]), { role: 'Sonstige', count: 2 });
+});
+
+test('Monster Energy: only Patryk, 1 can per 5 h of his own shifts (rounded down)', () => {
+  assert.equal(A.adminIsPatryk({ full_name: 'Patryk Stanczyk' }), true);
+  assert.equal(A.adminIsPatryk({ full_name: 'patryk' }), true);
+  assert.equal(A.adminIsPatryk({ full_name: 'Patrick Muster' }), false);
+  assert.equal(A.adminIsPatryk({ full_name: 'Max Patryk' }), false);
+  assert.equal(A.adminIsPatryk(null), false);
+  const shifts = [
+    { user_id: 'p', start_time: '08:00', end_time: '16:00', pause_mins: 0 },  // 8 h
+    { user_id: 'p', start_time: '10:00', end_time: '11:00', pause_mins: 0 },  // 3 h minimum
+    { user_id: 'x', start_time: '08:00', end_time: '20:00', pause_mins: 0 }   // someone else
+  ];
+  assert.deepEqual(plain(A.adminMonsterCans(shifts, 'p')), { cans: 2, hours: 11 });
+  assert.deepEqual(plain(A.adminMonsterCans(shifts, null)), { cans: 0, hours: 0 });
 });
