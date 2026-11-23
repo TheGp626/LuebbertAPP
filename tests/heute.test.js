@@ -85,3 +85,29 @@ test('crew render never keeps the previous user\'s strip and rows (shared phone)
   assert.ok(!els['heute-week'].innerHTML.includes('OLD-STRIP'));
   assert.equal(els['heute-todo'].innerHTML, '');
 });
+
+test('Dein Monat: hours, shifts, pay, limit share and days left', () => {
+  const range = { from: '2026-10-20', to: '2026-11-19' };
+  const m = H.heuteMonthModel({ mins: 1530, shifts: 4, pay: 382.5, limit: 603 }, null, range, '2026-11-10');
+  assert.equal(m.hours, 25.5); assert.equal(m.shifts, 4); assert.equal(m.pay, 382.5);
+  assert.equal(m.pct, 63); assert.equal(m.level, 'ok'); assert.equal(m.left, 220.5); assert.equal(m.daysLeft, 9);
+  // own limit missing → default for the Art der Anstellung
+  assert.equal(H.heuteMonthModel({ mins: 600, shifts: 1, pay: 550, limit: null }, 603, range, '2026-11-19').level, 'warn');
+  assert.equal(H.heuteMonthModel({ mins: 600, shifts: 1, pay: 550, limit: null }, 603, range, '2026-11-19').daysLeft, 0);
+  const over = H.heuteMonthModel({ mins: 600, shifts: 1, pay: 700, limit: 603 }, null, range, '2026-11-01');
+  assert.equal(over.level, 'over'); assert.equal(over.pct, 116); assert.equal(over.left, 0);
+  // no rate → no pay, no bar; no shifts yet → zeros
+  const norate = H.heuteMonthModel({ mins: 600, shifts: 2, pay: null, limit: 603 }, null, range, '2026-11-01');
+  assert.equal(norate.pay, null); assert.equal(norate.pct, null); assert.equal(norate.level, null);
+  const none = H.heuteMonthModel(null, 603, range, '2026-11-01');
+  assert.equal(none.hours, 0); assert.equal(none.shifts, 0); assert.equal(none.pct, null);
+  // Fest / Rechnung: no limit at all
+  assert.equal(H.heuteMonthModel({ mins: 600, shifts: 1, pay: 200, limit: null }, null, range, '2026-11-01').pct, null);
+});
+
+test('Monster text: count with German thousands, nothing when unknown', () => {
+  assert.equal(H.heuteMonsterText({ cans: 104, hours: 521 }), 'Patryk hat bisher 104 Monster Energy getrunken');
+  assert.equal(H.heuteMonsterText({ cans: 1234, hours: 6170 }), 'Patryk hat bisher 1.234 Monster Energy getrunken');
+  assert.equal(H.heuteMonsterText(null), null);
+  assert.equal(H.heuteMonsterText({}), null);
+});

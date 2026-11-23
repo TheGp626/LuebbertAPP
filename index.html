@@ -13,7 +13,7 @@
 
   <link rel="stylesheet" href="css/style.css?v=44">
   <link rel="stylesheet" href="css/ui.css?v=51">
-  <link rel="stylesheet" href="css/werk.css?v=10">
+  <link rel="stylesheet" href="css/werk.css?v=11">
 </head>
 
 <body>
@@ -80,6 +80,8 @@
         <div id="heute-office"></div>
         <div id="heute-week"></div>
         <div id="heute-todo"></div>
+        <div id="heute-month"></div>
+        <div id="heute-monster"></div>
         <div class="w-foot">Lübbert App v2.0</div>
       </div>
     </div>
@@ -325,8 +327,9 @@
                     <div class="dash-close-btns">
                       <button type="button" class="ui-btn dash-small-btn" onclick="exportDashMonthClose('pdf')">PDF mit allen Stundenzetteln</button>
                       <button type="button" class="ui-btn dash-small-btn" onclick="exportDashMonthClose('csv')">CSV für Excel</button>
+                      <button type="button" class="ui-btn ui-btn-primary dash-small-btn" onclick="dashBookMonth()">Monat verbuchen</button>
                     </div>
-                    <div class="ui-sub">PDF: vorne die Übersicht aller mit App-Konto, dahinter für jede Person ihr Stundenzettel mit Zeiten, Ort, AL und Unterschriften. CSV: nur die Übersicht. Zenjob und Rockit stehen nicht drin.</div>
+                    <div class="ui-sub">PDF: vorne die Übersicht aller mit App-Konto, dahinter für jede Person ihr Stundenzettel mit Zeiten, Ort, AL und Unterschriften. CSV: nur die Übersicht. Zenjob und Rockit stehen nicht drin. „Monat verbuchen“ setzt alle offenen Schichten des Monats auf eingetragen.</div>
                   </div>
                 </details>
                 <details id="dash-bees-panel" hidden>
@@ -979,8 +982,8 @@
   <script src="js/wochenplan.js?v=41"></script>
   <script src="js/material.js?v=5"></script>
   <script src="js/home.js?v=13"></script>
-  <script src="js/heute.js?v=3"></script>
-  <script src="js/dashboard.js?v=66"></script>
+  <script src="js/heute.js?v=4"></script>
+  <script src="js/dashboard.js?v=67"></script>
   <script src="js/fehler.js?v=3"></script>
   <script src="js/admin.js?v=3"></script>
   <script src="js/produkte.js?v=22"></script>

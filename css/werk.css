@@ -296,3 +296,26 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .ordner-card, .ordner-file-row { border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-ctl); }
 .ordner-file-name { font-weight: 700; }
 .dash-nk { border: var(--w-bw) solid var(--w-line) !important; border-radius: var(--w-r-ctl) !important; background: var(--w-card); }
+
+/* "Dein Monat" on Heute (js/heute.js renderHeuteMonth) */
+.w-month { background: var(--w-card); border: var(--w-bw) solid var(--w-line); border-radius: var(--w-r-hero); padding: var(--w-s4); cursor: pointer; }
+.w-month:active { background: var(--w-tint); }
+.w-month-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.w-month-days { font-size: 12px; font-weight: 700; color: var(--w-muted); letter-spacing: .02em; }
+.w-month-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 10px; margin-top: 14px; }
+.w-month-stats { min-width: 0; }
+.w-month-stats > div { min-width: 0; }
+.w-month-stats b { display: block; font-size: clamp(20px, 6.4vw, 26px); font-weight: 800; line-height: 1.05; letter-spacing: -.01em; white-space: nowrap; }
+.w-month-stats span { display: block; font-size: 12px; font-weight: 600; color: var(--w-muted); margin-top: 2px; }
+.w-month-bar { height: 10px; margin-top: 16px; border: var(--w-bw) solid var(--w-line); border-radius: 2px; background: var(--w-paper); overflow: hidden; }
+.w-month-bar > i { display: block; height: 100%; background: var(--w-ok); }
+.w-month-warn > i { background: var(--w-accent); }
+.w-month-over > i { background: var(--w-danger); }
+.w-month-limit { font-size: 12px; font-weight: 600; color: var(--w-muted); margin-top: 6px; }
+.w-month-over + .w-month-limit { color: var(--w-danger); }
+
+/* Patryk's Monster counter (js/heute.js renderHeuteMonster) */
+.w-monster { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 18px; padding: 10px 12px; border-radius: var(--w-r-ctl);
+  background: color-mix(in srgb, #7AC943 14%, var(--w-card)); border: 1px dashed color-mix(in srgb, #7AC943 60%, var(--w-line)); font-size: 13px; font-weight: 600; }
+.w-monster img { width: auto; height: 18px; }
+.w-monster small { flex-basis: 100%; padding-left: 26px; font-size: 11px; font-weight: 500; color: var(--w-muted); }

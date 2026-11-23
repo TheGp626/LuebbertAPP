@@ -899,3 +899,18 @@ test('dashWorkerList: groups Aushilfen and Fest', () => {
   assert.deepEqual(plain(ctx.dashWorkerList(w, {}, '', '', 'fest')).map(x => x.id).sort(), ['b', 'c']);
   assert.equal(plain(ctx.dashWorkerList(w, {}, '')).length, 4);
 });
+
+test('Monat verbuchen: only open shifts of people with an account in that billing month', () => {
+  const shifts = [
+    { id: 'a', user_id: 'u1', status: 'offen', shift_date: '2026-10-25' },
+    { id: 'b', user_id: 'u1', status: 'eingetragen', shift_date: '2026-10-26' },
+    { id: 'c', user_id: 'u2', status: 'offen', shift_date: null, protocols: { date: '2026-11-02' } },
+    { id: 'd', user_id: null, status: 'offen', shift_date: '2026-10-27' },          // Zenjob: not ours to book
+    { id: 'e', user_id: 'u3', status: 'offen', shift_date: '2026-11-20' },          // next billing month (cutoff 20)
+    { id: 'f', user_id: 'u3', status: 'offen', shift_date: '2026-10-19' },          // month before
+  ];
+  const r = ctx.dashUnbookedInMonth(shifts, '2026-11', 20);
+  assert.deepEqual([...r.ids], ['a', 'c']);
+  assert.equal(r.people, 2);
+  assert.deepEqual([...ctx.dashUnbookedInMonth([], '2026-11', 20).ids], []);
+});
