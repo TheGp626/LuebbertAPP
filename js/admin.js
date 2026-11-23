@@ -120,7 +120,7 @@ function adminStats(shifts, protocols, users, now) {
   return out;
 }
 
-// Easter egg for Patryk: 1 Monster Energy per 5 hours of his own work
+// Easter egg: Patryk drinks 1 Monster Energy per 5 hours of work, and everyone gets to see the total
 var ADMIN_MONSTER_HOURS = 5;
 function adminIsPatryk(user) { return /^patryk(\s|$)/i.test(String((user && user.full_name) || '').trim()); }
 function adminMonsterCans(shifts, userId) {
@@ -333,14 +333,14 @@ function adminStatsHtml(st, data) {
     '<div class="admin-foot ui-sub">Stand ' + updated + ' Uhr · <button type="button" class="ord-textbtn" onclick="renderAdminStats(true)">Aktualisieren</button></div>';
 }
 
-// Patryk sees how many Monster Energy his hours are worth; every other admin the average shift length
+// Everyone on the page sees how many Monster Energy Patryk's hours are worth (only if he has no account: Ø per shift)
 function adminFourthKpiHtml(st, data, kpi) {
-  var me = typeof currentUser !== 'undefined' ? currentUser : null;
-  if (adminIsPatryk(me)) {
-    var m = adminMonsterCans(data.shifts, me.id);
-    return '<div class="admin-kpi admin-kpi-monster" title="1 Dose pro ' + ADMIN_MONSTER_HOURS + ' Stunden Arbeit, gezählt aus deinen eigenen Schichten">' +
-      '<span>Monster Energy getrunken</span><b>' + adminFmtNum(m.cans) + ' <img src="icons/monsta_can.png" class="admin-monster-can" alt=""></b>' +
-      '<small>ⓘ 1 Dose pro ' + ADMIN_MONSTER_HOURS + ' h Arbeit · ' + adminFmtNum(m.hours) + ' h von dir</small></div>';
+  var patryk = (data.users || []).find(adminIsPatryk);
+  if (patryk) {
+    var m = adminMonsterCans(data.shifts, patryk.id);
+    return '<div class="admin-kpi admin-kpi-monster" title="1 Dose pro ' + ADMIN_MONSTER_HOURS + ' Stunden Arbeit, gezählt aus Patryks Schichten">' +
+      '<span>Monster Energy von Patryk</span><b>' + adminFmtNum(m.cans) + ' <img src="icons/monsta_can.png" class="admin-monster-can" alt=""></b>' +
+      '<small>ⓘ 1 Dose pro ' + ADMIN_MONSTER_HOURS + ' h Arbeit · Patryk hat ' + adminFmtNum(m.hours) + ' h gearbeitet</small></div>';
   }
   return kpi('Ø pro Schicht', st.total ? adminFmtNum(st.hoursTotal / st.total, 1).replace(/,0$/, '') + ' h' : '–', 'über alle Schichten');
 }
