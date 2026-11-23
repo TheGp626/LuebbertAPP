@@ -314,8 +314,3 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .w-month-limit { font-size: 12px; font-weight: 600; color: var(--w-muted); margin-top: 6px; }
 .w-month-over + .w-month-limit { color: var(--w-danger); }
 
-/* Patryk's Monster counter (js/heute.js renderHeuteMonster) */
-.w-monster { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 18px; padding: 10px 12px; border-radius: var(--w-r-ctl);
-  background: color-mix(in srgb, #7AC943 14%, var(--w-card)); border: 1px dashed color-mix(in srgb, #7AC943 60%, var(--w-line)); font-size: 13px; font-weight: 600; }
-.w-monster img { width: auto; height: 18px; }
-.w-monster small { flex-basis: 100%; padding-left: 26px; font-size: 11px; font-weight: 500; color: var(--w-muted); }
