@@ -88,12 +88,6 @@ function heuteMonthModel(row, limit, range, todayStr) {
     left: lim && pay != null ? Math.max(0, Math.round((lim - pay) * 100) / 100) : null, daysLeft: daysLeft };
 }
 
-// Monster counter (RPC monster_patryk): { cans, hours } → text, null when unknown
-function heuteMonsterText(m) {
-  if (!m || typeof m.cans !== 'number') return null;
-  return 'Patryk hat bisher ' + m.cans.toLocaleString('de-DE') + ' Monster Energy getrunken';
-}
-
 /* ── DOM part (browser only) ── */
 
 var _heuteSeq = 0;
@@ -190,18 +184,6 @@ async function renderHeuteMonth(seq) {
     (m.pay != null ? '<div><b class="w-num">≈ ' + Math.round(m.pay).toLocaleString('de-DE') + ' €</b><span>Verdienst</span></div>' : '') + '</div>' + bar + '</div>';
 }
 
-async function renderHeuteMonster(seq) {
-  var box = document.getElementById('heute-monster');
-  if (!box) return;
-  if (typeof supabaseClient === 'undefined' || userRole === 'Gast') { box.innerHTML = ''; return; }
-  var r;
-  try { r = await supabaseClient.rpc('monster_patryk'); } catch (e) { return; }
-  if (seq !== _heuteSeq) return;
-  var text = r && !r.error ? heuteMonsterText(r.data) : null; // RPC missing on an older database → nothing
-  box.innerHTML = text ? '<div class="w-monster"><img src="icons/monsta_can.png" alt="" width="18" height="18"><span>' + escapeHtml(text) +
-    '</span><small>1 Dose pro 5 Stunden Arbeit</small></div>' : '';
-}
-
 function heuteCount(res) { return res && !res.error && typeof res.count === 'number' ? res.count : 0; }
 function heuteEuro(n) { return (Number(n) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
 function heuteDm(iso) { return iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.'; }
@@ -268,7 +250,6 @@ async function renderHeute() {
   var office = document.getElementById('heute-office');
   if (office) office.innerHTML = '';
   renderHeuteMonth(seq);
-  renderHeuteMonster(seq);
   if (userRole === 'MA' || userRole === 'AL') return renderHeuteCrew(seq);
   return renderHeuteOffice(seq); // PL, Admin, Buchhaltung
 }
@@ -276,5 +257,5 @@ async function renderHeute() {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { heuteWeekStrip: heuteWeekStrip, heuteMissingHourDays: heuteMissingHourDays, heuteOpenSlotCount: heuteOpenSlotCount,
     heuteAddDays: heuteAddDays, heuteMonday: heuteMonday, heuteTodaySummary: heuteTodaySummary, heuteUnbookedProtocols: heuteUnbookedProtocols,
-    heuteMonthModel: heuteMonthModel, heuteMonsterText: heuteMonsterText };
+    heuteMonthModel: heuteMonthModel };
 }

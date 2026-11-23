@@ -105,9 +105,3 @@ test('Dein Monat: hours, shifts, pay, limit share and days left', () => {
   assert.equal(H.heuteMonthModel({ mins: 600, shifts: 1, pay: 200, limit: null }, null, range, '2026-11-01').pct, null);
 });
 
-test('Monster text: count with German thousands, nothing when unknown', () => {
-  assert.equal(H.heuteMonsterText({ cans: 104, hours: 521 }), 'Patryk hat bisher 104 Monster Energy getrunken');
-  assert.equal(H.heuteMonsterText({ cans: 1234, hours: 6170 }), 'Patryk hat bisher 1.234 Monster Energy getrunken');
-  assert.equal(H.heuteMonsterText(null), null);
-  assert.equal(H.heuteMonsterText({}), null);
-});
