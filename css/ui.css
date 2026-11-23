@@ -612,6 +612,10 @@ button[aria-busy="true"], .ui-btn[aria-busy="true"] { opacity: .6; pointer-event
 .admin-kpi b { display: block; font-size: 28px; font-weight: 750; margin: 4px 0 2px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
 .admin-kpi small { display: block; font-size: 12px; color: var(--text2); line-height: 1.35; }
 
+.admin-kpi-monster { background: linear-gradient(135deg, var(--bg2) 55%, rgba(122,201,67,.16)); border-color: rgba(122,201,67,.45); }
+.admin-kpi-monster b { display: flex; align-items: center; gap: 6px; }
+.admin-monster-can { height: 26px; width: auto; }
+
 /* Cards */
 .admin-card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--r-card); padding: 16px; margin-bottom: 12px; min-width: 0; }
 .admin-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }

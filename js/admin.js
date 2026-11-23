@@ -75,14 +75,13 @@ function adminStats(shifts, protocols, users, now) {
   months.forEach(function(m) { byMonth[m.key] = m; });
 
   var out = { total: shifts.length, thisMonth: 0, lastMonth: 0, lastMonthToDate: 0, hoursThis: 0, hoursLast: 0,
-    hoursTotal: 0, open: 0, peopleThis: 0, peopleLast: 0, agencyThis: 0, protTotal: protocols.length, protThis: 0, protLast: 0,
+    hoursTotal: 0, peopleThis: 0, peopleLast: 0, agencyThis: 0, protTotal: protocols.length, protThis: 0, protLast: 0,
     thisKey: thisKey, lastKey: lastKey, day: day, months: months, topPeople: [], byRole: [], weekdays: [0, 0, 0, 0, 0, 0, 0] };
   var peopleThis = {}, peopleLast = {}, perPerson = {}, perRole = {};
 
   shifts.forEach(function(s) {
     var d = adminShiftDate(s), key = d.slice(0, 7), h = adminShiftHours(s);
     out.hoursTotal += h;
-    if (s.status === 'offen') out.open++;
     if (byMonth[key]) { byMonth[key].count++; byMonth[key].hours += h; }
     if (key === thisKey) {
       out.thisMonth++; out.hoursThis += h;
@@ -119,6 +118,15 @@ function adminStats(shifts, protocols, users, now) {
   }
   out.deltaToDate = adminDelta(out.thisMonth, out.lastMonthToDate);
   return out;
+}
+
+// Easter egg for Patryk: 1 Monster Energy per 5 hours of his own work
+var ADMIN_MONSTER_HOURS = 5;
+function adminIsPatryk(user) { return /^patryk(\s|$)/i.test(String((user && user.full_name) || '').trim()); }
+function adminMonsterCans(shifts, userId) {
+  if (!userId) return { cans: 0, hours: 0 };
+  var h = (shifts || []).reduce(function(n, s) { return s.user_id === userId ? n + adminShiftHours(s) : n; }, 0);
+  return { cans: Math.floor(h / ADMIN_MONSTER_HOURS), hours: h };
 }
 
 function adminFmtNum(n, digits) {
@@ -260,7 +268,7 @@ function adminStatsHtml(st, data) {
     kpi('Schichten gesamt', adminFmtNum(st.total), adminFmtNum(st.hoursTotal) + ' Stunden seit Start') +
     kpi('Letzter Monat', adminFmtNum(st.lastMonth), escapeHtml(lastName) + ' · ' + adminFmtNum(st.hoursLast) + ' h · ' + st.peopleLast + ' Leute') +
     kpi('Protokolle gesamt', adminFmtNum(st.protTotal), st.protLast + ' im ' + escapeHtml(lastName)) +
-    kpi('Noch nicht verbucht', adminFmtNum(st.open), st.open ? 'Schichten mit Status „offen“' : 'alles verbucht') +
+    adminFourthKpiHtml(st, data, kpi) +
     '</div>';
 
   // ── Bars: shifts per month, last 12 months ──
@@ -325,6 +333,18 @@ function adminStatsHtml(st, data) {
     '<div class="admin-foot ui-sub">Stand ' + updated + ' Uhr · <button type="button" class="ord-textbtn" onclick="renderAdminStats(true)">Aktualisieren</button></div>';
 }
 
+// Patryk sees how many Monster Energy his hours are worth; every other admin the average shift length
+function adminFourthKpiHtml(st, data, kpi) {
+  var me = typeof currentUser !== 'undefined' ? currentUser : null;
+  if (adminIsPatryk(me)) {
+    var m = adminMonsterCans(data.shifts, me.id);
+    return '<div class="admin-kpi admin-kpi-monster" title="1 Dose pro ' + ADMIN_MONSTER_HOURS + ' Stunden Arbeit, gezählt aus deinen eigenen Schichten">' +
+      '<span>Monster Energy getrunken</span><b>' + adminFmtNum(m.cans) + ' <img src="icons/monsta_can.png" class="admin-monster-can" alt=""></b>' +
+      '<small>ⓘ 1 Dose pro ' + ADMIN_MONSTER_HOURS + ' h Arbeit · ' + adminFmtNum(m.hours) + ' h von dir</small></div>';
+  }
+  return kpi('Ø pro Schicht', st.total ? adminFmtNum(st.hoursTotal / st.total, 1).replace(/,0$/, '') + ' h' : '–', 'über alle Schichten');
+}
+
 // Tooltip for the month bars: hover on desktop, tap or focus on the phone
 function adminBindChart(box) {
   var chart = box.querySelector('#admin-chart'), tip = box.querySelector('#admin-tip');
@@ -385,5 +405,6 @@ function adminRefresh() {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { adminTabFromHash: adminTabFromHash, adminHashFor: adminHashFor, adminShiftDate: adminShiftDate, adminShiftHours: adminShiftHours,
-    adminMonthKey: adminMonthKey, adminMonthLabel: adminMonthLabel, adminDelta: adminDelta, adminRoleOf: adminRoleOf, adminStats: adminStats };
+    adminMonthKey: adminMonthKey, adminMonthLabel: adminMonthLabel, adminDelta: adminDelta, adminRoleOf: adminRoleOf, adminStats: adminStats,
+    adminIsPatryk: adminIsPatryk, adminMonsterCans: adminMonsterCans };
 }
