@@ -446,7 +446,6 @@ function moduleAllowedForRole(m, role) {
   if (m === 'auftraege') return role === 'Admin' || role === 'PL' || !!(typeof window !== 'undefined' && window.currentUserSeesInterest);
   if (m === 'dashboard') return ['AL', 'PL', 'Buchhaltung', 'Admin'].indexOf(role) !== -1;
   if (m === 'admin') return role === 'Admin';
-  if (m === 'planlesen') return ['AL', 'PL', 'Admin'].indexOf(role) !== -1;
   return true;
 }
 

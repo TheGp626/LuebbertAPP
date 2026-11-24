@@ -150,8 +150,6 @@ function wpDetails(s) {
     (s.notes ? '<div class="wp-d-block"><div class="wp-d-label">' + WP_ICON.truck + ' Fahrzeuge & Infos</div>' + lines(s.notes) + '</div>' : '') +
     (s.location ? '<div class="wp-d-block"><div class="wp-d-label">' + WP_ICON.pin + ' Ort</div>' + wpEsc(s.venue || '') + '<br>' + lines(s.location) + '</div>' : '') +
     (mat.length ? '<div class="wp-d-block"><div class="wp-d-label">Material</div>' + mat.map(wpEsc).join('<br>') + '</div>' : '') +
-    // Raumplan of this job (js/planjob.js fills the placeholder when a saved plan fits)
-    (typeof pjSlotHtml === 'function' ? pjSlotHtml(s) : '') +
   '</div>';
 }
 

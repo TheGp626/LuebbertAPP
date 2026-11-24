@@ -76,7 +76,7 @@ try {
 
 // ── MODE SELECTION & NAVIGATION ──
 var MODULE_TITLES = { stunden: 'Stundenzettel', protokoll: 'Protokoll', dashboard: 'Office Dashboard',
-  produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan', auftraege: 'Aufträge', admin: 'Admin', planlesen: 'Plan einlesen' };
+  produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan', auftraege: 'Aufträge', admin: 'Admin' };
 
 // The office dashboard is opened from two tiles; each shows one view ('prot' | 'work'). Admin settings: js/admin.js
 var DASH_VIEW_TITLES = { prot: 'Protokoll-Übersicht', work: 'Personal' };
@@ -107,7 +107,6 @@ function selectMode(m, view) {
       : m === 'protokoll' ? 'Zugriff verweigert: Nur für AL/PL.'
       : m === 'auftraege' ? 'Zugriff verweigert: Nur für PL/Admin.'
       : m === 'admin' ? 'Zugriff verweigert: Nur für Admins.'
-      : m === 'planlesen' ? 'Zugriff verweigert: Nur für AL/PL/Admin.'
       : 'Zugriff verweigert: Nur für AL/PL/Buchhaltung.');
     return;
   }
@@ -167,12 +166,6 @@ function selectMode(m, view) {
     navigate('wochenplan');
     // The plan needs the logged-in user; a module restored before login is initialised from handleSession
     if (typeof initWochenplan === 'function' && typeof currentUser !== 'undefined' && currentUser) initWochenplan();
-  } else if (m === 'planlesen') {
-    document.getElementById('main-nav').style.display = 'none';
-    var pn7 = document.getElementById('prot-nav');
-    if (pn7) pn7.style.display = 'none';
-    navigate('planlesen');
-    if (typeof initPlanlesen === 'function') initPlanlesen();
   } else if (m === 'admin') {
     document.getElementById('main-nav').style.display = 'none';
     var pn6 = document.getElementById('prot-nav');
