@@ -15,18 +15,18 @@ const more = (r, s = false) => N.navTabs(r, allowed, s).more.map(t => t.id);
 
 test('tabs per role (spec table)', () => {
   assert.deepEqual(ids('MA'), ['heute', 'plan', 'zettel', 'mehr']);
-  assert.deepEqual(ids('AL'), ['heute', 'plan', 'protokoll', 'zettel', 'mehr']);
-  assert.deepEqual(ids('PL'), ['heute', 'plan', 'auftraege', 'protokolle', 'mehr']);
-  assert.deepEqual(ids('Admin'), ['heute', 'plan', 'auftraege', 'protokolle', 'mehr']);
+  assert.deepEqual(ids('AL'), ['heute', 'plan', 'protokoll', 'zettel', 'uebersicht', 'mehr']);
+  assert.deepEqual(ids('PL'), ['heute', 'plan', 'auftraege', 'protokolle', 'personal', 'mehr']);
+  assert.deepEqual(ids('Admin'), ['heute', 'plan', 'auftraege', 'protokolle', 'personal', 'mehr']);
   assert.deepEqual(ids('Buchhaltung'), ['heute', 'protokolle', 'personal', 'mehr']);
   assert.deepEqual(ids('Gast'), ['produkte', 'ordner']);
 });
 
 test('Mehr per role', () => {
   assert.deepEqual(more('MA'), ['produkte', 'ordner', 'optionen', 'problem']);
-  assert.deepEqual(more('AL'), ['uebersicht', 'personal', 'produkte', 'ordner', 'optionen', 'problem']);
-  assert.deepEqual(more('PL'), ['personal', 'zettel', 'produkte', 'ordner', 'optionen', 'problem']);
-  assert.deepEqual(more('Admin'), ['admin', 'personal', 'zettel', 'produkte', 'ordner', 'optionen', 'problem']);
+  assert.deepEqual(more('AL'), ['personal', 'produkte', 'ordner', 'optionen', 'problem']);
+  assert.deepEqual(more('PL'), ['zettel', 'produkte', 'ordner', 'optionen', 'problem']);
+  assert.deepEqual(more('Admin'), ['admin', 'zettel', 'produkte', 'ordner', 'optionen', 'problem']);
   assert.deepEqual(more('Buchhaltung'), ['plan', 'zettel', 'produkte', 'ordner', 'optionen', 'problem']);
   assert.deepEqual(more('MA', true).slice(0, 1), ['auftraege']); // sees plan interest → Aufträge under Mehr
   assert.deepEqual(more('Gast'), []);
@@ -47,7 +47,7 @@ test('tab targets', () => {
   assert.equal(ad.find(x => x.id === 'admin').mode, 'admin');
   assert.ok(!ad.some(x => x.id === 'einstellungen' || x.id === 'fehler'));
   for (const r of ['MA', 'AL', 'PL', 'Buchhaltung', 'Gast']) assert.ok(!N.navTabs(r, allowed).more.some(x => x.id === 'admin'), r);
-  assert.equal(N.navTabs('AL', allowed).more.find(x => x.id === 'uebersicht').view, 'prot');
+  assert.equal(N.navTabs('AL', allowed).tabs.find(x => x.id === 'uebersicht').view, 'prot');
   assert.equal(N.navTabs('AL', allowed).tabs.find(x => x.id === 'protokoll').mode, 'protokoll');
 });
 
@@ -67,4 +67,27 @@ test('active tab, also after a restore', () => {
   assert.equal(N.navActiveTab(all, 'wochenplan', 'prot'), 'plan');
   const g = N.navTabs('Gast', allowed);
   assert.equal(N.navActiveTab(g.tabs, null, 'prot'), null); // Gast has no Heute
+});
+
+test('own tab choice (pinned)', () => {
+  const n = N.navTabs('MA', allowed, false, ['heute', 'ordner', 'zettel']);
+  assert.deepEqual(n.tabs.map(t => t.id), ['heute', 'ordner', 'zettel', 'mehr']);
+  assert.deepEqual(n.more.map(t => t.id), ['plan', 'produkte', 'optionen', 'problem']);
+  // not allowed / unknown / duplicate / action ids are dropped; max 5
+  const m = N.navTabs('MA', allowed, false, ['admin', 'personal', 'nope', 'optionen', 'plan', 'plan']);
+  assert.deepEqual(m.tabs.map(t => t.id), ['plan', 'mehr']);
+  const big = N.navTabs('Admin', allowed, false, ['admin', 'zettel', 'produkte', 'ordner', 'heute', 'plan']);
+  assert.equal(big.tabs.length, N.NAV_MAX_TABS + 1);
+  // nothing valid left → role default
+  assert.deepEqual(N.navTabs('MA', allowed, false, ['admin']).tabs.map(t => t.id), ids('MA'));
+  assert.deepEqual(N.navTabs('MA', allowed, false, []).tabs.map(t => t.id), ids('MA'));
+  // Gast ignores pins
+  assert.deepEqual(N.navTabs('Gast', allowed, false, ['produkte']).tabs.map(t => t.id), ['produkte', 'ordner']);
+});
+
+test('navTogglePin', () => {
+  assert.deepEqual(N.navTogglePin(['heute', 'plan', 'mehr'], 'ordner'), ['heute', 'plan', 'ordner']);
+  assert.deepEqual(N.navTogglePin(['heute', 'plan', 'mehr'], 'plan'), ['heute']);
+  assert.equal(N.navTogglePin(['heute', 'mehr'], 'heute'), null); // keep at least one
+  assert.equal(N.navTogglePin(['a', 'b', 'c', 'd', 'e', 'mehr'], 'f'), null); // full
 });
