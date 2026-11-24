@@ -122,10 +122,12 @@ function ordnerFolderRowHtml(o, showDate) {
   var sub = [o.description || '', date, info ? 'Löschung am ' + shortDateDE(info.date) : ''].filter(Boolean).join(' · ');
   var badge = ordnerDeleteBadge(info);
   var menuBtn = canManageOrdner ? '<button type="button" class="ui-icon-btn" aria-label="Ordner-Aktionen" onclick="event.stopPropagation();ordnerFolderMenu(\'' + o.id + '\')">' + uiIcon('dots') + '</button>' : '';
-  var end = (badge ? '<span class="ui-pill ui-pill-warn">' + escOrdner(badge) + '</span>' : '') + menuBtn;
+  // The deletion warning sits under the name (on the right it squeezed long folder names into one word per line)
+  var end = menuBtn;
   return '<div class="ui-row ordner-row" onclick="openOrdnerDetail(\'' + o.id + '\')">' +
     '<span class="ui-tile-ico ordner-ico">' + uiIcon('folder') + '</span>' +
-    '<div class="ui-row-main"><div class="ui-row-title">' + escOrdner(o.name) + '</div>' + (sub ? '<div class="ui-sub">' + escOrdner(sub) + '</div>' : '') + '</div>' +
+    '<div class="ui-row-main"><div class="ui-row-title">' + escOrdner(o.name) + '</div>' + (sub ? '<div class="ui-sub">' + escOrdner(sub) + '</div>' : '') +
+      (badge ? '<span class="ui-pill ui-pill-warn ordner-row-pill">' + escOrdner(badge) + '</span>' : '') + '</div>' +
     (end ? '<div class="ui-row-end">' + end + '</div>' : '') +
   '</div>';
 }
