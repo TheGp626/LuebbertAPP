@@ -137,8 +137,9 @@ async function renderHeuteCrew(seq) {
       cur && cur.date < today ? cur.date : null);
     if (missing.length) {
       var days = heuteWeekStrip(today, []).map(function(x) { return x.date; });
-      rows += heuteRow('selectMode(\'stunden\')', 'Stunden KW ' + wpIsoWeek(today),
-        missing.map(function(d) { return HEUTE_DOW[days.indexOf(d)]; }).join(', ') + ' fehlt noch');
+      // Hours come with the AL's protocol: this is a heads-up, not homework
+      rows += heuteRow('selectMode(\'stunden\')', 'Protokoll kommt noch',
+        missing.map(function(d) { return HEUTE_DOW[days.indexOf(d)]; }).join(', ') + ': deine Stunden fehlen noch');
     }
   }
   var keys = res[1].error ? [] : (res[1].data || []).map(function(r) { return r.week_id + '|' + r.shift_key; });
@@ -176,7 +177,7 @@ async function renderHeuteMonth(seq) {
   var bar = m.pct != null ? '<div class="w-month-bar w-month-' + m.level + '"><i style="width:' + Math.min(100, m.pct) + '%"></i></div>' +
     '<div class="w-month-limit">' + (m.level === 'over' ? 'Über deiner Verdienstgrenze von ' + heuteEuro(m.limit) + ' — sag bitte im Büro Bescheid.'
       : m.pct + ' % von ' + heuteEuro(m.limit) + ' · noch ' + heuteEuro(m.left) + ' frei') + '</div>' : '';
-  box.innerHTML = '<div class="w-label">Dein Monat</div><div class="w-month" role="button" tabindex="0" onclick="selectMode(\'stunden\'); if (typeof navigate === \'function\') navigate(\'history\')">' +
+  box.innerHTML = '<div class="w-label">Dein Monat</div><div class="w-month" role="button" tabindex="0" onclick="selectMode(\'stunden\')">' +
     '<div class="w-month-top"><span class="w-tag">Abrechnung ' + escapeHtml(bk.label.split(' ')[0]) + ' · ' + heuteDm(range.from) + '–' + heuteDm(range.to) + '</span>' +
     '<span class="w-month-days">' + (m.daysLeft ? 'noch ' + m.daysLeft + (m.daysLeft === 1 ? ' Tag' : ' Tage') : 'letzter Tag') + '</span></div>' +
     '<div class="w-month-stats"><div><b class="w-num">' + String(m.hours).replace('.', ',') + '</b><span>Stunden</span></div>' +
