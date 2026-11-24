@@ -83,9 +83,11 @@ function homeHeroHtml(s, when, today) {
 }
 
 function homeTodayHtml(s) {
+  // On site the plan and the material list come first (js/vorort.js), the details below
   return homeHeroHtml(s, 'Heute' + (s.date !== localDateStr() ? ' Nacht' : ''), true) +
+    (typeof voBlockHtml === 'function' ? voBlockHtml(s) : '') +
     '<div class="w-card home-today wp-open">' + wpDetails(s) +
-    '<div class="home-today-actions">' + wpProtButton(s, 'primary') + (typeof mcButtonHtml === 'function' ? mcButtonHtml(s) : '') +
+    '<div class="home-today-actions">' + wpProtButton(s, 'primary') +
       '<button type="button" class="ord-textbtn" onclick="selectMode(\'wochenplan\')">Im Wochenplan öffnen</button></div>' +
   '</div>';
 }
@@ -93,7 +95,7 @@ function homeTodayHtml(s) {
 function homeNextHtml(s) {
   if (homeIsToday(s.date, localDateStr())) return homeTodayHtml(s);
   var w = homeWhen(s.date);
-  return homeHeroHtml(s, w.charAt(0).toUpperCase() + w.slice(1), false);
+  return homeHeroHtml(s, w.charAt(0).toUpperCase() + w.slice(1), false) + (typeof voBlockHtml === 'function' ? voBlockHtml(s) : '');
 }
 
 function homeShowNext(shift) {

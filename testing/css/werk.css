@@ -549,3 +549,20 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
   font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
 .prot-restart-btn:active { background: var(--w-tint); }
 .meine-pdf { margin-top: 18px; }
+
+/* ── Vor Ort: Aufbauplan + Material abhaken as two big tiles (js/vorort.js) ── */
+.vo { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 10px 0; }
+.vo-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 92px; padding: 14px; text-align: left;
+  background: var(--w-card); color: var(--w-ink); border: 0; border-radius: var(--w-r-card); font: inherit; cursor: pointer; }
+.vo-tile:active { background: var(--w-tint); }
+.vo-tile b { font-size: 16px; margin-top: 6px; }
+.vo-tile small { font-size: 13px; color: var(--w-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vo-ico { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--w-petal-sm);
+  background: var(--w-accent-bg); color: var(--w-accent-text); }
+.vo-tile:disabled { cursor: default; }
+.vo-tile:disabled:active { background: var(--w-card); }
+.vo-tile.vo-none { opacity: .6; }
+.vo-tile.vo-none .vo-ico { background: var(--w-tint); color: var(--w-muted); }
+/* Inside the Wochenplan's white hero card the tiles sit on the page tone */
+.ui-hero .vo-tile { background: var(--w-paper); }
+.ui-hero .vo-tile:disabled:active { background: var(--w-paper); }

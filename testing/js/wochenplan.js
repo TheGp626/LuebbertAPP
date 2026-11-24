@@ -509,9 +509,10 @@ function wpHero(s) {
       (addr ? '<div class="wp-sub">' + WP_ICON.pin + ' ' + wpEsc(addr) + '</div>' : '') +
       wpTeamLine(s) +
       (s.ap ? '<div class="wp-sub">PL ' + wpEsc(s.ap) + '</div>' : '') +
+      (typeof voBlockHtml === 'function' ? voBlockHtml(s) : (typeof mcButtonHtml === 'function' ? mcButtonHtml(s, 'wp-prot-wide') : '')) +
       '<div class="wp-more">Details ' + WP_ICON.chevron + '</div>' +
       wpDetails(s) +
-      wpProtButton(s, 'primary wp-prot-wide') + (typeof mcButtonHtml === 'function' ? mcButtonHtml(s, 'wp-prot-wide') : '') +
+      wpProtButton(s, 'primary wp-prot-wide') +
       wpCancelBlock(s) +
     '</div>';
 }
