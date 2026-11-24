@@ -344,7 +344,7 @@ function closeOrdnerDetail() {
   var detailView = document.getElementById('ordner-detail-view');
   if (listView) listView.style.display = 'block';
   if (detailView) detailView.style.display = 'none';
-  ordnerSetTitle('Projektordner');
+  ordnerSetTitle('Unterlagen'); // the tab's name (js/nav.js); a folder shows its own name
   filterOrdner(); // keeps an active search text applied (renders everything when empty)
 }
 

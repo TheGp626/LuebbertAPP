@@ -173,12 +173,40 @@ async function meinePdf() {
   } finally { _meinePdfBusy = false; }
 }
 
+// "Ich": who is logged in on top, the personal links at the bottom (they used to sit in the "Mehr" drawer)
+function meineLinkRows(role, isAdmin) {
+  var rows = [];
+  if (['AL', 'PL', 'Admin'].indexOf(role) !== -1) rows.push({ label: 'Meine Protokolle', sub: 'gesendet und in Arbeit', icon: 'clipboard', call: "selectMode('dashboard', 'prot')" });
+  if (role === 'AL') rows.push({ label: 'Protokoll schreiben', sub: 'für einen Einsatz', icon: 'edit', call: "selectMode('protokoll')" });
+  rows.push({ label: 'Optionen', sub: 'Darstellung, Profilbild, Kalender', icon: 'settings', call: 'openSettingsModal()' });
+  rows.push({ label: 'PIN ändern', icon: 'shield', call: 'openPinChange()' });
+  if (['Admin', 'PL', 'AL'].indexOf(role) !== -1) rows.push({ label: 'PIN von jemandem zurücksetzen', icon: 'user', call: 'openPinReset()' });
+  if (isAdmin) rows.push({ label: 'Ansicht als Rolle …', sub: 'die App als MA, AL, PL … sehen', icon: 'user', call: 'openViewAsMenu()' });
+  rows.push({ label: 'Problem melden', icon: 'help', call: 'openProblemForm()' });
+  return rows;
+}
+
+function renderMeineFrame() {
+  var me = document.getElementById('meine-me'), links = document.getElementById('meine-links');
+  if (!currentUser) return;
+  var name = currentUser.full_name || '', ini = name.trim().split(/\s+/).map(function(w) { return w[0] || ''; }).join('').slice(0, 2).toUpperCase();
+  var roleNames = { MA: 'Mitarbeiter', AL: 'Aufbauleitung', PL: 'Projektleitung', Buchhaltung: 'Buchhaltung', Admin: 'Admin', Gast: 'Gast' };
+  if (me) me.innerHTML = '<span class="meine-av">' + meineEsc(ini) + '</span><div><b>' + meineEsc(name) + '</b><span>' + meineEsc(roleNames[userRole] || userRole) + '</span></div>';
+  var isAdmin = typeof viewAsIsAdmin === 'function' && viewAsIsAdmin();
+  if (links) links.innerHTML = '<div class="w-label">Mehr für dich</div>' + meineLinkRows(userRole, isAdmin).map(function(r) {
+    return '<button type="button" class="meine-link" onclick="' + r.call + '"><span class="meine-link-ico">' + uiIcon(r.icon) + '</span>' +
+      '<span class="meine-link-main"><b>' + meineEsc(r.label) + '</b>' + (r.sub ? '<small>' + meineEsc(r.sub) + '</small>' : '') + '</span>' +
+      '<span class="meine-link-arrow" aria-hidden="true">›</span></button>';
+  }).join('');
+}
+
 function openMeine() {
+  renderMeineFrame();
   _meineKey = null;
   if (typeof navigate === 'function') navigate('meine');
   renderMeine();
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { meineAddMonths: meineAddMonths, meineRows: meineRows, meineHours: meineHours, meineDayLabel: meineDayLabel };
+  module.exports = { meineLinkRows: meineLinkRows, meineAddMonths: meineAddMonths, meineRows: meineRows, meineHours: meineHours, meineDayLabel: meineDayLabel };
 }

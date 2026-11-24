@@ -15,7 +15,7 @@
 
   <link rel="stylesheet" href="css/style.css?v=45">
   <link rel="stylesheet" href="css/ui.css?v=52">
-  <link rel="stylesheet" href="css/werk.css?v=32">
+  <link rel="stylesheet" href="css/werk.css?v=33">
 </head>
 
 <body>
@@ -58,6 +58,9 @@
       </div>
     </div>
 
+    <!-- ── SECTIONS OF A TAB (js/nav.js navHubPaint): Pläne | Ordner | Produkte, Protokolle | Personal | Admin ── -->
+    <div class="w-hub" id="w-hub" hidden></div>
+
     <!-- ── SEGMENT SWITCH (Stundenzettel) ── -->
     <div class="ui-topnav" id="main-nav" style="display: none;">
       <div class="ui-seg">
@@ -92,8 +95,10 @@
     <!-- ══════════ MEINE STUNDEN (js/meine.js) ══════════ -->
     <div class="page" id="page-meine" style="overflow-y:auto; -webkit-overflow-scrolling:touch;">
       <div class="ui-page meine">
+        <div class="meine-me" id="meine-me"></div>
         <div class="meine-period" id="meine-period"></div>
         <div id="meine-body"></div>
+        <div class="meine-links" id="meine-links"></div>
       </div>
     </div>
 
@@ -624,14 +629,8 @@
       </div>
     </div>
   </div>
-    <!-- ── WERKSTATT TAB BAR (js/nav.js) ── -->
+    <!-- ── TAB BAR (js/nav.js): Heute · Plan · Unterlagen · Büro · Ich ── -->
     <nav id="w-tabbar" class="w-tabbar" aria-label="Hauptnavigation" hidden></nav>
-    <div id="w-more" class="w-more" aria-hidden="true" onclick="if(event.target===this)closeMoreSheet()">
-      <div class="w-more-sheet" role="dialog" aria-modal="true" aria-label="Mehr">
-        <div class="w-label" style="margin-top:0">Mehr</div>
-        <div class="w-more-list"></div>
-      </div>
-    </div>
   </div>
 
   <!-- ── MEDIA LIGHTBOX ── -->
@@ -986,7 +985,7 @@
   <script src="js/formulas.js?v=19"></script>
   <script src="js/utils.js?v=28"></script>
   <script src="js/ui.js?v=10"></script>
-  <script src="js/nav.js?v=10"></script>
+  <script src="js/nav.js?v=12"></script>
   <script src="js/changelog.js?v=2"></script>
   <script src="js/settings.js?v=17"></script>
   <script src="js/mitarbeiter.js?v=4"></script>
@@ -1003,14 +1002,14 @@
   <script src="js/material.js?v=5"></script>
   <script src="js/home.js?v=14"></script>
   <script src="js/vorort.js?v=2"></script>
-  <script src="js/meine.js?v=2"></script>
-  <script src="js/heute.js?v=8"></script>
+  <script src="js/meine.js?v=3"></script>
+  <script src="js/heute.js?v=9"></script>
   <script src="js/dashboard.js?v=68"></script>
   <script src="js/fehler.js?v=3"></script>
   <script src="js/admin.js?v=3"></script>
   <script src="js/produkte.js?v=22"></script>
-  <script src="js/ordner.js?v=42"></script>
-  <script src="js/app.js?v=36"></script>
+  <script src="js/ordner.js?v=43"></script>
+  <script src="js/app.js?v=37"></script>
 </body>
 
 </html>
