@@ -342,3 +342,38 @@ test('zvTap / zvIsDoubleTap: only two short, unmoved taps close together zoom; s
   assert.ok(!ctx.zvIsDoubleTap(a, ctx.zvTap(t(300, 100, 150), 200)));   // too far apart
   assert.ok(!ctx.zvIsDoubleTap(null, b));
 });
+
+test('ordnerIsPlan: PDFs and pictures, not internal documents', () => {
+  const P = (name, type) => ctx.ordnerIsPlan({ name, file_type: type });
+  assert.equal(P('IPM AG FBF26_Setup_Foyer 3_Lübbert-1.pdf', 'application/pdf'), true);
+  assert.equal(P('BREKO 2026_CH II_TVA_19.11.2026.pdf', 'application/pdf'), true);
+  assert.equal(P('skizze.jpg', 'image/jpeg'), true);
+  assert.equal(P('Auftragsbestätigung 26-0463 261116_Estrel_Hagebau.pdf', 'application/pdf'), false);
+  assert.equal(P('26-0513 Projekt Auftragsbestätigung_neu.pdf', 'application/pdf'), false);
+  assert.equal(P('Angebot 26-0100.pdf', 'application/pdf'), false);
+  assert.equal(P('Rechnung.pdf', 'application/pdf'), false);
+  assert.equal(P('liste.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'), false);
+});
+
+test('ordnerPlanGroups: by top folder, newest project first, search on file and folder', () => {
+  const folders = [
+    { id: 'a', name: 'Estrel Breko', parent_id: null },
+    { id: 'a1', name: 'Pläne', parent_id: 'a' },
+    { id: 'b', name: 'Estrel Hagebau', parent_id: null },
+  ];
+  const files = [
+    { id: '1', name: 'TVA.pdf', file_type: 'application/pdf', folder_id: 'a1', created_at: '2026-11-01T10:00:00Z' },
+    { id: '2', name: 'Auftragsbestätigung.pdf', file_type: 'application/pdf', folder_id: 'a', created_at: '2026-11-20T10:00:00Z' },
+    { id: '3', name: 'Overview.pdf', file_type: 'application/pdf', folder_id: 'b', created_at: '2026-11-10T10:00:00Z' },
+    { id: '4', name: 'Dinner.pdf', file_type: 'application/pdf', folder_id: 'a', created_at: '2026-11-02T10:00:00Z' },
+    { id: '5', name: 'weg.pdf', file_type: 'application/pdf', folder_id: 'gone', created_at: '2026-11-22T10:00:00Z' },
+  ];
+  const plain = v => JSON.parse(JSON.stringify(v));
+  const g = plain(ctx.ordnerPlanGroups(files, folders, ''));
+  assert.deepEqual(g.map(x => x.folder.id), ['b', 'a']); // Hagebau newest plan (AB does not count)
+  assert.deepEqual(g[1].files.map(f => f.id), ['4', '1']); // top folder first, then subfolder
+  assert.equal(g[1].files[1].sub, 'Pläne');
+  assert.deepEqual(plain(ctx.ordnerPlanGroups(files, folders, 'hagebau')).map(x => x.folder.id), ['b']);
+  assert.deepEqual(plain(ctx.ordnerPlanGroups(files, folders, 'tva')).map(x => x.files.map(f => f.id)), [['1']]);
+  assert.equal(ctx.ordnerPlanGroups([], folders, '').length, 0);
+});

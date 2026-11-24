@@ -13,7 +13,7 @@
 
   <link rel="stylesheet" href="css/style.css?v=44">
   <link rel="stylesheet" href="css/ui.css?v=51">
-  <link rel="stylesheet" href="css/werk.css?v=22">
+  <link rel="stylesheet" href="css/werk.css?v=23">
 </head>
 
 <body>
@@ -454,6 +454,10 @@
 
         <!-- ── ORDNER LIST VIEW ── -->
         <div id="ordner-list-view">
+          <div class="ui-seg ordner-seg" id="ordner-seg" role="group" aria-label="Ansicht">
+            <button type="button" class="active" data-view="ordner" aria-pressed="true" onclick="setOrdnerView('ordner')">Ordner</button>
+            <button type="button" data-view="plaene" aria-pressed="false" onclick="setOrdnerView('plaene')">Alle Pläne</button>
+          </div>
           <div class="produkt-head">
             <div class="ui-search">
               <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
@@ -465,6 +469,7 @@
           </div>
           <div id="ordner-loading" style="display:none;" class="ui-empty"><div class="ui-sub">Ordner werden geladen…</div></div>
           <div id="ordner-grid" class="ui-list"></div>
+          <div id="ordner-plaene" class="ui-list" style="display:none;"></div>
           <div id="ordner-empty" class="ui-empty" style="display:none;">
             <div class="ui-empty-title">Noch keine Ordner</div>
             <div class="ui-sub">Neue Projektordner erscheinen hier.</div>
@@ -965,7 +970,7 @@
   <script src="js/formulas.js?v=19"></script>
   <script src="js/utils.js?v=28"></script>
   <script src="js/ui.js?v=9"></script>
-  <script src="js/nav.js?v=5"></script>
+  <script src="js/nav.js?v=6"></script>
   <script src="js/changelog.js?v=2"></script>
   <script src="js/settings.js?v=17"></script>
   <script src="js/mitarbeiter.js?v=4"></script>
@@ -986,7 +991,7 @@
   <script src="js/fehler.js?v=3"></script>
   <script src="js/admin.js?v=3"></script>
   <script src="js/produkte.js?v=22"></script>
-  <script src="js/ordner.js?v=39"></script>
+  <script src="js/ordner.js?v=40"></script>
   <script src="js/app.js?v=35"></script>
 </body>
 

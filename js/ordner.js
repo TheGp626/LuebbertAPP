@@ -9,6 +9,11 @@ var editingOrdnerId = null;
 
 var canManageOrdner = false; // PL / Admin only
 
+// 'ordner' = folder list, 'plaene' = every plan of every project folder in one list (nav entry "Pläne")
+var ordnerView = 'ordner';
+var ordnerPlaene = null; // files of all folders, loaded on first switch to "Pläne"
+var _ordnerFoldersLoaded = false;
+
 // project_folders.ends_on is the deletion date: a top-level folder is removed (with subfolders and files)
 // by the Edge Function cleanup-folders once this date has passed.
 var ORDNER_DELETE_DAYS = 7;
@@ -63,6 +68,10 @@ async function initOrdner() {
   var addBtn = document.getElementById('btn-add-ordner');
   if (addBtn) addBtn.style.display = canManageOrdner ? 'inline-flex' : 'none';
   closeOrdnerDetail();
+  var start = window.ordnerStartView || 'ordner';
+  window.ordnerStartView = null;
+  ordnerPlaene = null; // fresh list on every visit
+  setOrdnerView(start, true);
   await fetchOrdner();
 }
 
@@ -79,6 +88,7 @@ async function fetchOrdner() {
   showOrdnerLoading(false);
   if (error) { console.error('Ordner fetch:', error); showToast('Fehler beim Laden der Ordner.', 'danger'); return; }
   alleOrdner = data || [];
+  _ordnerFoldersLoaded = true;
   filterOrdner(); // keeps an active search text applied (renders everything when empty)
 }
 
@@ -122,6 +132,7 @@ function ordnerFolderRowHtml(o, showDate) {
 
 function filterOrdner() {
   var q = ((document.getElementById('ordner-search') || {}).value || '').toLowerCase().trim();
+  if (ordnerView === 'plaene') { renderOrdnerPlaene(q); return; }
   if (!q) { renderOrdner(alleOrdner); return; }
   // Match any folder (incl. subfolders), then surface the root folder that
   // contains the match — the list view only shows roots.
@@ -135,6 +146,121 @@ function filterOrdner() {
     if (cur) rootIds[cur.id] = true;
   });
   renderOrdner(alleOrdner.filter(function(o) { return rootIds[o.id]; }));
+}
+
+// ── PLÄNE: all plans of all project folders in one list ──
+// A plan = a PDF or picture that is not an internal document (Auftragsbestätigung, Angebot, Rechnung …).
+// Plan files are named freely ("Setup", "TVA", "Overview"), so the rule excludes instead of looking for "Aufbau".
+var ORDNER_INTERNAL_RE = /(auftrags?best|angebot|rechnung|kalkulation|kostenvoranschlag)/i;
+
+function ordnerIsPlan(f) {
+  if (!f || ORDNER_INTERNAL_RE.test(f.name || '')) return false;
+  var kind = ordnerViewerKind(f.file_type, f.name);
+  return kind === 'pdf' || kind === 'image';
+}
+
+// Group plans by top-level project folder; newest project (latest upload) first, files by name inside.
+function ordnerPlanGroups(files, folders, q) {
+  var byId = {};
+  (folders || []).forEach(function(o) { byId[o.id] = o; });
+  var rootOf = function(id) {
+    var cur = byId[id], guard = 0;
+    while (cur && cur.parent_id && byId[cur.parent_id] && guard++ < 10) cur = byId[cur.parent_id];
+    return cur || null;
+  };
+  var pathOf = function(id) {
+    var names = [], cur = byId[id], guard = 0;
+    while (cur && guard++ < 10) { names.unshift(cur.name); cur = cur.parent_id ? byId[cur.parent_id] : null; }
+    return names;
+  };
+  var groups = {}, order = [];
+  (files || []).forEach(function(f) {
+    if (!ordnerIsPlan(f)) return;
+    var root = rootOf(f.folder_id);
+    if (!root) return; // folder not visible / deleted
+    var path = pathOf(f.folder_id);
+    if (q && (f.name || '').toLowerCase().indexOf(q) < 0 && path.join(' ').toLowerCase().indexOf(q) < 0) return;
+    if (!groups[root.id]) { groups[root.id] = { folder: root, files: [], latest: '' }; order.push(root.id); }
+    var g = groups[root.id];
+    g.files.push(Object.assign({}, f, { sub: path.slice(1).join(' / ') }));
+    if ((f.created_at || '') > g.latest) g.latest = f.created_at || '';
+  });
+  return order.map(function(id) { return groups[id]; })
+    .sort(function(a, b) { return a.latest < b.latest ? 1 : a.latest > b.latest ? -1 : a.folder.name.localeCompare(b.folder.name, 'de'); })
+    .map(function(g) {
+      g.files.sort(function(a, b) { return (a.sub || '').localeCompare(b.sub || '', 'de') || a.name.localeCompare(b.name, 'de'); });
+      return g;
+    });
+}
+
+function setOrdnerView(v, quiet) {
+  ordnerView = v === 'plaene' ? 'plaene' : 'ordner';
+  var seg = document.getElementById('ordner-seg');
+  if (seg) Array.prototype.forEach.call(seg.querySelectorAll('button'), function(b) {
+    var on = b.getAttribute('data-view') === ordnerView;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  var search = document.getElementById('ordner-search');
+  if (search) search.placeholder = ordnerView === 'plaene' ? 'Plan oder Projekt suchen' : 'Ordner suchen';
+  var grid = document.getElementById('ordner-grid'), plans = document.getElementById('ordner-plaene');
+  if (grid) grid.style.display = ordnerView === 'plaene' ? 'none' : '';
+  if (plans) plans.style.display = ordnerView === 'plaene' ? '' : 'none';
+  var empty = document.getElementById('ordner-empty');
+  if (empty && ordnerView === 'plaene') empty.style.display = 'none';
+  if (typeof navPaint === 'function') navPaint();
+  if (ordnerView === 'plaene' && !ordnerPlaene) fetchOrdnerPlaene();
+  else if (!quiet) filterOrdner();
+}
+
+async function fetchOrdnerPlaene() {
+  var box = document.getElementById('ordner-plaene');
+  if (box) box.innerHTML = '<div class="ui-sub" style="padding:16px 2px;">Pläne werden geladen…</div>';
+  if (typeof supabaseClient === 'undefined') return;
+  var { data, error } = await supabaseClient
+    .from('folder_files')
+    .select('id, name, file_url, file_type, file_size_bytes, created_at, note, folder_id')
+    .order('created_at', { ascending: false })
+    .limit(1000);
+  if (error) { console.error('Pläne fetch:', error); if (box) box.innerHTML = uiEmptyHtml('Pläne konnten nicht geladen werden', 'Bitte später nochmal versuchen.'); return; }
+  ordnerPlaene = data || [];
+  if (ordnerView === 'plaene') filterOrdner();
+}
+
+function renderOrdnerPlaene(q) {
+  var box = document.getElementById('ordner-plaene');
+  if (!box || !ordnerPlaene || !_ordnerFoldersLoaded) return; // both lists are needed (folder names)
+  var groups = ordnerPlanGroups(ordnerPlaene, alleOrdner, q);
+  if (!groups.length) {
+    box.innerHTML = q ? uiEmptyHtml('Nichts gefunden', 'Kein Plan passt zu „' + escOrdner(q) + '“.')
+      : uiEmptyHtml('Noch keine Pläne', 'Pläne aus den Projektordnern erscheinen hier gesammelt.');
+    return;
+  }
+  box.innerHTML = groups.map(function(g) {
+    var info = ordnerDeleteInfo(g.folder, localDateStr());
+    return '<div class="ordner-plan-group">' +
+      '<button type="button" class="ui-label ordner-plan-head" onclick="setOrdnerView(\'ordner\', true);openOrdnerDetail(\'' + g.folder.id + '\')" aria-label="Ordner ' + escOrdner(g.folder.name) + ' öffnen">' +
+        uiIcon('folder') + '<span>' + escOrdner(g.folder.name) + '</span>' + (info ? '<em>bis ' + escOrdner(shortDateDE(info.date)) + '</em>' : '') + '</button>' +
+      g.files.map(function(f) {
+        var sub = [f.sub, f.created_at ? new Date(f.created_at).toLocaleDateString('de-DE') : ''].filter(Boolean).join(' · ');
+        return '<div class="ui-row ordner-row" onclick="openPlanFileById(\'' + f.id + '\')">' +
+          '<span class="ui-tile-ico ordner-ico">' + uiIcon(ordnerFileKind(f.file_type, f.name)) + '</span>' +
+          '<div class="ui-row-main"><div class="ui-row-title">' + escOrdner(f.name) + '</div>' +
+            (sub ? '<div class="ui-sub">' + escOrdner(sub) + '</div>' : '') +
+            (f.note ? '<div class="ui-sub" style="color:var(--text);">' + escOrdner(f.note) + '</div>' : '') + '</div></div>';
+      }).join('') + '</div>';
+  }).join('');
+}
+
+async function openPlanFileById(id) {
+  var f = (ordnerPlaene || []).find(function(x) { return x.id === id; });
+  if (!f || _ordnerOpening) return;
+  _ordnerOpening = true;
+  try {
+    var url = await signedProjectFileUrl(f.file_url);
+    if (!url) { showToast('Datei konnte nicht geöffnet werden'); return; }
+    openFileViewer(url, f.name, f.file_type || '', null);
+  } finally { _ordnerOpening = false; }
 }
 
 // ── ORDNER DETAIL (FILE LIST + SUBFOLDERS) ──

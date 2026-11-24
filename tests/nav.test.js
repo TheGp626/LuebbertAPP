@@ -19,15 +19,15 @@ test('tabs per role (spec table)', () => {
   assert.deepEqual(ids('PL'), ['heute', 'plan', 'auftraege', 'protokolle', 'personal', 'mehr']);
   assert.deepEqual(ids('Admin'), ['heute', 'plan', 'auftraege', 'protokolle', 'personal', 'mehr']);
   assert.deepEqual(ids('Buchhaltung'), ['heute', 'protokolle', 'personal', 'mehr']);
-  assert.deepEqual(ids('Gast'), ['produkte', 'ordner']);
+  assert.deepEqual(ids('Gast'), ['produkte', 'ordner', 'plaene']);
 });
 
 test('Mehr per role', () => {
-  assert.deepEqual(more('MA'), ['produkte', 'ordner', 'optionen', 'problem']);
-  assert.deepEqual(more('AL'), ['personal', 'produkte', 'ordner', 'optionen', 'problem']);
-  assert.deepEqual(more('PL'), ['zettel', 'produkte', 'ordner', 'optionen', 'problem']);
-  assert.deepEqual(more('Admin'), ['admin', 'zettel', 'produkte', 'ordner', 'optionen', 'problem']);
-  assert.deepEqual(more('Buchhaltung'), ['plan', 'zettel', 'produkte', 'ordner', 'optionen', 'problem']);
+  assert.deepEqual(more('MA'), ['produkte', 'ordner', 'plaene', 'optionen', 'problem']);
+  assert.deepEqual(more('AL'), ['personal', 'produkte', 'ordner', 'plaene', 'optionen', 'problem']);
+  assert.deepEqual(more('PL'), ['zettel', 'produkte', 'ordner', 'plaene', 'optionen', 'problem']);
+  assert.deepEqual(more('Admin'), ['admin', 'zettel', 'produkte', 'ordner', 'plaene', 'optionen', 'problem']);
+  assert.deepEqual(more('Buchhaltung'), ['plan', 'zettel', 'produkte', 'ordner', 'plaene', 'optionen', 'problem']);
   assert.deepEqual(more('MA', true).slice(0, 1), ['auftraege']); // sees plan interest → Aufträge under Mehr
   assert.deepEqual(more('Gast'), []);
 });
@@ -72,7 +72,7 @@ test('active tab, also after a restore', () => {
 test('own tab choice (pinned)', () => {
   const n = N.navTabs('MA', allowed, false, ['heute', 'ordner', 'zettel']);
   assert.deepEqual(n.tabs.map(t => t.id), ['heute', 'ordner', 'zettel', 'mehr']);
-  assert.deepEqual(n.more.map(t => t.id), ['plan', 'produkte', 'optionen', 'problem']);
+  assert.deepEqual(n.more.map(t => t.id), ['plan', 'produkte', 'plaene', 'optionen', 'problem']);
   // not allowed / unknown / duplicate / action ids are dropped; max 5
   const m = N.navTabs('MA', allowed, false, ['admin', 'personal', 'nope', 'optionen', 'plan', 'plan']);
   assert.deepEqual(m.tabs.map(t => t.id), ['plan', 'mehr']);
@@ -82,7 +82,7 @@ test('own tab choice (pinned)', () => {
   assert.deepEqual(N.navTabs('MA', allowed, false, ['admin']).tabs.map(t => t.id), ids('MA'));
   assert.deepEqual(N.navTabs('MA', allowed, false, []).tabs.map(t => t.id), ids('MA'));
   // Gast ignores pins
-  assert.deepEqual(N.navTabs('Gast', allowed, false, ['produkte']).tabs.map(t => t.id), ['produkte', 'ordner']);
+  assert.deepEqual(N.navTabs('Gast', allowed, false, ['produkte']).tabs.map(t => t.id), ['produkte', 'ordner', 'plaene']);
 });
 
 test('navTogglePin', () => {
@@ -90,4 +90,12 @@ test('navTogglePin', () => {
   assert.deepEqual(N.navTogglePin(['heute', 'plan', 'mehr'], 'plan'), ['heute']);
   assert.equal(N.navTogglePin(['heute', 'mehr'], 'heute'), null); // keep at least one
   assert.equal(N.navTogglePin(['a', 'b', 'c', 'd', 'e', 'mehr'], 'f'), null); // full
+});
+
+test('Pläne entry opens the Ordner page in the plans view', () => {
+  const t = N.navTabs('MA', allowed).more.find(x => x.id === 'plaene');
+  assert.equal(t.mode, 'ordner'); assert.equal(t.view, 'plaene');
+  const items = N.navTabs('MA', allowed).tabs.concat(N.navTabs('MA', allowed).more);
+  assert.equal(N.navActiveTab(items, 'ordner', 'plaene'), 'plaene');
+  assert.equal(N.navActiveTab(items, 'ordner', 'ordner'), 'ordner');
 });
