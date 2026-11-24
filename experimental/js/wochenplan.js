@@ -509,10 +509,9 @@ function wpHero(s) {
       (addr ? '<div class="wp-sub">' + WP_ICON.pin + ' ' + wpEsc(addr) + '</div>' : '') +
       wpTeamLine(s) +
       (s.ap ? '<div class="wp-sub">PL ' + wpEsc(s.ap) + '</div>' : '') +
-      (typeof voBlockHtml === 'function' ? voBlockHtml(s) : (typeof mcButtonHtml === 'function' ? mcButtonHtml(s, 'wp-prot-wide') : '')) +
       '<div class="wp-more">Details ' + WP_ICON.chevron + '</div>' +
       wpDetails(s) +
-      wpProtButton(s, 'primary wp-prot-wide') +
+      wpProtButton(s, 'primary wp-prot-wide') + (typeof mcButtonHtml === 'function' ? mcButtonHtml(s, 'wp-prot-wide') : '') +
       wpCancelBlock(s) +
     '</div>';
 }
@@ -895,7 +894,7 @@ function wpStartProtokoll(shiftId) {
   });
 }
 
-// ── Aufträge (order_slots): "Ich kann" on phases from the Auftragsbestätigungen; the planner decides in "Planen" (planer.js) ──
+// ── Aufträge (order_slots): "Ich kann" on phases from the Auftragsbestätigungen; PL accepts in auftraege.js ──
 var _wpSlots = null; // last order_slots() result; null = not loaded / failed
 
 async function wpLoadSlots() {
@@ -1022,28 +1021,6 @@ async function wpInboxMark(id, status) {
 async function wpInboxDiscard(id) {
   if (!confirm('Diesen Plan aus dem Postfach verwerfen?')) return;
   if (await wpInboxMark(id, 'verworfen')) await wpRenderInbox(); else showToast('Nicht verworfen. Prüf deine Verbindung.', 'danger');
-}
-
-// One upload button for both ways a week gets filled: an Auftragsbestätigung (its Aufbau/Abbau land in "Planen" with
-// the MA number) or a finished plan PDF (Daniel's Excel export). Both end up as the same plan entries.
-function wpUploadMenu() {
-  if (!wpCanUpload()) { showToast('Nur PL und Admin können hochladen.', 'danger'); return; }
-  openUiMenu([
-    { label: 'Auftragsbestätigung – neuer Auftrag', action: 'wpUploadAb' },
-    { label: 'Fertiger Wochenplan (PDF)', action: 'wpPickFile' }
-  ]);
-}
-
-// The Auftrag gets its project folder like before (the PDF is kept there, AL and MA come out of it);
-// after saving, the Wochenplan reloads so its phases show up in "Planen" and for the crew's "Ich kann"
-async function wpUploadAb() {
-  if (typeof openOrdnerForm !== 'function') return;
-  window.ordnerFormFromPlan = true;
-  await openOrdnerForm();
-  var title = document.getElementById('ordner-form-title');
-  if (title) title.textContent = 'Neuer Auftrag';
-  var form = document.getElementById('ordner-form');
-  if (form) form.classList.add('ordner-from-plan'); // PDF first: it fills name, Einsätze, AL and MA
 }
 
 function wpPickFile() {

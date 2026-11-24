@@ -64,12 +64,13 @@ async function loadErinnerungen() {
   _erinnerungOpen = await fetchOpenEinsaetze(currentUser.id);
   var html = '';
   if (_erinnerungOpen.length) {
-    html += '<div class="w-banner"><span><b>' + _erinnerungOpen.length + ' offene' + (_erinnerungOpen.length === 1 ? 's Protokoll' : ' Protokolle') +
-      '</b> · Protokoll fehlt</span></div><div class="w-banner-rows">' +
+    html += '<div class="ui-card">' +
+      '<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;"><span class="ui-pill ui-pill-warn">Protokoll fehlt</span>' +
+      '<b>' + _erinnerungOpen.length + ' offene' + (_erinnerungOpen.length === 1 ? 's Protokoll' : ' Protokolle') + '</b></div>' +
       _erinnerungOpen.map(function(e) {
-        return '<button type="button" class="w-row" ' +
+        return '<button type="button" class="ui-btn ui-btn-block" style="justify-content:space-between; text-align:left; min-height:40px; margin-top:6px; font-size:14px;" ' +
           (e.id ? 'data-einsatz="' + e.id + '"' : 'data-datum="' + e.date + '"') + '><span>' +
-          escapeHtml(e.folderName) + ' – ' + escapeHtml(e.action) + ' am ' + shortDateDE(e.date) + '</span><span class="w-row-arrow" aria-hidden="true">›</span></button>';
+          escapeHtml(e.folderName) + ' – ' + escapeHtml(e.action) + ' am ' + shortDateDE(e.date) + '</span><span aria-hidden="true">›</span></button>';
       }).join('') +
       '</div>';
   }
@@ -82,7 +83,7 @@ async function loadErinnerungen() {
   } else if (pushSupported() && Notification.permission === 'denied') {
     html += '<div class="ui-sub" style="margin-bottom:10px;">Benachrichtigungen sind für diese App blockiert. In den Browser-/Handy-Einstellungen erlauben, um Erinnerungen zu bekommen.</div>';
   } else if (pushSupported() && !(await hasPushSubscription())) {
-    html += '<button type="button" class="w-btn w-btn-block" id="btn-enable-push" style="margin-bottom:12px;">Erinnerungen aufs Handy aktivieren</button>';
+    html += '<button type="button" class="ui-btn ui-btn-block" id="btn-enable-push" style="min-height:40px; font-size:14px; margin-bottom:10px;">Erinnerungen aufs Handy aktivieren</button>';
   }
 
   if (!html) return;

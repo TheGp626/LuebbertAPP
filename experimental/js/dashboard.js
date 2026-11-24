@@ -58,11 +58,18 @@ function switchDashTab(tab) {
   if (typeof breadcrumb === 'function') breadcrumb('dash:' + tab);
   document.getElementById('dash-tab-prot').classList.toggle('active', tab === 'prot');
   document.getElementById('dash-tab-work').classList.toggle('active', tab === 'work');
+  document.getElementById('dash-tab-settings').classList.toggle('active', tab === 'settings');
+  document.getElementById('dash-tab-errors').classList.toggle('active', tab === 'errors');
 
   document.getElementById('dash-view-prot').style.display = tab === 'prot' ? 'block' : 'none';
   document.getElementById('dash-view-work').style.display = tab === 'work' ? 'block' : 'none';
+  document.getElementById('dash-view-settings').style.display = tab === 'settings' ? 'block' : 'none';
+  document.getElementById('dash-view-errors').style.display = tab === 'errors' ? 'block' : 'none';
 
   if (typeof setDashView === 'function') setDashView(tab);
+
+  if (tab === 'settings' && typeof renderSettingsTab === 'function') renderSettingsTab();
+  if (tab === 'errors' && typeof renderErrorsTab === 'function') renderErrorsTab();
 
   // Reload on every entry: the "neue Stunden" badges must not show a stale snapshot
   if (tab === 'work') loadDashboardWorkers();
@@ -927,7 +934,7 @@ function renderDashboardTable() {
     const plLine = plName ? `<div class="ui-sub">PL ${escapeHtml(plName)}</div>` : '';
 
     tr.innerHTML = `
-      <td data-label="Datum" class="dash-num"><span class="dash-dm">${escapeHtml(String(p.date).slice(8, 10) + '.' + String(p.date).slice(5, 7) + '.')}</span><span class="dash-yy">${escapeHtml(String(p.date).slice(0, 4))}</span></td>
+      <td data-label="Datum" class="dash-num">${new Date(p.date).toLocaleDateString('de-DE')}</td>
       <td data-label="Projekt"><span class="ui-row-title">${escapeHtml(projName)}</span></td>
       <td data-label="Aktion"><span class="ui-pill ui-pill-info">${escapeHtml(p.action)}</span>${holidayTag}</td>
       <td data-label="AL / PL"><div>${escapeHtml(alName)}</div>${plLine}</td>
@@ -1086,8 +1093,20 @@ if (typeof UI_TOPBAR_ITEMS !== 'undefined') {
     var items = [];
     if (view === 'prot' && canSeeCosts(currentUser)) items.push({ label: 'Kosten aller Protokolle neu berechnen', action: 'recalcAllProtocolCosts' });
     if (view === 'work' && typeof dashboardCurrentWorker !== 'undefined' && dashboardCurrentWorker) items.push({ label: 'Monat als PDF (' + (dashboardCurrentWorker.full_name || 'Mitarbeiter') + ')', action: 'exportDashboardMonthlyPDF' });
-    // Einstellungen and Fehlerberichte moved to the Admin page (/admin, js/admin.js)
-    if (typeof userRole !== 'undefined' && userRole === 'Admin') items.push({ label: 'Admin-Seite', action: 'selectMode', args: ['admin'] });
+    // The tab bar is hidden (tiles open one view each): settings and the way back are reachable from here
+    var isAdmin = typeof userRole !== 'undefined' && userRole === 'Admin';
+    var back = function() { return dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY)); };
+    if (typeof dashView !== 'undefined' && dashView === 'settings') {
+      items.push({ label: 'Einstellungen schließen', action: 'switchDashTab', args: [back()] });
+    } else if (isAdmin) {
+      items.push({ label: 'Einstellungen', action: 'switchDashTab', args: ['settings'] });
+    }
+    // Fehlerberichte (js/fehler.js): Admin only, same pattern as the settings
+    if (typeof dashView !== 'undefined' && dashView === 'errors') {
+      items.push({ label: 'Fehlerberichte schließen', action: 'switchDashTab', args: [back()] });
+    } else if (isAdmin) {
+      items.push({ label: 'Fehlerberichte', action: 'switchDashTab', args: ['errors'] });
+    }
     return items;
   };
 }
@@ -1322,35 +1341,7 @@ async function dashLoadMonthSummary() {
     months[r.id] = dashBuildMonthWeeks(shifts.filter(function(s) { return s.user_id === r.id; }), key, r.name);
   });
   dashSummaryFromMonths(sum, months);
-  return { key: key, label: monthLabelFromKey(key), range: r, sum: sum, months: months, users: userById, shifts: shifts };
-}
-
-// "Monat verbuchen": ids of the month's shifts (people with an account) that are not booked yet, and how many people they belong to
-function dashUnbookedInMonth(shifts, key, cutoff) {
-  var people = {}, ids = dashShiftsInMonth((shifts || []).filter(function(s) { return s.user_id && s.status !== 'eingetragen'; }), key, cutoff)
-    .map(function(s) { people[s.user_id] = true; return s.id; });
-  return { ids: ids, people: Object.keys(people).length };
-}
-
-// Books every open shift of the chosen billing month in one go (Buchhaltung/Admin), in chunks; counts only rows the database changed
-async function dashBookMonth() {
-  if (!dashMayBook(typeof userRole !== 'undefined' ? userRole : null)) return;
-  var data;
-  try { data = await dashLoadMonthSummary(); } catch (err) { console.error('Monat verbuchen:', err); showToast('Daten konnten nicht geladen werden.', 'danger'); return; }
-  if (!data) return;
-  var open = dashUnbookedInMonth(data.shifts, data.key, dashBillingCutoff());
-  if (!open.ids.length) { showToast('In ' + data.label + ' ist schon alles verbucht.'); return; }
-  if (!confirm(open.ids.length + (open.ids.length === 1 ? ' offene Schicht' : ' offene Schichten') + ' von ' + open.people + (open.people === 1 ? ' Person' : ' Personen') +
-    ' in ' + data.label + ' als „eingetragen“ verbuchen?')) return;
-  var done = 0;
-  for (var i = 0; i < open.ids.length; i += 200) {
-    var r = await supabaseClient.from('shifts').update({ status: 'eingetragen' }).in('id', open.ids.slice(i, i + 200)).select('id');
-    if (r.error) { console.warn('Monat verbuchen:', r.error); break; }
-    done += (r.data || []).length;
-  }
-  if (done < open.ids.length) showToast(done + ' von ' + open.ids.length + ' verbucht. Der Rest ging nicht, versuch es nochmal.', 'danger');
-  else showToast(data.label + ': ' + done + (done === 1 ? ' Schicht' : ' Schichten') + ' verbucht.');
-  if (typeof loadDashboardWorkers === 'function') loadDashboardWorkers(); // the "neue Stunden" badges
+  return { key: key, label: monthLabelFromKey(key), range: r, sum: sum, months: months, users: userById };
 }
 
 // Overview hours (and pay, share of the limit, totals) from the built Stundenzettel months

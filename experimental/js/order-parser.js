@@ -26,7 +26,7 @@ function orderLines(pages) {
 function orderIsAb(name) { return /auftragsbest/i.test(name || ''); }
 
 // Stored parse results (table order_parsed) older than this are parsed again: bump on every parser change
-var ORDER_PARSER_VERSION = 7;
+var ORDER_PARSER_VERSION = 6;
 
 // A position that only holds discounts or credits ("Personal- & Transportkosten (Rabatt)" with the one item
 // "Rabatt Personal- und Transportkosten") is bookkeeping, not an Einsatz: nobody is planned on it.
@@ -74,13 +74,7 @@ function orderParse(lines) {
     }
     // Page footer + header ("Geschäftsführung Bankverbindung" … "Datum:" / "Seite: 2 von 49") is no job text
     if (/^Geschäftsführung\b/.test(l)) { foot = true; return; }
-    // The footer ends with the next page's "Datum:" header. Projekt-style Bestätigungen have no "Datum:" there:
-    // then the table header, the next job or the first article row ends it (else every following page is lost)
-    if (foot) {
-      if (/^Datum:/.test(l) || /^Pos\. Anzahl Bezeichnung/.test(l)) { foot = false; return; }
-      if (!ORDER_JOB_RE.test(l) && !ORDER_ITEM_RE.test(l)) return;
-      foot = false;
-    }
+    if (foot) { if (/^Datum:/.test(l)) foot = false; return; }
     if (/^Seite: \d+ von \d+$/.test(l) || /^Pos\. Anzahl Bezeichnung/.test(l)) return;
     if ((m = ORDER_JOB_RE.exec(l))) {
       park();

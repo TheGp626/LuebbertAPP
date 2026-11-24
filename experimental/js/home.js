@@ -1,7 +1,19 @@
-/* ══ Start page ("Heute"): next own shift as the hero card; week strip and to-do rows live in heute.js ══
+/* ══ Start page: greeting, next own shift, module tiles ══
    Pure helpers first (testable with node --test); the DOM part follows below. */
 
 var NEXT_SHIFT_KEY = 'luebbert_next_shift';
+
+var HOME_TILES = [
+  { mode: 'stunden', label: 'Stundenzettel', icon: 'clock' },
+  { mode: 'protokoll', label: 'Protokoll schreiben', icon: 'clipboard' },
+  { mode: 'wochenplan', label: 'Wochenplan', icon: 'calendar' },
+  { mode: 'auftraege', label: 'Aufträge', icon: 'file' },
+  { mode: 'produkte', label: 'Produktdatenbank', icon: 'box' },
+  { mode: 'ordner', label: 'Projektordner', icon: 'folder' },
+  // The office dashboard is two tiles: same module (role guard), different view
+  { mode: 'dashboard', view: 'prot', id: 'dashboard-prot', label: 'Protokoll-Übersicht', icon: 'file' },
+  { mode: 'dashboard', view: 'work', id: 'dashboard-work', label: 'Personal', icon: 'chart' }
+];
 
 // Stored dashboard view ('prot' | 'work'); the old single "dashboard" mode has none → protocols
 function dashViewFromStored(v) {
@@ -10,6 +22,11 @@ function dashViewFromStored(v) {
 
 function firstName(fullName) {
   return String(fullName || '').trim().split(/\s+/)[0] || '';
+}
+
+// allowed = moduleAllowedForRole (auth.js); passed in so this stays testable
+function homeTiles(role, allowed) {
+  return HOME_TILES.filter(function(t) { return allowed(t.mode, role); });
 }
 
 // The card opens the Wochenplan: a role without access (Gast) gets no card instead of "Zugriff verweigert"
@@ -62,40 +79,37 @@ function homeWhen(date) {
   return 'am ' + ('0' + p.d).slice(-2) + '.' + ('0' + p.m).slice(-2) + '.';
 }
 
-// Hero (Werkstatt): orange tag with action and time, venue, place, PL, team initials, Route.
-// Today it is followed by a card with everything for the day (wpDetails, "Protokoll starten" for the AL, material).
-// No phone numbers: the app stores none.
-function homeHeroHtml(s, when, today) {
-  var tc = wpTimeCol(s), head = planShiftHeading(s), addr = homeAddress(s), maps = homeMapsUrl(s);
-  var team = (s.plan_assignments || [])
-    .filter(function(a) { return a.user_id !== (currentUser && currentUser.id) && WP_AGENCY.indexOf(a.role) === -1; })
-    .map(function(a) { return a.name; }).filter(Boolean);
-  var initials = function(n) { return String(n).trim().split(/\s+/).map(function(w) { return w[0]; }).join('').slice(0, 2).toUpperCase(); };
-  var avs = team.slice(0, 4).map(function(n) { return '<span class="w-av" title="' + escapeHtml(n) + '">' + escapeHtml(initials(n)) + '</span>'; }).join('') +
-    (team.length > 4 ? '<span class="w-av">+' + (team.length - 4) + '</span>' : '');
-  return '<div class="w-hero"' + (today ? '' : ' role="button" tabindex="0" onclick="selectMode(\'wochenplan\')"') + '>' +
-    '<span class="w-tag">' + escapeHtml(when) + ' · ' + escapeHtml(tc.big) + (tc.small ? ' ' + escapeHtml(tc.small) : '') + '</span>' +
-    '<div class="w-hero-title">' + escapeHtml(s.venue || '—') + '</div>' +
-    ((head && head !== s.venue) || addr ? '<div class="w-hero-sub">' + escapeHtml([head !== s.venue ? head : '', addr].filter(Boolean).join(' · ')) + '</div>' : '') +
-    '<div class="w-hero-foot"><span>' + (s.ap ? 'PL ' + escapeHtml(s.ap) : '') + (avs ? ' <span class="w-avs">' + avs + '</span>' : '') + '</span>' +
-      (maps ? '<a class="w-btn w-btn-accent" href="' + escapeHtml(maps) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">Route</a>' : '') + '</div>' +
-  '</div>';
-}
-
+// Today: everything for the day on one card, opened. Address with a route link, PL, team with roles and times,
+// vehicles and notes, material (wpDetails), and "Protokoll starten" for the AL. No phone numbers: the app stores none.
 function homeTodayHtml(s) {
-  // On site the plan and the material list come first (js/vorort.js), the details below
-  return homeHeroHtml(s, 'Heute' + (s.date !== localDateStr() ? ' Nacht' : ''), true) +
-    (typeof voBlockHtml === 'function' ? voBlockHtml(s) : '') +
-    '<div class="w-card home-today wp-open">' + wpDetails(s) +
-    '<div class="home-today-actions">' + wpProtButton(s, 'primary') +
+  var tc = wpTimeCol(s), head = planShiftHeading(s), addr = homeAddress(s), maps = homeMapsUrl(s);
+  return '<div class="ui-hero home-today wp-open">' +
+    '<div class="ui-hero-when">Heute' + (s.date !== localDateStr() ? ' Nacht' : '') + '</div>' +
+    '<div class="ui-num">' + escapeHtml(tc.big) + (tc.small ? ' <span>' + escapeHtml(tc.small) + '</span>' : '') + '</div>' +
+    '<div class="ui-hero-place">' + escapeHtml(s.venue || '—') + (head && head !== s.venue ? ' · ' + escapeHtml(head) : '') + '</div>' +
+    (addr || maps ? '<div class="home-today-addr">' + (addr ? '<span>' + WP_ICON.pin + ' ' + escapeHtml(addr) + '</span>' : '') +
+      (maps ? '<a class="ui-btn dash-small-btn" href="' + escapeHtml(maps) + '" target="_blank" rel="noopener">Route</a>' : '') + '</div>' : '') +
+    (s.ap ? '<div class="ui-sub">PL ' + escapeHtml(s.ap) + '</div>' : '') +
+    wpDetails(s) +
+    '<div class="home-today-actions">' + wpProtButton(s, 'primary') + (typeof mcButtonHtml === 'function' ? mcButtonHtml(s) : '') +
       '<button type="button" class="ord-textbtn" onclick="selectMode(\'wochenplan\')">Im Wochenplan öffnen</button></div>' +
   '</div>';
 }
 
 function homeNextHtml(s) {
   if (homeIsToday(s.date, localDateStr())) return homeTodayHtml(s);
-  var w = homeWhen(s.date);
-  return homeHeroHtml(s, w.charAt(0).toUpperCase() + w.slice(1), false) + (typeof voBlockHtml === 'function' ? voBlockHtml(s) : '');
+  var tc = wpTimeCol(s), head = planShiftHeading(s);
+  var team = (s.plan_assignments || [])
+    .filter(function(a) { return a.user_id !== (currentUser && currentUser.id) && WP_AGENCY.indexOf(a.role) === -1; })
+    .map(function(a) { return firstName(a.name); }).filter(Boolean);
+  var teamText = team.slice(0, 3).join(', ') + (team.length > 3 ? ' +' + (team.length - 3) : '');
+  return '<div class="ui-hero" role="button" tabindex="0" onclick="selectMode(\'wochenplan\')">' +
+    '<div class="ui-hero-when">Nächster Einsatz · ' + homeWhen(s.date) + '</div>' +
+    '<div class="ui-num">' + escapeHtml(tc.big) + (tc.small ? ' <span>' + escapeHtml(tc.small) + '</span>' : '') + '</div>' +
+    '<div class="ui-hero-place">' + escapeHtml(s.venue || '—') + (head && head !== s.venue ? ' · ' + escapeHtml(head) : '') + '</div>' +
+    ((s.ap || teamText) ? '<div class="ui-sub" style="margin-top:2px;">' +
+      escapeHtml([s.ap ? 'PL ' + s.ap : '', teamText ? 'mit ' + teamText : ''].filter(Boolean).join(' · ')) + '</div>' : '') +
+    '</div>';
 }
 
 function homeShowNext(shift) {
@@ -104,9 +118,7 @@ function homeShowNext(shift) {
   // A cached shift can be outdated by now: run it through the same filter as the live list
   var s = shift && homeNextAllowed(userRole, moduleAllowedForRole) ? nextOwnShift([shift], new Date()) : null;
   if (s && typeof _wpShiftCache !== 'undefined') _wpShiftCache[s.id] = s; // "Protokoll starten" on the card reads it from there
-  box.innerHTML = s ? homeNextHtml(s) : (userRole === 'MA' || userRole === 'AL')
-    ? '<div class="w-empty"><b>Kein Einsatz geplant</b><p>Sobald du im Wochenplan stehst, siehst du ihn hier.</p>' +
-      '<button type="button" class="w-btn" onclick="selectMode(\'wochenplan\')">Zum Plan</button></div>' : '';
+  box.innerHTML = s ? homeNextHtml(s) : '';
 }
 
 var _homeSeq = 0, _homeFetchedAt = 0, _homeFetchedFor = null;
@@ -138,18 +150,23 @@ async function refreshHomeNextShift(force) {
 function renderHome() {
   if (typeof currentUser === 'undefined' || !currentUser) return;
   var hello = document.getElementById('home-hello');
-  if (hello) hello.textContent = 'Heute';
+  if (hello) { var n = firstName(currentUser.full_name); hello.textContent = n ? 'Hallo ' + n : 'Hallo'; }
   var date = document.getElementById('home-date');
-  if (date) { var n = firstName(currentUser.full_name);
-    date.textContent = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }) + (n ? ' · Hallo ' + n : ''); }
+  if (date) date.textContent = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+  var tiles = document.getElementById('home-tiles');
+  if (tiles) {
+    tiles.innerHTML = homeTiles(userRole, moduleAllowedForRole).map(function(t) {
+      return '<button type="button" class="ui-tile" id="btn-select-' + (t.id || t.mode) + '" onclick="selectMode(\'' + t.mode + '\'' + (t.view ? ', \'' + t.view + '\'' : '') + ')">' +
+        '<span class="ui-tile-ico">' + uiIcon(t.icon) + '</span><span>' + t.label + '</span></button>';
+    }).join('');
+  }
   var cached = null;
   try { cached = readNextShiftCache(localStorage.getItem(NEXT_SHIFT_KEY), currentUser.id); } catch (e) { /* ignore */ }
   homeShowNext(cached);
   refreshHomeNextShift();
-  if (typeof renderHeute === 'function') renderHeute();
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { firstName: firstName, homeNextAllowed: homeNextAllowed, dashViewFromStored: dashViewFromStored,
+  module.exports = { HOME_TILES: HOME_TILES, firstName: firstName, homeTiles: homeTiles, homeNextAllowed: homeNextAllowed, dashViewFromStored: dashViewFromStored,
     nextShiftCacheValue: nextShiftCacheValue, readNextShiftCache: readNextShiftCache, homeIsToday: homeIsToday, homeAddress: homeAddress, homeMapsUrl: homeMapsUrl };
 }
