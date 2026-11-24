@@ -46,7 +46,7 @@
     ]
   },
   "env": {
-    "PONYTAIL_DEFAULT_MODE": "ultra"
+    "PONYTAIL_DEFAULT_MODE": "full"
   },
   "extraKnownMarketplaces": {
     "ponytail": {
