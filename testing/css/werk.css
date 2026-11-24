@@ -568,7 +568,7 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .ui-hero .vo-tile:disabled:active { background: var(--w-paper); }
 
 /* "Ansicht als …" badge while an Admin looks at another role (js/viewas.js) */
-.view-as-chip { position: fixed; top: calc(24px + env(safe-area-inset-top)); right: 10px; z-index: 9000; background: var(--w-warn); color: #fff;
+.view-as-chip { position: fixed; bottom: calc(var(--w-tabbar-h) + 14px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); white-space: nowrap; z-index: 9000; background: var(--w-warn); color: #fff;
   border: 0; border-radius: 99px; padding: 6px 12px; font: inherit; font-size: 12px; font-weight: 700; box-shadow: 0 4px 12px rgba(0,0,0,.18); cursor: pointer; }
 
 /* ── Sections of a tab (js/nav.js navHubPaint) ── */
@@ -597,3 +597,6 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .meine-link-main b { display: block; font-size: 16px; font-weight: 600; }
 .meine-link-main small { display: block; font-size: 13px; color: var(--w-muted); }
 .meine-link-arrow { color: var(--w-muted); font-size: 20px; }
+
+body:not(.w-has-tabbar) .view-as-chip { bottom: calc(16px + env(safe-area-inset-bottom)); }
+@media (min-width: 1024px) { .view-as-chip { bottom: 20px; left: calc(50% + 52px); } }
