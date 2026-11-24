@@ -236,7 +236,7 @@ async function renderHeuteOffice(seq) {
             '<button type="button" class="w-btn" onclick="selectMode(\'wochenplan\')">Zum Plan</button></div>';
       }
       var apps = heuteCount(r[1]) + heuteCount(r[2]), prot = heuteCount(r[3]), inbox = heuteCount(r[4]);
-      if (apps) rows += heuteRow('selectMode(\'' + (allowed('auftraege') ? 'auftraege' : 'wochenplan') + '\')', 'Bewerbungen', 'Warten auf deine Entscheidung', apps);
+      if (apps) rows += heuteRow('selectMode(\'wochenplan\')', 'Bewerbungen', 'Warten auf deine Entscheidung', apps);
       if (prot) rows += heuteRow('selectMode(\'dashboard\', \'prot\')', 'Protokolle', 'Heute, noch nicht verschickt', prot);
       if (inbox) rows += heuteRow('selectMode(\'wochenplan\')', 'Plan-Postfach', 'Neue Pläne zum Einlesen', inbox);
     }

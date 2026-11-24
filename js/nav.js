@@ -22,13 +22,14 @@ var NAV_ITEMS = {
   mehr: { id: 'mehr', label: 'Mehr', icon: 'menu', mode: null, action: 'openMoreSheet' }
 };
 
-// Default bottom tabs and "Mehr" per role (design 2026-11-22, one more tab since 2026-11-24). Users can pin their own.
+// Default bottom tabs and "Mehr" per role. Users can pin their own. No Aufträge tab since 2026-11-24: an Auftragsbestätigung
+// goes straight into the Wochenplan (Hochladen → Auftragsbestätigung), staffing happens on the plan entry (Planen).
 var NAV_ROLES = {
-  MA: { tabs: ['heute', 'plan', 'zettel'], more: ['auftraege', 'produkte', 'ordner', 'plaene'] },
-  AL: { tabs: ['heute', 'plan', 'protokoll', 'zettel', 'uebersicht'], more: ['auftraege', 'personal', 'produkte', 'ordner', 'plaene'] },
-  PL: { tabs: ['heute', 'plan', 'auftraege', 'protokolle', 'personal'], more: ['zettel', 'produkte', 'ordner', 'plaene'] },
-  Admin: { tabs: ['heute', 'plan', 'auftraege', 'protokolle', 'personal'], more: ['admin', 'zettel', 'produkte', 'ordner', 'plaene'] },
-  Buchhaltung: { tabs: ['heute', 'protokolle', 'personal'], more: ['auftraege', 'plan', 'zettel', 'produkte', 'ordner', 'plaene'] },
+  MA: { tabs: ['heute', 'plan', 'zettel'], more: ['produkte', 'ordner', 'plaene'] },
+  AL: { tabs: ['heute', 'plan', 'protokoll', 'zettel', 'uebersicht'], more: ['personal', 'produkte', 'ordner', 'plaene'] },
+  PL: { tabs: ['heute', 'plan', 'protokolle', 'personal', 'ordner'], more: ['zettel', 'produkte', 'plaene'] },
+  Admin: { tabs: ['heute', 'plan', 'protokolle', 'personal', 'ordner'], more: ['admin', 'zettel', 'produkte', 'plaene'] },
+  Buchhaltung: { tabs: ['heute', 'protokolle', 'personal'], more: ['plan', 'zettel', 'produkte', 'ordner', 'plaene'] },
   Gast: { tabs: ['produkte', 'ordner', 'plaene'], more: [] }
 };
 

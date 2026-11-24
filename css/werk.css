@@ -534,3 +534,8 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .dash-worker-top .dash-worker-head { flex: 1 0 100%; }
 .dash-worker-head .ui-title { font-size: 28px !important; font-weight: 300; }
 .dash-worker-top .dash-small-btn { min-height: 36px; padding: 6px 14px; font-size: 14px; }
+/* "Neuer Auftrag" from the Wochenplan: the PDF picker comes first */
+#ordner-form.ordner-from-plan { display: flex !important; flex-direction: column; }
+#ordner-form.ordner-from-plan > .ui-sheet-head { order: -2; }
+#ordner-form.ordner-from-plan > .ordner-ab-field { order: -1; }
+#ordner-form.ordner-from-plan > .ordner-ab-field .ui-add-row { background: var(--w-accent-strong); color: var(--w-on-accent); border: 0; border-radius: var(--w-petal-sm); min-height: 48px; font-weight: 700; }

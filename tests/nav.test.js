@@ -16,8 +16,8 @@ const more = (r, s = false) => N.navTabs(r, allowed, s).more.map(t => t.id);
 test('tabs per role (spec table)', () => {
   assert.deepEqual(ids('MA'), ['heute', 'plan', 'zettel', 'mehr']);
   assert.deepEqual(ids('AL'), ['heute', 'plan', 'protokoll', 'zettel', 'uebersicht', 'mehr']);
-  assert.deepEqual(ids('PL'), ['heute', 'plan', 'auftraege', 'protokolle', 'personal', 'mehr']);
-  assert.deepEqual(ids('Admin'), ['heute', 'plan', 'auftraege', 'protokolle', 'personal', 'mehr']);
+  assert.deepEqual(ids('PL'), ['heute', 'plan', 'protokolle', 'personal', 'ordner', 'mehr']);
+  assert.deepEqual(ids('Admin'), ['heute', 'plan', 'protokolle', 'personal', 'ordner', 'mehr']);
   assert.deepEqual(ids('Buchhaltung'), ['heute', 'protokolle', 'personal', 'mehr']);
   assert.deepEqual(ids('Gast'), ['produkte', 'ordner', 'plaene']);
 });
@@ -25,10 +25,10 @@ test('tabs per role (spec table)', () => {
 test('Mehr per role', () => {
   assert.deepEqual(more('MA'), ['produkte', 'ordner', 'plaene', 'optionen', 'problem']);
   assert.deepEqual(more('AL'), ['personal', 'produkte', 'ordner', 'plaene', 'optionen', 'problem']);
-  assert.deepEqual(more('PL'), ['zettel', 'produkte', 'ordner', 'plaene', 'optionen', 'problem']);
-  assert.deepEqual(more('Admin'), ['admin', 'zettel', 'produkte', 'ordner', 'plaene', 'optionen', 'problem']);
+  assert.deepEqual(more('PL'), ['zettel', 'produkte', 'plaene', 'optionen', 'problem']);
+  assert.deepEqual(more('Admin'), ['admin', 'zettel', 'produkte', 'plaene', 'optionen', 'problem']);
   assert.deepEqual(more('Buchhaltung'), ['plan', 'zettel', 'produkte', 'ordner', 'plaene', 'optionen', 'problem']);
-  assert.deepEqual(more('MA', true).slice(0, 1), ['auftraege']); // sees plan interest → Aufträge under Mehr
+  assert.ok(!more('MA', true).includes('auftraege')); // no Aufträge tab any more: Auftrag phases live in the Wochenplan
   assert.deepEqual(more('Gast'), []);
 });
 
@@ -40,7 +40,6 @@ test('tab targets', () => {
   assert.equal(t.protokolle.mode, 'dashboard'); assert.equal(t.protokolle.view, 'prot');
   assert.equal(t.personal.mode, 'dashboard'); assert.equal(t.personal.view, 'work');
   assert.equal(t.zettel.mode, 'stunden');
-  assert.equal(t.auftraege.mode, 'auftraege');
   assert.equal(t.optionen.action, 'openSettingsModal');
   assert.equal(t.problem.action, 'openProblemForm');
   const ad = N.navTabs('Admin', allowed).more;
@@ -102,6 +101,6 @@ test('Pläne entry opens the Ordner page in the plans view', () => {
 
 test('navWideTabs: every page in the sidebar, Mehr keeps the actions', () => {
   const w = N.navWideTabs(N.navTabs('Admin', allowed));
-  assert.deepEqual(w.tabs.map(t => t.id), ['heute', 'plan', 'auftraege', 'protokolle', 'personal', 'admin', 'zettel', 'produkte', 'ordner', 'plaene', 'mehr']);
+  assert.deepEqual(w.tabs.map(t => t.id), ['heute', 'plan', 'protokolle', 'personal', 'ordner', 'admin', 'zettel', 'produkte', 'plaene', 'mehr']);
   assert.deepEqual(w.more.map(t => t.id), ['optionen', 'problem']);
 });

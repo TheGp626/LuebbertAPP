@@ -102,7 +102,7 @@ function plRowFromSlot(slot, week, users) {
 }
 
 // Draft rows against the Auftrag phases of the week. Existing rows are never removed and keep people and texts;
-// only the day and the MA number follow the Auftrag (both are maintained in Aufträge / the project folder).
+// only the day and the MA number follow the Auftrag (the day in the project folder, the number here in Planen or in the folder).
 // slots === null (not loaded) changes nothing.
 function plMergeSlots(rows, slots, week, users) {
   var out = { add: [], patch: [], stale: [] };
@@ -877,7 +877,7 @@ async function plRemove(id, index) {
 }
 
 // Placing someone who said "Ich kann" answers their Meldung (offen → angenommen); taking them off again reopens it.
-// Deciding needs "Sieht Bewerbungen" (RLS): without it nothing changes here and the Meldung waits in the Aufträge inbox as before.
+// Deciding needs "Sieht Bewerbungen" (RLS): without it nothing changes here and the Meldung keeps waiting.
 async function plMeldungSet(rowId, userId, from, to) {
   var st = plState, row = plRowById(rowId);
   if (!st || !row) return;
@@ -1017,6 +1017,18 @@ async function plDeleteWeek() {
 
 /* ── Edit sheet ── */
 
+async function plSaveStaff(jobNo, phase, need) {
+  var up = { job_no: jobNo, updated_at: new Date().toISOString() };
+  up['staff_' + phase] = need;
+  try {
+    var r = await supabaseClient.from('order_staffing').upsert(up, { onConflict: 'job_no' }).select('job_no');
+    if (r.error || !r.data || !r.data.length) throw r.error || new Error('nicht gespeichert');
+  } catch (e) {
+    console.error('MA-Zahl am Auftrag:', e);
+    showToast('MA-Zahl nur im Entwurf gespeichert – am Auftrag nicht. Prüf deine Verbindung.', 'danger');
+  }
+}
+
 function plCloseSheet() { var m = document.getElementById('pl-sheet'); if (m) m.remove(); }
 
 function plEditRow(id) {
@@ -1040,7 +1052,7 @@ function plEditRow(id) {
   m.className = 'sig-modal ui-sheet open';
   m.style.setProperty('--sheet-w', '520px');
   m.innerHTML = '<div class="sig-modal-inner"><div class="ui-sheet-head"><h3 class="ui-title" style="font-size:18px;">' + (row ? 'Eintrag bearbeiten' : 'Freier Eintrag') + '</h3></div>' +
-    (job ? '<div class="ui-sub" style="margin-bottom:12px;">Tag und MA-Zahl kommen aus dem Auftrag ' + plE(row.job_no) + ' und werden dort geändert.</div>'
+    (job ? '<div class="ui-sub" style="margin-bottom:12px;">Der Tag kommt aus dem Auftrag ' + plE(row.job_no) + ' (im Projektordner änderbar). Die MA-Zahl gilt für den ganzen ' + (PL_PHASE[row.phase] || 'Einsatz') + ' des Auftrags.</div>'
       : field('Tag', '<select id="pl-f-date">' + days + '</select>')) +
     (st.hasKind ? field('Art', '<select id="pl-f-kind">' + PL_KIND_ORDER.map(function(k) {
       return '<option value="' + k + '"' + (k === (plKind(v) || 'auftrag') ? ' selected' : '') + '>' + PL_KINDS[k].long + '</option>';
@@ -1050,7 +1062,7 @@ function plEditRow(id) {
     field('Was (Material, eine Zeile pro Position)', '<textarea id="pl-f-was" rows="5" placeholder="4 Loungesofa weiß&#10;2 Stehtische&#10;1 Teppich 3 x 4 m">' + plE(plWasText(v)) + '</textarea>') +
     field('Wann', area('wann', 'z.B. Aufbau: 9 Uhr')) +
     (planner ? field('PL (Projektleitung)', '<select id="pl-f-ap">' + apOpts + '</select>') : '') +
-    (job ? '' : field('MA gebraucht', '<input type="number" id="pl-f-need" min="0" max="99" inputmode="numeric" value="' + (v.need || 0) + '">')) +
+    field('MA gebraucht', '<input type="number" id="pl-f-need" min="0" max="99" inputmode="numeric" value="' + (v.need || 0) + '">') +
     (st.hasOpen ? field('Fahrer fehlt noch (0 = keiner)', '<input type="number" id="pl-f-drivers" min="0" max="9" inputmode="numeric" value="' +
       plOpenOther(v).filter(function(o) { return o.role === 'Fahrer'; }).reduce(function(n, o) { return n + o.count; }, 0) + '">') : '') +
     field('Notizen', area('notes', 'z.B. Fahrzeug, Hinweise')) +
@@ -1085,7 +1097,11 @@ async function plSaveSheet(id) {
   var btn = document.getElementById('pl-f-save');
   if (btn) btn.disabled = true;
   var ok;
-  if (row) ok = await plSave(row, ch);
+  if (row) {
+    ok = await plSave(row, ch);
+    // An Auftrag row: the MA number is the Auftrag's (order_staffing), so the crew's "Ich kann" and the next sync agree
+    if (ok && row.job_no && (row.phase === 'setup' || row.phase === 'teardown') && ch.need !== undefined) await plSaveStaff(row.job_no, row.phase, ch.need);
+  }
   else {
     var w = st.week, ins;
     try {
