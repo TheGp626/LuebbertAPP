@@ -52,7 +52,7 @@ self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys => {
       // The /experimental/ test build (own SW, same origin) keeps its 'stundenzettel-exp-*' cache: never delete it here
-      const oldCaches = keys.filter(k => k !== CACHE && k.startsWith('stundenzettel-exp-tst-') && k !== MEDIA_CACHE);
+      const oldCaches = keys.filter(k => k !== CACHE && k.startsWith('stundenzettel-exp-tst-') && !k.startsWith('stundenzettel-exp-tst-live-') && k !== MEDIA_CACHE);
       return Promise.all(oldCaches.map(k => caches.delete(k)))
         .then(() => self.clients.claim())
         .then(() => {

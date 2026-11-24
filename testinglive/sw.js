@@ -1,0 +1,181 @@
+const CACHE = 'stundenzettel-exp-tst-live-bf156ee';
+// Product media, shared by the live app and /experimental/ (same origin, same files)
+const MEDIA_CACHE = 'luebbert-media-v1';
+// Loaded by the app only when needed (utils.js loadLib), so index.html doesn't name them: precached here for offline use
+const LAZY_ASSETS = ['vendor/jspdf-2.5.1.umd.min.js', 'vendor/pdfjs-3.11.174/pdf.min.js', 'vendor/pdfjs-3.11.174/pdf.worker.min.js',
+  'vendor/chart-4.6.1.umd.min.js', 'fonts/jost-latin-wght-normal.woff2', 'fonts/jost-latin-ext-wght-normal.woff2', 'fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2', 'fonts/atkinson-hyperlegible-next-latin-ext-wght-normal.woff2'];
+
+// Offline start needs every script/stylesheet of index.html (own files + CDN libs): the install step reads
+// index.html and caches whatever it references, so this list never has to be kept in sync by hand.
+// Own files are required (install fails → old SW stays); CDN files are best effort (opaque no-cors responses are fine for <script>).
+function assetUrlsOf(html) {
+  const urls = [];
+  const add = u => { if (u && !/^(data|blob):/.test(u) && !urls.includes(u)) urls.push(u); };
+  (html.match(/<script\b[^>]*>/gi) || []).forEach(t => add((/\bsrc\s*=\s*["']([^"']+)["']/i.exec(t) || [])[1]));
+  (html.match(/<link\b[^>]*>/gi) || []).forEach(t => {
+    if (/\brel\s*=\s*["']stylesheet["']/i.test(t)) add((/\bhref\s*=\s*["']([^"']+)["']/i.exec(t) || [])[1]);
+  });
+  return urls.map(u => new URL(u, self.registration.scope).href);
+}
+
+async function precache() {
+  const cache = await caches.open(CACHE);
+  await cache.add('./manifest.json');
+  const res = await fetch(new Request('./index.html', { cache: 'no-cache' }));
+  if (!res.ok) throw new Error('precache failed: index.html');
+  // Store the same fresh copy whose assets get cached below; addAll() could keep an older HTTP-cached index.html
+  // that references ?v= files which are not in this cache → broken offline start
+  await cache.put('./index.html', res.clone());
+  const urls = assetUrlsOf(await res.text());
+  LAZY_ASSETS.forEach(a => { const u = new URL(a, self.registration.scope).href; if (!urls.includes(u)) urls.push(u); });
+  const own = urls.filter(u => u.startsWith(self.location.origin));
+  const cdn = urls.filter(u => !u.startsWith(self.location.origin));
+  // vendor/ files carry their version in the name and never change: an update copies them from the old cache
+  // instead of downloading about 2 MB again on every new app version
+  await Promise.all(own.map(async u => {
+    if (u.includes('/vendor/')) {
+      const old = await caches.match(u);
+      if (old) return cache.put(u, old);
+    }
+    const r = await fetch(new Request(u, { cache: 'no-cache' }));
+    if (!r.ok) throw new Error('precache failed: ' + u);
+    return cache.put(u, r);
+  }));
+  await Promise.all(cdn.map(u => fetch(new Request(u, { mode: 'no-cors' })).then(r => cache.put(u, r)).catch(() => {})));
+}
+
+self.addEventListener('install', e => {
+  e.waitUntil(precache().then(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys().then(keys => {
+      // The /experimental/ test build (own SW, same origin) keeps its 'stundenzettel-exp-*' cache: never delete it here
+      const oldCaches = keys.filter(k => k !== CACHE && k.startsWith('stundenzettel-exp-tst-live-') && k !== MEDIA_CACHE);
+      return Promise.all(oldCaches.map(k => caches.delete(k)))
+        .then(() => self.clients.claim())
+        .then(() => {
+          // Only notify open tabs when this is a real update (old caches existed),
+          // not on a fresh first-time install.
+          if (oldCaches.length > 0) {
+            return self.clients.matchAll({ type: 'window' }).then(clients =>
+              clients.forEach(c => c.postMessage({ type: 'SW_UPDATED' }))
+            );
+          }
+        });
+    })
+  );
+});
+
+self.addEventListener('fetch', e => {
+  if (e.request.mode === 'navigate') {
+    // App start: open from the saved copy at once instead of waiting for GitHub (hung for seconds on weak signal).
+    // A new version always comes with a new sw.js (CACHE bump): its install stores the new index.html with its files,
+    // and the page reloads itself (SW_UPDATED / controllerchange in app.js). Only the app page itself, by path.
+    const path = new URL(e.request.url).pathname;
+    const scopePath = new URL(self.registration.scope).pathname;
+    // /admin/ is only a short address for the app's Admin page: answer with the redirect here, so the stub page
+    // (admin/index.html) never replaces the offline copy of the app below, and it works offline too
+    if (path === scopePath + 'admin' || path === scopePath + 'admin/' || path === scopePath + 'admin/index.html') {
+      e.respondWith(Response.redirect(new URL('./#admin', self.registration.scope).href, 302));
+      return;
+    }
+    if (path === scopePath || path === scopePath + 'index.html') {
+      e.respondWith(caches.open(CACHE).then(c => c.match('./index.html')).then(cached => cached || fetch(new Request(e.request, { cache: 'no-cache' }))
+        .then(res => {
+          if (res.ok && !res.redirected) { const clone = res.clone(); caches.open(CACHE).then(c => c.put('./index.html', clone)); }
+          return res;
+        })));
+      return;
+    }
+    e.respondWith(
+      fetch(new Request(e.request, { cache: 'no-cache' }))
+        .then(res => {
+          // Only a real page replaces the offline copy (not a 404 / captive-portal redirect)
+          if (res.ok && !res.redirected) {
+            const clone = res.clone();
+            caches.open(CACHE).then(c => c.put('./index.html', clone));
+          }
+          return res;
+        })
+        .catch(() => caches.match('./index.html'))
+    );
+    return;
+  }
+
+  // Product photos and Aufbau-Dateien (public buckets, a new upload gets a new file name): kept across app versions,
+  // so the product list doesn't download them again on every visit. Private project files (signed links) never.
+  if (e.request.method === 'GET' && /\/storage\/v1\/object\/public\/product-(images|pdfs)\//.test(e.request.url)) {
+    // <img> asks without CORS (opaque, unreadable, padded to megabytes in the cache): fetch it with CORS instead
+    const key = e.request.url;
+    e.respondWith(caches.open(MEDIA_CACHE).then(c => c.match(key).then(hit => hit || fetch(key, { mode: 'cors', credentials: 'omit' }).then(res => {
+      if (res.ok) c.put(key, res.clone()).then(() => trimMedia(c));
+      return res;
+    }, () => fetch(e.request)))));
+    return;
+  }
+
+  e.respondWith(
+    caches.match(e.request).then(cached => {
+      if (cached) return cached;
+      const url = e.request.url;
+      // CDN scripts (supabase-js, jsPDF, …) are cached on first load; no-cache stays for own files only
+      if (!url.startsWith(self.location.origin)) {
+        return fetch(e.request).then(res => {
+          if ((res.ok || res.type === 'opaque') && e.request.method === 'GET' && /\.(js|css|woff2?)(\?|$)|\/npm\//.test(url)) {
+            const clone = res.clone();
+            caches.open(CACHE).then(c => c.put(e.request, clone));
+          }
+          return res;
+        });
+      }
+      // Use no-cache to bypass browser HTTP cache — SW cache is our offline layer
+      return fetch(new Request(e.request, { cache: 'no-cache' })).then(res => {
+        const isStaticAsset = /\.(js|css|png|jpg|jpeg|svg|ico|woff2?|json)(\?|$)/.test(url);
+        if (res.ok && isStaticAsset) {
+          const clone = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
+        return res;
+      });
+    })
+  );
+});
+
+// shortcut: drops the oldest entries by insertion order once over 150 files (~60 MB), no LRU; enough for one product catalogue
+const MEDIA_MAX = 150;
+function trimMedia(c) {
+  return c.keys().then(keys => Promise.all(keys.slice(0, Math.max(0, keys.length - MEDIA_MAX)).map(k => c.delete(k))));
+}
+
+self.addEventListener('message', e => {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
+  // Fehlerberichte (js/errors.js) send this cache name as the app version
+  if (e.data && e.data.type === 'GET_VERSION' && e.source) e.source.postMessage({ type: 'VERSION', version: CACHE });
+});
+
+// ── Web Push (AL-Erinnerungen) ──
+self.addEventListener('push', e => {
+  let data = {};
+  try { data = e.data ? e.data.json() : {}; } catch (_) { data = { body: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(data.title || 'Lübbert App', {
+    body: data.body || '',
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-192.png',
+    data: { url: data.url || './index.html' }
+  }));
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || './index.html', self.registration.scope).href;
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      const win = list[0];
+      // navigate() rejects for windows this SW doesn't control (e.g. after a hard reload) → open a fresh one
+      if (win) return win.navigate(url).then(w => (w || win).focus()).catch(() => self.clients.openWindow(url));
+      return self.clients.openWindow(url);
+    })
+  );
+});

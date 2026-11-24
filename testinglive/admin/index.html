@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Admin · Lübbert App</title>
+  <!-- /admin/ is a short address for the Admin page inside the app (js/admin.js reads #admin) -->
+  <script>location.replace('../' + (location.search || '') + '#admin' + (location.hash ? location.hash.replace(/^#admin/, '').replace(/^#/, '/') : ''));</script>
+  <meta http-equiv="refresh" content="0; url=../#admin">
+</head>
+<body style="font-family:system-ui,sans-serif;padding:24px;">
+  <a href="../#admin">Zur Admin-Seite</a>
+</body>
+</html>
