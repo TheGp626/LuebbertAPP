@@ -322,3 +322,12 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .w-month-limit { font-size: 12px; font-weight: 600; color: var(--w-muted); margin-top: 6px; }
 .w-month-over + .w-month-limit { color: var(--w-danger); }
 
+
+/* ── Ordner: "Alle Pläne" (js/ordner.js) ── */
+.ordner-seg { margin-bottom: 12px; }
+.ordner-plan-group { margin-bottom: 14px; }
+.ordner-plan-head { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: 0; padding: 14px 2px 6px; margin: 0;
+  text-align: left; cursor: pointer; color: inherit; font: inherit; }
+.ordner-plan-head .ui-ico { width: 16px; height: 16px; flex: 0 0 auto; }
+.ordner-plan-head span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ordner-plan-head em { font-style: normal; font-size: 11px; opacity: .75; flex: 0 0 auto; }

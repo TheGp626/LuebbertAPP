@@ -13,7 +13,8 @@ var NAV_ITEMS = {
   personal: { id: 'personal', label: 'Personal', icon: 'chart', mode: 'dashboard', view: 'work' },
   auftraege: { id: 'auftraege', label: 'Aufträge', icon: 'file', mode: 'auftraege' },
   produkte: { id: 'produkte', label: 'Produkte', icon: 'box', mode: 'produkte' },
-  ordner: { id: 'ordner', label: 'Ordner', icon: 'folder', mode: 'ordner' },
+  ordner: { id: 'ordner', label: 'Ordner', icon: 'folder', mode: 'ordner', view: 'ordner' },
+  plaene: { id: 'plaene', label: 'Pläne', icon: 'file', mode: 'ordner', view: 'plaene' },
   // Admin page (js/admin.js): Übersicht, Einstellungen, Fehlerberichte
   admin: { id: 'admin', label: 'Admin', icon: 'shield', mode: 'admin' },
   optionen: { id: 'optionen', label: 'Optionen', icon: 'user', mode: null, action: 'openSettingsModal' },
@@ -23,12 +24,12 @@ var NAV_ITEMS = {
 
 // Default bottom tabs and "Mehr" per role (design 2026-11-22, one more tab since 2026-11-24). Users can pin their own.
 var NAV_ROLES = {
-  MA: { tabs: ['heute', 'plan', 'zettel'], more: ['auftraege', 'produkte', 'ordner'] },
-  AL: { tabs: ['heute', 'plan', 'protokoll', 'zettel', 'uebersicht'], more: ['auftraege', 'personal', 'produkte', 'ordner'] },
-  PL: { tabs: ['heute', 'plan', 'auftraege', 'protokolle', 'personal'], more: ['zettel', 'produkte', 'ordner'] },
-  Admin: { tabs: ['heute', 'plan', 'auftraege', 'protokolle', 'personal'], more: ['admin', 'zettel', 'produkte', 'ordner'] },
-  Buchhaltung: { tabs: ['heute', 'protokolle', 'personal'], more: ['auftraege', 'plan', 'zettel', 'produkte', 'ordner'] },
-  Gast: { tabs: ['produkte', 'ordner'], more: [] }
+  MA: { tabs: ['heute', 'plan', 'zettel'], more: ['auftraege', 'produkte', 'ordner', 'plaene'] },
+  AL: { tabs: ['heute', 'plan', 'protokoll', 'zettel', 'uebersicht'], more: ['auftraege', 'personal', 'produkte', 'ordner', 'plaene'] },
+  PL: { tabs: ['heute', 'plan', 'auftraege', 'protokolle', 'personal'], more: ['zettel', 'produkte', 'ordner', 'plaene'] },
+  Admin: { tabs: ['heute', 'plan', 'auftraege', 'protokolle', 'personal'], more: ['admin', 'zettel', 'produkte', 'ordner', 'plaene'] },
+  Buchhaltung: { tabs: ['heute', 'protokolle', 'personal'], more: ['auftraege', 'plan', 'zettel', 'produkte', 'ordner', 'plaene'] },
+  Gast: { tabs: ['produkte', 'ordner', 'plaene'], more: [] }
 };
 
 var NAV_MAX_TABS = 5; // page tabs in the bar (plus "Mehr") — fits a 360px phone
@@ -106,7 +107,7 @@ function navPaint() {
   if (!user) { bar.hidden = true; bar.innerHTML = ''; document.body.classList.remove('w-has-tabbar'); return; }
   _navCurrent = navTabs(userRole, moduleAllowedForRole, !!window.currentUserSeesInterest, navLoadPinned() || _navSessionPinned);
   var mod = typeof activeModule !== 'undefined' ? activeModule : null;
-  var view = typeof dashView !== 'undefined' ? dashView : null;
+  var view = navCurrentView(mod);
   var active = navActiveTab(_navCurrent.tabs.concat(_navCurrent.more), mod, view);
   var inMore = active && !_navCurrent.tabs.some(function(t) { return t.id === active; });
   bar.innerHTML = _navCurrent.tabs.map(function(t) {
@@ -116,6 +117,11 @@ function navPaint() {
   }).join('');
   bar.hidden = false;
   document.body.classList.add('w-has-tabbar');
+}
+
+function navCurrentView(mod) {
+  if (mod === 'ordner') return typeof ordnerView !== 'undefined' ? ordnerView : 'ordner';
+  return typeof dashView !== 'undefined' ? dashView : null;
 }
 
 function navFind(id) {
@@ -129,6 +135,11 @@ function navGo(id) {
   if (t.action) { if (typeof window[t.action] === 'function') window[t.action](); return; }
   if (!t.mode) { exitToMenu(); return; }
   if (activeModule === 'dashboard' && t.mode === 'dashboard' && typeof switchDashTab === 'function') switchDashTab(t.view);
+  else if (activeModule === 'ordner' && t.mode === 'ordner' && typeof setOrdnerView === 'function') {
+    if (typeof closeOrdnerDetail === 'function' && typeof aktuellerOrdner !== 'undefined' && aktuellerOrdner) closeOrdnerDetail();
+    setOrdnerView(t.view);
+  }
+  else if (t.mode === 'ordner') { window.ordnerStartView = t.view; selectMode(t.mode); }
   else selectMode(t.mode, t.view);
   navPaint();
 }
@@ -137,7 +148,7 @@ var _navReturnFocus = null;
 
 function navSheetHtml() {
   var mod = typeof activeModule !== 'undefined' ? activeModule : null;
-  var active = navActiveTab(_navCurrent.tabs.concat(_navCurrent.more), mod, typeof dashView !== 'undefined' ? dashView : null);
+  var active = navActiveTab(_navCurrent.tabs.concat(_navCurrent.more), mod, navCurrentView(mod));
   var inBar = _navCurrent.tabs.filter(function(t) { return t.id !== 'mehr'; });
   var full = inBar.length >= NAV_MAX_TABS;
   var row = function(t, pin) {
