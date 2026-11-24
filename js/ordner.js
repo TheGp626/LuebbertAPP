@@ -853,8 +853,9 @@ async function renderOrdnerEinsaetze(folder) {
   var alIds = rows.map(function(r) { return r.al_id; });
   var dates = rows.map(function(r) { return r.date; });
   var done = {};
-  // MA/Gast cannot read protocols: marker only for office roles
-  var { data: prots } = ['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole)
+  // MA/Gast cannot read protocols: they get no protocol marker at all (an empty answer is not "Protokoll fehlt")
+  var seesProt = ['AL', 'PL', 'Buchhaltung', 'Admin'].includes(userRole);
+  var { data: prots } = seesProt
     ? await supabaseClient.from('protocols').select('al_id, date').in('al_id', alIds).in('date', dates) : { data: [] };
   (prots || []).forEach(function(p) { done[p.al_id + '|' + p.date] = true; });
   await loadOrdnerUsers();
@@ -868,6 +869,7 @@ async function renderOrdnerEinsaetze(folder) {
     rows.map(function(r) {
       var alUser = (_ordnerUsers || []).find(function(u) { return u.id === r.al_id; });
       var st = einsatzStatus(r, !!done[r.al_id + '|' + r.date], today), p = PILL[st] || PILL.future;
+      if (!seesProt && (st === 'open' || st === 'done')) p = r.date === today ? ['ui-pill-info', 'heute'] : ['', 'vorbei'];
       return '<div class="ordner-einsatz"><span>' + shortDateDE(r.date) + ' · ' + escOrdner(r.action) + ' · AL ' + escOrdner((alUser && alUser.full_name) || '—') + '</span>' +
         '<span class="ui-pill ' + p[0] + '">' + p[1] + '</span></div>';
     }).join('');
