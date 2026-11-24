@@ -118,8 +118,10 @@ function protFilterScope(list, scope, userId) {
 }
 
 // Remembered per device and list; anything unknown falls back to "mine"
+// Nothing chosen yet: Admin and Buchhaltung start on "Alle" (they write no protocols, "Meine" would always be empty)
 function protScopeGet(key) {
-  try { return localStorage.getItem(key) === 'all' ? 'all' : 'mine'; } catch (e) { return 'mine'; }
+  var dflt = typeof userRole !== 'undefined' && (userRole === 'Admin' || userRole === 'Buchhaltung') ? 'all' : 'mine';
+  try { var v = localStorage.getItem(key); return v === 'all' || v === 'mine' ? v : dflt; } catch (e) { return dflt; }
 }
 
 function protScopeSet(key, scope) {
@@ -376,7 +378,98 @@ function initProtokoll() {
   syncProtActionSeg();
   renderProtSectionNav();
   ['prot-damages', 'prot-incidents', 'prot-feedback'].forEach(function(id) { var t = document.getElementById(id); if (t && t.style) growProtText(t); });
+  protRenderPick();
   // appUsers is loaded after the login (handleSession): the database answers only logged-in users
+}
+
+// ── "Für welchen Einsatz?": own plan shifts of the last days as one-tap starts (same prefill as the Wochenplan) ──
+// Only on an empty form; once a job is picked or typed, the list goes away.
+function protPickWindow(todayStr) {
+  var d = function(n) { var p = todayStr.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2] + n, 12)).toISOString().slice(0, 10); };
+  return { from: d(-3), to: d(1) };
+}
+// shifts = own plan shifts in the window → newest relevant first: today, then yesterday …, tomorrow last
+function protPickOrder(shifts, todayStr) {
+  var seen = {};
+  return (shifts || []).filter(function(s) { if (!s || !s.id || seen[s.id]) return false; seen[s.id] = true; return true; })
+    .sort(function(a, b) {
+      var fa = a.date > todayStr ? 1 : 0, fb = b.date > todayStr ? 1 : 0;
+      if (fa !== fb) return fa - fb;
+      return a.date < b.date ? 1 : a.date > b.date ? -1 : (a.sort || 0) - (b.sort || 0);
+    });
+}
+var _protPickShifts = {}, _protPickSkipped = false;
+function protIsBlank() { return !((document.getElementById('prot-event') || {}).value || '').trim() && !protState.sideOf; }
+// While the list is up, the rest of the Basis step waits: pick a job, or "Einsatz nicht im Plan" for the empty form
+function protSetPicking(on) {
+  var sec = document.getElementById('prot-sec-basis');
+  if (sec && sec.classList) sec.classList.toggle('prot-picking', !!on);
+}
+async function protRenderPick() {
+  var box = document.getElementById('prot-pick');
+  protRenderRestart();
+  if (!box) return;
+  if (!protIsBlank() || _protPickSkipped || typeof supabaseClient === 'undefined' || typeof currentUser === 'undefined' || !currentUser) { box.innerHTML = ''; protSetPicking(false); return; }
+  var today = localDateStr(), win = protPickWindow(today), res;
+  try {
+    res = await supabaseClient.from('plan_assignments').select('shift:plan_shifts!inner(*, plan_assignments(*))')
+      .eq('user_id', currentUser.id).gte('shift.date', win.from).lte('shift.date', win.to);
+  } catch (e) { return; }
+  if (!res || res.error) return;
+  var list = protPickOrder((res.data || []).map(function(r) { return r.shift; }), today);
+  if (!list.length || !protIsBlank() || _protPickSkipped) { box.innerHTML = ''; protSetPicking(false); return; }
+  _protPickShifts = {};
+  box.innerHTML = '<div class="prot-pick-title">Für welchen Einsatz?</div>' + list.map(function(s) {
+    _protPickShifts[s.id] = s;
+    var when = s.date === today ? 'Heute' : s.date > today ? 'Morgen' : s.date.slice(8, 10) + '.' + s.date.slice(5, 7) + '.';
+    return '<button type="button" class="prot-pick-row" onclick="protPickShift(\'' + s.id + '\')"><span class="prot-pick-when">' + when + '</span>' +
+      '<span class="prot-pick-main"><b>' + escapeHtml(s.venue || s.title || 'Einsatz') + '</b><small>' + escapeHtml([s.title, s.wann].filter(Boolean).join(' · ')) + '</small></span></button>';
+  }).join('') +
+  '<button type="button" class="ui-btn ui-btn-block prot-pick-manual" onclick="protPickManual()">Einsatz nicht im Plan – selbst ausfüllen</button>';
+  protSetPicking(true);
+}
+function protPickManual() {
+  _protPickSkipped = true;
+  var box = document.getElementById('prot-pick');
+  if (box) box.innerHTML = '';
+  protSetPicking(false);
+  protRenderRestart(); // "Neu anfangen" leads back to the list
+  var ev = document.getElementById('prot-event');
+  if (ev && ev.focus) ev.focus();
+}
+// "Neu anfangen": empties the form (after asking) and goes back to the job list, from any step
+function protRestart() {
+  var started = !protIsBlank() || (protState.personnel || []).some(function(p) { return p.name || p.start; }) || !!protState.signature;
+  if (started && !confirm('Protokoll leeren und neu anfangen? Was du eingetragen hast, geht verloren.')) return;
+  clearProtForm(true);
+  _protPickSkipped = false;
+  renderProtSectionNav();
+  var scroll = document.getElementById('prot-scroll');
+  if (scroll) scroll.scrollTop = 0;
+  var chips = document.getElementById('prot-section-nav');
+  if (chips) chips.scrollLeft = 0;
+  protRenderPick();
+}
+// Above the step chips: which protocol this is, and the way out
+function protRenderRestart() {
+  var bar = document.getElementById('prot-restart');
+  if (!bar) return;
+  var ev = ((document.getElementById('prot-event') || {}).value || '').trim(), d = ((document.getElementById('prot-date') || {}).value || '');
+  if (protIsBlank() && !_protPickSkipped) { bar.innerHTML = ''; return; }
+  var label = ev ? ev + (d ? ' · ' + d.slice(8, 10) + '.' + d.slice(5, 7) + '.' : '') : 'Neues Protokoll';
+  bar.innerHTML = '<span class="prot-restart-name">' + escapeHtml(label) + '</span>' +
+    '<button type="button" class="prot-restart-btn" onclick="protRestart()">Neu anfangen</button>';
+}
+function protPickShift(id) {
+  var s = _protPickShifts[id];
+  if (!s) return;
+  if (typeof _wpShiftCache !== 'undefined') _wpShiftCache[s.id] = s;
+  var box = document.getElementById('prot-pick');
+  if (box) box.innerHTML = '';
+  protSetPicking(false);
+  var parsed = planShiftFromDb(s);
+  openProtokollPrefilled({ event: planEventName(parsed), date: s.date, action: planGuessAction(parsed.wann),
+    alId: currentUser.id, location: planPlace(parsed), shift: parsed });
 }
 
 // ── PROTOKOLL SIGNATURE ──
@@ -1091,10 +1184,15 @@ function renderProtSectionNav() {
   if (!nav) return;
   var st = protSectionStatus(protState, protBasisValues(), { transport: protTransportOpened });
   var side = !!protState.sideOf || protSideOn();
-  nav.innerHTML = PROT_SECTIONS.filter(function(s) { return !side || (s[0] !== 'transport' && s[0] !== 'personal'); }).map(function(s) {
-    return '<button type="button" class="ui-chip' + (st[s[0]] ? ' ui-chip-on' : '') + '" onclick="scrollProtSection(\'' + s[0] + '\')">' +
-      (st[s[0]] ? uiIcon('check') : '') + s[1] + '</button>';
+  var vis = PROT_SECTIONS.filter(function(s) { return !side || (s[0] !== 'transport' && s[0] !== 'personal'); });
+  var step = protStepState(vis.map(function(s) { return s[0]; }), protStep);
+  protStep = vis[step.index][0];
+  nav.innerHTML = vis.map(function(s, i) {
+    var cur = s[0] === protStep;
+    return '<button type="button" class="ui-chip' + (st[s[0]] ? ' ui-chip-on' : '') + (cur ? ' prot-step-cur' : '') + '"' + (cur ? ' aria-current="step"' : '') +
+      ' onclick="scrollProtSection(\'' + s[0] + '\')"><span class="prot-step-n">' + (st[s[0]] && !cur ? uiIcon('check') : (i + 1)) + '</span>' + s[1] + '</button>';
   }).join('');
+  protApplyStep(step);
   var pill = document.getElementById('prot-sig-pill');
   if (pill) {
     pill.className = 'ui-pill ' + (protState.signature ? 'ui-pill-ok' : 'ui-pill-warn');
@@ -1102,11 +1200,52 @@ function renderProtSectionNav() {
   }
 }
 
-function scrollProtSection(id) {
-  var el = document.getElementById('prot-sec-' + id);
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  if (id === 'transport' && !protTransportOpened) { protTransportOpened = true; renderProtSectionNav(); }
+// Werkstatt step 3: the form is a step-by-step flow, one section at a time (the others stay in the DOM, only hidden,
+// so drafts, validation and saving work as before). The chips jump to any step; Senden sits on the last step.
+var protStep = 'basis', _protStepAt = 0;
+function protStepState(ids, current) {
+  var i = Math.max(0, ids.indexOf(current));
+  return { index: i, total: ids.length, first: i === 0, last: i === ids.length - 1, prev: i > 0 ? ids[i - 1] : null, next: i < ids.length - 1 ? ids[i + 1] : null };
 }
+function protApplyStep(step) {
+  var scroll = document.getElementById('prot-scroll');
+  if (!scroll || !scroll.classList) return;
+  scroll.classList.add('prot-stepped');
+  PROT_SECTIONS.forEach(function(s) {
+    var el = document.getElementById('prot-sec-' + s[0]);
+    if (el) el.classList.toggle('prot-step-on', s[0] === protStep);
+  });
+  var back = document.getElementById('prot-back-btn'), next = document.getElementById('prot-next-btn');
+  if (back) back.style.display = step.first ? 'none' : '';
+  if (next) next.textContent = step.last ? 'Senden' : 'Weiter';
+  var count = document.getElementById('prot-step-count');
+  if (count) count.textContent = 'Schritt ' + (step.index + 1) + ' von ' + step.total;
+}
+function protGoStep(id) {
+  protStep = id;
+  _protStepAt = Date.now();
+  if (id === 'transport') protTransportOpened = true;
+  renderProtSectionNav();
+  var scroll = document.getElementById('prot-scroll');
+  if (scroll) scroll.scrollTop = 0;
+  var cur = document.querySelector('#prot-section-nav .prot-step-cur');
+  if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
+}
+function protCurrentStep() {
+  var side = !!protState.sideOf || protSideOn();
+  var ids = PROT_SECTIONS.map(function(s) { return s[0]; }).filter(function(id) { return !side || (id !== 'transport' && id !== 'personal'); });
+  return protStepState(ids, protStep);
+}
+function protStepBack() { var s = protCurrentStep(); if (s.prev) protGoStep(s.prev); }
+// The same button turns from Weiter into Senden: a tap within 500 ms of a step change (double tap) does not send
+function protNextOrSend() {
+  var s = protCurrentStep();
+  if (!s.last) { protGoStep(s.next); return; }
+  if (Date.now() - _protStepAt < 500) return;
+  saveProtokoll();
+}
+// Kept for older callers (chips, links): jumping to a section means opening its step
+function scrollProtSection(id) { protGoStep(id); }
 
 // Aktion as a segmented control; the hidden #prot-action select stays the data source
 function syncProtActionSeg() {
@@ -1162,6 +1301,7 @@ function growProtText(el) {
 
 // ── PERSISTENCE ──
 function saveProtDraft() {
+  protRenderRestart();
   // Offline start: the AL/PL selects are still empty → keep the known ids instead of storing ''
   var usersLoaded = appUsers.length > 0;
   var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded) || '';
@@ -1210,6 +1350,7 @@ function protDraftOwner() {
 
 // Empties the form state and fields without touching localStorage (used when a foreign draft is discarded)
 function resetProtFormState() {
+  protStep = 'basis';
   protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null, editingId: null, editingLocalId: null, signature: null, sideOf: null, shortages: null };
   protOpenRows = {};
   renderProtShortages();
@@ -1264,6 +1405,7 @@ function loadProtDraft() {
 
 function clearProtForm(skipConfirm) {
   if (!skipConfirm && !confirm('Gesamtes Protokoll löschen?')) return;
+  protStep = 'basis'; // a new protocol starts at step 1
   localStorage.removeItem('luebbert_protokoll_draft');
   protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null };
   protOpenRows = {};
@@ -1293,6 +1435,9 @@ function clearProtForm(skipConfirm) {
   var sideSw = document.getElementById('prot-side-on');
   if (sideSw) sideSw.checked = false;
   renderProtSide();
+  // Empty again (Formular leeren, after Senden): the job list comes back
+  _protPickSkipped = false;
+  protRenderPick();
 }
 
 // Rows that Senden would skip (no start or no end) although someone filled them in; untouched blank rows don't count
@@ -1340,7 +1485,7 @@ function protLongerThanAl(personnel, alId) {
 // ── PROTOKOLL SAVE (replaces PDF Export) ──
 async function saveProtokoll() {
   var side = protState.sideOf || null;
-  if (protSideOn() && !side) { showToast('Bitte das Hauptprotokoll auswählen, bei dem dieser Zusatzauftrag mitlief.', 'danger'); return; }
+  if (protSideOn() && !side) { protGoStep('basis'); showToast('Bitte das Hauptprotokoll auswählen, bei dem dieser Zusatzauftrag mitlief.', 'danger'); return; }
   var missing = side ? [] : protIncompleteNames(protState.personnel);
   if (missing.length && !confirm('Ohne Start- oder Endzeit: ' + missing.join(', ') + '.\n\n' +
       (missing.length === 1 ? 'Diese Person wird' : 'Diese Personen werden') + ' nicht mitgespeichert und fehlen bei den Stunden. Trotzdem senden?')) return;
@@ -1358,7 +1503,7 @@ async function saveProtokoll() {
   var minorWarn = protMinorWarnings(protState.personnel);
   if (minorWarn.length && !confirm('Unter 18:\n' + minorWarn.join('\n') + '\n\nErlaubt sind nur 6–20 Uhr und höchstens 8 Std am Tag. Trotzdem senden?')) return;
   var jobNo = protJobNo((document.getElementById('prot-job') || {}).value);
-  if (!protJobNoValid(jobNo)) { showToast('Die Projektnummer sieht so aus: 26-0447 (oder mit Auftrag: 26-0447.01). Bitte korrigieren oder leer lassen.', 'danger'); return; }
+  if (!protJobNoValid(jobNo)) { protGoStep('basis'); showToast('Die Projektnummer sieht so aus: 26-0447 (oder mit Auftrag: 26-0447.01). Bitte korrigieren oder leer lassen.', 'danger'); return; }
   calcProtCosts(); // the shown total may be stale (restored draft, rates loaded late)
   var usersLoaded = appUsers.length > 0;
   var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded);
@@ -1464,14 +1609,14 @@ async function saveProtokoll() {
   if (!protSaveArchive(archive)) {
     if (!isSynced) {
       // Neither on the server nor on the phone: keep the form filled so nothing is lost
-      if (btn) { btn.disabled = false; btn.textContent = 'Senden'; }
+      if (btn) { btn.disabled = false; btn.textContent = protCurrentStep().last ? 'Senden' : 'Weiter'; }
       showToast('Speicher dieses Handys ist voll und keine Verbindung: Protokoll nicht gesichert. Bitte mit Internet erneut senden.', 'danger');
       return;
     }
     showToast('Gespeichert. Der Verlauf auf diesem Handy ist voll, das Protokoll steht aber auf dem Server.', 'info');
   }
   
-  if (btn) { btn.disabled = false; btn.textContent = 'Senden'; }
+  if (btn) { btn.disabled = false; btn.textContent = protCurrentStep().last ? 'Senden' : 'Weiter'; }
   // Mail in the background so Senden never waits on SMTP (registered as in-flight before the history retry runs)
   if (isSynced) sendMailForEntry(entry, true);
   protDayDrivers.key = null; // next form (same date, no editingId) must not reuse the hints of this protocol
@@ -2070,6 +2215,7 @@ function loadProtFromHistory(id) {
   if (!entry) { showToast('Nicht gefunden'); return; }
 
   if (!confirm('Dieses Protokoll in das Formular laden? Nicht gespeicherte Änderungen gehen verloren.')) return;
+  protStep = 'basis'; // a loaded protocol opens at step 1
 
   // Hydrate DOM fields (al/pl handled separately via protState.alId/plId)
   var fieldMap = { event: 'prot-event', location: 'prot-location', date: 'prot-date', action: 'prot-action', damages: 'prot-damages', incidents: 'prot-incidents', feedback: 'prot-feedback' };

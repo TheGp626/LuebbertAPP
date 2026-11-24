@@ -20,7 +20,14 @@ var UI_ICONS = {
   edit: '<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>',
   download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
   upload: '<path d="M12 16V5M7 10l5-5 5 5M5 20h14"/>',
-  check: '<path d="M5 12l5 5 9-10"/>'
+  check: '<path d="M5 12l5 5 9-10"/>',
+  home: '<path d="M4 11l8-7 8 7v9H4zM10 20v-6h4v6"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
+  alert: '<path d="M12 3l10 18H2zM12 10v5M12 18v.5"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4M12 17v.5"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>'
 };
 
 function uiIcon(name) {

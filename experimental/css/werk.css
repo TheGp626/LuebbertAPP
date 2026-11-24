@@ -1,0 +1,568 @@
+/* ══ Lübbert design layer (rework 2026-11-24, branch redesign) ══
+   Concept: the calm back-of-house of an event-interiors brand. Taken from the Lübbert mark:
+   the teal of the petals, thin geometric lettering (Jost) for titles and numbers, and the petal shape
+   (two round corners, two tight ones) as the one signature form — main button, hero card, active tab.
+   Everything else stays quiet: no outlines around every box, flat list rows on hairlines, sentence case.
+   Body text is Atkinson Hyperlegible Next, made for reading on a phone in a bright hall.
+   Loaded last; remaps the old tokens of style.css/ui.css so every screen follows. w- classes come from JS. */
+
+@font-face {
+  font-family: 'Jost'; font-style: normal; font-display: swap; font-weight: 100 900;
+  src: url(../fonts/jost-latin-ext-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Jost'; font-style: normal; font-display: swap; font-weight: 100 900;
+  src: url(../fonts/jost-latin-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Atkinson Next'; font-style: normal; font-display: swap; font-weight: 200 800;
+  src: url(../fonts/atkinson-hyperlegible-next-latin-ext-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Atkinson Next'; font-style: normal; font-display: swap; font-weight: 200 800;
+  src: url(../fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Digits come from Jost everywhere: Atkinson's slashed zero reads badly in hours and totals */
+@font-face {
+  font-family: 'Luebbert Digits'; font-style: normal; font-display: swap; font-weight: 100 900;
+  src: url(../fonts/jost-latin-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0030-0039;
+}
+
+/* ── Tokens (light) + remap of the old tokens ── */
+:root {
+  --w-paper: #EDF1F1;      /* mist: page */
+  --w-card: #FFFFFF;       /* surfaces */
+  --w-ink: #1D2426;        /* graphite */
+  --w-muted: #5B676A;
+  --w-soft: #D3DCDD;       /* hairlines */
+  --w-field: #8C9C9F;      /* input outlines (3:1 on white) */
+  --w-tint: #E2EAEA;       /* pressed, tracks */
+  --w-accent: #2B9BAA;     /* Lübbert teal: icons, bars, dots */
+  --w-accent-strong: #16707C; /* teal for fills with white text (5.6:1) */
+  --w-on-accent: #FFFFFF;
+  --w-accent-text: #12636E;
+  --w-accent-bg: #DBEFF1;
+  --w-hero: #16707C; --w-on-hero: #FFFFFF; --w-hero-muted: #BFE3E7;
+  --w-bar: #FFFFFF; --w-bar-muted: #6A7679;
+  --w-ok: #2C7A4B; --w-ok-bg: #DFF0E5; --w-warn: #8F5400; --w-warn-bg: #FBEED6; --w-danger: #B3302A; --w-danger-bg: #FBE2DF;
+  --w-line: var(--w-soft);
+  --w-r-ctl: 12px; --w-r-card: 16px; --w-r-tag: 99px;
+  --w-petal: 22px 6px 22px 6px; --w-petal-sm: 14px 4px 14px 4px;
+  --w-bw: 1px;
+  --w-s1: 4px; --w-s2: 8px; --w-s3: 12px; --w-s4: 16px; --w-s5: 24px; --w-s6: 32px;
+  --w-fast: 140ms; --w-slow: 240ms;
+  --w-font: 'Luebbert Digits', 'Atkinson Next', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --w-display: 'Jost', 'Atkinson Next', -apple-system, sans-serif;
+  --w-tabbar-h: 62px;
+
+  --bg: var(--w-paper); --bg2: var(--w-card); --bg3: var(--w-tint);
+  --text: var(--w-ink); --text2: var(--w-muted); --text3: #6A7679;
+  --border: var(--w-soft); --border2: #BFCACC;
+  --accent: var(--w-accent-strong); --accent-bg: var(--w-accent-bg); --accent-text: var(--w-accent-text);
+  --danger: var(--w-danger); --radius: 12px; --radius-lg: 16px;
+  --r-control: 12px; --r-card: 16px; --r-hero: 22px;
+  --info: var(--w-accent-text); --info-bg: var(--w-accent-bg);
+  --warn: var(--w-warn); --warn-bg: var(--w-warn-bg); --ok: var(--w-ok); --ok-bg: var(--w-ok-bg); --danger-bg: var(--w-danger-bg);
+  --wp-warn-bg: var(--w-warn-bg); --wp-warn-text: var(--w-warn); --wp-new-bg: var(--w-ok-bg); --wp-new-text: var(--w-ok); --wp-danger-bg: var(--w-danger-bg);
+}
+[data-theme="dark"] {
+  --w-paper: #0F1516; --w-card: #182123; --w-ink: #E5EDEE; --w-muted: #97A6A9; --w-soft: #273335; --w-field: #5E6F72; --w-tint: #212C2E;
+  --w-accent: #4CBFCD; --w-accent-strong: #4CBFCD; --w-on-accent: #0B1314; --w-accent-text: #72D2DD; --w-accent-bg: #12343A;
+  --w-hero: #174E55; --w-on-hero: #EAF7F8; --w-hero-muted: #9ED3D9; --w-bar: #141C1E; --w-bar-muted: #8A9A9D;
+  --w-ok: #8FD3A6; --w-ok-bg: #16301F; --w-warn: #F0BC66; --w-warn-bg: #352610; --w-danger: #F29A92; --w-danger-bg: #3A1816;
+  --text3: #8A999C; --border2: #3A4749;
+}
+@media (prefers-color-scheme: dark) {
+  [data-theme="auto"] {
+    --w-paper: #0F1516; --w-card: #182123; --w-ink: #E5EDEE; --w-muted: #97A6A9; --w-soft: #273335; --w-field: #5E6F72; --w-tint: #212C2E;
+    --w-accent: #4CBFCD; --w-accent-strong: #4CBFCD; --w-on-accent: #0B1314; --w-accent-text: #72D2DD; --w-accent-bg: #12343A;
+    --w-hero: #174E55; --w-on-hero: #EAF7F8; --w-hero-muted: #9ED3D9; --w-bar: #141C1E; --w-bar-muted: #8A9A9D;
+    --w-ok: #8FD3A6; --w-ok-bg: #16301F; --w-warn: #F0BC66; --w-warn-bg: #352610; --w-danger: #F29A92; --w-danger-bg: #3A1816;
+    --text3: #8A999C; --border2: #3A4749;
+  }
+}
+
+/* ── Base ── */
+html, body { background: var(--w-paper); }
+body, button, input, select, textarea { font-family: var(--w-font); }
+body { color: var(--w-ink); -webkit-font-smoothing: antialiased; font-size: 15px; }
+:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
+::selection { background: var(--w-accent-bg); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+/* ── Type: Jost for titles and figures, light; labels in sentence case ── */
+.w-date { font-size: 14px; font-weight: 500; color: var(--w-muted); }
+.w-title { font-family: var(--w-display); font-size: 40px; font-weight: 300; letter-spacing: -.01em; line-height: 1.05; margin: 2px 0 18px; color: var(--w-ink); }
+.w-label, .ui-label { font-size: 13px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--w-muted); margin: 22px 2px 8px; }
+.w-num { font-variant-numeric: tabular-nums; }
+.ui-title { font-family: var(--w-display); font-weight: 400; letter-spacing: 0; }
+.ui-num { font-family: var(--w-display); font-weight: 300; }
+
+/* ── Surfaces ── */
+.w-card { background: var(--w-card); border: 0; border-radius: var(--w-r-card); padding: var(--w-s4); }
+/* Hero = the one petal surface: the next shift, in Lübbert teal */
+.w-hero { background: var(--w-hero); color: var(--w-on-hero); border-radius: var(--w-petal); padding: 18px 18px 16px; }
+.w-hero-title { font-family: var(--w-display); font-size: 28px; font-weight: 400; line-height: 1.12; margin: 8px 0 4px; overflow-wrap: anywhere; }
+.w-hero-sub { font-size: 15px; color: var(--w-hero-muted); overflow-wrap: anywhere; }
+.w-hero-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; font-size: 14px; font-weight: 600; }
+.w-hero a, .w-hero button.w-link { color: inherit; }
+.w-tag { display: inline-block; background: rgba(255, 255, 255, .18); color: inherit; font-size: 13px; font-weight: 700; padding: 3px 10px;
+  border-radius: var(--w-r-tag); line-height: 1.35; text-transform: none; letter-spacing: 0; }
+.w-tag-quiet { background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
+.w-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 7px;
+  background: var(--w-accent-strong); color: var(--w-on-accent); font-size: 12px; font-weight: 700; border-radius: var(--w-r-tag); font-variant-numeric: tabular-nums; }
+
+/* List rows: flat on the page, separated by hairlines */
+.w-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 56px; text-align: left;
+  background: transparent; color: var(--w-ink); border: 0; border-bottom: 1px solid var(--w-soft); border-radius: 0;
+  padding: 12px 4px; margin: 0; font-size: 16px; font-weight: 600; cursor: pointer; }
+.w-row small { display: block; font-size: 13px; font-weight: 400; color: var(--w-muted); margin-top: 2px; }
+.w-row:active { background: var(--w-tint); }
+.w-row-arrow { font-weight: 400; color: var(--w-muted); }
+
+/* ── Buttons: quiet by default, the main action is a teal petal ── */
+.w-btn, .ui-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 46px; padding: 10px 18px;
+  background: var(--w-card); color: var(--w-ink); border: 1px solid var(--w-soft); border-radius: var(--w-r-ctl);
+  font-size: 15px; font-weight: 700; cursor: pointer; text-decoration: none; transition: background var(--w-fast); }
+.w-btn:active, .ui-btn:active { background: var(--w-tint); }
+.w-btn-primary, .w-btn-accent, .ui-btn-primary,
+.ui-actionbar .ui-btn-primary, .wp-actions .ui-btn-primary {
+  background: var(--w-accent-strong); color: var(--w-on-accent); border-color: var(--w-accent-strong); border-radius: var(--w-petal-sm); }
+.w-btn-primary:active, .w-btn-accent:active, .ui-btn-primary:active { background: var(--w-accent-strong); opacity: .88; }
+.w-hero .w-btn-accent { background: var(--w-on-hero); color: var(--w-hero); border-color: var(--w-on-hero); }
+.w-btn-block { display: flex; width: 100%; }
+.ui-btn-danger { color: var(--w-danger); }
+.ui-icon-btn { color: var(--w-muted); border-radius: var(--w-r-ctl); }
+
+/* ── Week strip (Heute) ── */
+.w-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.w-week > div { border: 0; border-radius: var(--w-r-ctl); text-align: center; padding: 7px 0; background: var(--w-card);
+  font-size: 12px; font-weight: 600; line-height: 1.3; color: var(--w-muted); position: relative; }
+.w-week > div b { display: block; font-family: var(--w-display); font-size: 18px; font-weight: 400; color: var(--w-ink); font-variant-numeric: tabular-nums; }
+.w-week > .off { background: transparent; }
+.w-week > .off b { color: var(--w-muted); }
+.w-week > .today { background: var(--w-ink); color: var(--w-card); border-radius: var(--w-petal-sm); }
+.w-week > .today b { color: var(--w-card); }
+
+/* ── Banner, empty state ── */
+.w-banner { display: flex; align-items: center; gap: 12px; background: var(--w-warn-bg); color: var(--w-warn);
+  border: 0; border-radius: var(--w-r-card); padding: 12px 14px; margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+.w-banner > span { flex: 1; min-width: 0; }
+.w-banner .w-btn { min-height: 38px; padding: 6px 14px; font-size: 14px; border-color: transparent; }
+.w-empty { border: 0; background: var(--w-card); border-radius: var(--w-r-card); padding: 28px var(--w-s4); text-align: center; }
+.w-empty b { display: block; font-family: var(--w-display); font-size: 20px; font-weight: 400; margin-bottom: 4px; }
+.w-empty p { font-size: 15px; color: var(--w-muted); margin: 0 0 14px; }
+
+/* Avatars in the hero */
+.w-avs { display: inline-flex; }
+.w-av { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin-right: -6px; border-radius: 50%;
+  background: var(--w-on-hero); color: var(--w-hero); font-size: 11px; font-weight: 700; box-shadow: 0 0 0 2px var(--w-hero); }
+
+/* ── App frame: top bar, bottom tab bar, "Mehr" sheet (js/nav.js) ── */
+.ui-topbar { background: var(--w-paper); border-bottom: 0; padding: 12px 8px 6px 18px; }
+.ui-topbar-mid { text-align: left; }
+.ui-topbar-title { font-family: var(--w-display); font-size: 24px; font-weight: 400; letter-spacing: 0; }
+.ui-topbar-sub { font-size: 13px; color: var(--w-muted); }
+
+.w-tabbar { flex-shrink: 0; display: flex; background: var(--w-bar); border-top: 1px solid var(--w-soft); padding: 0 4px env(safe-area-inset-bottom); z-index: 60; }
+.w-tabbar[hidden] { display: none; }
+.w-tab { flex: 1 1 0; min-width: 0; height: var(--w-tabbar-h); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  background: none; border: 0; color: var(--w-bar-muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+.w-tab .ui-ico { width: 40px; height: 28px; padding: 4px 9px; box-sizing: border-box; border-radius: var(--w-petal-sm); stroke-width: 1.8;
+  transition: background var(--w-fast); }
+.w-tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
+.w-tab.on { color: var(--w-ink); font-weight: 700; }
+.w-tab.on .ui-ico { background: var(--w-accent-bg); stroke: var(--w-accent-text); }
+.w-tab:focus-visible { outline-offset: -4px; }
+
+.w-more { position: fixed; inset: 0; z-index: 900; background: rgba(15, 25, 27, .45); display: flex; align-items: flex-end; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity var(--w-fast); }
+.w-more.open { opacity: 1; pointer-events: auto; }
+.w-more-sheet { width: 100%; max-width: 560px; background: var(--w-paper); border: 0; border-radius: 24px 24px 0 0;
+  padding: 10px 16px calc(16px + env(safe-area-inset-bottom)); max-height: 82vh; overflow: auto; transform: translateY(16px); transition: transform var(--w-slow); }
+.w-more-sheet::before { content: ''; display: block; width: 40px; height: 4px; border-radius: 2px; background: var(--w-soft); margin: 0 auto 6px; }
+.w-more.open .w-more-sheet { transform: none; }
+.w-more-sheet > .w-label:first-child, .w-more-sheet > .w-label { margin-top: 10px; }
+.w-more-list { background: var(--w-card); border-radius: var(--w-r-card); padding: 4px 0; }
+.w-more-list > .w-label { margin: 0; padding: 18px 16px 6px; background: var(--w-paper); }
+.w-more-item { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 52px; padding: 10px 16px; margin: 0; text-align: left;
+  background: transparent; color: var(--w-ink); border: 0; border-radius: 0; font-size: 16px; font-weight: 600; cursor: pointer; }
+.w-more-item .ui-ico { color: var(--w-accent-text); }
+.w-more-item.on { box-shadow: inset 3px 0 0 var(--w-accent); }
+.w-more-item:active { background: var(--w-tint); }
+.w-more-row { display: flex; gap: 8px; align-items: center; margin: 0; padding-right: 10px; border-bottom: 1px solid var(--w-soft); }
+.w-more-row:last-of-type { border-bottom: 0; }
+.w-more-row .w-more-item { flex: 1 1 auto; min-width: 0; }
+.w-pin { flex: 0 0 auto; min-width: 0; min-height: 34px; padding: 0 12px; background: var(--w-accent-bg); color: var(--w-accent-text); border: 0;
+  border-radius: var(--w-r-tag); font-size: 13px; font-weight: 700; cursor: pointer; }
+.w-pin.on { background: var(--w-tint); color: var(--w-muted); }
+.w-pin:disabled { opacity: .4; cursor: not-allowed; }
+.w-more-hint { margin: 12px 4px 0; font-size: 14px; color: var(--w-muted); }
+.w-more-reset { background: none; border: 0; padding: 0; color: var(--w-accent-text); font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+
+/* ── Heute (js/heute.js, js/home.js) ── */
+.w-heute { padding-top: 24px; }
+.w-heute .w-title { cursor: default; -webkit-user-select: none; user-select: none; }
+.w-heute .w-hero { margin-bottom: 10px; }
+.w-heute .w-hero[role="button"] { cursor: pointer; }
+.w-heute .w-hero .w-btn-accent { min-height: 38px; padding: 6px 16px; font-size: 14px; }
+.w-heute .w-hero-foot > span { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.w-heute .home-today { margin-bottom: 10px; }
+.w-heute .w-empty { margin-bottom: 10px; }
+#erinnerung-banner { margin-top: 16px; }
+.w-banner-rows .w-row { font-size: 15px; min-height: 48px; }
+.w-foot { text-align: center; font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--w-muted); margin-top: 32px; }
+
+/* ── Shared components of the existing screens ── */
+.ui-card { background: var(--w-card); border: 0; border-radius: var(--w-r-card); }
+.ui-hero { background: var(--w-card); border: 0; border-radius: var(--w-petal); box-shadow: inset 4px 0 0 var(--w-accent); }
+
+/* Fields: white, thin outline, teal focus ring */
+.ui-field input, .ui-field select, .ui-field textarea,
+input[type="text"], input[type="search"], input[type="number"], input[type="date"], input[type="time"], input[type="email"], input[type="tel"], select, textarea {
+  border: 1px solid var(--w-field); background: var(--w-card); color: var(--w-ink); border-radius: var(--w-r-ctl); }
+.ui-field input:focus, .ui-field select:focus, .ui-field textarea:focus, input:focus, select:focus, textarea:focus {
+  border-color: var(--w-accent-strong); box-shadow: 0 0 0 3px var(--w-accent-bg); outline: none; }
+.ui-field > span { font-size: 14px; font-weight: 600; color: var(--w-muted); }
+.ui-search { border: 0 !important; background: var(--w-card) !important; border-radius: var(--w-r-ctl) !important; }
+.ui-search input, .ui-search input:focus { border: 0 !important; box-shadow: none !important; background: transparent !important; }
+.ui-search:focus-within { box-shadow: 0 0 0 2px var(--w-accent-strong); }
+
+/* Pills: soft, round, sentence case */
+.ui-pill { border-radius: var(--w-r-tag); font-weight: 700; letter-spacing: 0; text-transform: none; font-size: 12px; padding: 3px 9px; }
+
+/* Segmented control: a soft track, the active part lifts out in white */
+.ui-seg { background: var(--w-tint); border: 0; border-radius: var(--w-r-ctl); padding: 3px; overflow: visible; }
+.ui-seg > button { border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--w-muted); min-height: 38px; }
+.ui-seg > button + button { border-left: 0; }
+.ui-seg > button.active { background: var(--w-card); color: var(--w-ink); font-weight: 700; box-shadow: 0 1px 2px rgba(15, 30, 32, .12); }
+[data-theme="dark"] .ui-seg > button.active { background: var(--w-soft); }
+@media (prefers-color-scheme: dark) { [data-theme="auto"] .ui-seg > button.active { background: var(--w-soft); } }
+.ui-topnav { background: var(--w-paper); padding: 6px 16px 6px; }
+/* Four tabs (Wochenplan for planners) do not fit a phone: the track scrolls instead of squeezing the words */
+.ui-seg { overflow-x: auto; scrollbar-width: none; }
+.ui-seg::-webkit-scrollbar { display: none; }
+.ui-seg > button { flex: 1 0 auto; padding: 0 12px; white-space: nowrap; }
+
+/* Login */
+#auth-overlay { background: var(--w-paper) !important; }
+#auth-overlay > .ui-card { border: 0; border-radius: var(--w-petal); text-align: left !important; }
+#auth-title { font-family: var(--w-display); font-size: 34px; font-weight: 300; line-height: 1.05; margin-top: 6px; }
+#auth-overlay .ui-btn-primary { min-height: 52px; font-size: 16px; }
+#auth-overlay > .ui-card > img { margin-left: 0 !important; }
+
+/* Sheets, modals, toasts */
+.sig-modal-inner { border: 0; border-radius: var(--w-r-card); background: var(--w-paper); }
+.sig-modal.ui-sheet > .sig-modal-inner { border-radius: 24px 24px 0 0; }
+@media (min-width: 768px) { .sig-modal.ui-sheet > .sig-modal-inner { border-radius: 24px; } }
+.toast { background: var(--w-ink); color: var(--w-card); border: 0; border-radius: var(--w-r-ctl); font-weight: 600; box-shadow: 0 6px 20px rgba(15, 30, 32, .18); }
+body.w-has-tabbar .toast { bottom: calc(var(--w-tabbar-h) + 16px + env(safe-area-inset-bottom)); }
+body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
+.ui-actionbar { background: var(--w-paper); border-top: 1px solid var(--w-soft); }
+
+/* Flat list rows on hairlines (Wochenplan shifts, Ordner, Personal, Aufträge …) */
+.ui-row { background: transparent; border: 0; border-bottom: 1px solid var(--w-soft); border-radius: 0; margin: 0; padding: 14px 4px; }
+.ui-row:active { background: var(--w-tint); }
+.ui-row-title, .wp-card-title { font-weight: 700; }
+/* Own shift: a soft teal block instead of a frame */
+.ui-row-me { background: var(--w-accent-bg); border: 0; border-radius: var(--w-r-card); padding: 14px; margin: 6px 0; }
+.ui-row-me + .ui-row { border-top: 0; }
+.ui-tile-ico, .ordner-ico { background: var(--w-accent-bg) !important; color: var(--w-accent-text) !important; border-radius: var(--w-petal-sm) !important; box-shadow: none !important; }
+
+/* Key figures: thin Jost numbers */
+.ui-stat { background: var(--w-card); border: 0; border-radius: var(--w-r-card); }
+.ui-stat span { font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--w-muted); }
+.ui-stat b { font-family: var(--w-display); font-size: 32px; font-weight: 300; letter-spacing: 0; }
+.ui-table th { font-size: 13px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--w-muted); border-bottom: 1px solid var(--w-soft); }
+.ui-table td { border-bottom: 1px solid var(--w-soft); }
+.ui-chip { border: 0; border-radius: var(--w-r-tag); font-weight: 600; background: var(--w-card); color: var(--w-ink); }
+.ui-chip-on { background: var(--w-accent-bg); color: var(--w-accent-text); }
+
+/* ── Wochenplan ── */
+#wp-main > .wp-titlebar { justify-content: flex-end; margin-bottom: 0; }
+#wp-main > .wp-titlebar h2 { display: none; }
+#wp-upload-btn { margin-bottom: 12px; }
+.wp-weeknav button { border: 0; border-radius: var(--w-r-ctl); background: var(--w-card); }
+.wp-day { border: 0; border-radius: var(--w-r-ctl); background: var(--w-card); font-weight: 600; }
+.wp-day b { font-family: var(--w-display); font-weight: 400; }
+.wp-day-mine { box-shadow: inset 0 -3px 0 var(--w-accent); }
+.wp-day-empty { opacity: .55; background: transparent; }
+.wp-today { background: var(--w-ink); color: var(--w-card); border-radius: var(--w-petal-sm); }
+.wp-today b { color: var(--w-card); }
+.wp-today em i, .wp-today.wp-day-mine em i { background: var(--w-card); }
+.wp-dayhead { font-size: 15px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--w-ink); margin: 26px 4px 6px; }
+.wp-dayhead span { font-size: 14px; font-weight: 400; letter-spacing: 0; color: var(--w-muted); }
+.wp-hero-label { font-size: 13px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--w-muted); margin: 8px 2px 8px; }
+.wp-hero-date { font-size: 15px; font-weight: 700; letter-spacing: 0; text-transform: none; }
+.wp-hero-time { font-family: var(--w-display); font-size: 46px; font-weight: 300; letter-spacing: 0; }
+.wp-hero-venue { font-family: var(--w-display); font-size: 22px; font-weight: 400; line-height: 1.2; }
+.wp-time b { font-family: var(--w-display); font-size: 20px; font-weight: 400; }
+.wp-chip { border-radius: var(--w-r-tag); border: 0; background: var(--w-tint); font-weight: 600; }
+.wp-chip-me { background: var(--w-accent-strong); color: var(--w-on-accent); }
+.wp-hint { background: var(--w-card); border: 0; border-radius: var(--w-r-card); }
+.wp-removed { border-radius: var(--w-r-card); border: 0; box-shadow: inset 3px 0 0 var(--w-danger); }
+
+/* ── Stundenzettel: tiles without frames; selected = graphite petal ── */
+.ui-weeknav { background: var(--w-card); border: 0; border-radius: var(--w-r-card); }
+.ui-weeknav-label { font-weight: 700; }
+.ui-day { border: 0; border-radius: var(--w-r-ctl); background: var(--w-card); color: var(--w-muted); font-weight: 600; padding: 7px 0; }
+.ui-day b { font-family: var(--w-display); font-size: 17px; font-weight: 400; }
+.ui-day.w-planned { box-shadow: inset 0 0 0 1px var(--w-accent); }
+.ui-day.w-planned.ui-dot-done, .ui-day.w-planned.ui-dot-signed { box-shadow: none; }
+.ui-day.w-today > span:first-child { color: var(--w-accent-text); font-weight: 700; }
+.ui-day.ui-day-active { background: var(--w-ink); color: var(--w-card); border-radius: var(--w-petal-sm); box-shadow: none; }
+.ui-day.ui-day-active b, .ui-day.ui-day-active.w-today > span:first-child { color: var(--w-card); }
+.ui-dot-done i { background: var(--w-accent); }
+.stunden-total .ui-num b { font-family: var(--w-display); font-size: 56px; font-weight: 200; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.stunden-total .ui-num span { font-size: 16px; font-weight: 600; color: var(--w-muted); text-transform: none; letter-spacing: 0; }
+.stunden-link { font-weight: 700; color: var(--w-accent-text); }
+
+/* ── Protokoll as a step-by-step flow (js/protokoll.js protGoStep) ── */
+.prot-stepped .ui-section { display: none; }
+.prot-stepped .ui-section.prot-step-on { display: block; }
+.prot-nav-wrap { background: var(--w-paper); border-bottom: 0; }
+.prot-step-count { font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--w-muted); margin: 0 0 6px 2px; }
+#prot-section-nav .ui-chip-on { background: var(--w-card); color: var(--w-ink); }
+.ui-chip .prot-step-n { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; border-radius: 50%;
+  background: var(--w-tint); color: var(--w-ink); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ui-chip .prot-step-n .ui-ico { width: 13px; height: 13px; stroke-width: 3; }
+.ui-chip-on .prot-step-n { background: var(--w-ok-bg); color: var(--w-ok); }
+.ui-chip.prot-step-cur { background: var(--w-ink); color: var(--w-card); }
+.ui-chip.prot-step-cur .prot-step-n { background: var(--w-accent); color: var(--w-on-accent); }
+.prot-stepped .ui-section.prot-step-on { animation: w-step-in var(--w-slow) ease-out; }
+@keyframes w-step-in { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: none; } }
+.prot-stepped .ui-section-head .ui-label { font-family: var(--w-display); font-size: 28px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--w-ink); }
+#prot-next-btn { margin-left: auto; }
+
+/* ── Office screens (Übersicht, Personal, Aufträge) ── */
+.ord-h { display: none; }
+.ord-summary { margin-top: 4px; font-weight: 600; }
+.ord-day { font-size: 14px; font-weight: 700; letter-spacing: 0; color: var(--w-muted); }
+.ord-card, .ord-inbox { border: 0; border-radius: var(--w-r-card); background: var(--w-card); }
+.ord-slot { border: 0; border-radius: var(--w-r-ctl); background: var(--w-paper); }
+.ord-title { font-weight: 700; }
+.ord-pill { border-radius: var(--w-r-tag); font-weight: 700; letter-spacing: 0; text-transform: none; font-size: 12px; }
+.ord-pill-new { background: var(--w-accent-strong); color: var(--w-on-accent); }
+.ord-bar { border-radius: 2px; }
+.ord-accept { background: var(--w-accent-strong); color: var(--w-on-accent); border-radius: var(--w-petal-sm); font-weight: 700; }
+.ord-step { border: 1px solid var(--w-soft); border-radius: var(--w-r-ctl); }
+.dash-worker-row > .ui-row-title { font-weight: 700; }
+.dash-nk { border: 0 !important; border-radius: var(--w-r-card) !important; background: var(--w-card); }
+
+/* ── Produkte + Projektordner ── */
+.produkt-card { border: 0; border-radius: var(--w-r-card); padding: 8px; background: var(--w-card); }
+.produkt-thumb, .produkt-pdf-thumb, .produkt-video-thumb-wrap { border-radius: 10px; }
+.produkt-pdf-thumb { background: var(--w-paper); }
+.produkt-name { font-weight: 700; }
+.produkt-card-menu { border: 0; border-radius: 50%; background: var(--w-card); }
+.produkt-cover-badge { border-radius: var(--w-r-tag); }
+.ordner-back { font-weight: 700; letter-spacing: 0; text-transform: none; font-size: 15px; color: var(--w-accent-text); }
+.ordner-card, .ordner-file-row { border: 0; border-radius: var(--w-r-card); }
+.ordner-file-name { font-weight: 700; }
+
+/* "Dein Monat" on Heute (js/heute.js renderHeuteMonth) */
+.w-month { background: var(--w-card); border: 0; border-radius: var(--w-r-card); padding: 18px; cursor: pointer; }
+.w-month:active { background: var(--w-tint); }
+.w-month-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.w-month-days { font-size: 14px; font-weight: 600; color: var(--w-muted); }
+.w-month-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 10px; margin-top: 14px; min-width: 0; }
+.w-month-stats > div { min-width: 0; }
+.w-month-stats b { display: block; font-family: var(--w-display); font-size: clamp(24px, 7vw, 32px); font-weight: 300; line-height: 1.05; white-space: nowrap; }
+.w-month-stats span { display: block; font-size: 13px; font-weight: 500; color: var(--w-muted); margin-top: 2px; }
+.w-month-bar { height: 6px; margin-top: 18px; border: 0; border-radius: 3px; background: var(--w-tint); overflow: hidden; }
+.w-month-bar > i { display: block; height: 100%; background: var(--w-accent); border-radius: 3px; }
+.w-month-warn > i { background: var(--w-warn); }
+.w-month-over > i { background: var(--w-danger); }
+.w-month-limit { font-size: 13px; font-weight: 500; color: var(--w-muted); margin-top: 8px; }
+.w-month-over + .w-month-limit { color: var(--w-danger); }
+
+/* ── Ordner: "Alle Pläne" (js/ordner.js) ── */
+.ordner-seg { margin-bottom: 12px; }
+.ordner-plan-group { margin-bottom: 10px; }
+.ordner-plan-head { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: 0; padding: 18px 4px 4px; margin: 0;
+  text-align: left; cursor: pointer; color: var(--w-ink); font: inherit; font-size: 15px; font-weight: 700; }
+.ordner-plan-head .ui-ico { width: 16px; height: 16px; flex: 0 0 auto; color: var(--w-accent-text); }
+.ordner-plan-head span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ordner-plan-head em { font-style: normal; font-size: 13px; font-weight: 500; color: var(--w-muted); flex: 0 0 auto; }
+
+/* ── Admin page (js/admin.js) ── */
+.admin-hero { background: var(--w-hero) !important; color: var(--w-on-hero); border: 0; border-radius: var(--w-petal) !important; }
+.admin-hero::after { display: none; }
+.admin-big { font-family: var(--w-display); font-weight: 200; font-size: 72px; letter-spacing: -.01em; }
+.admin-hero-side b, .admin-kpi b { font-family: var(--w-display); font-weight: 300; }
+.admin-delta { background: rgba(255, 255, 255, .16); }
+.admin-kpi, .admin-card { border: 0; border-radius: var(--w-r-card); }
+.admin-kpi-monster { background: var(--w-card); box-shadow: inset 0 -3px 0 #7AC943; }
+.admin-tabs { box-shadow: none; }
+.admin-col-bar { background: var(--w-accent); }
+.admin-col-now .admin-col-bar { background: repeating-linear-gradient(135deg, var(--w-accent) 0 6px, var(--w-accent-bg) 6px 9px); }
+.admin-col-track { border-bottom-color: var(--w-soft); }
+
+/* ── Personal: panels as one white group, softer dividers ── */
+.dash-panels > details:not([hidden]) ~ details { border-top-color: var(--w-soft); }
+.meta-input { border: 1px solid var(--w-field); border-radius: var(--w-r-ctl); background: var(--w-card); }
+
+/* Only one petal hero per screen: with an own next shift on Heute, the office summary below it turns into a quiet card */
+#home-next:not(:empty) ~ #heute-office .w-hero { background: var(--w-card); color: var(--w-ink); border-radius: var(--w-r-card); }
+#home-next:not(:empty) ~ #heute-office .w-hero-sub { color: var(--w-muted); }
+#home-next:not(:empty) ~ #heute-office .w-tag { background: var(--w-accent-bg); color: var(--w-accent-text); }
+#home-next:not(:empty) ~ #heute-office .w-hero-foot > span:last-child { color: var(--w-accent-text); }
+#home-next:not(:empty) ~ #heute-office .w-btn-accent { background: var(--w-accent-strong); color: var(--w-on-accent); border-color: var(--w-accent-strong); }
+/* Wochenplan's own-shift card: a white petal card, no side bar */
+.ui-hero { box-shadow: none; }
+.ordner-row-pill { margin-top: 6px; }
+.w-month .w-tag { background: var(--w-accent-bg); color: var(--w-accent-text); }
+/* Hours editor: the two time fields share the row (min-width 0 so they can shrink) */
+.stunden-times .ui-field { min-width: 0; }
+.stunden-times input[type=time] { min-width: 0; font-family: var(--w-display); font-weight: 400; }
+#ordner-detail-title { display: none; } /* the top bar already names the folder */
+
+/* ── Meine Stunden (js/meine.js) ── */
+.meine { padding-top: 4px; padding-bottom: 40px; }
+.meine-period { display: flex; align-items: center; gap: 8px; margin: 4px 0 18px; }
+.meine-period-mid { flex: 1; text-align: center; }
+.meine-period-mid b { display: block; font-family: var(--w-display); font-size: 22px; font-weight: 400; }
+.meine-period-mid span { font-size: 13px; color: var(--w-muted); }
+.meine-period .ui-icon-btn { background: var(--w-card); }
+.meine-period .ui-icon-btn:disabled { opacity: .35; }
+.meine-sum { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 26px; margin-bottom: 18px; }
+.meine-total { flex: 1 0 100%; display: flex; align-items: baseline; gap: 8px; }
+.meine-total b { font-family: var(--w-display); font-size: 72px; font-weight: 200; line-height: .95; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.meine-total span { font-size: 16px; font-weight: 600; color: var(--w-muted); }
+.meine-stat b { display: block; font-family: var(--w-display); font-size: 24px; font-weight: 400; }
+.meine-stat span { font-size: 13px; color: var(--w-muted); }
+.meine-limit { flex: 1 0 100%; }
+.meine-note { background: var(--w-warn-bg); color: var(--w-warn); border-radius: var(--w-r-ctl); padding: 10px 14px; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.meine-list { margin-top: 6px; }
+.meine-row { display: flex; align-items: center; gap: 14px; padding: 14px 4px; border-bottom: 1px solid var(--w-soft); }
+.meine-day { flex: 0 0 48px; text-align: center; }
+.meine-day span { display: block; font-size: 12px; font-weight: 600; color: var(--w-muted); }
+.meine-day b { display: block; font-family: var(--w-display); font-size: 17px; font-weight: 400; }
+.meine-main { flex: 1; min-width: 0; }
+.meine-place { font-weight: 700; overflow-wrap: anywhere; }
+.meine-sub { font-size: 13px; color: var(--w-muted); margin-top: 2px; }
+.meine-end { flex: 0 0 auto; text-align: right; }
+.meine-end b { display: block; font-family: var(--w-display); font-size: 20px; font-weight: 400; white-space: nowrap; }
+.meine-end span { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 99px; }
+.meine-src-prot { background: var(--w-accent-bg); color: var(--w-accent-text); }
+.meine-src-self { background: var(--w-tint); color: var(--w-muted); }
+.meine-pending .meine-place { color: var(--w-muted); }
+.meine-pending .meine-day b { color: var(--w-muted); }
+.meine-help { font-size: 14px; color: var(--w-muted); margin: 22px 4px 0; line-height: 1.5; }
+.meine-help .stunden-link { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: var(--w-accent-text); text-decoration: underline; cursor: pointer; }
+
+/* ── Protokoll: "Für welchen Einsatz?" (js/protokoll.js protRenderPick) ── */
+#prot-pick:empty { display: none; }
+.prot-pick-title { font-family: var(--w-display); font-size: 20px; font-weight: 400; margin: 2px 2px 10px; }
+.prot-pick-row { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; background: var(--w-card); color: var(--w-ink);
+  border: 0; border-radius: var(--w-r-card); padding: 14px 16px; margin-bottom: 8px; cursor: pointer; font: inherit; }
+.prot-pick-row:first-of-type { border-radius: var(--w-petal); background: var(--w-hero); color: var(--w-on-hero); }
+.prot-pick-row:first-of-type small, .prot-pick-row:first-of-type .prot-pick-when { color: var(--w-hero-muted); }
+.prot-pick-row:active { opacity: .85; }
+.prot-pick-when { flex: 0 0 58px; font-size: 13px; font-weight: 700; color: var(--w-accent-text); }
+.prot-pick-main { flex: 1; min-width: 0; }
+.prot-pick-main b { display: block; font-size: 16px; overflow-wrap: anywhere; }
+.prot-pick-main small { display: block; font-size: 13px; color: var(--w-muted); margin-top: 2px; }
+.prot-pick-or { text-align: center; font-size: 13px; color: var(--w-muted); margin: 14px 0 18px; }
+.prot-step-count { display: none; } /* the step chips already show where you are */
+
+/* ── Protokoll-Übersicht on the phone: one compact row per protocol instead of a label table ──
+   date | project, action + AL | cost ; PDF and Details as small buttons on the right of the second line */
+@media (max-width: 767px) {
+  #protocol-table, #protocol-table tbody { display: block; }
+  #protocol-table tbody tr { display: grid; grid-template-columns: 50px minmax(0, 1fr) auto; column-gap: 12px; row-gap: 2px;
+    grid-template-areas: "date proj cost" "date meta meta" "date al btns";
+    background: transparent; border: 0; border-bottom: 1px solid var(--w-soft); border-radius: 0; margin: 0; padding: 14px 4px; overflow: visible; }
+  #protocol-table tbody tr:hover { background: transparent; }
+  #protocol-table tbody td { display: block; padding: 0; border: 0; font-size: 14px; text-align: left; width: auto; }
+  #protocol-table tbody td::before { display: none !important; content: none !important; }
+  #protocol-table tbody td[data-label="Datum"] { grid-area: date; font-family: var(--w-display); font-size: 15px; line-height: 1.25; color: var(--w-ink); align-self: start; }
+  #protocol-table tbody td[data-label="Projekt"] { grid-area: proj; }
+  #protocol-table tbody td[data-label="Projekt"] .ui-row-title { font-size: 16px; overflow-wrap: anywhere; }
+  #protocol-table tbody td[data-label="Kosten"] { grid-area: cost; text-align: right; font-family: var(--w-display); }
+  #protocol-table tbody td[data-label="Kosten"] b { font-weight: 400; font-size: 17px; }
+  #protocol-table tbody td[data-label="Aktion"] { grid-area: meta; }
+  #protocol-table tbody td[data-label="AL / PL"] { grid-area: al; color: var(--w-muted); font-size: 13px; align-self: center; }
+  #protocol-table tbody td[data-label="AL / PL"] > div:first-child::before { content: 'AL '; }
+  #protocol-table tbody td[data-label=""] { grid-area: btns; display: flex; gap: 6px; justify-content: flex-end; padding: 0; align-self: end; }
+  #protocol-table tbody td[data-label=""] .dash-small-btn { min-height: 34px; padding: 4px 12px; font-size: 13px; }
+  #protocol-table tbody td[colspan] { grid-column: 1 / -1; }
+}
+/* Key figures: the number stays on one line */
+.ui-stat b { white-space: nowrap; font-size: clamp(24px, 7vw, 32px); }
+@media (max-width: 767px) {
+  #protocol-table .dash-yy { display: block; font-size: 12px; color: var(--w-muted); font-family: var(--w-font); }
+}
+
+/* ── Wide screens (office at the desk): the tab bar becomes a left sidebar with every page ── */
+@media (min-width: 1024px) {
+  body.w-has-tabbar .app { padding-left: 104px; box-sizing: border-box; }
+  .w-tabbar { position: fixed; left: 0; top: 0; bottom: 0; width: 104px; flex-direction: column; align-items: stretch; gap: 2px;
+    padding: 18px 8px; border-top: 0; border-right: 1px solid var(--w-soft); overflow-y: auto; }
+  .w-tabbar::before { content: ''; display: block; height: 34px; margin: 0 0 14px; background: url(../icons/logo.png) left center / auto 28px no-repeat;
+    background-size: 150px auto; background-position: 4px center; width: 34px; overflow: hidden; align-self: center; }
+  .w-tab { flex: 0 0 auto; height: 64px; border-radius: var(--w-r-ctl); }
+  .w-tab:hover { background: var(--w-tint); }
+  .w-tab:last-child { margin-top: auto; }
+  body.w-has-tabbar .toast { bottom: 24px; }
+  .ui-topbar { padding-left: 28px; padding-right: 20px; }
+  .ui-topnav > .ui-seg, .meine, #prot-scroll > .ui-page, .prot-nav-wrap { max-width: 720px; margin-left: auto; margin-right: auto; }
+  .prot-nav-wrap { padding-left: 16px; padding-right: 16px; }
+  .meine { padding-left: 16px; padding-right: 16px; }
+}
+/* Personal on a wide screen: the right side explains itself until a person is picked */
+@media (min-width: 768px) {
+  .dash-work:not(.dash-work-detail-open) .dash-work-detail > * { display: none; }
+  .dash-work:not(.dash-work-detail-open) .dash-work-detail::before { content: 'Wähle links eine Person – hier stehen dann ihre Einsätze, Stunden und Stundenzettel.';
+    display: block; background: var(--w-card); border-radius: var(--w-r-card); padding: 40px 24px; text-align: center; color: var(--w-muted); font-size: 15px; }
+}
+.dash-work-head { margin-bottom: 10px; }
+.dash-work-list > .ui-seg { margin-top: 4px; }
+.dash-panels { margin: 0 0 14px; }
+/* Personal detail: the name gets its own line, the two actions sit underneath */
+.dash-worker-top { flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+.dash-worker-top .dash-worker-head { flex: 1 0 100%; }
+.dash-worker-head .ui-title { font-size: 28px !important; font-weight: 300; }
+.dash-worker-top .dash-small-btn { min-height: 36px; padding: 6px 14px; font-size: 14px; }
+/* "Neuer Auftrag" from the Wochenplan: the PDF picker comes first */
+#ordner-form.ordner-from-plan { display: flex !important; flex-direction: column; }
+#ordner-form.ordner-from-plan > .ui-sheet-head { order: -2; }
+#ordner-form.ordner-from-plan > .ordner-ab-field { order: -1; }
+#ordner-form.ordner-from-plan > .ordner-ab-field .ui-add-row { background: var(--w-accent-strong); color: var(--w-on-accent); border: 0; border-radius: var(--w-petal-sm); min-height: 48px; font-weight: 700; }
+/* Protokoll: while choosing a job, the rest of Basis waits; "Neu anfangen" above the step chips */
+#prot-sec-basis.prot-picking > :not(.ui-section-head):not(#prot-pick) { display: none; }
+.prot-pick-manual { margin-top: 6px; }
+.prot-restart:empty { display: none; }
+.prot-restart { display: flex; align-items: center; gap: 10px; margin: 0 2px 8px; }
+.prot-restart-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prot-restart-btn { flex: 0 0 auto; background: var(--w-card); color: var(--w-ink); border: 1px solid var(--w-soft); border-radius: 99px; padding: 6px 14px;
+  font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.prot-restart-btn:active { background: var(--w-tint); }
+.meine-pdf { margin-top: 18px; }
+
+/* ── Vor Ort: Aufbauplan + Material abhaken as two big tiles (js/vorort.js) ── */
+.vo { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 10px 0; }
+.vo-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 92px; padding: 14px; text-align: left;
+  background: var(--w-card); color: var(--w-ink); border: 0; border-radius: var(--w-r-card); font: inherit; cursor: pointer; }
+.vo-tile:active { background: var(--w-tint); }
+.vo-tile b { font-size: 16px; margin-top: 6px; }
+.vo-tile small { font-size: 13px; color: var(--w-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vo-ico { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--w-petal-sm);
+  background: var(--w-accent-bg); color: var(--w-accent-text); }
+.vo-tile:disabled { cursor: default; }
+.vo-tile:disabled:active { background: var(--w-card); }
+.vo-tile.vo-none { opacity: .6; }
+.vo-tile.vo-none .vo-ico { background: var(--w-tint); color: var(--w-muted); }
+/* Inside the Wochenplan's white hero card the tiles sit on the page tone */
+.ui-hero .vo-tile { background: var(--w-paper); }
+.ui-hero .vo-tile:disabled:active { background: var(--w-paper); }

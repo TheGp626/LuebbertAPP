@@ -75,11 +75,11 @@ try {
 });
 
 // ── MODE SELECTION & NAVIGATION ──
-var MODULE_TITLES = { stunden: 'Stundenzettel', protokoll: 'Protokoll', dashboard: 'Office Dashboard',
-  produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan', auftraege: 'Aufträge' };
+var MODULE_TITLES = { stunden: 'Meine Stunden', protokoll: 'Protokoll', dashboard: 'Office Dashboard',
+  produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan', auftraege: 'Aufträge', admin: 'Admin' };
 
-// The office dashboard is opened from two tiles; each shows one view ('prot' | 'work'), Admin settings come via "…"
-var DASH_VIEW_TITLES = { prot: 'Protokoll-Übersicht', work: 'Personal', settings: 'Einstellungen', errors: 'Fehlerberichte' };
+// The office dashboard is opened from two tiles; each shows one view ('prot' | 'work'). Admin settings: js/admin.js
+var DASH_VIEW_TITLES = { prot: 'Protokoll-Übersicht', work: 'Personal' };
 var DASH_VIEW_KEY = 'luebbert_dash_view';
 var dashView = dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY));
 
@@ -87,12 +87,13 @@ function moduleTitle(m) {
   return m === 'dashboard' ? DASH_VIEW_TITLES[dashView] : (MODULE_TITLES[m] || '');
 }
 
-// Called by switchDashTab: remembers the view (settings are never restored) and retitles the top bar
+// Called by switchDashTab: remembers the view and retitles the top bar
 function setDashView(view) {
   dashView = view;
-  if (view !== 'settings' && view !== 'errors') localStorage.setItem(DASH_VIEW_KEY, view);
+  localStorage.setItem(DASH_VIEW_KEY, view);
   var topTitle = document.getElementById('topbar-title');
   if (topTitle && activeModule === 'dashboard') topTitle.textContent = moduleTitle('dashboard');
+  if (typeof navPaint === 'function') navPaint();
 }
 
 function selectMode(m, view) {
@@ -105,10 +106,13 @@ function selectMode(m, view) {
     showToast(userRole === 'Gast' ? 'Zugriff verweigert: Gastzugang nur für Produktdatenbank und Projektordner.'
       : m === 'protokoll' ? 'Zugriff verweigert: Nur für AL/PL.'
       : m === 'auftraege' ? 'Zugriff verweigert: Nur für PL/Admin.'
+      : m === 'admin' ? 'Zugriff verweigert: Nur für Admins.'
       : 'Zugriff verweigert: Nur für AL/PL/Buchhaltung.');
     return;
   }
 
+  // Leaving the admin page: the address bar drops #admin again
+  if (m !== 'admin' && loggedIn && typeof adminSetHash === 'function') adminSetHash(null);
   activeModule = m;
   if (m === 'dashboard') dashView = view || dashViewFromStored(localStorage.getItem(DASH_VIEW_KEY));
   // The test build at /experimental/ shares localStorage with the live app, which doesn't know
@@ -129,7 +133,8 @@ function selectMode(m, view) {
   if (m === 'stunden') {
     document.getElementById('main-nav').style.display = 'flex';
     document.getElementById('prot-nav').style.display = 'none';
-    navigate('home');
+    // Hours come from the protocols: the module opens on the overview, typing in is the second tab (js/meine.js)
+    if (typeof openMeine === 'function') openMeine(); else navigate('home');
   } else if (m === 'protokoll') {
     document.getElementById('main-nav').style.display = 'none';
     document.getElementById('prot-nav').style.display = 'flex';
@@ -162,6 +167,13 @@ function selectMode(m, view) {
     navigate('wochenplan');
     // The plan needs the logged-in user; a module restored before login is initialised from handleSession
     if (typeof initWochenplan === 'function' && typeof currentUser !== 'undefined' && currentUser) initWochenplan();
+  } else if (m === 'admin') {
+    document.getElementById('main-nav').style.display = 'none';
+    var pn6 = document.getElementById('prot-nav');
+    if (pn6) pn6.style.display = 'none';
+    navigate('admin');
+    // Needs the role; a module restored before login is initialised from handleSession
+    if (typeof initAdmin === 'function' && loggedIn) initAdmin(view);
   } else if (m === 'auftraege') {
     document.getElementById('main-nav').style.display = 'none';
     var pn5 = document.getElementById('prot-nav');
@@ -170,11 +182,13 @@ function selectMode(m, view) {
     // Needs the session for the queries; a module restored before login is initialised from handleSession
     if (typeof initAuftraege === 'function' && typeof currentUser !== 'undefined' && currentUser) initAuftraege();
   }
+  if (typeof navPaint === 'function') navPaint();
 }
 
 function exitToMenu() {
   activeModule = null;
   localStorage.removeItem('luebbert_mode');
+  if (typeof adminSetHash === 'function') adminSetHash(null);
   if (typeof stopDashboardRealtime === 'function') stopDashboardRealtime();
   
   // Reset UI
@@ -189,6 +203,7 @@ function exitToMenu() {
 
   updateTopBarSub();
   if (typeof renderHome === 'function') renderHome();
+  if (typeof navPaint === 'function') navPaint();
 }
 
 function navigate(page) {
@@ -376,7 +391,9 @@ window.addEventListener('DOMContentLoaded', function() {
     });
 
     navigator.serviceWorker.register('sw.js').then(function(reg) {
-      reg.update(); // proactively check for a new sw.js on every page load
+      // proactively check for a new sw.js on every page load; no network → just try again next start
+      var upd = reg.update();
+      if (upd && upd.catch) upd.catch(function() {});
       if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
     }).catch(function() {});
   }

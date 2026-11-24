@@ -1,4 +1,4 @@
-// Dashboard tab "Fehler" (Admin only, RLS enforces it): automatic error reports (app_errors) and
+// Admin page tab "Fehler" (/admin, js/admin.js; Admin only, RLS enforces it): automatic error reports (app_errors) and
 // "Problem melden" reports (bug_reports). Status per entry: neu → gesehen / behoben / ignoriert.
 // A bug marked behoben comes back as neu when a version it was never seen on reports it (log_error RPC).
 
@@ -13,6 +13,24 @@ function filterErrors(rows, f) {
   });
 }
 
+// Auto-tidy: an error that was not seen on the current or the previous app version and not for 3 days counts as fixed.
+// App versions are the service worker cache names ("stundenzettel-v239"); the test build (exp-<commit>) has no number → never.
+// If it shows up again, log_error reopens it as "neu" (a version it was never seen on).
+var FEHLER_AUTO_VERSIONS = 2, FEHLER_AUTO_DAYS = 3;
+function fehlerVersionNum(v) { var m = /-v(\d+)$/.exec(String(v || '')); return m ? parseInt(m[1], 10) : null; }
+function autoResolveCandidates(errors, currentVersion, now) {
+  var cur = fehlerVersionNum(currentVersion);
+  if (cur === null) return [];
+  var cutoff = now.getTime() - FEHLER_AUTO_DAYS * 86400000;
+  return (errors || []).filter(function (r) {
+    if (r.status !== 'neu' && r.status !== 'gesehen') return false;
+    var nums = (r.versions || []).map(fehlerVersionNum).filter(function (n) { return n !== null; });
+    if (!nums.length) return false;
+    if (Math.max.apply(null, nums) > cur - FEHLER_AUTO_VERSIONS) return false;
+    return !!r.last_seen && new Date(r.last_seen).getTime() < cutoff;
+  }).map(function (r) { return r.fingerprint; });
+}
+
 function errorsBadgeCount(errors, reports) {
   var n = function (l) { return (l || []).filter(function (r) { return r.status === 'neu'; }).length; };
   return n(errors) + n(reports);
@@ -23,8 +41,7 @@ function _fehlerDate(ts) {
 }
 
 function _fehlerSetBadge(n) {
-  var tab = document.getElementById('dash-tab-errors');
-  if (tab) tab.innerHTML = 'Fehler' + (n ? ' <span class="fehler-count">' + n + '</span>' : '');
+  if (typeof adminSetErrorsBadge === 'function') adminSetErrorsBadge(n);
 }
 
 // On Admin login: only the two counts, so the badge shows before the tab is opened
@@ -37,7 +54,7 @@ async function loadErrorsBadge() {
 }
 
 async function renderErrorsTab() {
-  var box = document.getElementById('dash-view-errors');
+  var box = document.getElementById('admin-view-errors');
   if (!box) return;
   if (!_fehler.loaded) box.innerHTML = '<div class="ui-sub">Lade…</div>';
   var res = await Promise.all([
@@ -51,8 +68,20 @@ async function renderErrorsTab() {
   _fehler.errors = res[0].data;
   _fehler.reports = res[1].data;
   _fehler.loaded = true;
+  await fehlerAutoResolve();
   _fehlerSetBadge(errorsBadgeCount(_fehler.errors, _fehler.reports));
   drawErrorsTab();
+}
+
+async function fehlerAutoResolve() {
+  var version = typeof getAppVersion === 'function' ? getAppVersion() : '?';
+  var fps = autoResolveCandidates(_fehler.errors, version, new Date());
+  if (!fps.length) return;
+  var res = await supabaseClient.from('app_errors').update({ status: 'behoben', fixed_in: version }).in('fingerprint', fps).select('fingerprint');
+  if (res.error) { console.warn('Fehler automatisch erledigen:', res.error); return; }
+  var done = (res.data || []).map(function (r) { return r.fingerprint; });
+  _fehler.errors.forEach(function (r) { if (done.indexOf(r.fingerprint) !== -1) { r.status = 'behoben'; r.fixed_in = version; } });
+  _fehler.autoResolved = done.length;
 }
 
 function _fehlerButtons(kind, key, status) {
@@ -100,7 +129,7 @@ function _fehlerReportHtml(r) {
 }
 
 function drawErrorsTab() {
-  var box = document.getElementById('dash-view-errors');
+  var box = document.getElementById('admin-view-errors');
   if (!box) return;
   var isErr = _fehler.list === 'errors';
   var version = typeof getAppVersion === 'function' ? getAppVersion() : '?';
@@ -114,6 +143,8 @@ function drawErrorsTab() {
     '<div class="ui-chipbar fehler-filters">' +
     (isErr ? '<button type="button" class="ui-chip' + (_fehler.onlyCurrent ? ' ui-chip-on' : '') + '" onclick="fehlerToggleFilter(\'onlyCurrent\')">nur aktuelle Version</button>' : '') +
     '<button type="button" class="ui-chip' + (_fehler.onlyNew ? ' ui-chip-on' : '') + '" onclick="fehlerToggleFilter(\'onlyNew\')">nur neue</button></div>' +
+    (isErr && _fehler.autoResolved ? '<div class="ui-sub fehler-auto">' + _fehler.autoResolved + (_fehler.autoResolved === 1 ? ' alter Fehler' : ' alte Fehler') +
+      ' automatisch auf Behoben gesetzt (seit ' + FEHLER_AUTO_VERSIONS + ' Versionen und ' + FEHLER_AUTO_DAYS + ' Tagen nicht mehr aufgetreten). Kommt einer wieder, steht er wieder auf Neu.</div>' : '') +
     (rows.length ? rows.map(isErr ? _fehlerErrorHtml : _fehlerReportHtml).join('')
       : '<div class="ui-sub fehler-empty">' + (isErr ? 'Keine Fehler.' : 'Keine Meldungen.') + '</div>');
 }
@@ -139,4 +170,8 @@ async function fehlerSetStatus(kind, key, status) {
   if (row) Object.assign(row, patch);
   _fehlerSetBadge(errorsBadgeCount(_fehler.errors, _fehler.reports));
   drawErrorsTab();
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { filterErrors: filterErrors, errorsBadgeCount: errorsBadgeCount, autoResolveCandidates: autoResolveCandidates, fehlerVersionNum: fehlerVersionNum };
 }
