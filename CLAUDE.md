@@ -3,6 +3,14 @@
 Vanilla JS PWA without a build step. After changing a file: bump its `?v=` in `index.html` and `CACHE` in `sw.js`.
 Tests: `node --test tests/*.test.js supabase/functions/**/*.test.mjs`.
 
+## Checking the UI (keep image tokens low)
+
+- First check with text: `node tools/ui-check.js <role> <steps…>` prints per step the active tab, title, visible text,
+  elements wider than the screen and page errors — no image. Fake data: `tools/ui-fixtures.js` (no database needed).
+- Only when the look itself matters: `--shot=<css selector>` crops that element (1x, max 800 px high, ≈ w·h/750 tokens).
+  Avoid full-page or 2x screenshots and contact sheets for your own checks.
+- Screenshots that are only for the user: send them with SendUserFile without opening them yourself.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
