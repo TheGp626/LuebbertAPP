@@ -503,3 +503,34 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 @media (max-width: 767px) {
   #protocol-table .dash-yy { display: block; font-size: 12px; color: var(--w-muted); font-family: var(--w-font); }
 }
+
+/* ── Wide screens (office at the desk): the tab bar becomes a left sidebar with every page ── */
+@media (min-width: 1024px) {
+  body.w-has-tabbar .app { padding-left: 104px; box-sizing: border-box; }
+  .w-tabbar { position: fixed; left: 0; top: 0; bottom: 0; width: 104px; flex-direction: column; align-items: stretch; gap: 2px;
+    padding: 18px 8px; border-top: 0; border-right: 1px solid var(--w-soft); overflow-y: auto; }
+  .w-tabbar::before { content: ''; display: block; height: 34px; margin: 0 0 14px; background: url(../icons/logo.png) left center / auto 28px no-repeat;
+    background-size: 150px auto; background-position: 4px center; width: 34px; overflow: hidden; align-self: center; }
+  .w-tab { flex: 0 0 auto; height: 64px; border-radius: var(--w-r-ctl); }
+  .w-tab:hover { background: var(--w-tint); }
+  .w-tab:last-child { margin-top: auto; }
+  body.w-has-tabbar .toast { bottom: 24px; }
+  .ui-topbar { padding-left: 28px; padding-right: 20px; }
+  .ui-topnav > .ui-seg, .meine, #prot-scroll > .ui-page, .prot-nav-wrap { max-width: 720px; margin-left: auto; margin-right: auto; }
+  .prot-nav-wrap { padding-left: 16px; padding-right: 16px; }
+  .meine { padding-left: 16px; padding-right: 16px; }
+}
+/* Personal on a wide screen: the right side explains itself until a person is picked */
+@media (min-width: 768px) {
+  .dash-work:not(.dash-work-detail-open) .dash-work-detail > * { display: none; }
+  .dash-work:not(.dash-work-detail-open) .dash-work-detail::before { content: 'Wähle links eine Person – hier stehen dann ihre Einsätze, Stunden und Stundenzettel.';
+    display: block; background: var(--w-card); border-radius: var(--w-r-card); padding: 40px 24px; text-align: center; color: var(--w-muted); font-size: 15px; }
+}
+.dash-work-head { margin-bottom: 10px; }
+.dash-work-list > .ui-seg { margin-top: 4px; }
+.dash-panels { margin: 0 0 14px; }
+/* Personal detail: the name gets its own line, the two actions sit underneath */
+.dash-worker-top { flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+.dash-worker-top .dash-worker-head { flex: 1 0 100%; }
+.dash-worker-head .ui-title { font-size: 28px !important; font-weight: 300; }
+.dash-worker-top .dash-small-btn { min-height: 36px; padding: 6px 14px; font-size: 14px; }

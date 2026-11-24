@@ -15,7 +15,7 @@
 
   <link rel="stylesheet" href="css/style.css?v=45">
   <link rel="stylesheet" href="css/ui.css?v=52">
-  <link rel="stylesheet" href="css/werk.css?v=26">
+  <link rel="stylesheet" href="css/werk.css?v=27">
 </head>
 
 <body>
@@ -315,22 +315,13 @@
         <div id="dash-view-work" style="display: none;">
           <div class="dash-work" id="dash-work">
             <aside class="dash-work-list">
-              <button type="button" class="ui-btn ui-btn-block" id="dash-add-user-btn" onclick="toggleAddUserForm()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Mitarbeiter hinzufügen</button>
-              <div class="ui-search" style="margin:10px 0 4px;">
-                <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
-                <input type="search" id="dash-worker-search" placeholder="Mitarbeiter suchen" oninput="renderDashWorkerList()">
+              <div class="produkt-head dash-work-head">
+                <div class="ui-search">
+                  <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+                  <input type="search" id="dash-worker-search" placeholder="Mitarbeiter suchen" oninput="renderDashWorkerList()">
+                </div>
+                <button type="button" class="ui-btn ui-btn-primary produkt-add" id="dash-add-user-btn" onclick="toggleAddUserForm()" aria-label="Mitarbeiter hinzufügen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="produkt-add-label">Person</span></button>
               </div>
-              <div class="ui-seg dash-group-tabs" role="tablist" aria-label="Gruppe">
-                <button type="button" role="tab" id="dash-group-aus" class="active" onclick="setDashWorkerGroup('aus')">Aushilfen</button>
-                <button type="button" role="tab" id="dash-group-fest" onclick="setDashWorkerGroup('fest')">Fest</button>
-                <button type="button" role="tab" id="dash-group-inaktiv" onclick="setDashWorkerGroup('inaktiv')">Deaktiviert</button>
-              </div>
-              <select id="dash-worker-filter" class="meta-input mit-filter" aria-label="Liste filtern" onchange="renderDashWorkerList()">
-                <option value="">Alle Mitarbeiter</option>
-                <option value="nosurname">Ohne Nachname</option>
-                <option value="nophoto">Ohne Profilbild</option>
-              </select>
-              <div id="dash-worker-list" class="ui-list"></div>
               <div class="dash-panels">
                 <details id="dash-close-panel" class="dash-close" hidden>
                   <summary class="dash-panel-sum">Monatsabschluss</summary>
@@ -365,6 +356,17 @@
                   <div id="dash-night-ranking" class="ui-list"></div>
                 </details>
               </div>
+              <div class="ui-seg dash-group-tabs" role="tablist" aria-label="Gruppe">
+                <button type="button" role="tab" id="dash-group-aus" class="active" onclick="setDashWorkerGroup('aus')">Aushilfen</button>
+                <button type="button" role="tab" id="dash-group-fest" onclick="setDashWorkerGroup('fest')">Fest</button>
+                <button type="button" role="tab" id="dash-group-inaktiv" onclick="setDashWorkerGroup('inaktiv')">Deaktiviert</button>
+              </div>
+              <select id="dash-worker-filter" class="meta-input mit-filter" aria-label="Liste filtern" onchange="renderDashWorkerList()">
+                <option value="">Alle Mitarbeiter</option>
+                <option value="nosurname">Ohne Nachname</option>
+                <option value="nophoto">Ohne Profilbild</option>
+              </select>
+              <div id="dash-worker-list" class="ui-list"></div>
               <!-- data source for the selection (read by the dashboard code) -->
               <select id="dash-worker-select" hidden onchange="renderWorkerShifts(); updateEditWorkerBtn();">
                 <option value="">-- Mitarbeiter wählen --</option>
@@ -983,7 +985,7 @@
   <script src="js/formulas.js?v=19"></script>
   <script src="js/utils.js?v=28"></script>
   <script src="js/ui.js?v=9"></script>
-  <script src="js/nav.js?v=7"></script>
+  <script src="js/nav.js?v=8"></script>
   <script src="js/changelog.js?v=2"></script>
   <script src="js/settings.js?v=17"></script>
   <script src="js/mitarbeiter.js?v=4"></script>
@@ -1000,7 +1002,7 @@
   <script src="js/material.js?v=5"></script>
   <script src="js/home.js?v=13"></script>
   <script src="js/meine.js?v=1"></script>
-  <script src="js/heute.js?v=6"></script>
+  <script src="js/heute.js?v=7"></script>
   <script src="js/dashboard.js?v=68"></script>
   <script src="js/fehler.js?v=3"></script>
   <script src="js/admin.js?v=3"></script>

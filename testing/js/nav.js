@@ -68,6 +68,13 @@ function navTogglePin(tabIds, id) {
   return ids.concat([id]);
 }
 
+// Sidebar (wide screens): all pages as entries, the action entries stay behind "Mehr"
+function navWideTabs(cur) {
+  var pages = cur.tabs.filter(function(t) { return t.id !== 'mehr'; }).concat(cur.more.filter(function(t) { return !t.action; }));
+  var mehr = cur.tabs.filter(function(t) { return t.id === 'mehr'; });
+  return { tabs: pages.concat(mehr), more: cur.more.filter(function(t) { return t.action; }) };
+}
+
 // Which entry is the current screen (first match wins: bottom tabs come before "Mehr" entries)
 function navActiveTab(items, activeModule, dashView) {
   for (var i = 0; i < items.length; i++) {
@@ -106,6 +113,8 @@ function navPaint() {
   var user = typeof currentUser !== 'undefined' ? currentUser : null;
   if (!user) { bar.hidden = true; bar.innerHTML = ''; document.body.classList.remove('w-has-tabbar'); return; }
   _navCurrent = navTabs(userRole, moduleAllowedForRole, !!window.currentUserSeesInterest, navLoadPinned() || _navSessionPinned);
+  // Wide screen: the bar is a sidebar with room for every page, "Mehr" keeps only Optionen and Problem melden
+  if (navWide()) _navCurrent = navWideTabs(_navCurrent);
   var mod = typeof activeModule !== 'undefined' ? activeModule : null;
   var view = navCurrentView(mod);
   var active = navActiveTab(_navCurrent.tabs.concat(_navCurrent.more), mod, view);
@@ -117,6 +126,10 @@ function navPaint() {
   }).join('');
   bar.hidden = false;
   document.body.classList.add('w-has-tabbar');
+}
+
+function navWide() {
+  return typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(min-width: 1024px)').matches;
 }
 
 function navCurrentView(mod) {
@@ -160,6 +173,7 @@ function navSheetHtml() {
     return '<div class="w-more-row"><button type="button" class="w-more-item' + (t.id === active ? ' on' : '') + '" onclick="navGo(\'' + t.id + '\')">' +
       navIcon(t.icon) + '<span>' + t.label + '</span></button>' + btn + '</div>';
   };
+  if (navWide()) return _navCurrent.more.map(function(t) { return row(t, null); }).join(''); // sidebar holds every page, nothing to pin
   var pages = _navCurrent.more.filter(function(t) { return !t.action; });
   var extras = _navCurrent.more.filter(function(t) { return t.action; });
   var h = pages.map(function(t) { return row(t, 'in'); }).join('');
@@ -210,6 +224,12 @@ function closeMoreSheet() {
   if (_navReturnFocus && _navReturnFocus.focus) _navReturnFocus.focus();
 }
 
+if (typeof window !== 'undefined' && window.matchMedia) {
+  var _navMq = window.matchMedia('(min-width: 1024px)');
+  var _navMqFn = function() { if (typeof navPaint === 'function') navPaint(); };
+  if (_navMq.addEventListener) _navMq.addEventListener('change', _navMqFn); else if (_navMq.addListener) _navMq.addListener(_navMqFn);
+}
+
 if (typeof document !== 'undefined') {
   document.addEventListener('keydown', function(e) {
     var m = document.getElementById('w-more');
@@ -226,5 +246,5 @@ if (typeof document !== 'undefined') {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { NAV_ITEMS: NAV_ITEMS, NAV_ROLES: NAV_ROLES, NAV_MAX_TABS: NAV_MAX_TABS, navTabs: navTabs, navActiveTab: navActiveTab, navTogglePin: navTogglePin };
+  module.exports = { NAV_ITEMS: NAV_ITEMS, NAV_ROLES: NAV_ROLES, NAV_MAX_TABS: NAV_MAX_TABS, navTabs: navTabs, navActiveTab: navActiveTab, navTogglePin: navTogglePin, navWideTabs: navWideTabs };
 }
