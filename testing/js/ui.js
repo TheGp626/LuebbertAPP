@@ -201,6 +201,7 @@ function topbarMenuItems(mode) {
   var role = typeof userRole !== 'undefined' ? userRole : null;
   if (role && role !== 'Gast') own = own.concat([{ label: 'PIN ändern', action: 'openPinChange' }]);
   if (['Admin', 'PL', 'AL'].includes(role)) own = own.concat([{ label: 'PIN zurücksetzen', action: 'openPinReset' }]);
+  if (typeof viewAsIsAdmin === 'function' && viewAsIsAdmin()) own = own.concat([{ label: 'Ansicht als Rolle …', action: 'openViewAsMenu' }]);
   return own.concat([{ label: 'Optionen', action: 'openSettingsModal' }]);
 }
 
