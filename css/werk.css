@@ -566,3 +566,7 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 /* Inside the Wochenplan's white hero card the tiles sit on the page tone */
 .ui-hero .vo-tile { background: var(--w-paper); }
 .ui-hero .vo-tile:disabled:active { background: var(--w-paper); }
+
+/* "Ansicht als …" badge while an Admin looks at another role (js/viewas.js) */
+.view-as-chip { position: fixed; top: calc(24px + env(safe-area-inset-top)); right: 10px; z-index: 9000; background: var(--w-warn); color: #fff;
+  border: 0; border-radius: 99px; padding: 6px 12px; font: inherit; font-size: 12px; font-weight: 700; box-shadow: 0 4px 12px rgba(0,0,0,.18); cursor: pointer; }

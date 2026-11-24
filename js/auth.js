@@ -357,6 +357,7 @@ function handleSession(user) {
     currentUser = { id: user.id, email: '', full_name: user.full_name || '', role: user.role,
       role_rates: Array.isArray(user.role_rates) ? user.role_rates : [], employment_type: user.employment_type || 'Minijob' }; // Mock basic GoTrue object for backwards compatibility (+ name for the start page greeting)
     userRole = user.role;
+    if (typeof viewAsApply === 'function') viewAsApply(); // Admin testing as another role (js/viewas.js)
     // Costs and rates only for PL/Buchhaltung/Admin: every '.cost-only' element is hidden otherwise (css/ui.css)
     document.body.classList.toggle('no-costs', !canSeeCosts(currentUser));
     
@@ -419,6 +420,7 @@ function handleSession(user) {
   } else {
     currentUser = null;
     userRole = 'MA';
+    if (typeof viewAsChip === 'function') viewAsChip();
     window.currentUserSeesInterest = false;
     window.currentUserCanDrive     = false;
     window.currentUserIsMinor      = false;

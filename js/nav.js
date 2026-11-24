@@ -116,6 +116,12 @@ function navPaint() {
   _navCurrent = navTabs(userRole, moduleAllowedForRole, !!window.currentUserSeesInterest, navLoadPinned() || _navSessionPinned);
   // Wide screen: the bar is a sidebar with room for every page, "Mehr" keeps only Optionen and Problem melden
   if (navWide()) _navCurrent = navWideTabs(_navCurrent);
+  // Admin (also while viewing as another role): the role switch sits in "Mehr" (js/viewas.js)
+  if (typeof viewAsIsAdmin === 'function' && viewAsIsAdmin()) {
+    var va = { id: 'ansicht', label: userRole === 'Admin' ? 'Ansicht als Rolle …' : 'Ansicht: ' + userRole + ' – wechseln', icon: 'user', mode: null, action: 'openViewAsMenu' };
+    var at = _navCurrent.more.findIndex(function(t) { return t.id === 'optionen'; });
+    _navCurrent.more.splice(at === -1 ? _navCurrent.more.length : at, 0, va);
+  }
   var mod = typeof activeModule !== 'undefined' ? activeModule : null;
   var view = navCurrentView(mod);
   var active = navActiveTab(_navCurrent.tabs.concat(_navCurrent.more), mod, view);
