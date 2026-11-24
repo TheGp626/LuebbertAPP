@@ -460,3 +460,18 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .meine-pending .meine-day b { color: var(--w-muted); }
 .meine-help { font-size: 14px; color: var(--w-muted); margin: 22px 4px 0; line-height: 1.5; }
 .meine-help .stunden-link { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: var(--w-accent-text); text-decoration: underline; cursor: pointer; }
+
+/* ── Protokoll: "Für welchen Einsatz?" (js/protokoll.js protRenderPick) ── */
+#prot-pick:empty { display: none; }
+.prot-pick-title { font-family: var(--w-display); font-size: 20px; font-weight: 400; margin: 2px 2px 10px; }
+.prot-pick-row { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; background: var(--w-card); color: var(--w-ink);
+  border: 0; border-radius: var(--w-r-card); padding: 14px 16px; margin-bottom: 8px; cursor: pointer; font: inherit; }
+.prot-pick-row:first-of-type { border-radius: var(--w-petal); background: var(--w-hero); color: var(--w-on-hero); }
+.prot-pick-row:first-of-type small, .prot-pick-row:first-of-type .prot-pick-when { color: var(--w-hero-muted); }
+.prot-pick-row:active { opacity: .85; }
+.prot-pick-when { flex: 0 0 58px; font-size: 13px; font-weight: 700; color: var(--w-accent-text); }
+.prot-pick-main { flex: 1; min-width: 0; }
+.prot-pick-main b { display: block; font-size: 16px; overflow-wrap: anywhere; }
+.prot-pick-main small { display: block; font-size: 13px; color: var(--w-muted); margin-top: 2px; }
+.prot-pick-or { text-align: center; font-size: 13px; color: var(--w-muted); margin: 14px 0 18px; }
+.prot-step-count { display: none; } /* the step chips already show where you are */

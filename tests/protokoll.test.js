@@ -1169,3 +1169,10 @@ test('step flow: Basis errors on Senden open the Basis step', async () => {
   await ctx.saveProtokoll();
   assert.equal(run('protStep'), 'basis');
 });
+
+test('protPickWindow and protPickOrder: today first, then the days before, tomorrow last', () => {
+  assert.equal(JSON.stringify(ctx.protPickWindow('2026-11-24')), JSON.stringify({ from: '2026-11-21', to: '2026-11-25' }));
+  const s = (id, date, sort) => ({ id, date, sort });
+  const out = ctx.protPickOrder([s('a', '2026-11-22', 1), s('b', '2026-11-25', 1), s('c', '2026-11-24', 2), s('d', '2026-11-24', 1), s('c', '2026-11-24', 2), null], '2026-11-24');
+  assert.equal(out.map(x => x.id).join(','), 'd,c,a,b');
+});
