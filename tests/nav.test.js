@@ -99,3 +99,9 @@ test('Pläne entry opens the Ordner page in the plans view', () => {
   assert.equal(N.navActiveTab(items, 'ordner', 'plaene'), 'plaene');
   assert.equal(N.navActiveTab(items, 'ordner', 'ordner'), 'ordner');
 });
+
+test('navWideTabs: every page in the sidebar, Mehr keeps the actions', () => {
+  const w = N.navWideTabs(N.navTabs('Admin', allowed));
+  assert.deepEqual(w.tabs.map(t => t.id), ['heute', 'plan', 'auftraege', 'protokolle', 'personal', 'admin', 'zettel', 'produkte', 'ordner', 'plaene', 'mehr']);
+  assert.deepEqual(w.more.map(t => t.id), ['optionen', 'problem']);
+});

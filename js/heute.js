@@ -250,6 +250,7 @@ async function renderHeute() {
   var seq = ++_heuteSeq;
   var office = document.getElementById('heute-office');
   if (office) office.innerHTML = '';
+  if (userRole === 'Gast') return; // guests only see Produkte and Ordner, never plan or office figures
   renderHeuteMonth(seq);
   if (userRole === 'MA' || userRole === 'AL') return renderHeuteCrew(seq);
   return renderHeuteOffice(seq); // PL, Admin, Buchhaltung
