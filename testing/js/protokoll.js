@@ -118,8 +118,10 @@ function protFilterScope(list, scope, userId) {
 }
 
 // Remembered per device and list; anything unknown falls back to "mine"
+// Nothing chosen yet: Admin and Buchhaltung start on "Alle" (they write no protocols, "Meine" would always be empty)
 function protScopeGet(key) {
-  try { return localStorage.getItem(key) === 'all' ? 'all' : 'mine'; } catch (e) { return 'mine'; }
+  var dflt = typeof userRole !== 'undefined' && (userRole === 'Admin' || userRole === 'Buchhaltung') ? 'all' : 'mine';
+  try { var v = localStorage.getItem(key); return v === 'all' || v === 'mine' ? v : dflt; } catch (e) { return dflt; }
 }
 
 function protScopeSet(key, scope) {

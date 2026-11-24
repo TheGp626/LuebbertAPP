@@ -475,3 +475,31 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .prot-pick-main small { display: block; font-size: 13px; color: var(--w-muted); margin-top: 2px; }
 .prot-pick-or { text-align: center; font-size: 13px; color: var(--w-muted); margin: 14px 0 18px; }
 .prot-step-count { display: none; } /* the step chips already show where you are */
+
+/* ── Protokoll-Übersicht on the phone: one compact row per protocol instead of a label table ──
+   date | project, action + AL | cost ; PDF and Details as small buttons on the right of the second line */
+@media (max-width: 767px) {
+  #protocol-table, #protocol-table tbody { display: block; }
+  #protocol-table tbody tr { display: grid; grid-template-columns: 50px minmax(0, 1fr) auto; column-gap: 12px; row-gap: 2px;
+    grid-template-areas: "date proj cost" "date meta meta" "date al btns";
+    background: transparent; border: 0; border-bottom: 1px solid var(--w-soft); border-radius: 0; margin: 0; padding: 14px 4px; overflow: visible; }
+  #protocol-table tbody tr:hover { background: transparent; }
+  #protocol-table tbody td { display: block; padding: 0; border: 0; font-size: 14px; text-align: left; width: auto; }
+  #protocol-table tbody td::before { display: none !important; content: none !important; }
+  #protocol-table tbody td[data-label="Datum"] { grid-area: date; font-family: var(--w-display); font-size: 15px; line-height: 1.25; color: var(--w-ink); align-self: start; }
+  #protocol-table tbody td[data-label="Projekt"] { grid-area: proj; }
+  #protocol-table tbody td[data-label="Projekt"] .ui-row-title { font-size: 16px; overflow-wrap: anywhere; }
+  #protocol-table tbody td[data-label="Kosten"] { grid-area: cost; text-align: right; font-family: var(--w-display); }
+  #protocol-table tbody td[data-label="Kosten"] b { font-weight: 400; font-size: 17px; }
+  #protocol-table tbody td[data-label="Aktion"] { grid-area: meta; }
+  #protocol-table tbody td[data-label="AL / PL"] { grid-area: al; color: var(--w-muted); font-size: 13px; align-self: center; }
+  #protocol-table tbody td[data-label="AL / PL"] > div:first-child::before { content: 'AL '; }
+  #protocol-table tbody td[data-label=""] { grid-area: btns; display: flex; gap: 6px; justify-content: flex-end; padding: 0; align-self: end; }
+  #protocol-table tbody td[data-label=""] .dash-small-btn { min-height: 34px; padding: 4px 12px; font-size: 13px; }
+  #protocol-table tbody td[colspan] { grid-column: 1 / -1; }
+}
+/* Key figures: the number stays on one line */
+.ui-stat b { white-space: nowrap; font-size: clamp(24px, 7vw, 32px); }
+@media (max-width: 767px) {
+  #protocol-table .dash-yy { display: block; font-size: 12px; color: var(--w-muted); font-family: var(--w-font); }
+}

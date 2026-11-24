@@ -927,7 +927,7 @@ function renderDashboardTable() {
     const plLine = plName ? `<div class="ui-sub">PL ${escapeHtml(plName)}</div>` : '';
 
     tr.innerHTML = `
-      <td data-label="Datum" class="dash-num">${new Date(p.date).toLocaleDateString('de-DE')}</td>
+      <td data-label="Datum" class="dash-num"><span class="dash-dm">${escapeHtml(String(p.date).slice(8, 10) + '.' + String(p.date).slice(5, 7) + '.')}</span><span class="dash-yy">${escapeHtml(String(p.date).slice(0, 4))}</span></td>
       <td data-label="Projekt"><span class="ui-row-title">${escapeHtml(projName)}</span></td>
       <td data-label="Aktion"><span class="ui-pill ui-pill-info">${escapeHtml(p.action)}</span>${holidayTag}</td>
       <td data-label="AL / PL"><div>${escapeHtml(alName)}</div>${plLine}</td>
