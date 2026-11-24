@@ -376,7 +376,57 @@ function initProtokoll() {
   syncProtActionSeg();
   renderProtSectionNav();
   ['prot-damages', 'prot-incidents', 'prot-feedback'].forEach(function(id) { var t = document.getElementById(id); if (t && t.style) growProtText(t); });
+  protRenderPick();
   // appUsers is loaded after the login (handleSession): the database answers only logged-in users
+}
+
+// ── "Für welchen Einsatz?": own plan shifts of the last days as one-tap starts (same prefill as the Wochenplan) ──
+// Only on an empty form; once a job is picked or typed, the list goes away.
+function protPickWindow(todayStr) {
+  var d = function(n) { var p = todayStr.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2] + n, 12)).toISOString().slice(0, 10); };
+  return { from: d(-3), to: d(1) };
+}
+// shifts = own plan shifts in the window → newest relevant first: today, then yesterday …, tomorrow last
+function protPickOrder(shifts, todayStr) {
+  var seen = {};
+  return (shifts || []).filter(function(s) { if (!s || !s.id || seen[s.id]) return false; seen[s.id] = true; return true; })
+    .sort(function(a, b) {
+      var fa = a.date > todayStr ? 1 : 0, fb = b.date > todayStr ? 1 : 0;
+      if (fa !== fb) return fa - fb;
+      return a.date < b.date ? 1 : a.date > b.date ? -1 : (a.sort || 0) - (b.sort || 0);
+    });
+}
+var _protPickShifts = {};
+async function protRenderPick() {
+  var box = document.getElementById('prot-pick');
+  if (!box) return;
+  var blank = !((document.getElementById('prot-event') || {}).value || '').trim() && !protState.sideOf;
+  if (!blank || typeof supabaseClient === 'undefined' || typeof currentUser === 'undefined' || !currentUser) { box.innerHTML = ''; return; }
+  var today = localDateStr(), win = protPickWindow(today), res;
+  try {
+    res = await supabaseClient.from('plan_assignments').select('shift:plan_shifts!inner(*, plan_assignments(*))')
+      .eq('user_id', currentUser.id).gte('shift.date', win.from).lte('shift.date', win.to);
+  } catch (e) { return; }
+  if (!res || res.error) return;
+  var list = protPickOrder((res.data || []).map(function(r) { return r.shift; }), today);
+  if (!list.length || ((document.getElementById('prot-event') || {}).value || '').trim()) { box.innerHTML = ''; return; }
+  _protPickShifts = {};
+  box.innerHTML = '<div class="prot-pick-title">Für welchen Einsatz?</div>' + list.map(function(s) {
+    _protPickShifts[s.id] = s;
+    var when = s.date === today ? 'Heute' : s.date > today ? 'Morgen' : s.date.slice(8, 10) + '.' + s.date.slice(5, 7) + '.';
+    return '<button type="button" class="prot-pick-row" onclick="protPickShift(\'' + s.id + '\')"><span class="prot-pick-when">' + when + '</span>' +
+      '<span class="prot-pick-main"><b>' + escapeHtml(s.venue || s.title || 'Einsatz') + '</b><small>' + escapeHtml([s.title, s.wann].filter(Boolean).join(' · ')) + '</small></span></button>';
+  }).join('') + '<div class="prot-pick-or">oder unten selbst ausfüllen</div>';
+}
+function protPickShift(id) {
+  var s = _protPickShifts[id];
+  if (!s) return;
+  if (typeof _wpShiftCache !== 'undefined') _wpShiftCache[s.id] = s;
+  var box = document.getElementById('prot-pick');
+  if (box) box.innerHTML = '';
+  var parsed = planShiftFromDb(s);
+  openProtokollPrefilled({ event: planEventName(parsed), date: s.date, action: planGuessAction(parsed.wann),
+    alId: currentUser.id, location: planPlace(parsed), shift: parsed });
 }
 
 // ── PROTOKOLL SIGNATURE ──

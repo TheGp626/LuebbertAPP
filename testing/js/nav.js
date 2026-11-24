@@ -6,7 +6,7 @@
 var NAV_ITEMS = {
   heute: { id: 'heute', label: 'Heute', icon: 'home', mode: null },
   plan: { id: 'plan', label: 'Plan', icon: 'calendar', mode: 'wochenplan' },
-  zettel: { id: 'zettel', label: 'Zettel', icon: 'clock', mode: 'stunden' },
+  zettel: { id: 'zettel', label: 'Stunden', icon: 'clock', mode: 'stunden' },
   protokoll: { id: 'protokoll', label: 'Protokoll', icon: 'clipboard', mode: 'protokoll' },
   protokolle: { id: 'protokolle', label: 'Protokolle', icon: 'clipboard', mode: 'dashboard', view: 'prot' },
   uebersicht: { id: 'uebersicht', label: 'Übersicht', icon: 'clipboard', mode: 'dashboard', view: 'prot' },

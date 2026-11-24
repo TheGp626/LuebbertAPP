@@ -426,3 +426,52 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .stunden-times .ui-field { min-width: 0; }
 .stunden-times input[type=time] { min-width: 0; font-family: var(--w-display); font-weight: 400; }
 #ordner-detail-title { display: none; } /* the top bar already names the folder */
+
+/* ── Meine Stunden (js/meine.js) ── */
+.meine { padding-top: 4px; padding-bottom: 40px; }
+.meine-period { display: flex; align-items: center; gap: 8px; margin: 4px 0 18px; }
+.meine-period-mid { flex: 1; text-align: center; }
+.meine-period-mid b { display: block; font-family: var(--w-display); font-size: 22px; font-weight: 400; }
+.meine-period-mid span { font-size: 13px; color: var(--w-muted); }
+.meine-period .ui-icon-btn { background: var(--w-card); }
+.meine-period .ui-icon-btn:disabled { opacity: .35; }
+.meine-sum { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 26px; margin-bottom: 18px; }
+.meine-total { flex: 1 0 100%; display: flex; align-items: baseline; gap: 8px; }
+.meine-total b { font-family: var(--w-display); font-size: 72px; font-weight: 200; line-height: .95; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.meine-total span { font-size: 16px; font-weight: 600; color: var(--w-muted); }
+.meine-stat b { display: block; font-family: var(--w-display); font-size: 24px; font-weight: 400; }
+.meine-stat span { font-size: 13px; color: var(--w-muted); }
+.meine-limit { flex: 1 0 100%; }
+.meine-note { background: var(--w-warn-bg); color: var(--w-warn); border-radius: var(--w-r-ctl); padding: 10px 14px; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.meine-list { margin-top: 6px; }
+.meine-row { display: flex; align-items: center; gap: 14px; padding: 14px 4px; border-bottom: 1px solid var(--w-soft); }
+.meine-day { flex: 0 0 48px; text-align: center; }
+.meine-day span { display: block; font-size: 12px; font-weight: 600; color: var(--w-muted); }
+.meine-day b { display: block; font-family: var(--w-display); font-size: 17px; font-weight: 400; }
+.meine-main { flex: 1; min-width: 0; }
+.meine-place { font-weight: 700; overflow-wrap: anywhere; }
+.meine-sub { font-size: 13px; color: var(--w-muted); margin-top: 2px; }
+.meine-end { flex: 0 0 auto; text-align: right; }
+.meine-end b { display: block; font-family: var(--w-display); font-size: 20px; font-weight: 400; white-space: nowrap; }
+.meine-end span { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 99px; }
+.meine-src-prot { background: var(--w-accent-bg); color: var(--w-accent-text); }
+.meine-src-self { background: var(--w-tint); color: var(--w-muted); }
+.meine-pending .meine-place { color: var(--w-muted); }
+.meine-pending .meine-day b { color: var(--w-muted); }
+.meine-help { font-size: 14px; color: var(--w-muted); margin: 22px 4px 0; line-height: 1.5; }
+.meine-help .stunden-link { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: var(--w-accent-text); text-decoration: underline; cursor: pointer; }
+
+/* ── Protokoll: "Für welchen Einsatz?" (js/protokoll.js protRenderPick) ── */
+#prot-pick:empty { display: none; }
+.prot-pick-title { font-family: var(--w-display); font-size: 20px; font-weight: 400; margin: 2px 2px 10px; }
+.prot-pick-row { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; background: var(--w-card); color: var(--w-ink);
+  border: 0; border-radius: var(--w-r-card); padding: 14px 16px; margin-bottom: 8px; cursor: pointer; font: inherit; }
+.prot-pick-row:first-of-type { border-radius: var(--w-petal); background: var(--w-hero); color: var(--w-on-hero); }
+.prot-pick-row:first-of-type small, .prot-pick-row:first-of-type .prot-pick-when { color: var(--w-hero-muted); }
+.prot-pick-row:active { opacity: .85; }
+.prot-pick-when { flex: 0 0 58px; font-size: 13px; font-weight: 700; color: var(--w-accent-text); }
+.prot-pick-main { flex: 1; min-width: 0; }
+.prot-pick-main b { display: block; font-size: 16px; overflow-wrap: anywhere; }
+.prot-pick-main small { display: block; font-size: 13px; color: var(--w-muted); margin-top: 2px; }
+.prot-pick-or { text-align: center; font-size: 13px; color: var(--w-muted); margin: 14px 0 18px; }
+.prot-step-count { display: none; } /* the step chips already show where you are */

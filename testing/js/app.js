@@ -75,7 +75,7 @@ try {
 });
 
 // ── MODE SELECTION & NAVIGATION ──
-var MODULE_TITLES = { stunden: 'Stundenzettel', protokoll: 'Protokoll', dashboard: 'Office Dashboard',
+var MODULE_TITLES = { stunden: 'Meine Stunden', protokoll: 'Protokoll', dashboard: 'Office Dashboard',
   produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan', auftraege: 'Aufträge', admin: 'Admin' };
 
 // The office dashboard is opened from two tiles; each shows one view ('prot' | 'work'). Admin settings: js/admin.js
@@ -133,7 +133,8 @@ function selectMode(m, view) {
   if (m === 'stunden') {
     document.getElementById('main-nav').style.display = 'flex';
     document.getElementById('prot-nav').style.display = 'none';
-    navigate('home');
+    // Hours come from the protocols: the module opens on the overview, typing in is the second tab (js/meine.js)
+    if (typeof openMeine === 'function') openMeine(); else navigate('home');
   } else if (m === 'protokoll') {
     document.getElementById('main-nav').style.display = 'none';
     document.getElementById('prot-nav').style.display = 'flex';
