@@ -143,9 +143,34 @@ async function renderMeine() {
     if (pending) html += '<div class="meine-note">' + pending + (pending === 1 ? ' Einsatz wartet' : ' Einsätze warten') + ' noch auf das Protokoll.</div>';
     html += '<div class="meine-list">' + rows.map(meineRowHtml).join('') + '</div>';
   }
+  if (done.length) html += '<button type="button" class="ui-btn ui-btn-block meine-pdf" onclick="meinePdf()">' + uiIcon('download') + ' Stundenzettel als PDF</button>';
   html += '<p class="meine-help">Deine Stunden kommen automatisch aus dem Protokoll. Stimmt etwas nicht, sag deinem AL Bescheid. ' +
     'Nur für einen Einsatz ohne Protokoll: <button type="button" class="stunden-link" onclick="navigate(\'home\')">selbst eintragen</button>.</p>';
   box.innerHTML = html;
+}
+
+// Same PDF as the live app's monthly export (stundenzettel.js exportMonthlyPDF): overview page + one Stundennachweis
+// per week, so the Buchhaltung gets the format it knows. It reads the local week store, which fetchShiftsNow fills
+// from the server (protocol shifts included), so the server state is pulled first.
+var _meinePdfBusy = false;
+async function meinePdf() {
+  if (_meinePdfBusy || typeof exportMonthlyPDF !== 'function') return;
+  _meinePdfBusy = true;
+  try {
+    var name = '';
+    try { name = localStorage.getItem('stundenzettel_name') || ''; } catch (e) { /* storage blocked */ }
+    if (!name && currentUser && currentUser.full_name) {
+      try { localStorage.setItem('stundenzettel_name', currentUser.full_name); } catch (e) { /* storage blocked */ }
+      var inp = document.getElementById('inp-name');
+      if (inp && !inp.value) inp.value = currentUser.full_name;
+    }
+    showToast('PDF wird erstellt…');
+    if (typeof fetchShiftsNow === 'function') await fetchShiftsNow();
+    await exportMonthlyPDF(_meineKey || getBillingKeyForDate(new Date(), meineCutoff()).key);
+  } catch (e) {
+    console.error('Stunden-PDF:', e);
+    showToast('PDF konnte nicht erstellt werden.', 'danger');
+  } finally { _meinePdfBusy = false; }
 }
 
 function openMeine() {

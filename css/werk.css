@@ -539,3 +539,13 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 #ordner-form.ordner-from-plan > .ui-sheet-head { order: -2; }
 #ordner-form.ordner-from-plan > .ordner-ab-field { order: -1; }
 #ordner-form.ordner-from-plan > .ordner-ab-field .ui-add-row { background: var(--w-accent-strong); color: var(--w-on-accent); border: 0; border-radius: var(--w-petal-sm); min-height: 48px; font-weight: 700; }
+/* Protokoll: while choosing a job, the rest of Basis waits; "Neu anfangen" above the step chips */
+#prot-sec-basis.prot-picking > :not(.ui-section-head):not(#prot-pick) { display: none; }
+.prot-pick-manual { margin-top: 6px; }
+.prot-restart:empty { display: none; }
+.prot-restart { display: flex; align-items: center; gap: 10px; margin: 0 2px 8px; }
+.prot-restart-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prot-restart-btn { flex: 0 0 auto; background: var(--w-card); color: var(--w-ink); border: 1px solid var(--w-soft); border-radius: 99px; padding: 6px 14px;
+  font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.prot-restart-btn:active { background: var(--w-tint); }
+.meine-pdf { margin-top: 18px; }

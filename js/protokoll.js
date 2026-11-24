@@ -398,12 +398,18 @@ function protPickOrder(shifts, todayStr) {
       return a.date < b.date ? 1 : a.date > b.date ? -1 : (a.sort || 0) - (b.sort || 0);
     });
 }
-var _protPickShifts = {};
+var _protPickShifts = {}, _protPickSkipped = false;
+function protIsBlank() { return !((document.getElementById('prot-event') || {}).value || '').trim() && !protState.sideOf; }
+// While the list is up, the rest of the Basis step waits: pick a job, or "Einsatz nicht im Plan" for the empty form
+function protSetPicking(on) {
+  var sec = document.getElementById('prot-sec-basis');
+  if (sec && sec.classList) sec.classList.toggle('prot-picking', !!on);
+}
 async function protRenderPick() {
   var box = document.getElementById('prot-pick');
+  protRenderRestart();
   if (!box) return;
-  var blank = !((document.getElementById('prot-event') || {}).value || '').trim() && !protState.sideOf;
-  if (!blank || typeof supabaseClient === 'undefined' || typeof currentUser === 'undefined' || !currentUser) { box.innerHTML = ''; return; }
+  if (!protIsBlank() || _protPickSkipped || typeof supabaseClient === 'undefined' || typeof currentUser === 'undefined' || !currentUser) { box.innerHTML = ''; protSetPicking(false); return; }
   var today = localDateStr(), win = protPickWindow(today), res;
   try {
     res = await supabaseClient.from('plan_assignments').select('shift:plan_shifts!inner(*, plan_assignments(*))')
@@ -411,14 +417,48 @@ async function protRenderPick() {
   } catch (e) { return; }
   if (!res || res.error) return;
   var list = protPickOrder((res.data || []).map(function(r) { return r.shift; }), today);
-  if (!list.length || ((document.getElementById('prot-event') || {}).value || '').trim()) { box.innerHTML = ''; return; }
+  if (!list.length || !protIsBlank() || _protPickSkipped) { box.innerHTML = ''; protSetPicking(false); return; }
   _protPickShifts = {};
   box.innerHTML = '<div class="prot-pick-title">Für welchen Einsatz?</div>' + list.map(function(s) {
     _protPickShifts[s.id] = s;
     var when = s.date === today ? 'Heute' : s.date > today ? 'Morgen' : s.date.slice(8, 10) + '.' + s.date.slice(5, 7) + '.';
     return '<button type="button" class="prot-pick-row" onclick="protPickShift(\'' + s.id + '\')"><span class="prot-pick-when">' + when + '</span>' +
       '<span class="prot-pick-main"><b>' + escapeHtml(s.venue || s.title || 'Einsatz') + '</b><small>' + escapeHtml([s.title, s.wann].filter(Boolean).join(' · ')) + '</small></span></button>';
-  }).join('') + '<div class="prot-pick-or">oder unten selbst ausfüllen</div>';
+  }).join('') +
+  '<button type="button" class="ui-btn ui-btn-block prot-pick-manual" onclick="protPickManual()">Einsatz nicht im Plan – selbst ausfüllen</button>';
+  protSetPicking(true);
+}
+function protPickManual() {
+  _protPickSkipped = true;
+  var box = document.getElementById('prot-pick');
+  if (box) box.innerHTML = '';
+  protSetPicking(false);
+  protRenderRestart(); // "Neu anfangen" leads back to the list
+  var ev = document.getElementById('prot-event');
+  if (ev && ev.focus) ev.focus();
+}
+// "Neu anfangen": empties the form (after asking) and goes back to the job list, from any step
+function protRestart() {
+  var started = !protIsBlank() || (protState.personnel || []).some(function(p) { return p.name || p.start; }) || !!protState.signature;
+  if (started && !confirm('Protokoll leeren und neu anfangen? Was du eingetragen hast, geht verloren.')) return;
+  clearProtForm(true);
+  _protPickSkipped = false;
+  renderProtSectionNav();
+  var scroll = document.getElementById('prot-scroll');
+  if (scroll) scroll.scrollTop = 0;
+  var chips = document.getElementById('prot-section-nav');
+  if (chips) chips.scrollLeft = 0;
+  protRenderPick();
+}
+// Above the step chips: which protocol this is, and the way out
+function protRenderRestart() {
+  var bar = document.getElementById('prot-restart');
+  if (!bar) return;
+  var ev = ((document.getElementById('prot-event') || {}).value || '').trim(), d = ((document.getElementById('prot-date') || {}).value || '');
+  if (protIsBlank() && !_protPickSkipped) { bar.innerHTML = ''; return; }
+  var label = ev ? ev + (d ? ' · ' + d.slice(8, 10) + '.' + d.slice(5, 7) + '.' : '') : 'Neues Protokoll';
+  bar.innerHTML = '<span class="prot-restart-name">' + escapeHtml(label) + '</span>' +
+    '<button type="button" class="prot-restart-btn" onclick="protRestart()">Neu anfangen</button>';
 }
 function protPickShift(id) {
   var s = _protPickShifts[id];
@@ -426,6 +466,7 @@ function protPickShift(id) {
   if (typeof _wpShiftCache !== 'undefined') _wpShiftCache[s.id] = s;
   var box = document.getElementById('prot-pick');
   if (box) box.innerHTML = '';
+  protSetPicking(false);
   var parsed = planShiftFromDb(s);
   openProtokollPrefilled({ event: planEventName(parsed), date: s.date, action: planGuessAction(parsed.wann),
     alId: currentUser.id, location: planPlace(parsed), shift: parsed });
@@ -1260,6 +1301,7 @@ function growProtText(el) {
 
 // ── PERSISTENCE ──
 function saveProtDraft() {
+  protRenderRestart();
   // Offline start: the AL/PL selects are still empty → keep the known ids instead of storing ''
   var usersLoaded = appUsers.length > 0;
   var alId = protSelectedId((document.getElementById('prot-al') || {}).value, protState.alId, usersLoaded) || '';
@@ -1393,6 +1435,9 @@ function clearProtForm(skipConfirm) {
   var sideSw = document.getElementById('prot-side-on');
   if (sideSw) sideSw.checked = false;
   renderProtSide();
+  // Empty again (Formular leeren, after Senden): the job list comes back
+  _protPickSkipped = false;
+  protRenderPick();
 }
 
 // Rows that Senden would skip (no start or no end) although someone filled them in; untouched blank rows don't count
