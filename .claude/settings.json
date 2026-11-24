@@ -1,0 +1,62 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 120,
+            "command": "command -v graphify >/dev/null 2>&1 || pip install -q 'graphifyy[sql]' >/dev/null 2>&1; true"
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 10,
+            "command": "command -v graphify >/dev/null 2>&1 && graphify hook-guard compact || true"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 10,
+            "command": "command -v graphify >/dev/null 2>&1 && graphify hook-guard search || true"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 10,
+            "command": "command -v graphify >/dev/null 2>&1 && graphify hook-guard read || true"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "PONYTAIL_DEFAULT_MODE": "full"
+  },
+  "extraKnownMarketplaces": {
+    "ponytail": {
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "ponytail@ponytail": true
+  }
+}

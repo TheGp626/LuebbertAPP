@@ -1,0 +1,18 @@
+# graphify: only the app's own code goes into the knowledge graph
+vendor/
+experimental/
+testing/
+testinglive/
+admin/
+fonts/
+icons/
+_fixtures/
+graphify-out/
+*.min.js
+supabase_schema.sql
+tests/
+supabase/rollback/
+supabase/tests/
+*.test.js
+*.test.mjs
+tools/
