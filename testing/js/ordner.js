@@ -835,6 +835,9 @@ async function ordnerReadAb(input) {
 }
 
 function closeOrdnerForm() {
+  window.ordnerFormFromPlan = false; // saveOrdnerRun reads it before closing
+  var ff = document.getElementById('ordner-form');
+  if (ff) ff.classList.remove('ordner-from-plan');
   editingOrdnerId = null;
   var fm = document.getElementById('ordner-form-modal');
   if (fm) fm.classList.remove('open');
@@ -950,9 +953,15 @@ async function saveOrdnerRun() {
         .catch(function(e) { console.error('Ordner-Push:', e); });
     } catch (e) { console.error('Ordner-Push:', e); }
   }
-  var returnId = _ordnerFormReturnId;
+  var returnId = _ordnerFormReturnId, fromPlan = !!window.ordnerFormFromPlan;
   _ordnerFormReturnId = null;
   closeOrdnerForm();
+  // Started from the Wochenplan ("Hochladen → Auftragsbestätigung"): back to the plan, which now shows the new Auftrag
+  if (fromPlan) {
+    showToast('Auftrag gespeichert – er steht jetzt im Wochenplan.');
+    if (typeof plState !== 'undefined') plState = null;
+    if (typeof activeModule !== 'undefined' && activeModule === 'wochenplan' && typeof initWochenplan === 'function') { initWochenplan(); return; }
+  }
   await fetchOrdner();
   if (returnId) await openOrdnerDetail(returnId);
 }
