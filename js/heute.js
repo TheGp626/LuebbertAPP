@@ -142,6 +142,8 @@ async function renderHeuteCrew(seq) {
         missing.map(function(d) { return HEUTE_DOW[days.indexOf(d)]; }).join(', ') + ': deine Stunden fehlen noch');
     }
   }
+  // AL: writing a protocol starts here (there is no Protokoll tab any more); the form offers the recent jobs first
+  if (userRole === 'AL') rows = heuteRow('selectMode(\'protokoll\')', 'Protokoll schreiben', 'Für einen Einsatz von heute oder den letzten Tagen') + rows;
   var keys = res[1].error ? [] : (res[1].data || []).map(function(r) { return r.week_id + '|' + r.shift_key; });
   var open = heuteOpenSlotCount(shifts, me, userRole, !!window.currentUserCanDrive, today, keys);
   if (open > 0) rows += heuteRow('selectMode(\'wochenplan\')', 'Offene Schichten', 'Du kannst dich melden', open);

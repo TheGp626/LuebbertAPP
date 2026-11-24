@@ -245,7 +245,9 @@ function updateTopBarSub() {
   var sub = document.getElementById('top-bar-sub');
   if (!sub) return;
 
-  if (activeModule === 'stunden') {
+  if (activeModule === 'stunden' && document.getElementById('page-meine') && document.getElementById('page-meine').classList.contains('active')) {
+    sub.textContent = ''; // "Ich": the name is on the page
+  } else if (activeModule === 'stunden') {
     var name = (document.getElementById('inp-name') || {}).value || '';
     var val = (document.getElementById('inp-week') || {}).value || currentWeekVal();
     var parts = val.split('-W');

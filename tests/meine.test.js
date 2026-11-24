@@ -42,3 +42,12 @@ test('meineHours and meineDayLabel', () => {
   assert.equal(M.meineHours(450), '7,5');
   assert.deepEqual(M.meineDayLabel('2026-11-24'), { dow: 'Di', dm: '24.11.' });
 });
+
+test('meineLinkRows: per role', () => {
+  const L = (r, a) => M.meineLinkRows(r, a).map(x => x.label);
+  assert.ok(!L('MA').includes('Meine Protokolle'));
+  assert.ok(L('AL').includes('Meine Protokolle') && L('AL').includes('Protokoll schreiben'));
+  assert.ok(L('Admin', true).includes('Ansicht als Rolle …'));
+  assert.ok(!L('PL', false).includes('Ansicht als Rolle …'));
+  assert.ok(L('MA').includes('Optionen') && L('MA').includes('Problem melden'));
+});

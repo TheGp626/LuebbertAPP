@@ -570,3 +570,30 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 /* "Ansicht als …" badge while an Admin looks at another role (js/viewas.js) */
 .view-as-chip { position: fixed; top: calc(24px + env(safe-area-inset-top)); right: 10px; z-index: 9000; background: var(--w-warn); color: #fff;
   border: 0; border-radius: 99px; padding: 6px 12px; font: inherit; font-size: 12px; font-weight: 700; box-shadow: 0 4px 12px rgba(0,0,0,.18); cursor: pointer; }
+
+/* ── Sections of a tab (js/nav.js navHubPaint) ── */
+.w-hub { flex-shrink: 0; background: var(--w-paper); padding: 4px 16px 8px; }
+.w-hub[hidden] { display: none; }
+.w-hub .ui-seg { max-width: 720px; margin: 0 auto; }
+#ordner-seg { display: none; } /* Pläne | Ordner is now the Unterlagen segment on top */
+@media (min-width: 1024px) { .w-hub { padding-left: 28px; padding-right: 28px; } }
+
+/* ── Ich (js/meine.js renderMeineFrame) ── */
+.meine-me { display: flex; align-items: center; gap: 14px; margin: 6px 0 22px; }
+.meine-me:empty { display: none; }
+.meine-av { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: var(--w-petal-sm);
+  background: var(--w-hero); color: var(--w-on-hero); font-family: var(--w-display); font-size: 20px; }
+.meine-me b { display: block; font-family: var(--w-display); font-size: 24px; font-weight: 400; line-height: 1.1; }
+.meine-me span:not(.meine-av) { font-size: 14px; color: var(--w-muted); }
+.meine-links { margin-top: 28px; }
+.meine-links > .w-label { margin-bottom: 6px; }
+.meine-link { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; background: transparent; color: var(--w-ink); border: 0;
+  border-bottom: 1px solid var(--w-soft); padding: 13px 4px; font: inherit; cursor: pointer; }
+.meine-link:active { background: var(--w-tint); }
+.meine-link-ico { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: var(--w-r-ctl);
+  background: var(--w-accent-bg); color: var(--w-accent-text); }
+.meine-link-ico .ui-ico { width: 18px; height: 18px; }
+.meine-link-main { flex: 1; min-width: 0; }
+.meine-link-main b { display: block; font-size: 16px; font-weight: 600; }
+.meine-link-main small { display: block; font-size: 13px; color: var(--w-muted); }
+.meine-link-arrow { color: var(--w-muted); font-size: 20px; }
