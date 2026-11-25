@@ -1,7 +1,7 @@
 # Graph Report - LuebbertAPP  (2026-11-25)
 
 ## Corpus Check
-- 127 files · ~194,290 words
+- 127 files · ~194,325 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 5 file(s) not represented in the graph (top: .css 3, (none) 2)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `1d804b95`
+- Built from commit: `c1d0ced0`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -117,8 +117,8 @@
   README.md → js/utils.js
 - `für entwickler` --references--> `needLib()`  [INFERRED]
   README.md → js/utils.js
-- `navPaint()` --indirect_call--> `moduleAllowedForRole()`  [INFERRED]
-  js/nav.js → js/auth.js
+- `pnPublishSheet()` --indirect_call--> `planShiftFromDb()`  [INFERRED]
+  js/planen.js → js/plan-parser.js
 - `plSaveSheet()` --indirect_call--> `planStripPhones()`  [INFERRED]
   js/planer.js → js/plan-parser.js
 
@@ -436,16 +436,16 @@ Nodes (3): dashMergePlanPeople(), dashStartProtokollFromPlan(), planAlUserId()
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `planShiftFromDb()` connect `Weekly Plan View` to `dashStartProtokollFromPlan`, `Plan Parsing Helpers`, `planen.js`?**
-  _High betweenness centrality (0.067) - this node is a cross-community bridge._
+  _High betweenness centrality (0.060) - this node is a cross-community bridge._
 - **What connects `RFC-5545`, `RFC-5545` to the rest of the system?**
   _2 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Staffing Planner UI` be split into smaller, more focused modules?**
   _Cohesion score 0.054455445544554455 - nodes in this community are weakly interconnected._
 - **Why does `dashStartProtokollFromPlan()` connect `dashStartProtokollFromPlan` to `Weekly Plan View`, `Dashboard Protocol Editing`?**
-  _High betweenness centrality (0.047) - this node is a cross-community bridge._
+  _High betweenness centrality (0.044) - this node is a cross-community bridge._
 - **Should `Weekly Plan View` be split into smaller, more focused modules?**
   _Cohesion score 0.052650494159928125 - nodes in this community are weakly interconnected._
 - **Why does `planStripPhones()` connect `Plan Parsing Helpers` to `Staffing Planner UI`?**
-  _High betweenness centrality (0.036) - this node is a cross-community bridge._
+  _High betweenness centrality (0.032) - this node is a cross-community bridge._
 - **Should `Timesheet Shifts` be split into smaller, more focused modules?**
   _Cohesion score 0.059574468085106386 - nodes in this community are weakly interconnected._

@@ -24,9 +24,9 @@
     "semantic_hash": ""
   },
   "js/auth.js": {
-    "mtime": 1795633707.2206876,
-    "seen": 1795634006.1649432,
-    "ast_hash": "6277589241dfadd3c7a6667d12980990",
+    "mtime": 1795635215.6409721,
+    "seen": 1795635243.881825,
+    "ast_hash": "9c599d1f9dde7cdd39c19b3ef5362408",
     "semantic_hash": ""
   },
   "js/changelog.js": {
@@ -654,9 +654,9 @@
     "semantic_hash": ""
   },
   "sw.js": {
-    "mtime": 1795634836.5102153,
-    "seen": 1795634851.071549,
-    "ast_hash": "224b2c995624f6fbb0eb9fddf1bb74b4",
+    "mtime": 1795635530.337696,
+    "seen": 1795635547.1295645,
+    "ast_hash": "65d3d4fd420da7a2f776d6a9fbd0d083",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
@@ -672,9 +672,9 @@
     "semantic_hash": ""
   },
   "index.html": {
-    "mtime": 1795634836.5083315,
-    "seen": 1795634851.0715535,
-    "ast_hash": "7f759567cb588971736b1368ef902aec",
+    "mtime": 1795635530.3126194,
+    "seen": 1795635547.1295702,
+    "ast_hash": "d895322d9c88df56fab88342d9c3884b",
     "semantic_hash": ""
   },
   "supabase/migrations/20261202_jenni_runde_3.sql": {
@@ -702,9 +702,9 @@
     "semantic_hash": ""
   },
   "js/planen.js": {
-    "mtime": 1795633832.5112526,
-    "seen": 1795634006.164975,
-    "ast_hash": "20801581862f08c60da1b70ce0d8bc54",
+    "mtime": 1795635440.2971408,
+    "seen": 1795635547.1294408,
+    "ast_hash": "ef1ee66434ddd6a14dd76495568f2d4f",
     "semantic_hash": ""
   },
   "supabase/migrations/20261204_planung_ein_schalter.sql": {
