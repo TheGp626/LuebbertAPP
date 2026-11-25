@@ -1,15 +1,17 @@
-# Graph Report - luebbertapp  (2026-11-24)
+# Graph Report - LuebbertAPP  (2026-11-25)
 
 ## Corpus Check
-- cluster-only mode — file stats not available
+- 127 files · ~194,098 words
+- Verdict: corpus is large enough that graph structure adds value.
+- Unclassified: 5 file(s) not represented in the graph (top: .css 3, (none) 2)
 
 ## Summary
-- 1706 nodes · 3808 edges · 88 communities (67 shown, 21 thin omitted)
-- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 234 edges (avg confidence: 0.85)
-- Token cost: 52,108 input · 1,104 output
+- 1812 nodes · 3995 edges · 97 communities (75 shown, 22 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 246 edges (avg confidence: 0.85)
+- Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `b4278d54`
+- Built from commit: `f3aed089`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -27,7 +29,7 @@
 - Shared Utilities
 - App Settings Schema
 - App Shell Settings
-- Dashboard Shift Editing
+- openDashProtEdit
 - Reminder Edge Function
 - Protocol Form Helpers
 - Push Subscriptions RLS
@@ -36,12 +38,12 @@
 - Admin KPI Dashboard
 - Monthly Billing Summary
 - Error Logging Client
-- Protocol Personnel Costs
+- saveProtDraft
 - Dashboard Protocol Editing
 - Push Reminder Setup
 - Push Notification Functions
 - Settings Tab
-- Protocol Draft Lifecycle
+- renderProtSectionNav
 - Calendar Feed Export
 - Order Staffing Schema
 - Today Overview
@@ -59,14 +61,14 @@
 - Shift Interest Cancellations
 - Protocol History Sync
 - Protocol Mail Builder
-- Protocol PDF Sync
-- Protocol Step Wizard
+- saveProtokoll
+- planen.js
 - On-Site Plans
 - Protocols Schema
 - Order Text Parser
 - PWA Manifest
 - Plan Shifts Checks Schema
-- Folder Cleanup Function
+- renderProtPersonnel
 - Auth Display Names
 - Worker Role Rates
 - Monthly PDF Export
@@ -77,52 +79,61 @@
 - Draft Plan Schema
 - Service Worker Cache
 - Changelog Popup
-- Protocol Shortages
+- loadProtDraft
 - Plan Change Push
-- Debug Input Handling
+- was drin ist
 - Plan Inbox Schema
 - Folder Deletion Log
 - Role RLS Policies
 - Protocol Waivers Schema
 - Supabase Client Config
 - Shift Role Backup
+- loadDashInsights
+- pad
+- Lübbert App
+- buildProtPdfDoc
+- renderDashMissing
+- public.staff_minors
+- Lübbert App
+- public.save_app_settings
+- dashStartProtokollFromPlan
 
 ## God Nodes (most connected - your core abstractions)
-1. `plPaint()` - 26 edges
+1. `saveProtDraft()` - 26 edges
 2. `wpMe()` - 25 edges
-3. `saveProtDraft()` - 24 edges
-4. `runDaily()` - 22 edges
-5. `fetchShiftsNow()` - 21 edges
-6. `saveProtokoll()` - 18 edges
-7. `openMaterialCheck()` - 18 edges
-8. `wpEsc()` - 17 edges
-9. `calcProtCosts()` - 17 edges
+3. `runDaily()` - 23 edges
+4. `fetchShiftsNow()` - 21 edges
+5. `saveProtokoll()` - 19 edges
+6. `calcProtCosts()` - 18 edges
+7. `wpEsc()` - 18 edges
+8. `openMaterialCheck()` - 18 edges
+9. `renderProtPersonnel()` - 17 edges
 10. `_mcRender()` - 17 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `plSaveSheet()` --indirect_call--> `planStripPhones()`  [INFERRED]
-  js/planer.js → js/plan-parser.js
-- `dashStartProtokollFromPlan()` --indirect_call--> `planShiftFromDb()`  [INFERRED]
-  js/dashboard.js → js/plan-parser.js
-- `loadDashboardWorkers()` --indirect_call--> `flattenPrivate()`  [INFERRED]
-  js/dashboard.js → js/utils.js
-- `ordLoadNachkalk()` --indirect_call--> `dashNkTransportCost()`  [INFERRED]
-  js/auftraege.js → js/dashboard.js
+- `für entwickler` --references--> `planDiff()`  [INFERRED]
+  README.md → js/plan-parser.js
+- `für entwickler` --references--> `loadLib()`  [INFERRED]
+  README.md → js/utils.js
+- `für entwickler` --references--> `needLib()`  [INFERRED]
+  README.md → js/utils.js
 - `navPaint()` --indirect_call--> `moduleAllowedForRole()`  [INFERRED]
   js/nav.js → js/auth.js
+- `dashStartProtokollFromPlan()` --indirect_call--> `planShiftFromDb()`  [INFERRED]
+  js/dashboard.js → js/plan-parser.js
 
 ## Import Cycles
 - None detected.
 
-## Communities (88 total, 21 thin omitted)
+## Communities (97 total, 22 thin omitted)
 
 ### Community 0 - "Staffing Planner UI"
-Cohesion: 0.06
-Nodes (100): plAddDays(), plAddPerson(), plAfterPublish(), plApplied(), plAppliedFor(), plBounds(), plBox(), plCancelCount() (+92 more)
+Cohesion: 0.05
+Nodes (94): plActive(), plAddDays(), plAddPerson(), plAfterPublish(), plApplied(), plAppliedFor(), plBounds(), plBox() (+86 more)
 
 ### Community 1 - "Weekly Plan View"
-Cohesion: 0.06
-Nodes (96): planShiftFromDb(), initWochenplan(), wpAddDays(), wpAvailCalendarHtml(), wpAvailDayHtml(), wpAvailGrid(), wpAvailGridBounds(), wpAvailGridStep() (+88 more)
+Cohesion: 0.05
+Nodes (100): planShiftFromDb(), initWochenplan(), wpAddDays(), wpAskVorbehalt(), wpAvailCalendarHtml(), wpAvailDayHtml(), wpAvailGrid(), wpAvailGridBounds() (+92 more)
 
 ### Community 2 - "Timesheet Shifts"
 Cohesion: 0.06
@@ -157,32 +168,32 @@ Cohesion: 0.12
 Nodes (42): initAuftraege(), ordAcceptAvailable(), ordAvailable(), ordByShare(), ordCanDecide(), ordCanEdit(), ordCardHtml(), ordCardSlot() (+34 more)
 
 ### Community 10 - "Shared Utilities"
-Cohesion: 0.07
-Nodes (22): canSeeCosts(), currentWeekVal(), escapeHtml(), fmtDate(), fmtDateFull(), getBillingKeyForDate(), getBillingPeriodLabel(), getMondayFromWeekVal() (+14 more)
+Cohesion: 0.09
+Nodes (9): canSeeCosts(), escapeHtml(), jsAttrArg(), pdfPatch(), pdfText(), safeNote(), shiftNetHours(), timeToMins() (+1 more)
 
 ### Community 11 - "App Settings Schema"
-Cohesion: 0.08
-Nodes (24): public.apply_app_settings(), public.apply_app_settings(), public.sees_plan_interest(), public.sees_plan_interest(), public.app_role(), public.app_user_private, public.user_directory(), public.apply_app_settings() (+16 more)
+Cohesion: 0.10
+Nodes (19): public.apply_app_settings(), public.apply_app_settings(), public.sees_plan_interest(), public.sees_plan_interest(), public.app_role(), public.app_user_private, public.user_directory(), public.apply_app_settings() (+11 more)
 
 ### Community 12 - "App Shell Settings"
 Cohesion: 0.09
-Nodes (32): addDepartment(), applyTheme(), closeSettingsModal(), closeSigModal(), cycleTheme(), deleteDepartment(), deptLabel(), exitToMenu() (+24 more)
+Nodes (34): addDepartment(), applyTheme(), closeSettingsModal(), closeSigModal(), cycleTheme(), deleteDepartment(), deptLabel(), exitToMenu() (+26 more)
 
-### Community 13 - "Dashboard Shift Editing"
-Cohesion: 0.09
-Nodes (33): addDashPeShift(), addDashProtTransport(), closeShiftEditModal(), dashboardCurrentShifts, dashboardProtocols, dashboardWorkers, dashEditPause(), dashMayWaive() (+25 more)
+### Community 13 - "openDashProtEdit"
+Cohesion: 0.20
+Nodes (10): addDashPeShift(), addDashProtTransport(), dashShiftToRow(), openDashProtEdit(), removeDashPeShift(), renderDashPeActionSeg(), renderDashPeShifts(), renderDashProtEquipment() (+2 more)
 
 ### Community 14 - "Reminder Edge Function"
-Cohesion: 0.15
-Nodes (33): CORS, Db, Input, json(), runDaily(), runEvening(), runTest(), shiftDate() (+25 more)
+Cohesion: 0.12
+Nodes (36): CORS, Db, Input, json(), runDaily(), runEvening(), runTest(), shiftDate() (+28 more)
 
 ### Community 15 - "Protocol Form Helpers"
-Cohesion: 0.09
-Nodes (29): growProtText(), initProtSig(), protBasisValues(), protDraftBelongsTo(), protDraftOwner(), protDriverBusyCount(), protDriverSame(), protFilterScope() (+21 more)
+Cohesion: 0.11
+Nodes (22): fetchAppUsers(), populateAlPlSelects(), protDriverBusyCount(), protDriverSame(), protFilterScope(), protGuessVehicleType(), protIsMine(), protKeepOnLogout() (+14 more)
 
 ### Community 16 - "Push Subscriptions RLS"
-Cohesion: 0.11
-Nodes (16): public.auth_user_set_display_name(), app_users_pl_guard, public.app_users_pl_guard(), app_users_pl_guard, public.app_users_pl_guard(), public.register_push_subscription(), public.renew_calendar_token(), public.shifts_booking_guard() (+8 more)
+Cohesion: 0.12
+Nodes (16): public.auth_user_set_display_name(), public.pin_register_failure(), app_users_pl_guard, public.app_users_pl_guard(), app_users_pl_guard, public.app_users_pl_guard(), public.register_push_subscription(), public.renew_calendar_token() (+8 more)
 
 ### Community 17 - "Department Mail Routing"
 Cohesion: 0.13
@@ -197,36 +208,36 @@ Cohesion: 0.16
 Nodes (26): adminBindChart(), adminDelta(), _adminDeltaHtml(), adminFmtNum(), adminFourthKpiHtml(), adminHashFor(), _adminIsAdmin(), adminIsPatryk() (+18 more)
 
 ### Community 20 - "Monthly Billing Summary"
-Cohesion: 0.13
-Nodes (28): dashBees(), dashBillingCutoff(), dashBillingRange(), dashBookMonth(), dashCloseKeys(), dashEligible(), dashInactive(), dashIsNightShift() (+20 more)
+Cohesion: 0.18
+Nodes (18): dashBillingCutoff(), dashBillingRange(), dashBookMonth(), dashCloseKeys(), dashLoadMonthSummary(), dashMayBook(), dashMonthSummary(), dashRenderWorkerMonth() (+10 more)
 
 ### Community 21 - "Error Logging Client"
 Cohesion: 0.16
 Nodes (23): breadcrumb(), deviceString(), _errEnqueue(), _errInit(), errorContextSnapshot(), errorFingerprint(), errQueuePut(), _errQueueRead() (+15 more)
 
-### Community 22 - "Protocol Personnel Costs"
-Cohesion: 0.12
-Nodes (25): calcProtCosts(), fetchAppUsers(), onProtDriverName(), onProtPersonnelName(), openProtCostSheet(), populateAlPlSelects(), protApplyPlanPersonnel(), protApplyPlanTransports() (+17 more)
+### Community 22 - "saveProtDraft"
+Cohesion: 0.13
+Nodes (31): addProtPersonnel(), addProtTransport(), calcProtCosts(), clearProtForm(), clearProtSig(), growProtText(), initProtokoll(), initProtSig() (+23 more)
 
 ### Community 23 - "Dashboard Protocol Editing"
 Cohesion: 0.11
-Nodes (24): calcDashProtTotal(), closeDashProtEdit(), dashNkTransportCost(), dashReplaceRows(), dashResolvePerson(), dashShiftChanges(), dashShiftCosts(), dashShiftRowToDb() (+16 more)
+Nodes (34): calcDashProtTotal(), closeDashProtEdit(), dashboardCurrentShifts, dashboardProtocols, dashboardWorkers, dashClampPause(), dashEditedHtml(), dashNkTransportCost() (+26 more)
 
 ### Community 24 - "Push Reminder Setup"
 Cohesion: 0.21
 Nodes (22): enablePushReminders(), erFolderProjectNo(), erJobForShift(), erPickFolder(), erPickJob(), erPickShift(), erPlanLocation(), erPlanShifts() (+14 more)
 
 ### Community 25 - "Push Notification Functions"
-Cohesion: 0.15
-Nodes (12): CORS, buildFolderPushes(), ddmm(), pgUuidArray(), CORS, callerRole(), isAdminRole(), pushTo() (+4 more)
+Cohesion: 0.12
+Nodes (16): chunk(), dueFolderTrees(), hasUpcomingJob(), pathsNotIn(), storagePaths(), CORS, CORS, buildFolderPushes() (+8 more)
 
 ### Community 26 - "Settings Tab"
-Cohesion: 0.20
-Nodes (21): addVehicleRateRow(), appSetting(), appSettingsFromCache(), changedSettings(), loadAppSettings(), _readSettingsForm(), readVehicleRates(), renderSettingsTab() (+13 more)
+Cohesion: 0.18
+Nodes (23): addVehicleRateRow(), appSetting(), appSettingsFromCache(), changedSettings(), loadAppSettings(), _readSettingsForm(), readVehicleRates(), renderSettingsTab() (+15 more)
 
-### Community 27 - "Protocol Draft Lifecycle"
+### Community 27 - "renderProtSectionNav"
 Cohesion: 0.19
-Nodes (21): addProtPersonnel(), addProtTransport(), clearProtForm(), clearProtSig(), initProtokoll(), loadProtDraft(), loadProtFromHistory(), protApplyStep() (+13 more)
+Nodes (14): protApplyStep(), protBasisValues(), protCurrentStep(), protGoStep(), protNextOrSend(), protSectionStatus(), protSideOn(), protStepBack() (+6 more)
 
 ### Community 28 - "Calendar Feed Export"
 Cohesion: 0.17
@@ -249,16 +260,16 @@ Cohesion: 0.18
 Nodes (12): closeUiMenu(), openTopbarMenu(), openUiMenu(), topbarMenuItems(), uiArg(), uiComboHtml(), uiComboMatches(), uiComboRender() (+4 more)
 
 ### Community 33 - "Dashboard Worker Admin"
-Cohesion: 0.16
-Nodes (17): addDashboardUser(), closeDashWorker(), closeEditWorker(), dashPlansWeekChange(), dashRefreshRateUsers(), dashWorkerHeadHtml(), deactivateWorker(), ensureRateUsers() (+9 more)
+Cohesion: 0.13
+Nodes (21): addDashboardUser(), closeDashWorker(), closeEditWorker(), closeShiftEditModal(), dashEditPause(), dashRefreshRateUsers(), dashShiftSaveRole(), dashWorkerHeadHtml() (+13 more)
 
 ### Community 34 - "My Shifts View"
 Cohesion: 0.27
 Nodes (15): meineAddMonths(), meineCutoff(), meineDayLabel(), meineEsc(), meineHours(), meineLinkRows(), meineNetMins(), meinePdf() (+7 more)
 
 ### Community 35 - "Post-Calculation Reports"
-Cohesion: 0.16
-Nodes (15): dashMonthStats(), dashNachkalk(), dashNkEuro(), dashNkHours(), dashNkJobHtml(), dashNkRowHtml(), dashProtMatches(), dashProtToEntry() (+7 more)
+Cohesion: 0.14
+Nodes (18): dashMonthStats(), dashNachkalk(), dashNkEuro(), dashNkHours(), dashNkJobHtml(), dashNkRowHtml(), dashProtMatches(), dashProtToEntry() (+10 more)
 
 ### Community 36 - "Cost Formulas"
 Cohesion: 0.23
@@ -281,8 +292,8 @@ Cohesion: 0.20
 Nodes (14): dashGroupLabel(), dashInactiveHtml(), dashIsFest(), dashMayManageStaff(), dashMayResetPin(), dashResetWorkerPin(), dashSelectedWorker(), dashWorkerList() (+6 more)
 
 ### Community 41 - "Plan Inbox Polling"
-Cohesion: 0.22
-Nodes (8): authPassed(), isPdf(), MAX_PDF_BYTES, parseAllowed(), pickPlanPdfs(), senderAllowed(), storagePath(), CORS
+Cohesion: 0.16
+Nodes (11): authPassed(), isPdf(), MAX_PDF_BYTES, parseAllowed(), pickPlanPdfs(), senderAllowed(), storagePath(), CORS (+3 more)
 
 ### Community 42 - "Shift Interest Cancellations"
 Cohesion: 0.22
@@ -296,13 +307,13 @@ Nodes (13): deleteProtHistory(), mailProtokoll(), markProtMailed(), mergeProtHis
 Cohesion: 0.31
 Nodes (12): actionText(), attachmentName(), buildBody(), buildSubject(), escapeHtml(), formatDateDE(), GEWERKE_LABELS, isEmptyNote() (+4 more)
 
-### Community 45 - "Protocol PDF Sync"
-Cohesion: 0.27
-Nodes (12): buildProtPdfDoc(), getEffectivePersonnelRate(), pdfStr(), protBasePos(), protCostLines(), protDriverCost(), protJobNo(), protJobNoValid() (+4 more)
+### Community 45 - "saveProtokoll"
+Cohesion: 0.19
+Nodes (14): protApplySide(), protIncompleteNames(), protJobNo(), protJobNoValid(), protLongerThanAl(), protProjectNo(), protSelectedId(), protShiftChanges() (+6 more)
 
-### Community 46 - "Protocol Step Wizard"
-Cohesion: 0.24
-Nodes (11): protApplySide(), protCurrentStep(), protGoStep(), protIncompleteNames(), protLongerThanAl(), protNextOrSend(), protSelectedId(), protStepBack() (+3 more)
+### Community 46 - "planen.js"
+Cohesion: 0.08
+Nodes (48): initPlanen(), pnAlertsHtml(), pnAskTarget(), pnAvatar(), pnChangeLines(), pnChangesHtml(), pnClose(), pnCopyRows() (+40 more)
 
 ### Community 47 - "On-Site Plans"
 Cohesion: 0.33
@@ -324,17 +335,17 @@ Nodes (9): background_color, description, display, icons, name, orientation, sho
 Cohesion: 0.27
 Nodes (6): public.fits_plan_slot(), order_checks_plan_date_idx, order_checks_stamp, order_checks_updated_by_idx, public.order_check_mine(), public.order_checks
 
-### Community 52 - "Folder Cleanup Function"
-Cohesion: 0.31
-Nodes (6): chunk(), dueFolderTrees(), hasUpcomingJob(), pathsNotIn(), storagePaths(), CORS
+### Community 52 - "renderProtPersonnel"
+Cohesion: 0.26
+Nodes (13): protClampPause(), protMinor(), protMinorWarnings(), protPauseHint(), protPauseHintText(), protPauseMin(), protPersonSummary(), protRatingButtons() (+5 more)
 
 ### Community 53 - "Auth Display Names"
-Cohesion: 0.27
-Nodes (7): app_users_sync_display_name, auth_user_set_display_name, public.app_users_sync_display_name(), public.login_names(), public.pin_lockouts, public.pin_register_failure(), public.pin_reset_log
+Cohesion: 0.28
+Nodes (6): app_users_sync_display_name, auth_user_set_display_name, public.app_users_sync_display_name(), public.login_names(), public.pin_lockouts, public.pin_reset_log
 
 ### Community 54 - "Worker Role Rates"
-Cohesion: 0.28
-Nodes (9): addRoleRateRow(), dashRoleOptions(), dashRoleRowAuto(), dashSyncInternal(), loadEditWorkerPlansWeek(), openEditWorker(), removeRoleRateRow(), renderRoleRatesList() (+1 more)
+Cohesion: 0.32
+Nodes (8): addRoleRateRow(), dashRoleOptions(), dashRoleRowAuto(), dashSyncInternal(), openEditWorker(), removeRoleRateRow(), renderRoleRatesList(), updateRoleRateRow()
 
 ### Community 55 - "Monthly PDF Export"
 Cohesion: 0.28
@@ -349,8 +360,8 @@ Cohesion: 0.43
 Nodes (6): _planApply(), _planHex(), _planMul(), _planReadPages(), _planShapes(), readPlanPdf()
 
 ### Community 58 - "Protocol Shift Picker"
-Cohesion: 0.32
-Nodes (8): protIsBlank(), protPickManual(), protPickOrder(), protPickShift(), protPickWindow(), protRenderPick(), protRenderRestart(), protSetPicking()
+Cohesion: 0.31
+Nodes (9): protIsBlank(), protPickManual(), protPickOrder(), protPickShift(), protPickWindow(), protRenderPick(), protRenderRestart(), protRestart() (+1 more)
 
 ### Community 59 - "Problem Report Form"
 Cohesion: 0.52
@@ -368,41 +379,73 @@ Nodes (3): assetUrlsOf(), LAZY_ASSETS, precache()
 Cohesion: 0.67
 Nodes (3): CHANGELOG, showChangelogIfNew(), unseenChangelog()
 
-### Community 63 - "Protocol Shortages"
-Cohesion: 0.50
-Nodes (4): refreshProtShortages(), renderProtShortages(), resetProtFormState(), setProtAction()
+### Community 63 - "loadProtDraft"
+Cohesion: 0.25
+Nodes (9): loadProtDraft(), protAddPhotos(), protDraftBelongsTo(), protPhotoPath(), protRemovePhoto(), protResizePhoto(), renderProtPhotos(), renderProtShortages() (+1 more)
 
 ### Community 64 - "Plan Change Push"
 Cohesion: 0.83
 Nodes (3): buildPlanPushes(), ddmm(), planPushText()
 
-### Community 65 - "Debug Input Handling"
-Cohesion: 0.50
-Nodes (3): DEBUG_KEYS, stripDebug(), wantsDebug()
+### Community 65 - "was drin ist"
+Cohesion: 0.17
+Nodes (12): 🛡️ Admin-Seite (nur Admin), 🧩 Besetzungsplaner (testversion), 📊 Dashboard (AL, PL, Buchhaltung, Admin), 🔔 Erinnerungen, ⚙️ Optionen, 📦 Produktdatenbank, 📁 Projektordner, 📋 Protokoll (+4 more)
 
 ### Community 66 - "Plan Inbox Schema"
 Cohesion: 0.83
 Nodes (3): plan_inbox_handled_by_idx, plan_inbox_status_idx, public.plan_inbox
 
+### Community 88 - "loadDashInsights"
+Cohesion: 0.27
+Nodes (11): dashBees(), dashEligible(), dashInactive(), dashIsNightShift(), dashNightRanking(), dashNoNight(), dashPersonBtn(), dashShiftDate() (+3 more)
+
+### Community 89 - "pad"
+Cohesion: 0.22
+Nodes (10): currentWeekVal(), fmtDate(), fmtDateFull(), getBillingKeyForDate(), getBillingPeriodLabel(), getMondayFromWeekVal(), getMonthKeyFromWeek(), localDateStr() (+2 more)
+
+### Community 90 - "Lübbert App"
+Cohesion: 0.22
+Nodes (9): loadLib(), needLib(), showToast(), easter egg, für entwickler, login, Lübbert App, sicherheit (+1 more)
+
+### Community 91 - "buildProtPdfDoc"
+Cohesion: 0.33
+Nodes (9): buildProtPdfDoc(), getEffectivePersonnelRate(), pdfStr(), protBasePos(), protCostLines(), protDriverCost(), protPdfFileName(), protServerSignature() (+1 more)
+
+### Community 92 - "renderDashMissing"
+Cohesion: 0.33
+Nodes (7): dashMayWaive(), dashUnwaiveMissing(), dashUserName(), dashWaiveMissing(), renderDashMissing(), toggleDashMissing(), toggleDashWaived()
+
+### Community 93 - "public.staff_minors"
+Cohesion: 0.33
+Nodes (5): public.i_am_minor(), public.minors_among(), public.staff_minors, public.i_am_minor(), public.minors_among()
+
+### Community 94 - "Lübbert App"
+Cohesion: 0.33
+Nodes (5): Branches, builds, databases, Checking the UI (keep image tokens low), Database queries (keep answers small), graphify, Lübbert App
+
+### Community 96 - "dashStartProtokollFromPlan"
+Cohesion: 0.67
+Nodes (3): dashMergePlanPeople(), dashStartProtokollFromPlan(), planAlUserId()
+
 ## Knowledge Gaps
 - **2 isolated node(s):** `RFC-5545`, `RFC-5545`
-  These have ≤1 connection - possible missing edges. (Counts symbols only; 195 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **21 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 230 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **22 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `planShiftFromDb()` connect `Weekly Plan View` to `Plan Parsing Helpers`, `Dashboard Shift Editing`?**
-  _High betweenness centrality (0.045) - this node is a cross-community bridge._
+- **Why does `planShiftFromDb()` connect `Weekly Plan View` to `dashStartProtokollFromPlan`, `Plan Parsing Helpers`, `planen.js`?**
+  _High betweenness centrality (0.062) - this node is a cross-community bridge._
 - **What connects `RFC-5545`, `RFC-5545` to the rest of the system?**
-  _2 weakly-connected nodes found - possible missing edges._
+  _2 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Staffing Planner UI` be split into smaller, more focused modules?**
-  _Cohesion score 0.05825242718446602 - nodes in this community are weakly interconnected._
-- **Why does `dashStartProtokollFromPlan()` connect `Dashboard Shift Editing` to `Weekly Plan View`?**
-  _High betweenness centrality (0.045) - this node is a cross-community bridge._
+  _Cohesion score 0.054455445544554455 - nodes in this community are weakly interconnected._
+- **Why does `dashStartProtokollFromPlan()` connect `dashStartProtokollFromPlan` to `Weekly Plan View`, `Dashboard Protocol Editing`?**
+  _High betweenness centrality (0.050) - this node is a cross-community bridge._
 - **Should `Weekly Plan View` be split into smaller, more focused modules?**
-  _Cohesion score 0.055134925257231605 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.052650494159928125 - nodes in this community are weakly interconnected._
 - **Why does `planStripPhones()` connect `Plan Parsing Helpers` to `Staffing Planner UI`?**
-  _High betweenness centrality (0.031) - this node is a cross-community bridge._
+  _High betweenness centrality (0.030) - this node is a cross-community bridge._
 - **Should `Timesheet Shifts` be split into smaller, more focused modules?**
   _Cohesion score 0.059574468085106386 - nodes in this community are weakly interconnected._
