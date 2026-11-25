@@ -136,3 +136,11 @@ test('pnPublishSummary: someone taken off an entry that stays gets a push too', 
   const diff = { status: ['geändert'], matched: [sh(['Konrad', 'Piotr'])], removed: [] };
   assert.deepEqual(plain(ctx.pnPublishSummary(diff, parsed)).people, ['Konrad', 'Piotr']);
 });
+
+test('pnQuickRows: „Was“ over several lines = title + material lines (Patryk, 25.11.)', () => {
+  const r = plain(ctx.pnQuickRows({ venue: 'App Meeting', was: ' Getränke \n4 Monster Energy\n\n2 Club Mate ', kind: 'auftrag', need: 2, setupDate: '2026-12-03', setupTime: '14:30', teardownDate: '', teardownTime: '' }, WEEK, 'P1'));
+  assert.equal(r.rows[0].title, 'Getränke');
+  assert.equal(r.rows[0].details, '4 Monster Energy\n2 Club Mate');
+  const one = plain(ctx.pnQuickRows({ venue: 'X', was: '4 Sofas', kind: 'intern', need: 1, setupDate: '2026-12-01', setupTime: '', teardownDate: '', teardownTime: '' }, WEEK, 'P1'));
+  assert.equal(one.rows[0].details, null);
+});
