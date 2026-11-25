@@ -37,3 +37,21 @@ test('review: without errors.js (queueReport missing) the form says it failed, n
   assert.equal(toasts[0][1], 'danger');
   assert.ok(!/Danke/.test(toasts[0][0]));
 });
+
+test('Jenni 25.11.: „angekommen“ only after the send, otherwise it says it goes out later', async () => {
+  const run = async (ok) => {
+    const toasts = [];
+    const val = { 'problem-wanted': { value: 'x' }, 'problem-happened': { value: '' }, 'problem-tech': { checked: false } };
+    const c = vm.createContext({ console, navigator: { onLine: true }, showToast: (m, t) => toasts.push([m, t]),
+      queueReport: () => Promise.resolve(ok),
+      document: { getElementById: id => val[id] || { classList: { remove() {} } } } });
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/problem.js'), 'utf8'), c);
+    c.sendProblemForm();
+    assert.ok(!/Danke/.test(toasts[0][0]));
+    await new Promise(r => setTimeout(r, 0));
+    return toasts[1];
+  };
+  assert.match((await run(true))[0], /Danke, ist angekommen/);
+  const [msg, type] = await run(false);
+  assert.ok(!/Danke/.test(msg) && type === 'danger');
+});
