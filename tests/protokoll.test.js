@@ -200,6 +200,17 @@ test('loadProtDraft keeps own and legacy drafts', () => {
   assert.equal(run('protState.editingId'), 'prot-y');
 });
 
+test('draft keeps photos and whether the edited protocol had any (removing them all must still be saved)', () => {
+  run('protState.photos = ["2026-11/a.jpg"]; protState.photosLoaded = true; saveProtDraft()');
+  const d = JSON.parse(store.luebbert_protokoll_draft);
+  assert.deepEqual(d.photos, ['2026-11/a.jpg']);
+  assert.equal(d.photosLoaded, true);
+  run('protState.photos = []; protState.photosLoaded = false');
+  assert.equal(run('loadProtDraft()'), true);
+  assert.equal(run('protState.photosLoaded'), true);
+  assert.deepEqual(plain(run('protState.photos')), ['2026-11/a.jpg']);
+});
+
 test('saveProtDraft stores the owner and keeps the AL id while the select is empty', () => {
   dom['prot-al'] = { value: '' };
   run('protState.alId = "u-al"; saveProtDraft()');
@@ -1214,4 +1225,11 @@ test('protPickWindow and protPickOrder: today first, then the days before, tomor
   const s = (id, date, sort) => ({ id, date, sort });
   const out = ctx.protPickOrder([s('a', '2026-11-22', 1), s('b', '2026-11-25', 1), s('c', '2026-11-24', 2), s('d', '2026-11-24', 1), s('c', '2026-11-24', 2), null], '2026-11-24');
   assert.equal(out.map(x => x.id).join(','), 'd,c,a,b');
+});
+
+test('addProtTransport: a transport added after night times are entered is a Nachtfahrt right away', () => {
+  run('protState.personnel = [{ pos: "AL", start: "22:00", end: "06:00", pause: "45" }]; protState.transports = []; addProtTransport()');
+  assert.equal(run('protState.transports[0].night'), true);
+  run('protState.personnel = [{ pos: "AL", start: "07:00", end: "16:00", pause: "30" }]; protState.transports = []; addProtTransport()');
+  assert.equal(run('protState.transports[0].night'), false);
 });

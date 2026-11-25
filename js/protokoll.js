@@ -598,7 +598,9 @@ function protRowChevron(key) {
 }
 
 function addProtTransport() {
-  protState.transports.push({ type: 'Hängerzug', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '' });
+  // Nachtfahrt like the others: from the AL's times when they are already entered (protAutoNight)
+  var al = protState.personnel[0], night = !!al && isMostlyNight(timeToMins(al.start), timeToMins(al.end));
+  protState.transports.push({ type: 'Hängerzug', driver: '', driverUserId: '', hours: 5, punctuality: 'pünktlich', delay: '', night: night });
   protOpenRows['t' + (protState.transports.length - 1)] = true;
   renderProtTransport();
   saveProtDraft();
@@ -1454,6 +1456,7 @@ function saveProtDraft() {
     editingLocalId: protState.editingLocalId || null,
     sideOf: protState.sideOf || null,
     photos: protState.photos || [],
+    photosLoaded: !!protState.photosLoaded, // the edited protocol had photos: removing them all must reach the server
     savedAt: new Date().toISOString()
   };
   localStorage.setItem('luebbert_protokoll_draft', JSON.stringify(data));
@@ -1521,6 +1524,7 @@ function loadProtDraft() {
     protState.editingLocalId = data.editingLocalId || null;
     protState.sideOf = data.sideOf || null;
     protState.photos = Array.isArray(data.photos) ? data.photos : [];
+    protState.photosLoaded = !!data.photosLoaded;
     renderProtSide();
     renderProtPhotos();
     return true;

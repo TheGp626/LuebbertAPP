@@ -277,6 +277,8 @@ test('plSeed: an uploaded plan becomes the draft, Auftrag phases land on their e
   assert.equal(rows[0].job_no, '26-0447.01'); assert.equal(rows[0].phase, 'setup');
   assert.equal(rows[0].need, 4);                       // the PL's number beats the count from the PDF
   assert.equal(rows[0].title, '4 Loungesofa weiß');    // Dennis's text stays
+  assert.deepEqual(rows[0].manual, ['wann', 'location', 'title']); // and a revised Bestätigung never overwrites it
+  assert.equal('manual' in rows[2], false);             // a phase that came without plan entry follows the Auftrag
   assert.deepEqual(rows[0].people.map(p => p.name), ['Konrad']);
   assert.equal(rows[1].job_no, null);
   assert.equal(rows[2].phase, 'teardown'); assert.equal(rows[2].date, '2026-11-12');

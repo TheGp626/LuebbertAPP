@@ -98,9 +98,10 @@ Deno.serve(async (req) => {
   const testRecipient = Deno.env.get('TEST_RECIPIENT') || '';
 
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-  const { data: p, error } = await db
+  // photos only exists from migration jenni_runde_4 on: without it the protocol is loaded (and mailed) without photos
+  const load = (withPhotos: boolean) => db
     .from('protocols')
-    .select(`id, date, action, job_no, shortages, photos, notes_damages, notes_incidents, notes_feedback, al_name_fallback, pl_name_fallback, pl_id, mailed_at, side_of,
+    .select(`id, date, action, job_no, shortages,${withPhotos ? ' photos,' : ''} notes_damages, notes_incidents, notes_feedback, al_name_fallback, pl_name_fallback, pl_id, mailed_at, side_of,
       main:side_of(projects(name)),
       projects(name, location),
       al:app_users!protocols_al_id_fkey(full_name),
@@ -110,6 +111,8 @@ Deno.serve(async (req) => {
       worker_ratings(temp_worker_name, rating, is_star)`)
     .eq('id', protocol_id)
     .maybeSingle();
+  let { data: p, error } = await load(true);
+  if (error && /photos/.test(error.message || '')) ({ data: p, error } = await load(false));
   if (error) {
     // Malformed UUID = the protocol can't exist; anything else is retryable
     if (error.code === '22P02') return json({ sent: false, reason: 'not_found' });

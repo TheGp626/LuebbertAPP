@@ -111,3 +111,28 @@ test('pnWhoText: names with role, then open places; "MA?" without a number', () 
   assert.equal(ctx.pnWhoText(row({ need: 4, people: [P('Konrad N.', 'AL'), P('Piotr B.')], open_other: [{ role: 'Fahrer', count: 1 }] })), 'Konrad N. (AL), Piotr B., +2 MA, +1 Fahrer');
   assert.equal(ctx.pnWhoText(row({ need: null, people: [] })), 'MA?');
 });
+
+test('pnAskTarget: only where the person can answer with „Ich kann“', () => {
+  assert.deepEqual(plain(ctx.pnAskTarget(row({ job_no: '26-0001.01', phase: 'setup', need: 3 }), {}, null, {})), { kind: 'order', a: '26-0001.01', b: 'setup' });
+  assert.equal(ctx.pnAskTarget(row({ job_no: '26-0001.01', phase: 'setup', need: null }), {}, null, {}), null);
+  assert.equal(ctx.pnAskTarget(row({ job_no: '26-0001.01', phase: 'setup', need: 0 }), {}, null, {}), null);
+  assert.deepEqual(plain(ctx.pnAskTarget(row({ id: 'f' }), { f: 'k1' }, 'W', { k1: true })), { kind: 'shift', a: 'W', b: 'k1' });
+  assert.equal(ctx.pnAskTarget(row({ id: 'f' }), { f: 'k2' }, 'W', { k1: true }), null); // not published yet
+  assert.equal(ctx.pnAskTarget(row({ id: 'f' }), { f: 'k1' }, null, {}), null);           // no published week
+});
+
+test('pnUnresolvedNames: remembered matches applied, agency workers skipped, the rest counted', () => {
+  const parsed = { shifts: [
+    { people: [{ name: 'Konrad', userId: null, role: 'MA' }, { name: 'Zenjob 1', userId: null, role: 'Zenjob' }, { name: 'Lena', userId: 'u3', role: 'MA' }] },
+    { people: [{ name: 'Konrad', userId: null, role: 'AL' }, { name: 'Mika', userId: null, role: 'MA' }] }] };
+  const out = plain(ctx.pnUnresolvedNames(parsed, { [ctx.planAliasKey('Mika')]: 'u9' }));
+  assert.deepEqual(out.map(r => [r.name, r.count]), [['Konrad', 2]]);
+  assert.equal(parsed.shifts[1].people[1].userId, 'u9');
+});
+
+test('pnPublishSummary: someone taken off an entry that stays gets a push too', () => {
+  const sh = (people) => ({ people: people.map(n => ({ name: n, userId: 'u-' + n, role: 'MA' })) });
+  const parsed = { shifts: [sh(['Konrad'])] };
+  const diff = { status: ['geändert'], matched: [sh(['Konrad', 'Piotr'])], removed: [] };
+  assert.deepEqual(plain(ctx.pnPublishSummary(diff, parsed)).people, ['Konrad', 'Piotr']);
+});
