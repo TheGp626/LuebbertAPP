@@ -332,6 +332,24 @@ function pnAskTarget(row, keys, planWeekId, publishedKeys) {
   return null;
 }
 
+// „Hast du Zeit?“ answers per shift (RPC ask_answers, migration ask_antwort): { ref: { userId: 'ja' | 'nein' | 'gefragt' } }
+var _pnAsks = {};
+function pnAskRef(kind, a, b) { return (kind === 'shift' ? 'shift:' : 'order:') + a + '|' + b; }
+async function pnLoadAsks(ref) {
+  if (_pnAsks[ref]) return;
+  _pnAsks[ref] = {};
+  var r;
+  try { r = await supabaseClient.rpc('ask_answers', { p_refs: [ref] }); } catch (e) { return; }
+  if (r.error || !(r.data || []).length) return; // without the migration: the „Fragen“ buttons stay as they are
+  r.data.forEach(function(x) { _pnAsks[ref][x.user_id] = x.answer || 'gefragt'; });
+  pnSheetPaint();
+}
+function pnAsked(kind, a, b, userId) {
+  var ref = pnAskRef(kind, a, b);
+  (_pnAsks[ref] = _pnAsks[ref] || {})[userId] = (_pnAsks[ref][userId] || 'gefragt');
+  pnSheetPaint();
+}
+
 function pnSheetPaint() {
   var row = plOpenRow ? plRowById(plOpenRow) : null, old = document.getElementById('pn-sheet');
   if (!row || !plActive()) { if (old) old.remove(); return; }
@@ -342,7 +360,13 @@ function pnSheetPaint() {
   var decide = (typeof ordCanDecide === 'function') && ordCanDecide();
   var ask = pnAskTarget(row, st.keys, st.planWeek && st.planWeek.id, st.publishedKeys);
   var askLabel = [PL_DAYS_SHORT[dt.getUTCDay()] + ' ' + dt.getUTCDate() + '.' + (dt.getUTCMonth() + 1) + '.' + (w.time ? ' ' + w.time : ''), row.venue, row.title, w.label].filter(Boolean).join(', ');
+  var askRef = ask && decide ? pnAskRef(ask.kind, ask.a, ask.b) : null;
+  if (askRef) pnLoadAsks(askRef);
   var askBtn = function(uid, name) {
+    var said = askRef && _pnAsks[askRef] && _pnAsks[askRef][uid];
+    if (said === 'nein') return '<span class="ui-pill ui-pill-danger">Nein</span>';
+    if (said === 'ja') return '<span class="ui-pill ui-pill-ok">Ja</span>';
+    if (said) return '<span class="ui-pill">gefragt</span>';
     return ask && decide ? '<button type="button" class="ord-textbtn" onclick="ordAsk(\'' + ask.kind + '\', \'' + jsAttrArg(ask.a) + '\', \'' + jsAttrArg(ask.b) + '\', \'' +
       jsAttrArg(uid) + '\', \'' + jsAttrArg(askLabel) + '\', \'' + jsAttrArg(name) + '\')">Fragen</button>' : '';
   };
