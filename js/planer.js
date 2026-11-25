@@ -568,7 +568,8 @@ async function plRender() {
       supabaseClient.from('order_applications').select('*'), // '*': vorbehalt only after migration jenni_runde_3
       supabaseClient.rpc('availability_people'),
       supabaseClient.from('plan_draft_shifts').select('kind').limit(1),
-      supabaseClient.from('plan_draft_shifts').select('open_other').limit(1)
+      supabaseClient.from('plan_draft_shifts').select('open_other').limit(1),
+      supabaseClient.from('plan_draft_shifts').select('manual, pair_id').limit(1) // migration planen_flow
     ]);
   } catch (e) { res = [{ error: e }]; }
   if (seq !== plSeq || !plActive()) return;
@@ -587,7 +588,7 @@ async function plRender() {
   });
   ((res[6] && !res[6].error && res[6].data) || []).forEach(function(p) { tracked[p.id] = true; });
   plState = { week: week, draft: res[0].data || null, rows: res[1].data || [], planWeek: res[2].data || null, slots: res[3], avail: avail, apps: apps,
-    tracked: tracked, vb: vb, interest: {}, keys: {}, stale: [], cancels: null, replace: null, hasKind: !!(res[7] && !res[7].error), hasOpen: !!(res[8] && !res[8].error) };
+    tracked: tracked, vb: vb, interest: {}, keys: {}, stale: [], cancels: null, replace: null, hasKind: !!(res[7] && !res[7].error), hasOpen: !!(res[8] && !res[8].error), hasFlow: !!(res[9] && !res[9].error) };
   if (plState.planWeek) {
     // "Ich kann" on entries of the published plan (free entries with open places); an extra like the hints above
     var pi;
@@ -646,7 +647,7 @@ function plKindTag(r) {
 // Leaves out the columns this database does not have yet
 function plForInsert(rows) {
   var st = plState || {};
-  return plWithout(rows, (st.hasKind ? [] : ['kind']).concat(st.hasOpen ? [] : ['open_other']));
+  return plWithout(rows, (st.hasKind ? [] : ['kind']).concat(st.hasOpen ? [] : ['open_other'], st.hasFlow ? [] : ['pair_id', 'manual', 'auftrag_changes']));
 }
 
 function plApplied(r) { return plAppliedFor(r, plState.keys[r.id], plState.apps, plState.interest); }

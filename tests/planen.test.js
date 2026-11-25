@@ -73,3 +73,25 @@ test('pnChangeLines: unseen changes as readable lines, hand-kept ones say so', (
     'Raum / Veranstaltung: laut Auftrag jetzt Gala, Saal 2, von Hand Saal 1 behalten']);
   assert.deepEqual(plain(ctx.pnChangeLines(row())), []);
 });
+
+test('pnQuickRows: Aufbau alone, or Aufbau + Abbau as a pair; bad days refused', () => {
+  const f = o => Object.assign({ venue: 'Estrel', was: '4 Sofas', kind: 'intern', need: 3, setupDate: '2026-12-01', setupTime: '07:00', teardownDate: '', teardownTime: '' }, o || {});
+  const one = plain(ctx.pnQuickRows(f(), WEEK, 'P1'));
+  assert.equal(one.rows.length, 1);
+  assert.deepEqual([one.rows[0].date, one.rows[0].wann, one.rows[0].venue, one.rows[0].title, one.rows[0].need, one.rows[0].kind, one.rows[0].pair_id],
+    ['2026-12-01', 'Aufbau: 7 Uhr', 'Estrel', '4 Sofas', 3, 'intern', null]);
+  const two = plain(ctx.pnQuickRows(f({ teardownDate: '2026-12-03', teardownTime: '22:30' }), WEEK, 'P1'));
+  assert.deepEqual(two.rows.map(r => [r.date, r.wann, r.pair_id]), [['2026-12-01', 'Aufbau: 7 Uhr', 'P1'], ['2026-12-03', 'Abbau: 22.30 Uhr', 'P1']]);
+  assert.equal(ctx.pnQuickRows(f({ teardownDate: '2026-11-30' }), WEEK, 'P1').error, 'Der Abbau liegt vor dem Aufbau.');
+  assert.equal(ctx.pnQuickRows(f({ setupDate: '2026-12-09' }), WEEK, 'P1').error, 'Der Aufbau muss in KW 49 liegen.');
+  assert.equal(ctx.pnQuickRows(f({ venue: '', was: '' }), WEEK, 'P1').error, 'Bitte Ort oder „Was“ eintragen.');
+});
+
+test('pnCopyRows: free entries of last week to the same weekdays, without people; Aufträge are never copied', () => {
+  const last = { year: 2026, kw: 48, weekStart: '2026-11-23', weekEnd: '2026-11-29' };
+  const rows = [row({ id: 'a', date: '2026-11-24', venue: 'Lager', people: [P('Konrad')], need: 2 }),
+    row({ id: 'b', date: '2026-11-25', job_no: '26-0001.01', phase: 'setup' })];
+  const out = plain(ctx.pnCopyRows(rows, last, WEEK));
+  assert.equal(out.length, 1);
+  assert.deepEqual([out[0].date, out[0].venue, out[0].need, out[0].people, out[0].year, out[0].kw, 'id' in out[0]], ['2026-12-01', 'Lager', 2, [], 2026, 49, false]);
+});

@@ -60,6 +60,47 @@ function pnChangeLines(row) {
   });
 }
 
+// "07:00" → "7", "22:30" → "22.30" (the way the plan writes times)
+function pnPlanTime(t) {
+  var m = /^(\d{1,2}):(\d{2})$/.exec(String(t || ''));
+  if (!m) return '';
+  return String(parseInt(m[1], 10)) + (m[2] === '00' ? '' : '.' + m[2]);
+}
+
+// Quick Einsatz without a Bestätigung: one row for the Aufbau and, when its day is filled, one for the Abbau, linked by
+// pair_id. form = { venue, was, kind, need, setupDate, setupTime, teardownDate, teardownTime }. → { rows } | { error }
+function pnQuickRows(form, week, pairId) {
+  var venue = plText(form.venue), was = plText(form.was);
+  if (!venue && !was) return { error: 'Bitte Ort oder „Was“ eintragen.' };
+  var inWeek = function(d) { return !!d && d >= week.weekStart && d <= week.weekEnd; };
+  if (!inWeek(form.setupDate)) return { error: 'Der Aufbau muss in KW ' + week.kw + ' liegen.' };
+  if (form.teardownDate && form.teardownDate < form.setupDate) return { error: 'Der Abbau liegt vor dem Aufbau.' };
+  if (form.teardownDate && !inWeek(form.teardownDate)) return { error: 'Der Abbau muss in KW ' + week.kw + ' liegen. Einen späteren Abbau trägst du in seiner Woche ein.' };
+  var need = Math.max(0, Math.min(99, parseInt(form.need, 10) || 0)), kind = PL_KINDS[form.kind] ? form.kind : 'auftrag';
+  var make = function(date, label, time) {
+    var t = pnPlanTime(time);
+    return { year: week.year, kw: week.kw, date: date, sort: 0, job_no: null, phase: null, venue: venue, location: null, title: was, details: null,
+      wann: label + (t ? ': ' + t + ' Uhr' : ''), ap: null, ap_user_id: null, notes: null, need: need, people: [], kind: kind,
+      pair_id: form.teardownDate ? pairId : null };
+  };
+  var rows = [make(form.setupDate, 'Aufbau', form.setupTime)];
+  if (form.teardownDate) rows.push(make(form.teardownDate, 'Abbau', form.teardownTime));
+  return { rows: rows };
+}
+
+// „Woche vorbereiten“: free entries (no Auftrag) of another week → copies on the same weekdays of `toWeek`, without people;
+// a copied pair gets a new pair_id. newId() makes ids (crypto.randomUUID in the browser).
+function pnCopyRows(rows, fromWeek, toWeek, newId) {
+  var shift = Math.round((plUtc(toWeek.weekStart) - plUtc(fromWeek.weekStart)) / 864e5), pairs = {};
+  var keep = ['sort', 'venue', 'location', 'title', 'details', 'wann', 'ap', 'ap_user_id', 'notes', 'need', 'kind', 'open_other'];
+  return (rows || []).filter(function(r) { return !r.job_no; }).map(function(r) {
+    var out = { year: toWeek.year, kw: toWeek.kw, date: plAddDays(r.date, shift), people: [] };
+    keep.forEach(function(k) { if (k in r) out[k] = r[k]; });
+    if (r.pair_id) out.pair_id = pairs[r.pair_id] || (pairs[r.pair_id] = newId ? newId() : null);
+    return out;
+  });
+}
+
 // "PB" for "Piotr B.", "K" for "Konrad"
 function pnInitials(name) {
   var w = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -161,7 +202,7 @@ function pnHeadHtml(st, who) {
     (st.draft ? '<div class="pn-status">' + pnE(status) + '</div>' +
       '<div class="pn-actions">' +
         (planner ? '<button type="button" class="ui-btn ui-btn-primary" onclick="plPublish()">Veröffentlichen</button>' : '') +
-        (planner ? '<button type="button" class="ui-btn" onclick="plEditRow(null)">Neuer Eintrag</button>' : '') +
+        (planner ? '<button type="button" class="ui-btn" onclick="pnQuickOpen()">Neuer Eintrag</button>' : '') +
         '<button type="button" class="ui-icon-btn" aria-label="Weitere Aktionen" onclick="pnMenu()">' + uiIcon('dots') + '</button>' +
       '</div>' : '') +
   '</header>';
@@ -171,6 +212,7 @@ function pnMenu() {
   var who = plWho(), st = plState, planner = plCanPublish(who), items = [{ label: 'Als PDF herunterladen', action: 'plExportPdf' }];
   if (planner && st && st.draft && st.draft.published_version != null && st.planWeek && st.planWeek.version !== st.draft.published_version)
     items.push({ label: 'Entwurf aus dem aktuellen Plan neu aufbauen', action: 'plRestart' });
+  if (planner) items.push({ label: 'Woche vorbereiten (aus der Vorwoche)', action: 'pnPrepareOpen' });
   if (planner) items.push({ label: 'Woche löschen', action: 'plDeleteWeek', danger: true });
   openUiMenu(items);
 }
@@ -366,7 +408,8 @@ function pnSheetPaint() {
     '<h3 class="pn-sheet-title">' + pnE(row.venue || 'Ohne Ort') + (row.title ? '<span>' + pnE(row.title) + '</span>' : '') + '</h3>' +
     (plLines(row.location).length || row.ap ? '<p class="pn-sheet-sub">' + pnE(plLines(row.location).join(', ')) + (row.ap ? (plLines(row.location).length ? '<br>' : '') + 'PL ' + pnE(row.ap) : '') + '</p>' : '') +
     details +
-    (can ? '<button type="button" class="ord-textbtn pn-edit" onclick="plEditRow(' + id + ')">Eintrag bearbeiten</button>' : '') +
+    (can ? '<div class="pn-edit"><button type="button" class="ord-textbtn" onclick="plEditRow(' + id + ')">Eintrag bearbeiten</button>' +
+      (!row.job_no && plCanPublish(who) ? '<button type="button" class="ord-textbtn" onclick="pnDuplicateMenu(' + id + ')">Duplizieren</button>' : '') + '</div>' : '') +
     pnChangesHtml(row, can) + pnStaleHtml(row) +
     stepper +
     (rp ? '<div class="pn-replace">Ersatz für <b>' + pnE(rp.name) + '</b> wählen <button type="button" class="ord-textbtn" onclick="pnStopReplace()">Abbrechen</button></div>' : '') +
@@ -474,4 +517,138 @@ async function pnNeed(id, delta) {
     if (!plCanEdit(row, plWho())) { row.need = v; pnPaint(); return; } // the planner's next visit moves the draft row
   }
   await plSave(row, { need: v });
+}
+
+/* ── Quick Einsatz, duplicate, Woche vorbereiten ── */
+
+function pnNewId() { return (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : null; }
+
+function pnDayOptions(selected, withNone) {
+  var st = plState, out = withNone ? '<option value="">kein Abbau</option>' : '';
+  for (var i = 0; i < 7; i++) {
+    var d = plAddDays(st.week.weekStart, i), dt = plUtc(d);
+    out += '<option value="' + d + '"' + (d === selected ? ' selected' : '') + '>' + PL_DAYS[dt.getUTCDay()] + ' ' + dt.getUTCDate() + '.' + (dt.getUTCMonth() + 1) + '.</option>';
+  }
+  return out;
+}
+
+function pnSheetOpen(id, title, body) {
+  var old = document.getElementById(id);
+  if (old) old.remove();
+  var m = document.createElement('div');
+  m.id = id;
+  m.className = 'sig-modal ui-sheet open';
+  m.style.setProperty('--sheet-w', '520px');
+  m.setAttribute('role', 'dialog');
+  m.setAttribute('aria-label', title);
+  m.innerHTML = '<div class="sig-modal-inner"><div class="ui-sheet-head"><h3 class="ui-title" style="font-size:18px;">' + pnE(title) + '</h3>' +
+    '<button type="button" class="ui-icon-btn" onclick="document.getElementById(\'' + id + '\').remove()" aria-label="Schließen"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' + body + '</div>';
+  m.addEventListener('click', function(e) { if (e.target === m) m.remove(); });
+  document.body.appendChild(m);
+  return m;
+}
+
+function pnQuickOpen() {
+  var st = plState;
+  if (!st || !st.draft || !plCanPublish(plWho())) return;
+  var today = localDateStr(), first = today >= st.week.weekStart && today <= st.week.weekEnd ? today : st.week.weekStart;
+  var field = function(label, html) { return '<label class="ui-field"><span>' + label + '</span>' + html + '</label>'; };
+  pnSheetOpen('pn-quick', 'Neuer Einsatz',
+    field('Ort', '<input type="text" id="pnq-venue" placeholder="z. B. Estrel" autocomplete="off">') +
+    field('Was', '<input type="text" id="pnq-was" placeholder="z. B. Gala, 20 Stehtische" autocomplete="off">') +
+    '<div class="pn-quick-grid">' + field('Aufbau', '<select id="pnq-sdate">' + pnDayOptions(first) + '</select>') +
+      field('Uhrzeit', '<input type="time" id="pnq-stime" value="07:00">') +
+      field('Abbau', '<select id="pnq-tdate">' + pnDayOptions('', true) + '</select>') +
+      field('Uhrzeit', '<input type="time" id="pnq-ttime" value="22:00">') + '</div>' +
+    '<div class="pn-quick-grid">' + field('MA gebraucht', '<input type="number" id="pnq-need" min="0" max="99" inputmode="numeric" value="2">') +
+      (st.hasKind ? field('Art', '<select id="pnq-kind">' + PL_KIND_ORDER.map(function(k) { return '<option value="' + k + '">' + PL_KINDS[k].label + '</option>'; }).join('') + '</select>') : '') + '</div>' +
+    '<p class="pn-none">Tag und Uhrzeit für Auf- und Abbau, mehr braucht es nicht. Raum, Material und Notizen gehen über „Alle Felder“ oder später über „Eintrag bearbeiten“.</p>' +
+    '<div class="ui-sheet-actions"><button type="button" class="ui-btn" onclick="document.getElementById(\'pn-quick\').remove(); plEditRow(null)">Alle Felder</button>' +
+      '<button type="button" class="ui-btn ui-btn-primary" id="pnq-save" onclick="pnQuickSave()">Anlegen</button></div>');
+  var v = document.getElementById('pnq-venue');
+  if (v) v.focus();
+}
+
+async function pnInsertRows(rows) {
+  var st = plState, ins;
+  try { ins = await supabaseClient.from('plan_draft_shifts').insert(plForInsert(rows)).select('*'); } catch (e) { ins = { error: e }; }
+  if (ins.error || !ins.data) { console.error('Einträge anlegen:', ins.error); showToast('Nicht gespeichert. Prüf deine Verbindung.', 'danger'); return false; }
+  st.rows = st.rows.concat(ins.data);
+  pnPaint();
+  return true;
+}
+
+async function pnQuickSave() {
+  var st = plState, val = function(k) { var e = document.getElementById('pnq-' + k); return e ? e.value : ''; };
+  if (!st) return;
+  var res = pnQuickRows({ venue: val('venue'), was: val('was'), kind: val('kind'), need: val('need'), setupDate: val('sdate'), setupTime: val('stime'),
+    teardownDate: val('tdate'), teardownTime: val('ttime') }, st.week, pnNewId());
+  if (res.error) { showToast(res.error, 'danger'); return; }
+  var btn = document.getElementById('pnq-save');
+  if (btn) btn.disabled = true;
+  res.rows.forEach(function(r, i) { r.sort = st.rows.length + i; });
+  if (await pnInsertRows(res.rows)) {
+    var m = document.getElementById('pn-quick');
+    if (m) m.remove();
+    showToast(res.rows.length === 2 ? 'Aufbau und Abbau angelegt' : 'Einsatz angelegt', 'success');
+  } else if (btn) btn.disabled = false;
+}
+
+// Duplicate a free entry (with its Abbau or Aufbau, when it is a pair) to another day of the week
+function pnDuplicateMenu(id) {
+  var st = plState, row = plRowById(id);
+  if (!st || !row) return;
+  var items = [];
+  for (var i = 0; i < 7; i++) {
+    var d = plAddDays(st.week.weekStart, i), dt = plUtc(d);
+    items.push({ label: 'Kopie am ' + PL_DAYS[dt.getUTCDay()] + ' ' + dt.getUTCDate() + '.' + (dt.getUTCMonth() + 1) + '.', action: 'pnDuplicate', args: [id, d] });
+  }
+  openUiMenu(items);
+}
+
+async function pnDuplicate(id, date) {
+  var st = plState, row = plRowById(id);
+  if (!st || !row) return;
+  var group = row.pair_id ? st.rows.filter(function(r) { return r.pair_id === row.pair_id; }) : [row];
+  var copies = pnCopyRows(group, { weekStart: row.date }, { year: st.week.year, kw: st.week.kw, weekStart: date }, pnNewId);
+  if (copies.some(function(c) { return c.date < st.week.weekStart || c.date > st.week.weekEnd; })) {
+    showToast('Die Kopie läge mit ihrem Auf- oder Abbau außerhalb dieser Woche.', 'danger');
+    return;
+  }
+  if (await pnInsertRows(copies)) showToast(copies.length === 2 ? 'Aufbau und Abbau kopiert' : 'Eintrag kopiert', 'success');
+}
+
+// „Woche vorbereiten“: pick free entries of the previous week to copy (regular jobs like Lager days)
+var _pnPrepare = null;
+async function pnPrepareOpen() {
+  var st = plState;
+  if (!st || !st.draft || !plCanPublish(plWho())) return;
+  var prev = plWeekOf(plAddDays(st.week.weekStart, -7)), r;
+  try { r = await supabaseClient.from('plan_draft_shifts').select('*').eq('year', prev.year).eq('kw', prev.kw); } catch (e) { r = { error: e }; }
+  if (r.error) { showToast('Die Vorwoche konnte nicht geladen werden.', 'danger'); return; }
+  var free = plSorted((r.data || []).filter(function(x) { return !x.job_no; }));
+  _pnPrepare = { prev: prev, rows: free };
+  pnSheetOpen('pn-prepare', 'Woche vorbereiten', free.length
+    ? '<p class="pn-none">Einträge ohne Auftrag aus KW ' + prev.kw + '. Die angehakten kommen auf denselben Wochentag in KW ' + st.week.kw + ', ohne Personal.</p>' +
+      '<ul class="pn-list">' + free.map(function(x, i) {
+        var dt = plUtc(x.date);
+        return '<li class="pn-person"><label class="pn-check"><input type="checkbox" data-i="' + i + '" checked> <span><b>' + pnE(PL_DAYS_SHORT[dt.getUTCDay()] + ' ' + (x.venue || '')) + '</b> ' +
+          pnE([x.title, planWhen(plLines(x.wann)).time].filter(Boolean).join(', ')) + '</span></label></li>';
+      }).join('') + '</ul>' +
+      '<div class="ui-sheet-actions"><button type="button" class="ui-btn ui-btn-primary" onclick="pnPrepareSave()">Übernehmen</button></div>'
+    : '<p class="pn-none">KW ' + prev.kw + ' hat keine Einträge ohne Auftrag zum Übernehmen.</p>');
+}
+
+async function pnPrepareSave() {
+  var st = plState, p = _pnPrepare;
+  if (!st || !p) return;
+  var pick = [].map.call(document.querySelectorAll('#pn-prepare input[data-i]:checked'), function(c) { return p.rows[+c.dataset.i]; });
+  if (!pick.length) { showToast('Nichts angehakt.', 'danger'); return; }
+  var copies = pnCopyRows(pick, p.prev, st.week, pnNewId);
+  copies.forEach(function(c, i) { c.sort = st.rows.length + i; });
+  if (await pnInsertRows(copies)) {
+    var m = document.getElementById('pn-prepare');
+    if (m) m.remove();
+    showToast(copies.length === 1 ? '1 Eintrag übernommen' : copies.length + ' Einträge übernommen', 'success');
+  }
 }
