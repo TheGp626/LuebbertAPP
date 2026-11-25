@@ -91,9 +91,10 @@ function homeTodayHtml(s) {
     (addr || maps ? '<div class="home-today-addr">' + (addr ? '<span>' + WP_ICON.pin + ' ' + escapeHtml(addr) + '</span>' : '') +
       (maps ? '<a class="ui-btn dash-small-btn" href="' + escapeHtml(maps) + '" target="_blank" rel="noopener">Route</a>' : '') + '</div>' : '') +
     (s.ap ? '<div class="ui-sub">PL ' + escapeHtml(s.ap) + '</div>' : '') +
+    // Buttons above the details (Jenni, 25.11.2026): the material list can be long, „Material abhaken“ stays in reach
+    (function(btns) { return btns ? '<div class="home-today-actions">' + btns + '</div>' : ''; })(wpProtButton(s, 'primary') + (typeof mcButtonHtml === 'function' ? mcButtonHtml(s) : '')) +
     wpDetails(s) +
-    '<div class="home-today-actions">' + wpProtButton(s, 'primary') + (typeof mcButtonHtml === 'function' ? mcButtonHtml(s) : '') +
-      '<button type="button" class="ord-textbtn" onclick="selectMode(\'wochenplan\')">Im Wochenplan öffnen</button></div>' +
+    '<div class="home-today-actions"><button type="button" class="ord-textbtn" onclick="selectMode(\'wochenplan\')">Im Wochenplan öffnen</button></div>' +
   '</div>';
 }
 

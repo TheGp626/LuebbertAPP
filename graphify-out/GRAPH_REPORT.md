@@ -1,7 +1,7 @@
 # Graph Report - LuebbertAPP  (2026-11-25)
 
 ## Corpus Check
-- 113 files · ~170,384 words
+- 113 files · ~170,410 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 4 file(s) not represented in the graph (top: (none) 2, .css 2)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `5d936564`
+- Built from commit: `4e873861`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -88,13 +88,13 @@
 ## God Nodes (most connected - your core abstractions)
 1. `plPaint()` - 26 edges
 2. `wpMe()` - 25 edges
-3. `saveProtDraft()` - 23 edges
-4. `runDaily()` - 23 edges
+3. `runDaily()` - 23 edges
+4. `saveProtDraft()` - 23 edges
 5. `fetchShiftsNow()` - 21 edges
 6. `wpEsc()` - 18 edges
 7. `openMaterialCheck()` - 18 edges
-8. `renderProtPersonnel()` - 17 edges
-9. `calcProtCosts()` - 17 edges
+8. `calcProtCosts()` - 17 edges
+9. `renderProtPersonnel()` - 17 edges
 10. `_mcRender()` - 17 edges
 
 ## Surprising Connections (you probably didn't know these)
@@ -104,10 +104,10 @@
   README.md → js/utils.js
 - `für entwickler` --references--> `needLib()`  [INFERRED]
   README.md → js/utils.js
-- `ordLoadNachkalk()` --indirect_call--> `dashNkTransportCost()`  [INFERRED]
-  js/auftraege.js → js/dashboard.js
 - `plSaveSheet()` --indirect_call--> `planStripPhones()`  [INFERRED]
   js/planer.js → js/plan-parser.js
+- `dashStartProtokollFromPlan()` --indirect_call--> `planShiftFromDb()`  [INFERRED]
+  js/dashboard.js → js/plan-parser.js
 
 ## Import Cycles
 - None detected.
@@ -370,17 +370,17 @@ Nodes (3): plan_inbox_handled_by_idx, plan_inbox_status_idx, public.plan_inbox
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `dashStartProtokollFromPlan()` connect `dashboard.js` to `wochenplan.js`?**
-  _High betweenness centrality (0.047) - this node is a cross-community bridge._
+- **Why does `planShiftFromDb()` connect `wochenplan.js` to `dashboard.js`, `plan-parser.js`?**
+  _High betweenness centrality (0.051) - this node is a cross-community bridge._
 - **What connects `RFC-5545`, `RFC-5545` to the rest of the system?**
   _2 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `planer.js` be split into smaller, more focused modules?**
   _Cohesion score 0.05901766647252961 - nodes in this community are weakly interconnected._
-- **Why does `planShiftFromDb()` connect `wochenplan.js` to `dashboard.js`, `plan-parser.js`?**
+- **Why does `dashStartProtokollFromPlan()` connect `dashboard.js` to `wochenplan.js`?**
   _High betweenness centrality (0.044) - this node is a cross-community bridge._
 - **Should `wochenplan.js` be split into smaller, more focused modules?**
   _Cohesion score 0.0548258138206739 - nodes in this community are weakly interconnected._
 - **Why does `planStripPhones()` connect `plan-parser.js` to `planer.js`?**
-  _High betweenness centrality (0.030) - this node is a cross-community bridge._
+  _High betweenness centrality (0.032) - this node is a cross-community bridge._
 - **Should `stundenzettel.js` be split into smaller, more focused modules?**
   _Cohesion score 0.06163401815575729 - nodes in this community are weakly interconnected._
