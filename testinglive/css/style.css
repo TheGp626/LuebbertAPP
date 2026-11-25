@@ -1266,10 +1266,12 @@ canvas#historyChart {
 .set-veh-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, 78px) 28px; gap: 6px; align-items: center; padding: 4px 0; }
 .set-veh-row .meta-input { width: 100%; margin: 0; padding: 6px; font-size: 14px; }
 .set-veh-row .meta-input[type="number"] { text-align: right; }
+.set-veh-n { grid-template-columns: minmax(0, 1fr) repeat(4, 66px) 28px; } /* vehicles: Mo–Fr, Sa, So, Nacht */
 .set-veh-head { font-size: 12px; color: var(--text2); padding-top: 8px; }
 @media (max-width: 520px) {
   .set-veh-row { grid-template-columns: repeat(3, minmax(0, 1fr)) 28px; }
   .set-veh-row > :first-child { grid-column: 1 / -1; }
+  .set-veh-n { grid-template-columns: repeat(4, minmax(0, 1fr)) 28px; }
   .set-veh-head > :first-child { display: none; }
   #set-vehicles .set-veh-row { padding: 8px 0; border-top: 0.5px solid var(--border); }
 }
@@ -1396,3 +1398,6 @@ canvas#historyChart {
 .ordner-upload-bar { margin: 16px -24px 0; }
 @media (max-width: 767px) { .ordner-upload-bar { margin: 16px -16px 0; } }
 #ordner-detail-view.drag-over { outline: 2px dashed var(--accent); outline-offset: 4px; border-radius: var(--r-card); }
+/* Break under the legal minimum (js/protokoll.js protPauseHint): still allowed, needs a reason when sending */
+.prot-pause-warn { margin: -4px 2px 12px; padding: 8px 10px; border-radius: 8px; background: var(--warn-bg, #FAEEDA); color: var(--warn, #854F0B); font-size: 13px; line-height: 1.4; }
+.prot-pause-warn[hidden] { display: none; }

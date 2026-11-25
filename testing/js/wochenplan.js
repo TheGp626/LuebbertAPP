@@ -195,7 +195,8 @@ function wpInterestBlock(s) {
   if ((s._orders && s._orders.length) || !s._interest) return '';
   var mine = wpMyInterest(s), call = 'event.stopPropagation(); wpToggleInterest(this, \'' + s.id + '\')';
   if (mine) {
-    return '<div class="wp-ord-action wp-int-action" onclick="event.stopPropagation()">' + wpMeldungPill(mine) +
+    var vb = ((s._interest || []).find(function(r) { return r.user_id === wpMe(); }) || {}).vorbehalt;
+    return '<div class="wp-ord-action wp-int-action" onclick="event.stopPropagation()">' + wpMeldungPill(mine) + (vb ? '<span class="ui-sub">' + wpEsc(vb) + '</span>' : '') +
       (mine === 'offen' ? '<button type="button" class="ord-textbtn" onclick="' + call + '">Zurückziehen</button>' : '') + '</div>';
   }
   if (!wpCanApply(s, wpMe(), localDateStr(), wpWho())) return '';
@@ -220,15 +221,14 @@ function wpCanCancel(s, me, today) {
   return !!(me && s && s.week_id && s.key && s.date >= today && (s.plan_assignments || []).some(function(a) { return a.user_id === me; }));
 }
 function wpCancelSoon(date, today) { return date <= wpAddDays(today, 1); }
-// Who hears about an Absage first: the AL of the shift (they run the site); the PL when you are the AL or none is named
+// Who hears about an Absage first: the AL of the shift (they run the site); Daniel (Planung) when you are the AL or
+// none is named. Never the PL (Jenni, 25.11.2026).
 function wpCancelContact(s, me) {
   var al = ((s && s.plan_assignments) || []).find(function(a) { return a.role === 'AL' && a.user_id !== me && a.name; });
-  if (al) return { role: 'AL', name: al.name };
-  return s && s.ap ? { role: 'PL', name: s.ap } : null;
+  return al ? { role: 'AL', name: al.name } : { role: 'Planung', name: 'Daniel' };
 }
 function wpCancelText(c) {
-  return c ? 'Ruf bitte ' + c.name + ' (' + c.role + ') an oder schreib eine Nachricht, damit vor Ort alle Bescheid wissen.'
-    : 'Sag bitte deiner AL Bescheid, per Anruf oder Nachricht.';
+  return 'Ruf bitte ' + c.name + ' (' + c.role + ') an oder schreib eine Nachricht, damit vor Ort alle Bescheid wissen.';
 }
 function wpCancelBlock(s) {
   if (!_wpCancels || !s || !s.week_id) return '';
@@ -258,7 +258,7 @@ async function wpCancelShift(btn, shiftId) {
     return;
   }
   if (_wpCancels) _wpCancels[s.week_id + '|' + s.key] = 'offen';
-  showToast('Abgesagt. ' + (contact ? 'Gib noch ' + contact.name + ' (' + contact.role + ') Bescheid.' : 'Gib noch deiner AL Bescheid.'), 'success');
+  showToast('Abgesagt. Gib noch ' + contact.name + ' (' + contact.role + ') Bescheid.', 'success');
   wpSetView(wpView);
 }
 async function wpWithdrawCancel(btn, shiftId) {
@@ -280,14 +280,42 @@ async function wpWithdrawCancel(btn, shiftId) {
 // Admin always, everyone else (PL included) only when "Sieht Bewerbungen" is switched on for them
 function wpSeesInterest() { return (typeof userRole !== 'undefined' && userRole === 'Admin') || !!window.currentUserSeesInterest; }
 
-async function wpToggleInterest(btn, shiftId) {
+// ── „Mit Vorbehalt“ (Jenni, 25.11.2026): after „Ich kann“ an optional limit (only until / only from), shown to whoever decides ──
+// kind null → no limit (null); a bad time → undefined
+function wpVorbehalt(kind, time) {
+  if (!kind) return null;
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time || '')) return undefined;
+  return (kind === 'bis' ? 'nur bis ' : 'erst ab ') + time + ' Uhr';
+}
+var _wpVbThen = null;
+function wpAskVorbehalt(then) {
+  _wpVbThen = then;
+  var row = function(kind, label) {
+    return '<div class="wp-vb-row"><label class="ui-field"><span>' + label + '</span><input type="time" id="wp-vb-' + kind + '"></label>' +
+      '<button type="button" class="ui-btn" onclick="wpVorbehaltPick(\'' + kind + '\')">Melden</button></div>';
+  };
+  pinSheetOpen({ title: 'Ich kann', body: '<p class="ui-sub" style="margin:0 0 12px;">Kannst du die ganze Zeit?</p>' +
+    '<button type="button" class="ui-btn ui-btn-primary ui-btn-block" onclick="wpVorbehaltPick(null)">Ja, die ganze Zeit</button>' +
+    '<p class="ui-sub" style="margin:16px 0 4px;">Oder nur einen Teil:</p>' + row('bis', 'Nur bis') + row('ab', 'Erst ab') });
+}
+function wpVorbehaltPick(kind) {
+  var v = wpVorbehalt(kind, kind ? (document.getElementById('wp-vb-' + kind) || {}).value : '');
+  if (v === undefined) { showToast('Bitte eine Uhrzeit eintragen.', 'danger'); return; }
+  var then = _wpVbThen;
+  _wpVbThen = null;
+  closePinSheet();
+  if (then) then(v);
+}
+
+async function wpToggleInterest(btn, shiftId, vorbehalt) {
   var s = _wpShiftCache[shiftId], me = wpMe();
   if (!s || !s._interest || !me) return;
-  btn.disabled = true;
   var on = !!wpMyInterest(s), q = supabaseClient.from('plan_shift_interest');
+  if (!on && vorbehalt === undefined) { wpAskVorbehalt(function(v) { wpToggleInterest(btn, shiftId, v); }); return; }
+  btn.disabled = true;
   // .select(): RLS answers a blocked write with 0 rows and no error; only an undecided Meldung can be withdrawn
   var r = on ? await q.delete().eq('week_id', s.week_id).eq('shift_key', s.key).eq('user_id', me).eq('status', 'offen').select('user_id')
-             : await q.insert({ week_id: s.week_id, shift_key: s.key, user_id: me }).select('user_id');
+             : await q.insert(Object.assign({ week_id: s.week_id, shift_key: s.key, user_id: me }, vorbehalt ? { vorbehalt: vorbehalt } : {})).select('user_id');
   if (r.error || !r.data || !r.data.length) {
     console.error('Ich kann (Schicht):', r.error);
     showToast(on ? 'Nicht zurückgezogen – vielleicht wurde schon entschieden.' : 'Nicht gespeichert. Prüf deine Verbindung.', 'danger');
@@ -609,7 +637,7 @@ function wpSetView(v) {
   });
   document.getElementById('wp-week-nav').style.display = v === 'all' ? 'flex' : 'none';
   document.getElementById('wp-days').style.display = v === 'all' ? 'flex' : 'none';
-  if (v === 'mine') wpRenderMine(); else if (v === 'avail') wpRenderAvail(); else if (v === 'plan') plRender(); else wpRenderWeek();
+  if (v === 'mine') wpRenderMine(); else if (v === 'avail') wpRenderAvail(); else if (v === 'plan') initPlanen(); else wpRenderWeek();
 }
 
 // Verfügbarkeit tab: own calendar (unlocked people) and/or the planner grid
@@ -846,7 +874,7 @@ async function wpRenderWeek() {
   var none = Promise.resolve({ data: [], error: null }); // virtual week: nothing from the scheduler yet
   var [res, iq, slots] = await Promise.all([
     week._virtual ? none : supabaseClient.from('plan_shifts').select('*, plan_assignments(*)').eq('week_id', week.id).order('date').order('sort'),
-    week._virtual ? none : supabaseClient.from('plan_shift_interest').select('shift_key, user_id, status').eq('week_id', week.id),
+    week._virtual ? none : supabaseClient.from('plan_shift_interest').select('*').eq('week_id', week.id), // '*': vorbehalt only after migration jenni_runde_3
     wpLoadSlots(),
     wpLoadMyCancels()
   ]);
@@ -855,7 +883,7 @@ async function wpRenderWeek() {
   if (error) { console.error('Woche laden:', error); content.innerHTML = '<div class="wp-empty">Die Woche konnte nicht geladen werden.</div>'; return; }
   if (iq.error) console.error('Interesse laden:', iq.error); // plan still shows, just no buttons/list
   (data || []).forEach(function(s) {
-    s._interest = iq.error ? null : (iq.data || []).filter(function(r) { return r.shift_key === s.key; }).map(function(r) { return { user_id: r.user_id, status: r.status || 'offen' }; });
+    s._interest = iq.error ? null : (iq.data || []).filter(function(r) { return r.shift_key === s.key; }).map(function(r) { return { user_id: r.user_id, status: r.status || 'offen', vorbehalt: r.vorbehalt || null }; });
   });
   (data || []).forEach(function(s) { _wpShiftCache[s.id] = s; });
   _wpSlots = slots;
@@ -953,12 +981,13 @@ function wpOrderCard(slot, opts) {
     '</div></div>';
 }
 
-async function wpOrderApply(jobNo, phase, on) {
+async function wpOrderApply(jobNo, phase, on, vorbehalt) {
   var me = wpMe(), slot = (_wpSlots || []).find(function(x) { return x.job_no === jobNo && x.phase === phase; });
   if (!me || !slot) return;
+  if (on && vorbehalt === undefined) { wpAskVorbehalt(function(v) { wpOrderApply(jobNo, phase, true, v); }); return; }
   try {
     var q = supabaseClient.from('order_applications');
-    var r = on ? await q.insert({ job_no: jobNo, phase: phase, user_id: me }).select('job_no')
+    var r = on ? await q.insert(Object.assign({ job_no: jobNo, phase: phase, user_id: me }, vorbehalt ? { vorbehalt: vorbehalt } : {})).select('job_no')
       : await q.delete().eq('job_no', jobNo).eq('phase', phase).eq('user_id', me).eq('status', 'offen').select('job_no');
     if (r.error || !r.data || !r.data.length) throw r.error || new Error(on ? 'nicht gespeichert' : 'schon entschieden');
     slot.my_status = on ? 'offen' : null;
@@ -1226,14 +1255,38 @@ async function wpSaveImport() {
   if (!wpImport) return;
   var btn = document.getElementById('wp-save-btn');
   btn.disabled = true; btn.textContent = 'Speichert…';
-  var insertedIds = [], createdWeekId = null, committed = false, oldNotDeleted = false;
   try {
-    var p = wpImport.parsed, ex = wpImport.existing;
+    var p = wpImport.parsed;
     // Names chosen in the preview → remembered as aliases (data-alias already holds planAliasKey)
     var newAliases = [];
     document.querySelectorAll('#wp-import-body select[data-alias]').forEach(function(sel) {
       if (sel.value) { wpAliases[sel.dataset.alias] = sel.value; newAliases.push({ alias: sel.dataset.alias, user_id: sel.value }); }
     });
+    var res = await wpCommitPlan(wpImport, newAliases);
+    showToast('Wochenplan KW ' + p.kw + ' gespeichert');
+    if (res.oldNotDeleted) showToast('Die alten Einsätze der Woche konnten nicht gelöscht werden – Einsätze erscheinen doppelt. Bitte beim Admin melden.', 'danger');
+    wpImport = null;
+    wpWeekId = res.weekId;
+    wpView = 'all';
+    await initWochenplan();
+  } catch (e) {
+    console.error('Plan speichern:', e);
+    showToast('Speichern fehlgeschlagen: ' + (e.message || e), 'danger');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Übernehmen';
+  }
+}
+
+// Saves a plan as the new Stand of its week (PDF upload through the preview, or PLANEN's „Veröffentlichen“), no DOM:
+// new shifts and assignments first, then the week row (version check against imp.existing), then the old shifts go;
+// pushes via notify-plan-change, then imp.afterSave(weekId). imp = { parsed, existing, fileName, afterSave?, inboxId?,
+// orphanWeekId? }. → { weekId, oldNotDeleted }. On a failure before the commit everything inserted is removed again and
+// the error is thrown.
+async function wpCommitPlan(imp, newAliases) {
+  var insertedIds = [], createdWeekId = null, committed = false, oldNotDeleted = false;
+  newAliases = newAliases || [];
+  try {
+    var p = imp.parsed, ex = imp.existing;
     p.shifts.forEach(function(s) {
       s.people.forEach(function(x) { if (!x.userId && WP_AGENCY.indexOf(x.role) === -1) x.userId = wpAliases[planAliasKey(x.name)] || null; });
       if (!s.apUserId && s.ap) s.apUserId = wpAliases[planAliasKey(s.ap, true)] || null;
@@ -1246,7 +1299,7 @@ async function wpSaveImport() {
         user_ids: r.people.map(function(x) { return x.userId; }).filter(Boolean) };
     }).concat(planUnassigned(p.shifts, diff)); // people taken off a shift that stays → push only
     var weekRow = { year: p.year, kw: p.kw, week_start: p.weekStart, week_end: p.weekEnd, removed: removed,
-      file_name: wpImport.fileName, uploaded_by: wpMe(), uploaded_at: new Date().toISOString() };
+      file_name: imp.fileName, uploaded_by: wpMe(), uploaded_at: new Date().toISOString() };
 
     // Order matters: an existing week's row (version, removed) is only touched after all shifts and
     // assignments are in, so a failure leaves the old Stand as it was. A new week needs its row first;
@@ -1254,9 +1307,9 @@ async function wpSaveImport() {
     var weekId;
     if (ex) {
       weekId = ex.id;
-    } else if (wpImport.orphanWeekId) {
+    } else if (imp.orphanWeekId) {
       // An earlier attempt created the row but could not delete it again → reuse it
-      weekId = createdWeekId = wpImport.orphanWeekId;
+      weekId = createdWeekId = imp.orphanWeekId;
     } else {
       var ins = await supabaseClient.from('plan_weeks').insert(weekRow).select('id').single();
       if (ins.error) throw ins.error;
@@ -1300,7 +1353,7 @@ async function wpSaveImport() {
       if (up.error || !up.data || !up.data.length) throw up.error || new Error('Die Woche wurde inzwischen geändert. Lade die PDF erneut hoch.');
     }
     committed = true;
-    wpImport.orphanWeekId = null;
+    imp.orphanWeekId = null;
     if (oldShifts.length) {
       // RLS answers a blocked delete with 0 rows and no error: count them, or every shift would exist twice
       var del = await supabaseClient.from('plan_shifts').delete().in('id', oldShifts.map(function(s) { return s.id; })).select('id');
@@ -1320,29 +1373,22 @@ async function wpSaveImport() {
       .catch(function(e) { console.error('Plan-Push:', e); });
 
     // Besetzungsplaner: a published draft remembers its Stand (the plan itself is saved at this point, so a failure here never undoes it)
-    if (wpImport.afterSave) {
-      try { await wpImport.afterSave(weekId); } catch (hookErr) { console.error('Nach dem Speichern:', hookErr); }
+    if (imp.afterSave) {
+      try { await imp.afterSave(weekId); } catch (hookErr) { console.error('Nach dem Speichern:', hookErr); }
     }
 
-    if (wpImport.inboxId) await wpInboxMark(wpImport.inboxId, 'importiert');
-    showToast('Wochenplan KW ' + p.kw + ' gespeichert');
-    if (oldNotDeleted) showToast('Die alten Einsätze der Woche konnten nicht gelöscht werden – Einsätze erscheinen doppelt. Bitte beim Admin melden.', 'danger');
-    wpImport = null;
-    wpWeekId = weekId;
-    wpView = 'all';
-    await initWochenplan();
+    if (imp.inboxId) await wpInboxMark(imp.inboxId, 'importiert');
+    return { weekId: weekId, oldNotDeleted: oldNotDeleted };
   } catch (e) {
-    console.error('Plan speichern:', e);
-    if (!committed) await wpRollbackImport(insertedIds, createdWeekId);
-    showToast('Speichern fehlgeschlagen: ' + (e.message || e), 'danger');
-  } finally {
-    btn.disabled = false; btn.textContent = 'Übernehmen';
+    if (!committed) await wpRollbackImport(insertedIds, createdWeekId, imp);
+    throw e;
   }
 }
 
 // Undoes a failed save: deletes the shifts it inserted (their assignments go by cascade) and a week row
 // it created. If that row can't be deleted, the next attempt reuses it (wpImport.orphanWeekId).
-async function wpRollbackImport(shiftIds, createdWeekId) {
+async function wpRollbackImport(shiftIds, createdWeekId, imp) {
+  imp = imp || wpImport;
   if (shiftIds.length) {
     var d = await supabaseClient.from('plan_shifts').delete().in('id', shiftIds).select('id');
     if (d.error || !d.data || d.data.length !== shiftIds.length) {
@@ -1353,7 +1399,7 @@ async function wpRollbackImport(shiftIds, createdWeekId) {
   if (createdWeekId) {
     var w = await supabaseClient.from('plan_weeks').delete().eq('id', createdWeekId).select('id');
     if (w.error) console.error('Rückgängig (Woche):', w.error);
-    if (wpImport) wpImport.orphanWeekId = (!w.error && w.data && w.data.length) ? null : createdWeekId;
+    if (imp) imp.orphanWeekId = (!w.error && w.data && w.data.length) ? null : createdWeekId;
   }
 }
 

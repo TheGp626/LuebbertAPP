@@ -24,6 +24,7 @@ var APP_SETTINGS_DEFAULTS = {
   department_mail_enabled: true,
   department_mail_test_mode: true,
   department_routes: { logistik: 'lager', mobiliar: 'lager', tischlerei: '', stoffe: 'stoffe', floristik: 'floristik' },
+  department_emails: { lager: 'lager@peterluebbert.de', logistik: '', tischlerei: '', stoffe: 'Stoffe@peterluebbert.de', floristik: 'Florist@peterluebbert.de' },
   vehicle_rates: (typeof PROT_VEHICLE_RATES !== 'undefined') ? PROT_VEHICLE_RATES : {}, // js/formulas.js
   personnel_rates: (typeof PERSONNEL_RATE_DEFAULTS !== 'undefined') ? PERSONNEL_RATE_DEFAULTS : {} // js/formulas.js
 };
@@ -40,7 +41,8 @@ function _settingsMerge(obj) {
     if (k in APP_SETTINGS_DEFAULTS && typeof obj[k] === typeof APP_SETTINGS_DEFAULTS[k]
         && (k !== 'vehicle_rates' || validVehicleRates(obj[k]))
         && (k !== 'personnel_rates' || validPersonnelRates(obj[k]))
-        && (k !== 'department_routes' || validDepartmentRoutes(obj[k]))) out[k] = k === 'department_routes' ? Object.assign({}, APP_SETTINGS_DEFAULTS.department_routes, obj[k]) : obj[k];
+        && (k !== 'department_routes' || validDepartmentRoutes(obj[k]))
+        && (k !== 'department_emails' || validDepartmentEmails(obj[k]))) out[k] = (k === 'department_routes' || k === 'department_emails') ? Object.assign({}, APP_SETTINGS_DEFAULTS[k], obj[k]) : obj[k];
   });
   return out;
 }
@@ -64,14 +66,15 @@ function changedSettings(rendered, form) {
   return out;
 }
 
-// { name: { wk, sa, so } }, 1–50 vehicles, trimmed names up to 40 chars, € 0–100000; mirrors the RPC
+// { name: { wk, sa, so, na? } }, 1–50 vehicles, trimmed names up to 40 chars, € 0–100000; na (night) optional; mirrors the RPC
 function validVehicleRates(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
-  var names = Object.keys(v);
+  var names = Object.keys(v), money = function(x) { return typeof x === 'number' && x >= 0 && x <= 100000; };
   return names.length >= 1 && names.length <= 50 && names.every(function(n) {
     var r = v[n];
-    return n === n.trim() && n.length >= 1 && n.length <= 40 && !!r && typeof r === 'object' && Object.keys(r).length === 3 &&
-      ['wk', 'sa', 'so'].every(function(f) { return typeof r[f] === 'number' && r[f] >= 0 && r[f] <= 100000; });
+    return n === n.trim() && n.length >= 1 && n.length <= 40 && !!r && typeof r === 'object' &&
+      Object.keys(r).every(function(k) { return ['wk', 'sa', 'so', 'na'].indexOf(k) !== -1; }) &&
+      ['wk', 'sa', 'so'].every(function(f) { return money(r[f]); }) && (!('na' in r) || money(r.na));
   });
 }
 
@@ -88,9 +91,21 @@ function validPersonnelRates(v) {
   });
 }
 
-// Abteilungs-Mails: protocol area → department; the addresses are fixed on the server (mirrors the RPC)
+// Abteilungs-Mails: protocol area → department → address (Admin setting; mirrors the RPC and send-protocol-mail)
 var DEPARTMENT_AREAS = [['logistik', 'Lager / Logistik'], ['mobiliar', 'Mobiliar'], ['tischlerei', 'Tischlerei'], ['stoffe', 'Stoffe und Hussen'], ['floristik', 'Floristik']];
-var DEPARTMENT_OPTIONS = [['', 'keine Mail'], ['lager', 'Lager (lager@)'], ['stoffe', 'Stoffe (Stoffe@)'], ['floristik', 'Floristik (Florist@)']];
+var DEPARTMENT_OPTIONS = [['', 'keine Mail'], ['lager', 'Lager'], ['logistik', 'Logistik'], ['tischlerei', 'Tischlerei'], ['stoffe', 'Stoffe'], ['floristik', 'Floristik']];
+// Only company addresses, so a setting can never send protocol details outside
+var DEPARTMENT_EMAIL_RE = /^[A-Za-z0-9._%+-]{1,64}@peterluebbert\.de$/i;
+function validDepartmentEmails(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  var deps = DEPARTMENT_OPTIONS.map(function(o) { return o[0]; }).filter(Boolean);
+  return Object.keys(v).every(function(k) { return deps.indexOf(k) !== -1 && typeof v[k] === 'string' && (v[k] === '' || DEPARTMENT_EMAIL_RE.test(v[k])); });
+}
+// Area labels whose route points at a department without an address (the mail would silently go nowhere)
+function routesWithoutAddress(routes, emails) {
+  if (!routes || !emails) return [];
+  return DEPARTMENT_AREAS.filter(function(a) { var d = routes[a[0]]; return d && !String(emails[d] || '').trim(); }).map(function(a) { return a[1]; });
+}
 function validDepartmentRoutes(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
   var areas = DEPARTMENT_AREAS.map(function(a) { return a[0]; }), deps = DEPARTMENT_OPTIONS.map(function(o) { return o[0]; });
@@ -111,6 +126,7 @@ function validateSettings(changes) {
     if (k === 'vehicle_rates' && !validVehicleRates(v)) return k;
     if (k === 'personnel_rates' && !validPersonnelRates(v)) return k;
     if (k === 'department_routes' && !validDepartmentRoutes(v)) return k;
+    if (k === 'department_emails' && !validDepartmentEmails(v)) return k;
   }
   return null;
 }
@@ -187,6 +203,13 @@ async function renderSettingsTab() {
         DEPARTMENT_OPTIONS.map(function(o) { return '<option value="' + o[0] + '"' + ((routes[a[0]] || '') === o[0] ? ' selected' : '') + '>' + _settingsEsc(o[1]) + '</option>'; }).join('') +
         '</select></label>';
     }).join('') + '</div>';
+  var emails = appSetting('department_emails') || {};
+  html += '<div class="set-group"><div class="set-group-title">Abteilungs-Mails: Adressen</div>' +
+    DEPARTMENT_OPTIONS.filter(function(o) { return o[0]; }).map(function(o) {
+      return '<label class="set-row"><span class="set-text"><b>' + _settingsEsc(o[1]) + '</b></span>' +
+        '<input type="email" maxlength="100" class="meta-input set-dep-email" data-dep="' + o[0] + '" placeholder="leer = keine Mail" aria-label="' + _settingsEsc('Adresse ' + o[1]) + '" value="' + _settingsEsc(emails[o[0]] || '') + '"></label>';
+    }).join('') +
+    '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Nur Adressen @peterluebbert.de. Leer = diese Abteilung bekommt keine Mail.</small></span></div></div>';
   html += '<div class="set-group"><div class="set-group-title">Abrechnung</div>' +
     '<label class="set-row"><span class="set-text"><b>Abrechnungsstichtag</b><small>Tag im Monat, ab dem Stunden zum nächsten Abrechnungsmonat zählen (gilt auf allen Geräten)</small></span>' +
     '<input type="number" min="1" max="31" step="1" id="set-billing_cutoff" class="meta-input set-num" value="' + appSetting('billing_cutoff') + '"></label>' +
@@ -198,9 +221,9 @@ async function renderSettingsTab() {
     '<input type="number" min="1" max="24" step="1" id="set-inactive_months" class="meta-input set-num" value="' + appSetting('inactive_months') + '"></label></div>';
   var rates = appSetting('vehicle_rates');
   html += '<div class="set-group"><div class="set-group-title">Fahrzeugsätze (€ pro Einsatz)</div>' +
-    '<div class="set-veh-row set-veh-head"><span>Fahrzeug</span><span>Mo–Fr</span><span>Sa</span><span>So</span><span></span></div>' +
+    '<div class="set-veh-row set-veh-head set-veh-n"><span>Fahrzeug</span><span>Mo–Fr</span><span>Sa</span><span>So</span><span>Nacht</span><span></span></div>' +
     '<div id="set-vehicles">' + Object.keys(rates).sort(function(a, b) { return a.localeCompare(b, 'de'); }).map(function(n) { return vehicleRateRowHtml(n, rates[n]); }).join('') + '</div>' +
-    '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Spedition: Kosten werden pro Protokoll eingetragen (laut Rechnung). Neue Sätze gelten für neue Berechnungen, gespeicherte Protokoll-Summen bleiben.</small></span>' +
+    '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Spedition: Kosten werden pro Protokoll eingetragen (laut Rechnung). Nacht = Nachtfahrt 22–6 Uhr, leer = Tagessatz. Neue Sätze gelten für neue Berechnungen, gespeicherte Protokoll-Summen bleiben.</small></span>' +
     '<button type="button" class="btn" style="flex:none; width:auto; padding:8px 18px;" onclick="addVehicleRateRow()">+ Fahrzeug</button></div></div>';
   var pr = appSetting('personnel_rates');
   html += '<div class="set-group"><div class="set-group-title">Stundensätze nach Beschäftigungsart (€/h)</div>' +
@@ -243,11 +266,14 @@ function _readSettingsForm() {
   });
   changes.vehicle_rates = readVehicleRates(Array.from(document.querySelectorAll('#set-vehicles .set-veh-row')).map(function(row) {
     var val = function(f) { return row.querySelector('[data-f="' + f + '"]').value; };
-    return { name: val('name'), wk: val('wk'), sa: val('sa'), so: val('so') };
+    return { name: val('name'), wk: val('wk'), sa: val('sa'), so: val('so'), na: val('na') };
   }));
   var deps = Array.from(document.querySelectorAll('select.set-dep'));
   if (deps.length) changes.department_routes = {};
   deps.forEach(function(sel) { changes.department_routes[sel.dataset.area] = sel.value; });
+  var mails = Array.from(document.querySelectorAll('input.set-dep-email'));
+  if (mails.length) changes.department_emails = {};
+  mails.forEach(function(inp) { changes.department_emails[inp.dataset.dep] = inp.value.trim(); });
   var pInputs = Array.from(document.querySelectorAll('#set-personnel input[data-type]'));
   if (pInputs.length) changes.personnel_rates = {}; // table not rendered → leave the setting out
   pInputs.forEach(function(inp) {
@@ -262,21 +288,22 @@ function readVehicleRates(rows) {
   var out = {};
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i], name = r.name.trim();
-    if (!name && r.wk === '' && r.sa === '' && r.so === '') continue;
+    if (!name && r.wk === '' && r.sa === '' && r.so === '' && !r.na) continue;
     if (Object.prototype.hasOwnProperty.call(out, name)) return null;
     var num = function(v) { return v === '' ? NaN : Number(v); };
     out[name] = { wk: num(r.wk), sa: num(r.sa), so: num(r.so) };
+    if (r.na !== undefined && r.na !== '') out[name].na = num(r.na); // blank night rate → the day's rate applies
   }
   return out;
 }
 
 function vehicleRateRowHtml(name, r) {
-  r = r || { wk: '', sa: '', so: '' };
+  r = r || { wk: '', sa: '', so: '', na: '' };
   var num = function(f, label) {
-    return '<input type="number" min="0" step="0.01" inputmode="decimal" class="meta-input" data-f="' + f + '" aria-label="' + label + '" value="' + _settingsEsc(r[f]) + '">';
+    return '<input type="number" min="0" step="0.01" inputmode="decimal" class="meta-input" data-f="' + f + '" aria-label="' + label + '"' + (f === 'na' ? ' placeholder="= Tag"' : '') + ' value="' + _settingsEsc(r[f]) + '">';
   };
-  return '<div class="set-veh-row"><input type="text" maxlength="40" class="meta-input" data-f="name" aria-label="Fahrzeug" value="' + _settingsEsc(name) + '">' +
-    num('wk', 'Satz Mo–Fr') + num('sa', 'Satz Samstag') + num('so', 'Satz Sonntag') +
+  return '<div class="set-veh-row set-veh-n"><input type="text" maxlength="40" class="meta-input" data-f="name" aria-label="Fahrzeug" value="' + _settingsEsc(name) + '">' +
+    num('wk', 'Satz Mo–Fr') + num('sa', 'Satz Samstag') + num('so', 'Satz Sonntag') + num('na', 'Satz Nacht') +
     '<button type="button" class="ui-icon-btn" aria-label="Fahrzeug entfernen" onclick="this.parentNode.remove()">×</button></div>';
 }
 
@@ -290,7 +317,7 @@ function addVehicleRateRow() {
 var SETTINGS_LABELS = { evening_push_hour: 'Uhrzeit Abend-Push', billing_cutoff: 'Abrechnungsstichtag (1–31)',
   vehicle_rates: 'Fahrzeugsätze (jeder Name einmal, alle Beträge 0–100000 €)',
   personnel_rates: 'Stundensätze nach Beschäftigungsart (alle Felder 0–1000 €)',
-  department_routes: 'Abteilungs-Mails (Bereich → Abteilung)', inactive_months: 'Lange kein Einsatz (1–24 Monate)',
+  department_routes: 'Abteilungs-Mails (Bereich → Abteilung)', department_emails: 'Abteilungs-Adressen (nur @peterluebbert.de)', inactive_months: 'Lange kein Einsatz (1–24 Monate)',
   income_limit_minijob: 'Verdienstgrenze Minijob (0–100000 €)', income_limit_midijob: 'Verdienstgrenze Midijob (0–100000 €)' };
 
 // The new RPC is missing (migration 20261127 not applied yet): PostgREST answers PGRST202 / 404
@@ -319,6 +346,8 @@ async function saveSettingsTab() {
   var form = _readSettingsForm();
   var bad = validateSettings(form);
   if (bad) { err.textContent = 'Ungültiger Wert für ' + (SETTINGS_LABELS[bad] || bad) + '.'; return; }
+  var noAddr = routesWithoutAddress(form.department_routes, form.department_emails);
+  if (noAddr.length) { err.textContent = noAddr.join(', ') + ' geht an eine Abteilung ohne Adresse. Adresse eintragen oder „keine Mail“ wählen.'; return; }
   var changes = changedSettings(_settingsRendered, form);
   if (!Object.keys(changes).length) { showToast('Keine Änderungen'); return; }
   btn.disabled = true; btn.textContent = 'Speichert…';
@@ -394,6 +423,6 @@ async function sendTestPush() {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { APP_SETTINGS_DEFAULTS: APP_SETTINGS_DEFAULTS, appSetting: appSetting, appSettingsFromCache: appSettingsFromCache,
     validateSettings: validateSettings, changedSettings: changedSettings, testPushMessage: testPushMessage,
-    settingsRpcMissing: settingsRpcMissing, validVehicleRates: validVehicleRates, validDepartmentRoutes: validDepartmentRoutes, readVehicleRates: readVehicleRates, validPersonnelRates: validPersonnelRates,
+    settingsRpcMissing: settingsRpcMissing, validVehicleRates: validVehicleRates, validDepartmentRoutes: validDepartmentRoutes, validDepartmentEmails: validDepartmentEmails, routesWithoutAddress: routesWithoutAddress, readVehicleRates: readVehicleRates, validPersonnelRates: validPersonnelRates,
     SETTINGS_SWITCHES: SETTINGS_SWITCHES };
 }

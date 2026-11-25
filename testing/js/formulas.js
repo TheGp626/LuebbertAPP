@@ -3,7 +3,7 @@
 // ── PROTOKOLL RATES ──
 
 // Fallback only (offline before the first settings load): admins edit the rates in Einstellungen
-// (app_settings.vehicle_rates). € per job: wk = Mo–Fr, sa = Saturday, so = Sunday.
+// (app_settings.vehicle_rates). € per job: wk = Mo–Fr, sa = Saturday, so = Sunday, na = night trip (optional).
 var PROT_VEHICLE_RATES = {
   'Hängerzug':       { wk: 80,  sa: 80,  so: 80 },
   'Solo':            { wk: 70,  sa: 70,  so: 70 },
@@ -26,14 +26,23 @@ function protVehicleTypes() {
   return Object.keys(protVehicleRates()).sort(function(a, b) { return a.localeCompare(b, 'de'); });
 }
 
-// cost = amount entered for a Spedition transport (its price changes per job); null/'' → no amount
-function calcTransportCost(type, dateStr, cost) {
+// cost = amount entered for a Spedition transport (its price changes per job); null/'' → no amount.
+// night = Nachtfahrt (22–6 Uhr): the night rate, or the day's rate when that is higher (Sunday); no night rate → the day's
+function calcTransportCost(type, dateStr, cost, night) {
   if (type === 'Spedition') return parseFloat(cost) >= 0 ? parseFloat(cost) : 0;
   var r = protVehicleRates()[type];
   if (!r) return 0;
-  if (!dateStr) return r.wk;
-  var day = new Date(dateStr).getDay();
-  return day === 0 ? r.so : day === 6 ? r.sa : r.wk;
+  var wd = dateStr ? new Date(dateStr).getDay() : 1, day = wd === 0 ? r.so : wd === 6 ? r.sa : r.wk;
+  return night && typeof r.na === 'number' ? Math.max(day, r.na) : day;
+}
+
+// Work time in minutes from midnight (end before start = over midnight) lies at least half within 22–6 Uhr
+function isMostlyNight(startMin, endMin) {
+  if (startMin == null || endMin == null || isNaN(startMin) || isNaN(endMin)) return false;
+  if (endMin <= startMin) endMin += 1440;
+  var night = 0;
+  for (var m = startMin; m < endMin; m++) { var t = m % 1440; if (t >= 1320 || t < 360) night++; }
+  return night * 2 >= endMin - startMin;
 }
 
 var PROT_PERSONNEL_RATES = {

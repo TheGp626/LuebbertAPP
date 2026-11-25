@@ -8,6 +8,8 @@ var UI_ICONS = {
   box: '<path d="M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   chart: '<path d="M5 20v-9M12 20V4M19 20v-6"/>',
+  seats: '<circle cx="6" cy="8" r="2.5"/><circle cx="12" cy="8" r="2.5"/><circle cx="18" cy="8" r="2.5" stroke-dasharray="2 2"/><path d="M3 18h18M5 14h14"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2.2.6 3.5 2.8 3.5 6"/>',
   'chevron-left': '<path d="M15 6l-6 6 6 6"/>',
   'chevron-right': '<path d="M9 6l6 6-6 6"/>',
   dots: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
