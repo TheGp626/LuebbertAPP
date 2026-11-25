@@ -118,9 +118,11 @@ function _errQueueWrite(q) {
 }
 
 function _errEnqueue(kind, p) {
-  _errQueueWrite(errQueuePut(_errQueueRead(), { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8), kind: kind, p: p }, 50));
+  var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  _errQueueWrite(errQueuePut(_errQueueRead(), { id: id, kind: kind, p: p }, 50));
   // Never call supabase synchronously: inside an auth callback that waits on supabase-js's auth lock forever
   setTimeout(flushErrorQueue, 0);
+  return id;
 }
 
 // A request that never settles (auth lock, dead connection) must not block sending for the rest of the page load
@@ -205,7 +207,19 @@ function reportError(err, opts) {
 function onUncaughtError(cb) { _errUncaughtCbs.push(cb); }
 
 // "Problem melden" (js/problem.js): same queue, sent via report_problem
-function queueReport(p) { _errEnqueue('report', p); }
+// Resolves true once this report has left the phone, false if it is still queued after maxMs (it is sent later)
+function queueReport(p, maxMs) {
+  var id = _errEnqueue('report', p);
+  var sent = function () { return !_errQueueRead().some(function (e) { return e.id === id; }); };
+  return new Promise(function (resolve) {
+    var until = Date.now() + (maxMs || 8000);
+    (function check() {
+      if (sent()) return resolve(true);
+      if (Date.now() >= until) return resolve(false);
+      setTimeout(check, 300);
+    })();
+  });
+}
 
 function _errUncaught(err, source) {
   if (!reportError(err, { source: source })) return;
@@ -225,7 +239,8 @@ function flushErrorQueue() {
         if (!q.length) return;
         var entry = q[0];
         var res = await _errWithTimeout(supabaseClient.rpc(entry.kind === 'report' ? 'report_problem' : 'log_error', { p: entry.p }));
-        if (!res || res.error) return;
+        // a failed fetch comes back as res.error (not thrown): try again later, else the report waits for the next reload
+        if (!res || res.error) { setTimeout(flushErrorQueue, 30000); return; }
         _errQueueWrite(_errQueueRead().filter(function (e) { return e.id !== entry.id; }));
       }
     } catch (e) {
@@ -271,6 +286,8 @@ function _errInit() {
   window.addEventListener('online', function () { breadcrumb('online'); flushErrorQueue(); });
   window.addEventListener('offline', function () { breadcrumb('offline'); });
   window.addEventListener('load', function () { setTimeout(flushErrorQueue, 3000); });
+  // An installed app is mostly resumed, not reloaded: send what is still queued when it comes back
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') flushErrorQueue(); });
   // App version = the service worker's CACHE name (sw.js answers GET_VERSION)
   try {
     var sw = navigator.serviceWorker;
