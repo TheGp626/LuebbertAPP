@@ -821,3 +821,7 @@ div.pn-alert { font-weight: 400; cursor: default; }
 .pn-stale { background: var(--danger-bg); color: var(--danger); display: flex; flex-direction: column; gap: 4px; }
 .pn-stale span { color: var(--text2); font-size: 13px; }
 .pn-stale-acts { display: flex; gap: 8px; margin-top: 6px; }
+.pn-quick-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 10px; }
+.pn-edit { display: flex; gap: 16px; margin: 2px 0 10px; }
+.pn-check { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 14px; line-height: 1.4; }
+.pn-check input { margin-top: 3px; }
