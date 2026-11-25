@@ -2,7 +2,8 @@
    The data is the Besetzungsplaner's (planer.js: plState, plSave, plPlace, plPublish …); this file only paints it:
    a week board where every place is a seat, and one sheet per Einsatz with everything needed to fill it.
    New Auftragsbestätigungen are still read in the background (ordParseNew, auftraege.js), so their phases arrive here.
-   Whoever may decide Meldungen but not plan (only „Sieht Bewerbungen“) keeps the old Aufträge list (initAuftraege).
+   „Plant den Wochenplan“ and „Sieht Bewerbungen“ are one switch „Planung“ (migration planung_ein_schalter). Without the
+   planner tables (plReady false) the old Aufträge list (initAuftraege) still shows.
    Pure helpers first (tests/planen.test.js), then the DOM part. Styles: .pn-* in css/ui.css. ══ */
 
 var PN_MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
