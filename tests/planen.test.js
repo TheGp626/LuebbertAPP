@@ -95,3 +95,14 @@ test('pnCopyRows: free entries of last week to the same weekdays, without people
   assert.equal(out.length, 1);
   assert.deepEqual([out[0].date, out[0].venue, out[0].need, out[0].people, out[0].year, out[0].kw, 'id' in out[0]], ['2026-12-01', 'Lager', 2, [], 2026, 49, false]);
 });
+
+test('pnPublishSummary: counts and who gets a push (people on new or changed entries, and on removed ones)', () => {
+  const sh = (people) => ({ people: people.map(n => ({ name: n, userId: 'u-' + n, role: 'MA' })) });
+  const parsed = { shifts: [sh(['Konrad', 'Lena']), sh(['Piotr']), sh(['Milan'])] };
+  const diff = { status: ['neu', 'geändert', null], removed: [sh(['Sara'])] };
+  assert.deepEqual(plain(ctx.pnPublishSummary(diff, parsed)), { neu: 1, geaendert: 1, entfernt: 1, people: ['Konrad', 'Lena', 'Piotr', 'Sara'] });
+  // first Stand of a week: everything is new, everyone planned gets one
+  assert.deepEqual(plain(ctx.pnPublishSummary(null, parsed)).people, ['Konrad', 'Lena', 'Milan', 'Piotr']);
+  // agency names without an account get no push
+  assert.deepEqual(plain(ctx.pnPublishSummary(null, { shifts: [{ people: [{ name: 'Zenjob 1', userId: null, role: 'Zenjob' }] }] })).people, []);
+});
