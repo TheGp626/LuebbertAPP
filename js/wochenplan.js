@@ -623,12 +623,10 @@ function wpSetView(v) {
   var mode = wpAvailMode(), availTab = document.getElementById('wp-tab-avail');
   if (availTab) availTab.hidden = !(mode.own || mode.grid);
   if (v === 'avail' && !(mode.own || mode.grid)) v = 'mine';
-  // Besetzungsplaner (planer.js): planners and PLs only, and only once its tables exist
-  var planOk = typeof plTabVisible === 'function' && plTabVisible(), planTab = document.getElementById('wp-tab-plan');
-  if (planTab) planTab.hidden = !planOk;
-  if (v === 'plan' && !planOk) v = 'mine';
+  // The Besetzungsplaner moved to its own tab PLANEN (planen.js)
+  if (v === 'plan') v = 'mine'; // a view remembered from before the move
   wpView = v;
-  ['mine', 'all', 'avail', 'plan'].forEach(function(t) {
+  ['mine', 'all', 'avail'].forEach(function(t) {
     var b = document.getElementById('wp-tab-' + t);
     if (!b) return;
     b.classList.toggle('active', v === t);
@@ -636,7 +634,7 @@ function wpSetView(v) {
   });
   document.getElementById('wp-week-nav').style.display = v === 'all' ? 'flex' : 'none';
   document.getElementById('wp-days').style.display = v === 'all' ? 'flex' : 'none';
-  if (v === 'mine') wpRenderMine(); else if (v === 'avail') wpRenderAvail(); else if (v === 'plan') plRender(); else wpRenderWeek();
+  if (v === 'mine') wpRenderMine(); else if (v === 'avail') wpRenderAvail(); else wpRenderWeek();
 }
 
 // Verfügbarkeit tab: own calendar (unlocked people) and/or the planner grid

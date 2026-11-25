@@ -573,9 +573,10 @@ function ordAvailable(jobs, today) {
 }
 
 // ── „Hey, hast du Zeit?“ (Jenni, 25.11.2026): a push to one person about one shift (Edge Function ask-shift) ──
-async function ordAsk(kind, a, b, userId, label) {
+async function ordAsk(kind, a, b, userId, label, name) {
   var body = kind === 'shift' ? { kind: kind, week_id: a, shift_key: b, user_id: userId, label: label } : { kind: kind, job_no: a, phase: b, user_id: userId, label: label };
-  var name = ordName(userId), r;
+  var r;
+  name = name || ordName(userId);
   try { r = await supabaseClient.functions.invoke('ask-shift', { body: body }); } catch (e) { r = { error: e }; }
   var d = r && r.data;
   if (r.error || !d) { console.error('Fragen:', r && r.error); showToast('Nicht gesendet. Prüf deine Verbindung.', 'danger'); return; }
@@ -635,6 +636,25 @@ async function ordDecideShift(weekId, key, userId, status) {
   }
   ordDraftSync('shift', weekId, key, userId, status);
   ordRenderList();
+}
+
+// PLANEN (planen.js): reads new Auftragsbestätigungen in the background, so their phases reach order_slots and the board.
+// → { jobs: { job no → { job, file } }, fresh: a new or re-read file was stored } or null on an error. Never throws.
+async function ordParseNew() {
+  try {
+    var res = await Promise.all([
+      supabaseClient.from('folder_files').select('id, folder_id, name, file_url, file_type, created_at, project_folders(name)').ilike('name', '%auftragsbest%'),
+      supabaseClient.from('order_parsed').select('file_id, parser_version, result')
+    ]);
+    if (res[0].error || res[1].error) throw res[0].error || res[1].error;
+    _ordFiles = (res[0].data || []).filter(function(f) { return orderIsAb(f.name) && /pdf/i.test((f.file_type || '') + f.name); });
+    var fresh = false;
+    var out = await ordResolve(_ordFiles, res[1].data, ordReadFile, function(row) { fresh = true; return ordSaveCache(row); }, function() {});
+    if (!out) return null;
+    var jobs = {};
+    ordJobs(_ordFiles, ordFoldShared(out.parsed)).forEach(function(x) { jobs[x.job.jobNo] = x; });
+    return { jobs: jobs, fresh: fresh };
+  } catch (e) { console.error('Auftragsbestätigungen lesen:', e); return null; }
 }
 
 async function initAuftraege() {

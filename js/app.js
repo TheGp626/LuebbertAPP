@@ -76,7 +76,7 @@ try {
 
 // ── MODE SELECTION & NAVIGATION ──
 var MODULE_TITLES = { stunden: 'Stundenzettel', protokoll: 'Protokoll', dashboard: 'Office Dashboard',
-  produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan', auftraege: 'Aufträge', admin: 'Admin' };
+  produkte: 'Produktdatenbank', ordner: 'Projektordner', wochenplan: 'Wochenplan', auftraege: 'Planen', admin: 'Admin' };
 
 // The office dashboard is opened from two tiles; each shows one view ('prot' | 'work'). Admin settings: js/admin.js
 var DASH_VIEW_TITLES = { prot: 'Protokoll-Übersicht', work: 'Personal' };
@@ -104,7 +104,7 @@ function selectMode(m, view) {
   if (loggedIn && !moduleAllowedForRole(m, userRole)) {
     showToast(userRole === 'Gast' ? 'Zugriff verweigert: Gastzugang nur für Produktdatenbank und Projektordner.'
       : m === 'protokoll' ? 'Zugriff verweigert: Nur für AL/PL.'
-      : m === 'auftraege' ? 'Zugriff verweigert: Nur für PL/Admin.'
+      : m === 'auftraege' ? 'Zugriff verweigert: Planen ist für Planung, PL und Admin.'
       : m === 'admin' ? 'Zugriff verweigert: Nur für Admins.'
       : 'Zugriff verweigert: Nur für AL/PL/Buchhaltung.');
     return;
@@ -178,7 +178,7 @@ function selectMode(m, view) {
     if (pn5) pn5.style.display = 'none';
     navigate('auftraege');
     // Needs the session for the queries; a module restored before login is initialised from handleSession
-    if (typeof initAuftraege === 'function' && typeof currentUser !== 'undefined' && currentUser) initAuftraege();
+    if (typeof initPlanen === 'function' && typeof currentUser !== 'undefined' && currentUser) initPlanen();
   }
 }
 

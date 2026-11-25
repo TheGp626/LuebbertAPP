@@ -1,17 +1,17 @@
 # Graph Report - LuebbertAPP  (2026-11-25)
 
 ## Corpus Check
-- 116 files · ~173,823 words
+- 117 files · ~176,245 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 4 file(s) not represented in the graph (top: (none) 2, .css 2)
 
 ## Summary
-- 1676 nodes · 3714 edges · 90 communities (64 shown, 26 thin omitted)
-- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 215 edges (avg confidence: 0.85)
+- 1698 nodes · 3735 edges · 90 communities (64 shown, 26 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 218 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `9a2c991e`
+- Built from commit: `ce678d49`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -57,7 +57,7 @@
 - poll-plan-inbox/index.ts
 - public.plan_cancellations
 - protSaveArchive
-- debug-input.mjs
+- planen.js
 - loadProtFromHistory
 - renderProtPersonnel
 - was drin ist
@@ -88,16 +88,16 @@
 - 20261203_jenni_runde_4.sql
 
 ## God Nodes (most connected - your core abstractions)
-1. `plPaint()` - 26 edges
+1. `wpMe()` - 25 edges
 2. `saveProtDraft()` - 25 edges
-3. `wpMe()` - 25 edges
-4. `runDaily()` - 23 edges
-5. `fetchShiftsNow()` - 21 edges
+3. `runDaily()` - 23 edges
+4. `fetchShiftsNow()` - 21 edges
+5. `wpEsc()` - 18 edges
 6. `calcProtCosts()` - 18 edges
-7. `wpEsc()` - 18 edges
-8. `openMaterialCheck()` - 18 edges
-9. `renderProtPersonnel()` - 17 edges
-10. `_mcRender()` - 17 edges
+7. `openMaterialCheck()` - 18 edges
+8. `renderProtPersonnel()` - 17 edges
+9. `_mcRender()` - 17 edges
+10. `wpRow()` - 16 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `für entwickler` --references--> `planDiff()`  [INFERRED]
@@ -118,7 +118,7 @@
 
 ### Community 0 - "planer.js"
 Cohesion: 0.06
-Nodes (101): plAddDays(), plAddPerson(), plAfterPublish(), plApplied(), plAppliedFor(), plBounds(), plBox(), plCancelCount() (+93 more)
+Nodes (90): plActive(), plAddDays(), plAddPerson(), plAfterPublish(), plApplied(), plAppliedFor(), plBounds(), plBox() (+82 more)
 
 ### Community 1 - "wochenplan.js"
 Cohesion: 0.05
@@ -158,15 +158,15 @@ Nodes (36): calcDashProtTotal(), closeDashProtEdit(), dashboardCurrentShifts, da
 
 ### Community 10 - "auftraege.js"
 Cohesion: 0.11
-Nodes (45): initAuftraege(), ordAcceptAvailable(), ordAsk(), ordAskPick(), ordAskPicked(), ordAvailable(), ordByShare(), ordCanDecide() (+37 more)
+Nodes (46): initAuftraege(), ordAcceptAvailable(), ordAsk(), ordAskPick(), ordAskPicked(), ordAvailable(), ordByShare(), ordCanDecide() (+38 more)
 
 ### Community 11 - "app.js"
 Cohesion: 0.09
 Nodes (34): addDepartment(), applyTheme(), closeSettingsModal(), closeSigModal(), cycleTheme(), deleteDepartment(), deptLabel(), exitToMenu() (+26 more)
 
 ### Community 12 - "send-reminders/index.ts"
-Cohesion: 0.13
-Nodes (38): CORS, Db, Input, json(), runDaily(), runEvening(), runHoursCheck(), runTest() (+30 more)
+Cohesion: 0.11
+Nodes (41): CORS, Db, Input, json(), runDaily(), runEvening(), runHoursCheck(), runTest() (+33 more)
 
 ### Community 13 - "public.app_users"
 Cohesion: 0.10
@@ -181,8 +181,8 @@ Cohesion: 0.12
 Nodes (16): public.auth_user_set_display_name(), public.pin_register_failure(), app_users_pl_guard, public.app_users_pl_guard(), app_users_pl_guard, public.app_users_pl_guard(), public.register_push_subscription(), public.renew_calendar_token() (+8 more)
 
 ### Community 16 - "send-protocol-mail/index.ts"
-Cohesion: 0.09
-Nodes (37): AREA_LABELS, AREA_ORDER, buildDepartmentBody(), buildDepartmentSubject(), DEFAULT_ROUTES, DEPARTMENT_EMAIL_RE, departmentFeedback(), departmentRecipient() (+29 more)
+Cohesion: 0.11
+Nodes (33): AREA_LABELS, AREA_ORDER, buildDepartmentBody(), buildDepartmentSubject(), DEFAULT_ROUTES, DEPARTMENT_EMAIL_RE, departmentFeedback(), departmentRecipient() (+25 more)
 
 ### Community 17 - "pin.mjs"
 Cohesion: 0.14
@@ -269,8 +269,8 @@ Cohesion: 0.20
 Nodes (14): dashGroupLabel(), dashInactiveHtml(), dashIsFest(), dashMayManageStaff(), dashMayResetPin(), dashResetWorkerPin(), dashSelectedWorker(), dashWorkerList() (+6 more)
 
 ### Community 38 - "poll-plan-inbox/index.ts"
-Cohesion: 0.22
-Nodes (8): authPassed(), isPdf(), MAX_PDF_BYTES, parseAllowed(), pickPlanPdfs(), senderAllowed(), storagePath(), CORS
+Cohesion: 0.15
+Nodes (12): authPassed(), isPdf(), MAX_PDF_BYTES, parseAllowed(), pickPlanPdfs(), senderAllowed(), storagePath(), CORS (+4 more)
 
 ### Community 39 - "public.plan_cancellations"
 Cohesion: 0.22
@@ -280,9 +280,9 @@ Nodes (10): plan_shift_interest_user_id_idx, public.plan_shift_interest, plan_sh
 Cohesion: 0.20
 Nodes (15): deleteProtHistory(), mailProtokoll(), markProtMailed(), mergeProtHistory(), protArchiveShrink(), protKeepOnLogout(), protLogoutCleanup(), protRowToEntry() (+7 more)
 
-### Community 41 - "debug-input.mjs"
-Cohesion: 0.50
-Nodes (3): DEBUG_KEYS, stripDebug(), wantsDebug()
+### Community 41 - "planen.js"
+Cohesion: 0.16
+Nodes (24): initPlanen(), pnAlertsHtml(), pnAskTarget(), pnAvatar(), pnClose(), pnDays(), pnE(), pnFilter() (+16 more)
 
 ### Community 42 - "loadProtFromHistory"
 Cohesion: 0.18
@@ -374,23 +374,23 @@ Nodes (4): ask_log_asked_by_idx, protocols_mark_edited, public.ask_log, public.p
 
 ## Knowledge Gaps
 - **2 isolated node(s):** `RFC-5545`, `RFC-5545`
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 220 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 227 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **26 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `planShiftFromDb()` connect `wochenplan.js` to `dashboard.js`, `plan-parser.js`?**
-  _High betweenness centrality (0.049) - this node is a cross-community bridge._
+  _High betweenness centrality (0.048) - this node is a cross-community bridge._
 - **What connects `RFC-5545`, `RFC-5545` to the rest of the system?**
   _2 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `planer.js` be split into smaller, more focused modules?**
-  _Cohesion score 0.057692307692307696 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.056915807560137456 - nodes in this community are weakly interconnected._
 - **Why does `dashStartProtokollFromPlan()` connect `dashboard.js` to `wochenplan.js`?**
   _High betweenness centrality (0.046) - this node is a cross-community bridge._
 - **Should `wochenplan.js` be split into smaller, more focused modules?**
   _Cohesion score 0.0548258138206739 - nodes in this community are weakly interconnected._
 - **Why does `planStripPhones()` connect `plan-parser.js` to `planer.js`?**
-  _High betweenness centrality (0.037) - this node is a cross-community bridge._
+  _High betweenness centrality (0.031) - this node is a cross-community bridge._
 - **Should `stundenzettel.js` be split into smaller, more focused modules?**
   _Cohesion score 0.06163401815575729 - nodes in this community are weakly interconnected._
