@@ -82,6 +82,12 @@ test('readVehicleRates / validVehicleRates: blank rows skipped, duplicates and b
   assert.equal(S.validateSettings({ vehicle_rates: {} }), 'vehicle_rates');
   assert.equal(S.validateSettings({ vehicle_rates: null }), 'vehicle_rates');
   assert.equal(S.validateSettings({ vehicle_rates: { PKW: { wk: 20, sa: 20, so: 20 } } }), null);
+  // night rate: optional, blank = day rate, otherwise 0–100000
+  assert.deepEqual(S.readVehicleRates([{ name: 'Solo', wk: '70', sa: '70', so: '70', na: '95' }, { name: 'PKW', wk: '20', sa: '20', so: '20', na: '' }]),
+    { Solo: { wk: 70, sa: 70, so: 70, na: 95 }, PKW: { wk: 20, sa: 20, so: 20 } });
+  assert.equal(S.validateSettings({ vehicle_rates: { Solo: { wk: 70, sa: 70, so: 70, na: 95 } } }), null);
+  assert.equal(S.validateSettings({ vehicle_rates: { Solo: { wk: 70, sa: 70, so: 70, na: -1 } } }), 'vehicle_rates');
+  assert.equal(S.validateSettings({ vehicle_rates: { Solo: { wk: 70, sa: 70, so: 70, xx: 1 } } }), 'vehicle_rates');
 });
 
 test('a broken vehicle_rates value from the server keeps the default rates', () => {
@@ -150,4 +156,26 @@ test('department mail settings: defaults, validation, merge keeps unknown areas 
   store.luebbert_app_settings = JSON.stringify({ department_routes: { stoffe: 'evil' } });
   S.appSettingsFromCache();
   assert.equal(S.appSetting('department_routes').stoffe, 'stoffe');
+});
+
+test('department addresses: editable, only @peterluebbert.de, bad cached values fall back', () => {
+  assert.equal(S.appSetting('department_emails').lager, 'lager@peterluebbert.de');
+  assert.equal(S.validateSettings({ department_emails: { logistik: 'd.test@peterluebbert.de', tischlerei: '' } }), null);
+  assert.equal(S.validateSettings({ department_routes: { logistik: 'logistik', tischlerei: 'tischlerei' } }), null);
+  assert.equal(S.validateSettings({ department_emails: { lager: 'x@evil.test' } }), 'department_emails');
+  assert.equal(S.validateSettings({ department_emails: { lager: 'a@peterluebbert.de.evil.test' } }), 'department_emails');
+  assert.equal(S.validateSettings({ department_emails: { kueche: 'k@peterluebbert.de' } }), 'department_emails');
+  store.luebbert_app_settings = JSON.stringify({ department_emails: { logistik: 'd@peterluebbert.de' } });
+  S.appSettingsFromCache();
+  assert.equal(S.appSetting('department_emails').logistik, 'd@peterluebbert.de');
+  assert.equal(S.appSetting('department_emails').stoffe, 'Stoffe@peterluebbert.de');
+  store.luebbert_app_settings = JSON.stringify({ department_emails: { lager: 'x@evil.test' } });
+  S.appSettingsFromCache();
+  assert.equal(S.appSetting('department_emails').lager, 'lager@peterluebbert.de');
+});
+
+test('routesWithoutAddress: a route to a department with an empty address is named', () => {
+  assert.deepEqual(S.routesWithoutAddress({ logistik: 'logistik', mobiliar: 'lager', tischlerei: '' }, { logistik: '', lager: 'lager@peterluebbert.de' }), ['Lager / Logistik']);
+  assert.deepEqual(S.routesWithoutAddress({ logistik: 'lager' }, { lager: 'lager@peterluebbert.de' }), []);
+  assert.deepEqual(S.routesWithoutAddress(undefined, {}), []);
 });

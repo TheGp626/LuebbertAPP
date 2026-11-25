@@ -718,16 +718,6 @@ test('dashBees: top 3 by net hours in the billing month', () => {
   assert.equal(top[0].mins, 720);
 });
 
-test('dashPlansWeekChange: only a switch an Admin was shown and changed is saved', () => {
-  assert.equal(run('dashPlansWeekChange(null, true)'), null);      // not shown: no Admin, or the column does not exist yet
-  assert.equal(run('dashPlansWeekChange(undefined, true)'), null);
-  assert.equal(run('dashPlansWeekChange(false, false)'), null);
-  assert.equal(run('dashPlansWeekChange(true, true)'), null);
-  assert.equal(run('dashPlansWeekChange(false, true)'), true);
-  assert.equal(run('dashPlansWeekChange(true, false)'), false);
-  assert.equal(run('dashPlansWeekChange(true, undefined)'), false);
-});
-
 test('dashMayResetPin: follows the reset rules, never oneself or a deactivated account', () => {
   run("var mayResetPinClient = function(c, t) { var m = { Admin: ['Admin','PL','AL','MA','Buchhaltung'], PL: ['AL','MA'], AL: ['MA'] }; return !!m[c] && m[c].indexOf(t) !== -1; }");
   const ok = (role, me, w) => run('dashMayResetPin(' + JSON.stringify(role) + ', ' + JSON.stringify(me) + ', ' + JSON.stringify(w) + ')');
@@ -908,6 +898,17 @@ test('protocol editor: changed times recalculate the break also for people alrea
   run("updateDashPeShift(0, 'pause', '15')");
   run("updateDashPeShift(0, 'end', '18:30')");
   assert.equal(run('_editProtShifts[0].pause'), '15', 'typed by hand → kept');
+});
+
+test('protocol editor: a break below the legal minimum goes back to it, a longer one stays', () => {
+  ctx.document.getElementById = () => null; ctx.showToast = () => {};
+  run("_editProtShifts = [{ id: 's1', userId: 'u1', name: 'Anna', pos: 'MA', start: '10:00', end: '18:00', pause: '10' }, { id: 's2', userId: 'u2', name: 'Ben', pos: 'MA', start: '10:00', end: '18:00', pause: '60' }]");
+  const el = { value: '10' };
+  ctx.dashClampPause(0, el);
+  ctx.dashClampPause(1, null);
+  assert.equal(run('_editProtShifts[0].pause'), '30');
+  assert.equal(el.value, 30);
+  assert.equal(run('_editProtShifts[1].pause'), '60');
 });
 
 test('dashPeNewShortBreaks: only breaks this edit makes too short need a reason; untouched old rows do not', () => {

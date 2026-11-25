@@ -84,5 +84,27 @@ test('recipient: off, test mode with and without test address, live', () => {
   assert.equal(departmentRecipient('lager', { enabled: false, testMode: false }).reason, 'disabled');
   assert.deepEqual(departmentRecipient('lager', { enabled: true, testMode: true, testRecipient: 't@x.de' }), { to: 't@x.de', reason: null, test: true });
   assert.equal(departmentRecipient('lager', { enabled: true, testMode: true, testRecipient: '' }).reason, 'not_configured');
-  assert.equal(departmentRecipient('floristik', { enabled: true, testMode: false }).to, DEPARTMENTS.floristik.to);
+  const emails = { floristik: 'Florist@peterluebbert.de', lager: 'x@evil.test', logistik: '' };
+  assert.equal(departmentRecipient('floristik', { enabled: true, testMode: false, emails }).to, 'Florist@peterluebbert.de');
+  assert.equal(departmentRecipient('lager', { enabled: true, testMode: false, emails }).reason, 'no_address');
+  assert.equal(departmentRecipient('logistik', { enabled: true, testMode: false, emails }).reason, 'no_address');
+  assert.equal(departmentRecipient('stoffe', { enabled: true, testMode: false }).reason, 'no_address');
+  assert.ok(DEPARTMENTS.tischlerei && DEPARTMENTS.logistik);
+});
+
+test('Fehlmengen from Material abhaken: in the PL mail and to the Lager / Logistik department', async () => {
+  const { buildBody, shortageLines } = await import('./mail.mjs');
+  const short = [{ name: 'Stuhl Napoleon', soll: 100, ist: 94, fehlt: 6, note: 'Lager prüfen' }, { name: 'Husse', fehlt: null }];
+  assert.deepEqual(shortageLines(short), ['Stuhl Napoleon: 6 fehlen (Soll 100, Ist 94). Bemerkung: Lager prüfen', 'Husse: fehlt']);
+  assert.match(buildBody({ shortages: short, date: '2026-11-17' }).text, /Fehlmengen laut Auftrag:\n- Stuhl Napoleon: 6 fehlen/);
+  const f = departmentFeedback({ protocol_equipments: [], shortages: short });
+  assert.deepEqual(f.lager, ['Fehlmenge Stuhl Napoleon: 6 fehlen (Soll 100, Ist 94). Bemerkung: Lager prüfen', 'Fehlmenge Husse: fehlt']);
+  assert.deepEqual(departmentFeedback({ protocol_equipments: [], shortages: short }, { logistik: '' }), {});
+  assert.deepEqual(Object.keys(departmentFeedback({ protocol_equipments: [], shortages: short }, { logistik: 'logistik' })), ['logistik']);
+});
+
+test('PL mail names the attached photos', async () => {
+  const { buildBody } = await import('./mail.mjs');
+  assert.match(buildBody({ date: '2026-11-17', photos: ['2026-11/a.jpg', '2026-11/b.jpg'] }).text, /Fotos: 2 im Anhang/);
+  assert.doesNotMatch(buildBody({ date: '2026-11-17' }).text, /Fotos:/);
 });

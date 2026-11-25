@@ -9,6 +9,7 @@ test('defaults match the spec', () => {
     plan_change_push_enabled: true, folder_push_enabled: true, folder_autodelete_enabled: true, protocol_mail_enabled: true, mail_test_mode: true, billing_cutoff: 20,
     department_mail_enabled: true, department_mail_test_mode: true,
     department_routes: { logistik: 'lager', mobiliar: 'lager', tischlerei: '', stoffe: 'stoffe', floristik: 'floristik' },
+    department_emails: { lager: 'lager@peterluebbert.de', logistik: '', tischlerei: '', stoffe: 'Stoffe@peterluebbert.de', floristik: 'Florist@peterluebbert.de' },
   });
 });
 

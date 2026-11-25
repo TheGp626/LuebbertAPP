@@ -219,3 +219,14 @@ export function plMail(items) {
     + `<p style="color:#999;font-size:12px;">${escapeHtml(FOOTER)}</p></div>`;
   return { subject, text, html };
 }
+
+// ── Monthly "check your hours" push: 2 days before the billing cut-off (cut-off 20 → the 18th), 9:00 ──
+// shortcut: a cut-off of 1 or 2 has no day before it in the same month → no push; fine while it stays around 20
+export function isHoursCheckDay(todayIso, cutoff) {
+  const day = Number(String(todayIso).slice(8, 10));
+  return Number.isInteger(cutoff) && cutoff > 2 && day === cutoff - 2;
+}
+
+export function hoursCheckPush(cutoff) {
+  return { title: 'Check mal deine Stunden', body: `Am ${cutoff}. ist Abrechnungsschluss. Stimmen alle Schichten im Stundenzettel?`, url: './index.html' };
+}

@@ -1,4 +1,4 @@
-/* Besetzungsplaner (test build): the weekly plan is drafted in the app instead of Excel.
+/* Besetzungsplaner: the weekly plan is drafted in the app instead of Excel. Shown in the PLANEN tab (planen.js paints it).
  * A draft (plan_draft_weeks / plan_draft_shifts) is only seen by planners ("Plant den Wochenplan", Admin) and PLs.
  * Publishing turns the draft into the object planParse() returns for a PDF and hands it to the existing preview and
  * save of wochenplan.js (wpRenderImport / wpSaveImport), so everything that reads plan_weeks/plan_shifts stays as it is.
@@ -85,26 +85,48 @@ function plWannText(phase, startAt, endAt) {
   return (label ? label + ': ' : '') + t + ' Uhr';
 }
 
-// One Auftrag phase (order_slots row) → a new draft row; accepted Meldungen are placed right away
-function plRowFromSlot(slot, week, users) {
+// One Auftrag phase (planner_order_phases / order_slots row) → a new draft row; accepted Meldungen are placed right away.
+// need null = no MA number entered yet ("MA?" in PLANEN)
+// The fields a Bestätigung decides for its plan entry (shared by plRowFromSlot and plMergeSlots)
+// `manual` after a save from the edit sheet: every field that differs from the row's value counts as changed by hand
+// (a later revised Bestätigung then leaves it alone and only reports its own value)
+var PL_MANUAL_FIELDS = ['date', 'wann', 'location', 'title', 'venue'];
+function plManualAfter(row, changes) {
+  var out = Array.isArray(row && row.manual) ? row.manual.slice() : [];
+  PL_MANUAL_FIELDS.forEach(function(k) {
+    if (k in changes && (changes[k] == null ? null : changes[k]) !== (row[k] == null ? null : row[k]) && out.indexOf(k) === -1) out.push(k);
+  });
+  return out;
+}
+
+function plSlotFields(slot) {
   var title = String(slot.title || ''), event = title.split('_').slice(2).join(' ').trim();
+  return { date: ordSlotDate(slot), wann: plText(plWannText(slot.phase, slot.start_at, slot.end_at)),
+    location: plText([event, slot.room].filter(Boolean).join('\n')), title: plText(slot.name), need: slot.needed == null ? null : slot.needed };
+}
+
+function plRowFromSlot(slot, week, users) {
+  var title = String(slot.title || ''), f = plSlotFields(slot);
   var people = [];
   (Array.isArray(slot.accepted_ids) ? slot.accepted_ids : []).forEach(function(id) {
     var u = (users || []).find(function(x) { return x.id === id && x.is_active !== false; });
     if (u && !people.some(function(p) { return p.user_id === id; })) people.push({ user_id: id, name: plShortName(u, users), role: 'MA', note: null });
   });
   return {
-    year: week.year, kw: week.kw, date: ordSlotDate(slot), sort: 0, job_no: slot.job_no, phase: slot.phase,
-    venue: ordVenueLabel(title) || plText(title), location: plText([event, slot.room].filter(Boolean).join('\n')),
-    title: plText(slot.name), details: null, wann: plText(plWannText(slot.phase, slot.start_at, slot.end_at)),
-    ap: null, ap_user_id: null, notes: null, need: slot.needed == null ? 0 : slot.needed, people: people, kind: 'auftrag'
+    year: week.year, kw: week.kw, date: f.date, sort: 0, job_no: slot.job_no, phase: slot.phase,
+    venue: ordVenueLabel(title) || plText(title), location: f.location,
+    title: f.title, details: null, wann: f.wann,
+    ap: null, ap_user_id: null, notes: null, need: f.need, people: people, kind: 'auftrag'
   };
 }
 
-// Draft rows against the Auftrag phases of the week. Existing rows are never removed and keep people and texts;
-// only the day and the MA number follow the Auftrag (both are maintained in Aufträge / the project folder).
-// slots === null (not loaded) changes nothing.
-function plMergeSlots(rows, slots, week, users) {
+// Draft rows against the Auftrag phases of the week. Existing rows are never removed and keep their people.
+// Day and MA number always follow the Auftrag. Rows with the column `manual` (migration planen_flow) also follow time,
+// room/event and name, except fields a person changed by hand (listed in `manual`); every difference the merge sees is
+// added once to auftrag_changes ({field, from, to, kept, at}; „Gesehen“ marks them seen, they are never added twice).
+// Older rows without the column keep their texts (they may hold hand edits nobody recorded).
+// slots === null (not loaded) changes nothing. now = timestamp written into new change entries.
+function plMergeSlots(rows, slots, week, users, now) {
   var out = { add: [], patch: [], stale: [] };
   if (!slots) return out;
   var inWeek = {}, any = {};
@@ -119,9 +141,18 @@ function plMergeSlots(rows, slots, week, users) {
     var k = r.job_no + '|' + r.phase, s = inWeek[k];
     have[k] = true;
     if (!s) { out.stale.push(r.id); return; }
-    var ch = {}, d = ordSlotDate(s);
-    if (d !== r.date) ch.date = d;
-    if (s.needed != null && s.needed !== r.need) ch.need = s.needed;
+    var ch = {}, f = plSlotFields(s), tracked = 'manual' in r, manual = Array.isArray(r.manual) ? r.manual : [];
+    var log = Array.isArray(r.auftrag_changes) ? r.auftrag_changes.slice() : [], logged = log.length;
+    var same = function(a, b) { return (a == null ? null : a) === (b == null ? null : b); };
+    ['date', 'need'].concat(tracked ? ['wann', 'location', 'title'] : []).forEach(function(k) {
+      if ((k === 'need' && f.need == null) || same(r[k], f[k])) return;
+      var kept = manual.indexOf(k) !== -1;
+      if (!kept) ch[k] = f[k];
+      // the MA number is set in PLANEN itself: not reported as a change of the Auftrag
+      if (tracked && k !== 'need' && !log.some(function(c) { return c.field === k && same(c.to, f[k]); }))
+        log.push({ field: k, from: r[k] == null ? null : r[k], to: f[k], kept: kept, at: now || null });
+    });
+    if (log.length !== logged) ch.auftrag_changes = log;
     if (Object.keys(ch).length) out.patch.push({ id: r.id, changes: ch });
   });
   Object.keys(inWeek).forEach(function(k) { if (!have[k]) out.add.push(plRowFromSlot(inWeek[k], week, users)); });
@@ -196,6 +227,9 @@ function plSeed(planShifts, slots, week, users) {
         used[k] = true;
         rows[i].job_no = s.job_no; rows[i].phase = s.phase;
         if (s.needed != null) rows[i].need = s.needed;
+        // The uploaded plan's texts are Daniel's: a revised Bestätigung only reports its own (plForInsert drops the key
+        // before migration planen_flow)
+        rows[i].manual = ['wann', 'location', 'title'];
       } else rest.push(s);
     });
   });
@@ -475,6 +509,17 @@ async function plLoadFlag() {
 
 function plTabVisible() { return !!window.plReady && plCanOpen(plWho()); }
 
+// Every Auftrag phase, also without an MA number (planner_order_phases, migration planen_flow); before that migration
+// the Wochenplan's order_slots (phases with MA > 0 only). null = could not load.
+async function plLoadPhases() {
+  try {
+    var r = await supabaseClient.rpc('planner_order_phases');
+    if (!r.error) return r.data || [];
+    console.warn('planner_order_phases fehlt, nehme order_slots:', r.error);
+  } catch (e) { console.warn('planner_order_phases:', e); }
+  return wpLoadSlots();
+}
+
 function plBounds() {
   var min = plMonday(localDateStr());
   return { min: min, max: plAddDays(min, PL_WEEKS_AHEAD * 7) };
@@ -487,7 +532,9 @@ function plStepWeek(dir) {
   plRender();
 }
 
-function plBox() { return document.getElementById('wp-content'); }
+function plBox() { return document.getElementById('ord-content'); }
+// The board lives in the PLANEN tab (module key 'auftraege'); a load that finishes after leaving it paints nothing
+function plActive() { return typeof activeModule !== 'undefined' && activeModule === 'auftraege'; }
 
 function plNavHtml(week, b) {
   var arrow = function(dir, label, off, path) {
@@ -508,58 +555,75 @@ async function plRender() {
   var week = plWeekOf(plMondayIso), seq = ++plSeq, nav = plNavHtml(week, b);
   if (!plState || plState.week.weekStart !== week.weekStart) box.innerHTML = nav + '<div class="wp-empty">Lädt…</div>';
   var res;
+  if (!wpUsers.length) { // the people list comes from the Wochenplan, which may not have been opened yet
+    try {
+      var ud = await supabaseClient.rpc('user_directory');
+      if (!ud.error) wpUsers = (ud.data || []).slice().sort(function(x, y) { return (x.full_name || '').localeCompare(y.full_name || ''); });
+    } catch (e) { console.warn('Personen laden:', e); }
+  }
   try {
     res = await Promise.all([
       supabaseClient.from('plan_draft_weeks').select('*').eq('year', week.year).eq('kw', week.kw).maybeSingle(),
       supabaseClient.from('plan_draft_shifts').select('*').eq('year', week.year).eq('kw', week.kw),
       supabaseClient.from('plan_weeks').select('id, version, file_name').eq('year', week.year).eq('kw', week.kw).maybeSingle(),
-      wpLoadSlots(),
+      plLoadPhases(),
       supabaseClient.from('availability').select('user_id, day, level').gte('day', week.weekStart).lte('day', week.weekEnd),
-      supabaseClient.from('order_applications').select('job_no, phase, user_id, status'),
+      supabaseClient.from('order_applications').select('*'), // '*': vorbehalt only after migration jenni_runde_3
       supabaseClient.rpc('availability_people'),
       supabaseClient.from('plan_draft_shifts').select('kind').limit(1),
-      supabaseClient.from('plan_draft_shifts').select('open_other').limit(1)
+      supabaseClient.from('plan_draft_shifts').select('open_other').limit(1),
+      supabaseClient.from('plan_draft_shifts').select('manual, pair_id').limit(1) // migration planen_flow
     ]);
   } catch (e) { res = [{ error: e }]; }
-  if (seq !== plSeq || wpView !== 'plan') return;
+  if (seq !== plSeq || !plActive()) return;
   if (res[0].error || res[1].error || res[2].error) {
     console.error('Besetzungsplaner laden:', res[0].error || res[1].error || res[2].error);
     box.innerHTML = nav + '<div class="wp-empty">Der Planer konnte nicht geladen werden. Prüf deine Verbindung.</div>';
     return;
   }
-  var avail = {}, apps = {}, tracked = {};
+  var avail = {}, apps = {}, tracked = {}, vb = {};
   // All three are extras: without the right to read them the board still works, just without the hints
   ((res[4] && !res[4].error && res[4].data) || []).forEach(function(r) { avail[r.user_id + '|' + r.day] = r.level; });
   ((res[5] && !res[5].error && res[5].data) || []).forEach(function(a) {
     var k = a.job_no + '|' + a.phase;
     (apps[k] = apps[k] || {})[a.user_id] = a.status;
+    if (a.vorbehalt) vb['o|' + k + '|' + a.user_id] = a.vorbehalt;
   });
   ((res[6] && !res[6].error && res[6].data) || []).forEach(function(p) { tracked[p.id] = true; });
   plState = { week: week, draft: res[0].data || null, rows: res[1].data || [], planWeek: res[2].data || null, slots: res[3], avail: avail, apps: apps,
-    tracked: tracked, interest: {}, keys: {}, stale: [], cancels: null, replace: null, hasKind: !!(res[7] && !res[7].error), hasOpen: !!(res[8] && !res[8].error) };
+    tracked: tracked, vb: vb, interest: {}, keys: {}, stale: [], cancels: null, replace: null, hasKind: !!(res[7] && !res[7].error), hasOpen: !!(res[8] && !res[8].error), hasFlow: !!(res[9] && !res[9].error) };
   if (plState.planWeek) {
     // "Ich kann" on entries of the published plan (free entries with open places); an extra like the hints above
     var pi;
-    try { pi = await supabaseClient.from('plan_shift_interest').select('shift_key, user_id, status').eq('week_id', plState.planWeek.id); } catch (e) { pi = { error: e }; }
-    if (seq !== plSeq || wpView !== 'plan') return;
-    ((pi && !pi.error && pi.data) || []).forEach(function(r) { (plState.interest[r.shift_key] = plState.interest[r.shift_key] || {})[r.user_id] = r.status || 'offen'; });
+    try { pi = await supabaseClient.from('plan_shift_interest').select('*').eq('week_id', plState.planWeek.id); } catch (e) { pi = { error: e }; }
+    if (seq !== plSeq || !plActive()) return;
+    ((pi && !pi.error && pi.data) || []).forEach(function(r) {
+      (plState.interest[r.shift_key] = plState.interest[r.shift_key] || {})[r.user_id] = r.status || 'offen';
+      if (r.vorbehalt) plState.vb['s|' + r.shift_key + '|' + r.user_id] = r.vorbehalt;
+    });
+    // Keys of the published entries: „Fragen“ only makes sense for an entry the crew can see in the Wochenplan
+    var pk;
+    try { pk = await supabaseClient.from('plan_shifts').select('key').eq('week_id', plState.planWeek.id); } catch (e) { pk = { error: e }; }
+    if (seq !== plSeq || !plActive()) return;
+    plState.publishedKeys = {};
+    ((pk && !pk.error && pk.data) || []).forEach(function(r) { plState.publishedKeys[r.key] = true; });
     // Absagen: without the table (migration absagen not applied yet) or the right to read it, cancels stays null
     var pc;
     try { pc = await supabaseClient.from('plan_cancellations').select('shift_key, user_id').eq('week_id', plState.planWeek.id).eq('status', 'offen'); } catch (e) { pc = { error: e }; }
-    if (seq !== plSeq || wpView !== 'plan') return;
+    if (seq !== plSeq || !plActive()) return;
     if (pc && !pc.error) {
       plState.cancels = {};
       (pc.data || []).forEach(function(r) { (plState.cancels[r.shift_key] = plState.cancels[r.shift_key] || []).push(r.user_id); });
     }
   }
   if (plState.draft && await plSyncSlots(seq)) return; // rows were added or moved: plSyncSlots rendered the fresh state
-  if (seq !== plSeq || wpView !== 'plan') return;
+  if (seq !== plSeq || !plActive()) return;
   plPaint();
 }
 
 // Brings the Auftrag phases of the week into an existing draft. true = something was written and the board was reloaded.
 async function plSyncSlots(seq) {
-  var st = plState, m = plMergeSlots(st.rows, st.slots, st.week, wpUsers), wrote = false;
+  var st = plState, m = plMergeSlots(st.rows, st.slots, st.week, wpUsers, new Date().toISOString()), wrote = false;
   st.stale = m.stale;
   if (m.add.length) {
     var ins = await supabaseClient.from('plan_draft_shifts').insert(plForInsert(m.add)).select('id');
@@ -572,66 +636,14 @@ async function plSyncSlots(seq) {
   }
   if (!wrote || seq !== plSeq) return false;
   var re = await supabaseClient.from('plan_draft_shifts').select('*').eq('year', st.week.year).eq('kw', st.week.kw);
-  if (seq !== plSeq || wpView !== 'plan') return true;
+  if (seq !== plSeq || !plActive()) return true;
   if (!re.error) { st.rows = re.data || []; st.stale = plMergeSlots(st.rows, st.slots, st.week, wpUsers).stale; }
   plPaint();
   return true;
 }
 
-function plStatusHtml(st) {
-  var d = st.draft, pw = st.planWeek;
-  if (d.published_version != null && pw && pw.version === d.published_version)
-    return '<span class="ui-pill ui-pill-ok">Veröffentlicht · Stand ' + pw.version + '</span>' +
-      (plHasUnpublished(st.rows, d.published_at) ? ' <span class="ui-pill ui-pill-warn">Änderungen noch nicht veröffentlicht</span>' : '');
-  if (d.published_version != null && pw)
-    return '<span class="ui-pill ui-pill-warn">Plan wurde seitdem per PDF ersetzt</span>';
-  if (pw) return '<span class="ui-pill ui-pill-warn">Entwurf · es gibt schon einen Plan für diese Woche</span>';
-  return '<span class="ui-pill ui-pill-info">Entwurf · noch nicht veröffentlicht</span>';
-}
-
-function plPaint() {
-  var box = plBox(), st = plState;
-  if (!box || !st) return;
-  var who = plWho(), b = plBounds(), nav = plNavHtml(st.week, b), planner = plCanPublish(who);
-  st.keys = plRowKeys(st.week, st.rows, wpUsers);
-  if (!st.draft) {
-    var text, btn = '<button type="button" class="ui-btn ui-btn-primary wp-empty-btn" onclick="plStart()">Entwurf anlegen</button>';
-    if (st.planWeek && !planner) { text = 'Diese Woche hat schon einen Plan. Einen Entwurf daraus kann nur anlegen, wer den Wochenplan plant.'; btn = ''; }
-    else if (st.planWeek) text = 'Der Plan dieser Woche wurde als PDF hochgeladen. Der Entwurf übernimmt alle Einträge daraus, du kannst hier weiterplanen.';
-    else text = 'Die Aufträge dieser Woche stehen gleich drin, mit allen, die schon angenommen wurden. Den Rest trägst du frei ein.';
-    var nc = plCancelCount(st);
-    if (nc && planner) text += ' Es ' + (nc === 1 ? 'gibt 1 offene Absage' : 'gibt ' + nc + ' offene Absagen') + ': Ersatz trägst du im Entwurf ein.';
-    box.innerHTML = nav + uiEmptyHtml('Noch kein Entwurf für KW ' + st.week.kw, text, btn);
-    return;
-  }
-  var stalePlan = st.draft.published_version != null && st.planWeek && st.planWeek.version !== st.draft.published_version;
-  var nCancel = plCancelCount(st), lost = plUnmatchedCancels(st.keys, st.cancels);
-  var head = '<div class="ui-card pl-head">' + plStatusHtml(st) +
-    (nCancel ? ' <span class="ui-pill ui-pill-danger">' + nCancel + (nCancel === 1 ? ' Absage offen' : ' Absagen offen') + '</span>' : '') +
-    lost.map(function(c) {
-      var u = wpUsers.find(function(x) { return x.id === c.user_id; });
-      return '<div class="pl-cancel">' + plE(u ? u.full_name : 'Jemand') + ' hat für „' + plE(c.key.split('|').slice(1).join(' · ')) + '“ (' + plDayShort(c.key.slice(0, 10)) +
-        ') abgesagt, der Eintrag steht nicht mehr im Entwurf.' + (planner ? ' <button type="button" class="ord-textbtn" onclick="plCancelDone(\'' + jsAttrArg(c.key) + '\', \'' + jsAttrArg(c.user_id) + '\')">Erledigt</button>' : '') + '</div>';
-    }).join('') +
-    (stalePlan && planner ? '<div class="ui-sub" style="margin-top:8px;">Der Entwurf passt nicht mehr zum veröffentlichten Plan. ' +
-      '<button type="button" class="ord-textbtn" onclick="plRestart()">Entwurf aus dem aktuellen Plan neu aufbauen</button></div>' : '') +
-    '<div class="pl-actions">' +
-      (planner ? '<button type="button" class="ui-btn" onclick="plEditRow(null)">Freier Eintrag</button>' : '') +
-      '<button type="button" class="ui-btn" onclick="plExportPdf()">PDF</button>' +
-      (planner ? '<button type="button" class="ui-btn ui-btn-primary" onclick="plPublish()">Veröffentlichen</button>' : '') +
-    '</div>' +
-    (planner ? '<button type="button" class="ord-textbtn pl-delweek" onclick="plDeleteWeek()">Woche löschen</button>' : '') +
-    (planner ? '' : '<div class="ui-sub" style="margin-top:8px;">Du kannst deine Aufträge besetzen. Veröffentlicht wird der Plan von der Planung.</div>') +
-  '</div>';
-  var rows = plSorted(st.rows), days = '';
-  for (var i = 0; i < 7; i++) {
-    var day = plAddDays(st.week.weekStart, i), d = plUtc(day);
-    var list = rows.filter(function(r) { return r.date === day; });
-    days += '<div class="wp-dayhead wp-dayhead-static">' + PL_DAYS[d.getUTCDay()] + ' <span>' + ('0' + d.getUTCDate()).slice(-2) + '.' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '.</span></div>' +
-      (list.length ? list.map(function(r) { return plRowHtml(r, who); }).join('') : '<div class="pl-none">Kein Eintrag</div>');
-  }
-  box.innerHTML = nav + head + days;
-}
+// The board is painted by planen.js (PLANEN tab)
+function plPaint() { if (typeof pnPaint === 'function') pnPaint(); }
 
 // Tag for the Art of a row; a confirmed Auftrag is the normal case and gets none
 function plKindTag(r) {
@@ -644,10 +656,17 @@ function plKindTag(r) {
 // Leaves out the columns this database does not have yet
 function plForInsert(rows) {
   var st = plState || {};
-  return plWithout(rows, (st.hasKind ? [] : ['kind']).concat(st.hasOpen ? [] : ['open_other']));
+  return plWithout(rows, (st.hasKind ? [] : ['kind']).concat(st.hasOpen ? [] : ['open_other'], st.hasFlow ? [] : ['pair_id', 'manual', 'auftrag_changes']));
 }
 
 function plApplied(r) { return plAppliedFor(r, plState.keys[r.id], plState.apps, plState.interest); }
+
+// „Mit Vorbehalt“ of a person's Meldung for a row ("nur bis 16:00 Uhr"); the Auftrag Meldung first, then the plan entry's
+function plVorbehaltFor(row, key, vb, uid) {
+  if (!uid || !vb) return '';
+  return (row && row.job_no && vb['o|' + row.job_no + '|' + row.phase + '|' + uid]) || (key && vb['s|' + key + '|' + uid]) || '';
+}
+function plVorbehalt(r, uid) { return plVorbehaltFor(r, plState.keys[r.id], plState.vb, uid); }
 
 function plCancelCount(st) {
   var n = 0;
@@ -655,119 +674,9 @@ function plCancelCount(st) {
   return n;
 }
 
-// The Absage lines under the people of a row: replace, only take off, or mark done when the person is gone already
-function plCancelHtml(r, can) {
-  var key = plState.keys[r.id], id = "'" + jsAttrArg(r.id) + "'";
-  return plCancelsOnRow(r, key, plState.cancels, wpUsers).map(function(c) {
-    var uid = "'" + jsAttrArg(c.user_id) + "'";
-    if (c.index === -1)
-      return '<div class="pl-cancel"><b>' + plE(c.name) + '</b> hat abgesagt und steht nicht mehr auf dem Eintrag.' +
-        (can ? ' <button type="button" class="ord-textbtn" onclick="plCancelDone(\'' + jsAttrArg(key) + '\', ' + uid + ')">Erledigt</button>' : '') + '</div>';
-    return '<div class="pl-cancel"><b>' + plE(c.name) + '</b> hat abgesagt.' +
-      (can ? '<div class="pl-cancel-actions"><button type="button" class="ui-btn ui-btn-primary dash-small-btn" onclick="plStartReplace(' + id + ', ' + uid + ')">Ersatz suchen</button>' +
-        '<button type="button" class="ord-textbtn" onclick="plCancelDrop(' + id + ', ' + uid + ')">Nur austragen</button></div>' : '') + '</div>';
-  }).join('');
-}
-
 function plRowById(id) { return plState ? plState.rows.find(function(r) { return r.id === id; }) : null; }
 
-function plRowHtml(r, who) {
-  var can = plCanEdit(r, who), w = planWhen(plLines(r.wann)), filled = plFilled(r), need = r.need || 0;
-  var id = "'" + jsAttrArg(r.id) + "'";
-  var count = need ? '<span class="ui-pill ' + (filled >= need ? 'ui-pill-ok' : 'ui-pill-warn') + '">' + filled + ' von ' + need + ' besetzt</span>'
-    : (filled ? '<span class="ui-pill ui-pill-info">' + filled + ' eingeplant</span>' : '');
-  var gone = {};
-  plCancelsOnRow(r, plState.keys[r.id], plState.cancels, wpUsers).forEach(function(c) { if (c.index !== -1) gone[c.index] = true; });
-  var chips = (r.people || []).map(function(p, i) {
-    var role = '<b>' + plE(p.role || 'MA') + '</b>';
-    return '<span class="pl-chip' + (PL_AGENCY.indexOf(p.role) !== -1 ? ' pl-chip-agency' : '') + (gone[i] ? ' pl-chip-cancel' : '') + '">' +
-      (can ? '<button type="button" class="pl-chip-role" aria-label="Rolle von ' + plE(p.name) + ' ändern, jetzt ' + plE(p.role || 'MA') + '" onclick="plRoleMenu(' + id + ', ' + i + ')">' + role + '</button>' : role) +
-      '<span>' + (gone[i] ? '<s>' + plE(p.name) + '</s>' : plE(p.name)) + (gone[i] ? ' <small>sagt ab</small>' : p.note ? ' <small>' + plE(p.note) + '</small>' : '') + '</span>' +
-      (can ? '<button type="button" class="pl-chip-x" aria-label="' + plE(p.name) + ' entfernen" onclick="plRemove(' + id + ', ' + i + ')">×</button>' : '') +
-    '</span>';
-  }).join('');
-  var loc = plLines(r.location), det = plLines(r.details), waiting = plOpenMeldungen(r, plApplied(r));
-  return '<div class="ui-card pl-row" id="pl-row-' + plE(r.id) + '">' +
-    '<div class="pl-row-top">' +
-      '<div class="wp-time"><b>' + plE(w.time || '—') + '</b><span>' + plE(w.label || '') + '</span></div>' +
-      '<div class="pl-row-main">' +
-        '<div class="pl-row-title">' + plE(r.venue || '—') + (r.title ? ' · ' + plE(r.title) : '') + '</div>' +
-        (loc.length ? '<div class="ui-sub">' + loc.map(plE).join(' · ') + '</div>' : '') +
-        (det.length ? '<ul class="pl-was">' + det.map(function(t) { return '<li>' + plE(t) + '</li>'; }).join('') + '</ul>' : '') +
-        '<div class="pl-row-meta">' + (r.job_no ? '<span class="wp-ord-tag">Auftrag</span>' : '') + plKindTag(r) + count +
-          plOpenOther(r).map(function(o) { return '<span class="ui-pill ui-pill-warn">' + o.count + ' ' + plE(o.role) + (o.count === 1 ? ' fehlt' : ' fehlen') + '</span>'; }).join('') +
-          (waiting ? '<span class="ui-pill ui-pill-info">' + waiting + (waiting === 1 ? ' Meldung' : ' Meldungen') + '</span>' : '') +
-          (r.ap ? '<span class="ui-sub">PL ' + plE(r.ap) + '</span>' : '') +
-          (plState.stale.indexOf(r.id) !== -1 ? '<span class="ui-pill ui-pill-danger">Auftrag nicht mehr in dieser Woche</span>' : '') + '</div>' +
-      '</div>' +
-      (can ? '<button type="button" class="ui-icon-btn" aria-label="Eintrag bearbeiten" onclick="plEditRow(' + id + ')">' +
-        '<svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM13 7l4 4"/></svg></button>' : '') +
-    '</div>' +
-    (chips ? '<div class="pl-chips">' + chips + '</div>' : '') +
-    plCancelHtml(r, can) +
-    (can ? (plOpenRow === r.id ? plPickerHtml(r) :
-      '<button type="button" class="ord-textbtn pl-add" onclick="plTogglePicker(' + id + ')">+ Person</button>') : '') +
-  '</div>';
-}
-
-function plPickerHtml(r) {
-  var st = plState, id = "'" + jsAttrArg(r.id) + "'";
-  var applied = plApplied(r);
-  var list = plCandidates(r, st.rows, wpUsers, st.avail, applied, st.tracked).map(function(c) {
-    var u = wpUsers.find(function(x) { return x.id === c.id; });
-    var tag = c.applied === 'angenommen' ? '<span class="ord-pill ord-pill-ok">angenommen</span>'
-      : c.applied === 'offen' ? '<span class="ord-pill ord-pill-new">hat sich gemeldet</span>' : '';
-    if (c.free) tag += '<span class="ord-pill ord-pill-ok">hat Zeit</span>';
-    if (c.level === 'nein') tag += '<span class="ord-pill ord-pill-danger">geht nicht</span>';
-    else if (c.level === 'notfall') tag += '<span class="ord-pill ord-pill-warn">nur im Notfall</span>';
-    if (c.busy) tag += '<span class="ord-pill ord-pill-danger">schon eingeplant</span>';
-    return '<button type="button" class="pl-cand" data-name="' + plE(c.name) + '" data-full="' + plE((u && u.full_name) || '') + '" onclick="plPlace(' + id + ', \'' + jsAttrArg(c.id) + '\')">' +
-      '<span>' + plE((u && u.full_name) || c.name) + '</span>' + tag + '</button>';
-  }).join('');
-  return '<div class="pl-picker">' +
-    '<div class="pl-picker-head"><span class="ui-label" style="margin:0;">' + plPickerTitle(r) + '</span>' +
-      '<button type="button" class="ord-textbtn" onclick="plTogglePicker(' + id + ')">Schließen</button></div>' +
-    '<div class="pl-find">' +
-      '<input type="search" class="meta-input" id="pl-search" placeholder="Name suchen" aria-label="Name suchen" autocomplete="off" autocapitalize="words" ' +
-        'oninput="plFilter()" onkeydown="if (event.key === \'Enter\') { event.preventDefault(); plSearchEnter(' + id + '); }">' +
-      '<label class="pl-role"><span>als</span><select class="meta-input" id="pl-role" aria-label="Rolle">' +
-        PL_ROLES.map(function(x) { return '<option>' + x + '</option>'; }).join('') + '</select></label>' +
-    '</div>' +
-    '<div class="pl-cands" id="pl-cands">' + (list || '<div class="ui-sub">Niemand mehr frei.</div>') + '</div>' +
-    '<div class="ui-sub" id="pl-nohit" hidden>Niemand mit diesem Namen in der App.</div>' +
-    '<button type="button" class="ui-btn ui-btn-block" id="pl-free-btn" hidden onclick="plPlaceFree(' + id + ')"></button>' +
-  '</div>';
-}
-
-// Filters the list while typing (no repaint, the field keeps its focus) and offers the typed name as a free entry
-function plFilter() {
-  var inp = document.getElementById('pl-search'), q = inp ? inp.value.trim() : '', hits = 0;
-  document.querySelectorAll('#pl-cands .pl-cand').forEach(function(b) {
-    var ok = plSearchMatch(q, b.dataset.name, b.dataset.full);
-    b.hidden = !ok;
-    if (ok) hits++;
-  });
-  var none = document.getElementById('pl-nohit'), free = document.getElementById('pl-free-btn');
-  if (none) none.hidden = !q || hits > 0;
-  if (free) {
-    free.hidden = !q;
-    free.textContent = '„' + q + '“ ohne App-Konto eintragen (z.B. Zenjob)';
-  }
-}
-
-// Enter in the search field: exactly one hit left → that person goes on the row
-function plSearchEnter(id) {
-  var left = [].filter.call(document.querySelectorAll('#pl-cands .pl-cand'), function(b) { return !b.hidden; });
-  if (left.length === 1) left[0].click();
-}
-
 function plPickedRole() { var sel = document.getElementById('pl-role'); return sel ? sel.value : 'MA'; }
-
-function plTogglePicker(id) {
-  plOpenRow = plOpenRow === id ? null : id;
-  if (plState) plState.replace = null;
-  plPaint();
-}
 
 // Replacing someone who cancelled: the picker of that row puts the chosen person in their place
 function plReplacing(row) {
@@ -776,7 +685,6 @@ function plReplacing(row) {
   var idx = (row.people || []).findIndex(function(p) { return p.user_id === rp.userId; });
   return idx === -1 ? null : { index: idx, userId: rp.userId, name: row.people[idx].name };
 }
-function plPickerTitle(r) { var rp = plReplacing(r); return rp ? 'Ersatz für ' + plE(rp.name) : 'Person hinzufügen'; }
 
 function plStartReplace(id, userId) {
   if (!plState) return;
@@ -1012,7 +920,7 @@ async function plDeleteWeek() {
   if (d.error || !d.data || !d.data.length) { console.error('Entwurf löschen:', d.error); showToast('Der Entwurf konnte nicht gelöscht werden.', 'danger'); return plRender(); }
   showToast(app ? 'KW ' + kw + ' gelöscht' : 'Entwurf für KW ' + kw + ' gelöscht');
   plState = null;
-  if (app) await initWochenplan(); else await plRender(); // the week list of the other tabs still held the deleted plan
+  await plRender(); // the Wochenplan loads its week list fresh when it is opened
 }
 
 /* ── Edit sheet ── */
@@ -1082,6 +990,7 @@ async function plSaveSheet(id) {
     ch.ap = u ? plShortName(u, wpUsers) : null;
   }
   if (!ch.venue && !ch.title) { showToast('Bitte Ort oder „Was“ eintragen.', 'danger'); return; }
+  if (row && 'manual' in row) ch.manual = plManualAfter(row, ch);
   var btn = document.getElementById('pl-f-save');
   if (btn) btn.disabled = true;
   var ok;
@@ -1133,9 +1042,18 @@ async function plPublish() {
   }
   if (ex && !(st.draft.published_version != null && st.draft.published_version === ex.version))
     parsed.warnings.push('Für diese Woche gibt es einen hochgeladenen Plan (Stand ' + ex.version + '). Mit „Übernehmen“ ersetzt der Entwurf ihn.');
-  wpImport = { parsed: parsed, fileName: 'Besetzungsplaner', existing: ex, unresolved: {},
+  var imp = { parsed: parsed, fileName: 'Besetzungsplaner', existing: ex, unresolved: {},
     afterSave: function(weekId) { return plAfterPublish(week, parsed, weekId, lastChange); } };
-  wpRenderImport();
+  // Remembered name matches come from the Wochenplan, which may not have been opened yet
+  if (!Object.keys(wpAliases).length) {
+    try {
+      var al = await supabaseClient.from('plan_name_aliases').select('alias, user_id');
+      (al.data || []).forEach(function(r) { wpAliases[planAliasKey(r.alias)] = r.user_id; });
+    } catch (e) { console.warn('Namen laden:', e); }
+  }
+  // Confirm sheet in PLANEN (what changes, names without account, who gets a push), then wpCommitPlan: same save as a PDF
+  // upload, no page change
+  pnPublishSheet(imp, week);
 }
 
 // After wpSaveImport committed: remember which Stand the draft was published as and pin every Auftrag phase to its plan row
@@ -1205,5 +1123,5 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { plCancelsOnRow: plCancelsOnRow, plReplacePerson: plReplacePerson, plUnmatchedCancels: plUnmatchedCancels, plMonday: plMonday, plWeekOf: plWeekOf, plShortName: plShortName, plWannText: plWannText, plRowFromSlot: plRowFromSlot,
     plMergeSlots: plMergeSlots, plRowsFromPlan: plRowsFromPlan, plSeed: plSeed, plFilled: plFilled, plOpenSlots: plOpenSlots, plToParsed: plToParsed,
     plCandidates: plCandidates, plSearchMatch: plSearchMatch, plPlaceRole: plPlaceRole, plCanEdit: plCanEdit, plCanPublish: plCanPublish, plCanOpen: plCanOpen, plPublishProblems: plPublishProblems,
-    plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plKindOfColor: plKindOfColor, plKind: plKind, plWithoutKind: plWithoutKind, plWithout: plWithout, plOpenOther: plOpenOther, plTakeOpen: plTakeOpen, plSetOpen: plSetOpen, plRowKeys: plRowKeys, plAppliedFor: plAppliedFor, plOpenMeldungen: plOpenMeldungen, plMeldungTargets: plMeldungTargets, plWasText: plWasText, plWasSplit: plWasSplit, plIsAppWeek: plIsAppWeek, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };
+    plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plKindOfColor: plKindOfColor, plKind: plKind, plWithoutKind: plWithoutKind, plWithout: plWithout, plOpenOther: plOpenOther, plTakeOpen: plTakeOpen, plSetOpen: plSetOpen, plRowKeys: plRowKeys, plAppliedFor: plAppliedFor, plVorbehaltFor: plVorbehaltFor, plOpenMeldungen: plOpenMeldungen, plMeldungTargets: plMeldungTargets, plWasText: plWasText, plWasSplit: plWasSplit, plIsAppWeek: plIsAppWeek, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };
 }

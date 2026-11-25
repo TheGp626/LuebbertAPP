@@ -397,27 +397,6 @@ function dashResetWorkerPin() {
 }
 
 var _editWorkerRoleRates = [];
-var _editWorkerPlansWeek = null; // "Plant den Wochenplan" as loaded; null = not shown (no Admin, or the column does not exist yet)
-
-// What to save for the switch: true/false when an Admin changed it, null when there is nothing to save
-function dashPlansWeekChange(loaded, checked) {
-  return loaded === null || loaded === undefined || !!loaded === !!checked ? null : !!checked;
-}
-
-// Own query instead of a column in the worker list: the list keeps loading before the migration is applied
-async function loadEditWorkerPlansWeek(workerId) {
-  var field = document.getElementById('edit-worker-plans-week-field'), box = document.getElementById('edit-worker-plans-week');
-  _editWorkerPlansWeek = null;
-  if (!field || !box) return;
-  field.style.display = 'none';
-  if (typeof userRole === 'undefined' || userRole !== 'Admin') return;
-  var r;
-  try { r = await supabaseClient.from('app_users').select('plans_week').eq('id', workerId).maybeSingle(); } catch (e) { r = { error: e }; }
-  if (r.error || !r.data || !dashboardCurrentWorker || dashboardCurrentWorker.id !== workerId) return;
-  _editWorkerPlansWeek = !!r.data.plans_week;
-  box.checked = _editWorkerPlansWeek;
-  field.style.display = '';
-}
 
 function openEditWorker() {
   const worker = dashboardCurrentWorker;
@@ -438,10 +417,11 @@ function openEditWorker() {
   _editWorkerRoleRates = Array.isArray(worker.role_rates) ? JSON.parse(JSON.stringify(worker.role_rates)) : [];
   renderRoleRatesList();
   document.getElementById('edit-worker-type').value = worker.employment_type || (worker.is_fest ? 'Fest' : 'Minijob');
+  // „Planung“ (one switch for plans_week + plan_interest_viewer, kept equal by the database): Admin only
   document.getElementById('edit-worker-sees-interest').checked = !!worker.plan_interest_viewer;
+  document.getElementById('edit-worker-planung-field').style.display = typeof userRole !== 'undefined' && userRole === 'Admin' ? '' : 'none';
   document.getElementById('edit-worker-can-drive').checked = !!worker.can_drive;
   document.getElementById('edit-worker-avail').checked = !!worker.availability_enabled;
-  loadEditWorkerPlansWeek(worker.id);
   dashSyncInternal('edit');
   if (typeof mitLoadEditExtras === 'function') mitLoadEditExtras(worker);
   document.getElementById('edit-worker-modal').classList.add('open');
@@ -590,13 +570,6 @@ async function saveEditWorker() {
       email:             email || null,
     });
     if (typeof mitSaveEditExtras === 'function') await mitSaveEditExtras(worker.id);
-    var plansBox = document.getElementById('edit-worker-plans-week');
-    var plans = dashPlansWeekChange(_editWorkerPlansWeek, plansBox && plansBox.checked);
-    if (plans !== null) {
-      var pw = await supabaseClient.from('app_users').update({ plans_week: plans }).eq('id', worker.id).select('id');
-      if (pw.error) throw pw.error;
-      if (!pw.data || !pw.data.length) throw new Error('„Plant den Wochenplan“ nicht gespeichert – keine Berechtigung');
-    }
     showToast('Mitarbeiter gespeichert!');
     closeEditWorker();
     await loadDashboardWorkers();
@@ -710,8 +683,9 @@ function refreshDashboard() {
 async function refreshDashboardOnce() {
   try {
     await ensureRateUsers();
-    const protSelect = (withCreator) => `
-        id, date, action, is_holiday, total_cost, al_id, pl_id, job_no,${withCreator ? ' created_by,' : ''}
+    // Explicit columns: '*' would also load every signature image (signature_text, ~11 KB each)
+    const protSelect = (withEdited) => `
+        id, date, action, is_holiday, total_cost, al_id, pl_id, job_no, created_by,${withEdited ? ' edited_by, edited_at, photos,' : ''}
         notes_damages, notes_incidents, notes_feedback,
         al_name_fallback, pl_name_fallback, created_at, mailed_at,
         projects(name, location),
@@ -723,10 +697,10 @@ async function refreshDashboardOnce() {
         protocol_equipments(*),
         worker_ratings(temp_worker_name, rating, is_star)
       `;
-    const load = (withCreator) => sbFetchAll(() => supabaseClient.from('protocols').select(protSelect(withCreator)).order('date', { ascending: false }).order('id'));
+    const load = (withEdited) => sbFetchAll(() => supabaseClient.from('protocols').select(protSelect(withEdited)).order('date', { ascending: false }).order('id'));
     let { data: protocols, error: protError } = await load(true);
-    // created_by not migrated yet: load without it (everything then counts via AL/PL)
-    if (protError && /created_by/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(false));
+    // edited_by/edited_at/photos not migrated yet (jenni_runde_4): load without them
+    if (protError && /edited_|photos/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(false));
     if (protError) throw protError;
 
     dashboardProtocols = protocols;
@@ -1045,8 +1019,7 @@ function dashNkJobHtml(j, links) {
 function renderDashNachkalk() {
   var box = document.getElementById('dash-nachkalk');
   if (!box) return;
-  // Its home is the Aufträge tab, where Admin and PL see it; here it only shows for the others (Buchhaltung, AL)
-  if (typeof userRole !== 'undefined' && (userRole === 'Admin' || userRole === 'PL')) { box.innerHTML = ''; return; }
+  // Its home since PLANEN replaced the Aufträge tab (25.11.2026): here, for everyone who sees the Protokoll-Übersicht
   var wasOpen = !!(box.querySelector('details.dash-nk') || {}).open, openJobs = {};
   box.querySelectorAll('details.dash-nk-job[open] summary b').forEach(function(b) { openJobs[b.textContent] = true; });
   var jobs = dashNachkalk(dashboardProtocols, _dashStaffing, dashNkTransportCost);
@@ -1734,7 +1707,7 @@ function dashShiftCosts(date, isHoliday, s) {
 function dashTransportsFromRows(rows) {
   return (rows || []).map(function(t) {
     return { type: t.vehicle_type, driver: t.driver_name || '', hours: t.driver_hours == null ? null : Number(t.driver_hours),
-      driverUserId: t.driver_user_id || '', cost: t.cost == null ? null : Number(t.cost) };
+      driverUserId: t.driver_user_id || '', cost: t.cost == null ? null : Number(t.cost), night: !!t.night };
   });
 }
 
@@ -1743,7 +1716,7 @@ function dashTransportsFromRows(rows) {
 function calcDashProtTotal(date, isHoliday, transports, shifts) {
   var total = 0;
   (transports || []).forEach(function(t) {
-    total += (typeof calcTransportCost === 'function') ? calcTransportCost(t.type, date, t.cost) : 0;
+    total += (typeof calcTransportCost === 'function') ? calcTransportCost(t.type, date, t.cost, t.night) : 0;
     var drv = (typeof protDriverCost === 'function') ? protDriverCost(t, typeof appUsers !== 'undefined' ? appUsers : []) : null;
     if (drv) total += drv.amount;
   });
@@ -1930,7 +1903,7 @@ function openDashDetail(id) {
     <div>
       <div class="stat-label">Projektleiter (PL)</div>
       <div style="font-weight:600;">${escapeHtml(plName)}</div>
-    </div>${p.job_no ? `
+    </div>${dashEditedHtml(p)}${p.job_no ? `
     <div>
       <div class="stat-label">Projektnummer</div>
       <div style="font-weight:600;">${escapeHtml(p.job_no)}</div>
@@ -2058,8 +2031,8 @@ function openDashDetail(id) {
 
     // Transport costs
     (p.protocol_transports || []).forEach(function(t) {
-      var r = (typeof calcTransportCost !== 'undefined') ? calcTransportCost(t.vehicle_type, p.date, t.cost) : 0;
-      var label = escapeHtml(t.vehicle_type || '—');
+      var r = (typeof calcTransportCost !== 'undefined') ? calcTransportCost(t.vehicle_type, p.date, t.cost, t.night) : 0;
+      var label = escapeHtml(t.vehicle_type || '—') + (t.night ? ' (Nacht)' : '');
       if (t.vehicle_type === 'Spedition' && t.cost == null) {
         rows.push({ section: 'transport', label: label, detail: escapeHtml(t.driver_name || '') + ' (siehe Rechnung)', cost: 0 });
       } else if (r > 0) {
@@ -2128,9 +2101,26 @@ function openDashDetail(id) {
     <div style="margin-bottom:12px;"><strong>Mängel / Schäden:</strong><br/>${safeNote(p.notes_damages)}</div>
     <div style="margin-bottom:12px;"><strong>Besondere Vorkommnisse:</strong><br/>${safeNote(p.notes_incidents)}</div>
     <div><strong>Feedback Location:</strong><br/>${safeNote(p.notes_feedback)}</div>
+    ${(p.photos || []).length ? '<div style="margin-top:12px;"><strong>Fotos:</strong><div class="prot-photos" id="det-photos" style="margin-top:6px;"></div></div>' : ''}
   `;
+  dashPaintPhotos(p);
 
   modal.classList.add('open');
+}
+
+// Protocol photos (private bucket protocol-photos): signed links, a tap opens the full picture
+async function dashPaintPhotos(p) {
+  const list = (p && p.photos) || [], box = document.getElementById('det-photos');
+  if (!list.length || !box) return;
+  let urls = [];
+  try {
+    const s = await supabaseClient.storage.from('protocol-photos').createSignedUrls(list, 3600);
+    urls = (s.data || []).map(d => d && d.signedUrl);
+  } catch (e) { console.warn('Fotos laden:', e); }
+  if (_editProtId !== p.id) return; // another protocol was opened meanwhile
+  box.innerHTML = list.map((path, i) => urls[i]
+    ? `<div class="prot-photo"><a href="${escapeHtml(urls[i])}" target="_blank" rel="noopener"><img src="${escapeHtml(urls[i])}" alt="Foto ${i + 1}" loading="lazy"></a></div>`
+    : '<div class="prot-photo"><span class="ui-sub">nicht geladen</span></div>').join('');
 }
 
 function closeDashDetail() {
@@ -2172,6 +2162,14 @@ function setDashPeAction(v) {
   renderDashPeActionSeg();
 }
 
+// "Zuletzt bearbeitet von … am …" (protocols.edited_by / edited_at, set by the database on every change by a person)
+function dashEditedHtml(p) {
+  if (!p || !p.edited_at) return '';
+  var u = p.edited_by && typeof appUsers !== 'undefined' ? (appUsers || []).find(function(x) { return x.id === p.edited_by; }) : null;
+  var when = new Date(p.edited_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return '<div><div class="stat-label">Zuletzt bearbeitet</div><div style="font-weight:600;">' + escapeHtml((u ? u.full_name + ', ' : '') + when) + '</div></div>';
+}
+
 function openDashProtEdit() {
   const p = dashboardProtocols.find(x => x.id === _editProtId);
   if (!p) return;
@@ -2195,7 +2193,8 @@ function openDashProtEdit() {
     hours: t.driver_hours == null ? null : Number(t.driver_hours),
     punctuality: t.punctuality || 'pünktlich',
     delay: t.delay_mins || '',
-    cost: t.cost == null ? null : Number(t.cost)
+    cost: t.cost == null ? null : Number(t.cost),
+    night: !!t.night
   }));
   _editProtShifts = (p.shifts || []).map(dashShiftToRow);
 
@@ -2284,7 +2283,7 @@ function renderDashPeShifts() {
       '<div class="prot-time-grid">' +
         '<label class="ui-field"><span>Start</span><input type="time" id="pe-sh-start-' + i + '" value="' + escapeHtml(r.start || '') + '" oninput="updateDashPeShift(' + i + ',\'start\',this.value)"></label>' +
         '<label class="ui-field"><span>Ende</span><input type="time" id="pe-sh-end-' + i + '" value="' + escapeHtml(r.end || '') + '" oninput="updateDashPeShift(' + i + ',\'end\',this.value)"></label>' +
-        '<label class="ui-field"><span>Pause</span><input type="number" inputmode="numeric" id="pe-sh-pause-' + i + '" placeholder="Min" value="' + escapeHtml(r.pause || 0) + '" oninput="updateDashPeShift(' + i + ',\'pause\',this.value)"></label>' +
+        '<label class="ui-field"><span>Pause</span><input type="number" inputmode="numeric" id="pe-sh-pause-' + i + '" placeholder="Min" value="' + escapeHtml(r.pause || 0) + '" oninput="updateDashPeShift(' + i + ',\'pause\',this.value)" onchange="dashClampPause(' + i + ', this)"></label>' +
       '</div>' +
       '<div class="prot-pause-warn" id="pe-sh-pwarn-' + i + '"' + (typeof protShortBreaks === 'function' && protShortBreaks([r]).length ? '' : ' hidden') + '>' +
         (typeof protPauseHintText === 'function' ? escapeHtml(protPauseHintText(r).replace('beim Senden', 'beim Speichern')) : '') + '</div>' +
@@ -2321,6 +2320,18 @@ function updateDashPeShift(idx, field, val) {
     if (el) el.value = r.pause;
   }
   dashPePauseHint(idx);
+}
+
+// Same rule as the protocol form (protClampPause): the break can only be made longer, below the minimum it goes back to it
+function dashClampPause(idx, el) {
+  var r = _editProtShifts[idx];
+  if (!r || typeof protPauseMin !== 'function') return;
+  var min = protPauseMin(r);
+  if ((parseInt(r.pause, 10) || 0) < min) {
+    updateDashPeShift(idx, 'pause', String(min));
+    if (el) el.value = min;
+    if (typeof showToast === 'function') showToast('Pause mind. ' + min + ' min. Länger geht, kürzer nicht.', 'info');
+  }
 }
 
 // Break under the legal minimum in the editor: same hint and rule as the protocol form (protokoll.js protShortBreaks)
@@ -2417,7 +2428,7 @@ function dashTransportToDb(protocolId, t) {
   return { protocol_id: protocolId, vehicle_type: t.type, driver_name: t.driver || null,
            punctuality: t.punctuality, delay_mins: t.punctuality === 'verspätet' && t.delay ? (parseInt(t.delay, 10) || 0) : 0,
            driver_hours: parseFloat(t.hours) >= 0 ? parseFloat(t.hours) : null, driver_user_id: t.driverUserId || null,
-           cost: t.type === 'Spedition' && parseFloat(t.cost) >= 0 ? parseFloat(t.cost) : null };
+           cost: t.type === 'Spedition' && parseFloat(t.cost) >= 0 ? parseFloat(t.cost) : null, ...(t.night ? { night: true } : {}) };
 }
 
 // Did the transports (type, driver, driver hours – the cost-relevant parts) change against the stored rows?

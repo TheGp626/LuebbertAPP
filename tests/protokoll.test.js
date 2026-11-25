@@ -200,6 +200,17 @@ test('loadProtDraft keeps own and legacy drafts', () => {
   assert.equal(run('protState.editingId'), 'prot-y');
 });
 
+test('draft keeps photos and whether the edited protocol had any (removing them all must still be saved)', () => {
+  run('protState.photos = ["2026-11/a.jpg"]; protState.photosLoaded = true; saveProtDraft()');
+  const d = JSON.parse(store.luebbert_protokoll_draft);
+  assert.deepEqual(d.photos, ['2026-11/a.jpg']);
+  assert.equal(d.photosLoaded, true);
+  run('protState.photos = []; protState.photosLoaded = false');
+  assert.equal(run('loadProtDraft()'), true);
+  assert.equal(run('protState.photosLoaded'), true);
+  assert.deepEqual(plain(run('protState.photos')), ['2026-11/a.jpg']);
+});
+
 test('saveProtDraft stores the owner and keeps the AL id while the select is empty', () => {
   dom['prot-al'] = { value: '' };
   run('protState.alId = "u-al"; saveProtDraft()');
@@ -528,6 +539,16 @@ test('protShortBreaks: under the legal minimum (over 6 h 30 min, over 9 h 45 min
   assert.deepEqual(plain(run('protShortBreaks')(rows)), ['Paul 0 min (mind. 30)', 'Peer 30 min (mind. 45)', 'Zoe 15 min (mind. 30)']);
   assert.equal(run('protPauseMin')({ start: '10:00', end: '18:00' }), 30);
   assert.equal(run('protPauseMin')({ start: '10:00', end: '' }), 0);
+});
+
+test('protClampPause: below the legal minimum goes back to it, longer stays', () => {
+  run('protState').personnel = [{ name: 'Paul', start: '10:00', end: '18:00', pause: '10' }, { name: 'Peer', start: '10:00', end: '18:00', pause: '60' }];
+  const el = { value: '10' };
+  run('protClampPause')(0, el);
+  run('protClampPause')(1, null);
+  assert.equal(run('protState').personnel[0].pause, '30');
+  assert.equal(el.value, 30);
+  assert.equal(run('protState').personnel[1].pause, '60');
 });
 
 test('saveProtokoll: break under the minimum → no reason sends nothing; reason lands in Vorkommnisse, asked once', async () => {
@@ -1158,4 +1179,11 @@ test('markProtMailed: a correction saved after the mailed version stays pending'
   ctx.localStorage = { getItem: () => JSON.stringify(arch), setItem(k, v) { saved = JSON.parse(v); } };
   ctx.markProtMailed(7, '2026-11-20T10:00:00.000Z');
   assert.deepEqual(saved.map(e => e.mailed), [true, false, false]); // the 10:00:10 edit and another protocol stay open
+});
+
+test('addProtTransport: a transport added after night times are entered is a Nachtfahrt right away', () => {
+  run('protState.personnel = [{ pos: "AL", start: "22:00", end: "06:00", pause: "45" }]; protState.transports = []; addProtTransport()');
+  assert.equal(run('protState.transports[0].night'), true);
+  run('protState.personnel = [{ pos: "AL", start: "07:00", end: "16:00", pause: "30" }]; protState.transports = []; addProtTransport()');
+  assert.equal(run('protState.transports[0].night'), false);
 });

@@ -75,7 +75,7 @@ test('plRowFromSlot: an Auftrag phase becomes a row with the accepted people alr
 
 test('plRowFromSlot: no MA number yet and a title without parts', () => {
   const r = plain(ctx.plRowFromSlot(slot({ needed: null, title: 'Lager', room: null, accepted_ids: null }), WEEK, USERS));
-  assert.equal(r.need, 0);
+  assert.equal(r.need, null); // "MA?" in PLANEN until someone enters the number
   assert.equal(r.venue, 'Lager');
   assert.equal(r.location, null);
   assert.deepEqual(r.people, []);
@@ -277,6 +277,8 @@ test('plSeed: an uploaded plan becomes the draft, Auftrag phases land on their e
   assert.equal(rows[0].job_no, '26-0447.01'); assert.equal(rows[0].phase, 'setup');
   assert.equal(rows[0].need, 4);                       // the PL's number beats the count from the PDF
   assert.equal(rows[0].title, '4 Loungesofa weiß');    // Dennis's text stays
+  assert.deepEqual(rows[0].manual, ['wann', 'location', 'title']); // and a revised Bestätigung never overwrites it
+  assert.equal('manual' in rows[2], false);             // a phase that came without plan entry follows the Auftrag
   assert.deepEqual(rows[0].people.map(p => p.name), ['Konrad']);
   assert.equal(rows[1].job_no, null);
   assert.equal(rows[2].phase, 'teardown'); assert.equal(rows[2].date, '2026-11-12');
@@ -485,4 +487,47 @@ test('plReplacePerson: the new person takes the place and role, the old note goe
 test('plUnmatchedCancels: Absagen whose plan key belongs to no row of the draft', () => {
   assert.deepEqual(plain(ctx.plUnmatchedCancels({ r1: 'k1', r2: 'k2' }, { k1: ['a'], k3: ['b', 'c'] })), [
     { key: 'k3', user_id: 'b' }, { key: 'k3', user_id: 'c' }]);
+});
+
+test('plVorbehaltFor: the limit of the Auftrag Meldung first, then the one on the plan entry', () => {
+  const vb = { 'o|26-0415.01|setup|u1': 'nur bis 16:00 Uhr', 's|k1|u1': 'erst ab 10:00 Uhr', 's|k1|u2': 'erst ab 10:00 Uhr' };
+  const job = { job_no: '26-0415.01', phase: 'setup' };
+  assert.equal(ctx.plVorbehaltFor(job, 'k1', vb, 'u1'), 'nur bis 16:00 Uhr');
+  assert.equal(ctx.plVorbehaltFor(job, 'k1', vb, 'u2'), 'erst ab 10:00 Uhr');
+  assert.equal(ctx.plVorbehaltFor({}, 'k1', vb, 'u3'), '');
+  assert.equal(ctx.plVorbehaltFor(job, null, undefined, 'u1'), '');
+});
+
+test('plMergeSlots: time, room and name follow a revised Bestätigung and are reported', () => {
+  const base = ctx.plRowFromSlot(slot(), WEEK, USERS);
+  const have = Object.assign({}, base, { id: 'r1', manual: [], auftrag_changes: null });
+  const m = plain(ctx.plMergeSlots([have], [slot({ start_at: '2026-11-11T08:00', end_at: '2026-11-11T16:00', room: 'Saal 2' })], WEEK, USERS, 'T1'));
+  assert.equal(m.patch.length, 1);
+  const ch = m.patch[0].changes;
+  assert.equal(ch.wann, 'Aufbau: 08:00 - 16:00 Uhr');
+  assert.equal(ch.location, 'Business of Apps\nSaal 2');
+  assert.deepEqual(ch.auftrag_changes.map(c => [c.field, c.to, c.kept, c.at]),
+    [['wann', 'Aufbau: 08:00 - 16:00 Uhr', false, 'T1'], ['location', 'Business of Apps\nSaal 2', false, 'T1']]);
+});
+
+test('plMergeSlots: a field changed by hand stays, the new Auftrag value is only reported; reported once', () => {
+  const base = ctx.plRowFromSlot(slot(), WEEK, USERS);
+  const have = Object.assign({}, base, { id: 'r1', wann: 'Aufbau: 7 Uhr', manual: ['wann'], auftrag_changes: null });
+  const m = plain(ctx.plMergeSlots([have], [slot({ start_at: '2026-11-11T08:00' })], WEEK, USERS, 'T1'));
+  assert.equal('wann' in m.patch[0].changes, false);
+  assert.deepEqual(m.patch[0].changes.auftrag_changes.map(c => [c.field, c.from, c.to, c.kept]),
+    [['wann', 'Aufbau: 7 Uhr', 'Aufbau: 08:00 - 16:00 Uhr', true]]);
+  // already reported (even after „Gesehen“): nothing new
+  const seen = Object.assign({}, have, { auftrag_changes: m.patch[0].changes.auftrag_changes.map(c => Object.assign({}, c, { seen: true })) });
+  assert.deepEqual(plain(ctx.plMergeSlots([seen], [slot({ start_at: '2026-11-11T08:00' })], WEEK, USERS, 'T2')).patch, []);
+});
+
+test('plMergeSlots: rows from before the manual column only follow day and MA number (old hand edits stay)', () => {
+  const have = row({ id: 'r9', job_no: '26-0447.01', phase: 'setup', title: 'von Hand', wann: 'Aufbau: 7 Uhr', need: 4 });
+  assert.deepEqual(plain(ctx.plMergeSlots([have], [slot({ start_at: '2026-11-11T08:00' })], WEEK, USERS)).patch, []);
+});
+
+test('plManualAfter: fields saved with another value count as changed by hand, the rest stays', () => {
+  assert.deepEqual(plain(ctx.plManualAfter(row({ wann: 'Aufbau: 7 Uhr', title: 'A', manual: ['venue'] }), { wann: 'Aufbau: 8 Uhr', title: 'A', notes: 'x' })), ['venue', 'wann']);
+  assert.deepEqual(plain(ctx.plManualAfter(row({ title: 'A' }), { title: 'A' })), []);
 });

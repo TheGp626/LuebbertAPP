@@ -17,7 +17,7 @@ const THROTTLE_MS = 60_000;
 const MAX_MAILS_PER_HOUR = 30;
 const MAX_DEPARTMENT_MAILS_PER_HOUR = 30;
 
-// Abteilungs-Mails (Lager, Stoffe, Floristik): independent of the PL mail and never blocking it.
+// Abteilungs-Mails (Lager, Logistik, Tischlerei, Stoffe, Floristik): independent of the PL mail and never blocking it.
 // department_mail_log is claimed before sending (unique protocol + department + feedback hash), so a retry or a
 // second call at the same time sends nothing twice; a failed send releases the claim.
 // deno-lint-ignore no-explicit-any
@@ -36,7 +36,7 @@ async function sendDepartmentMails(db: any, p: any, settings: any, testRecipient
   let budget = MAX_DEPARTMENT_MAILS_PER_HOUR - (count || 0);
   for (const m of plan) {
     const rcpt = departmentRecipient(m.department, { enabled: settings.department_mail_enabled,
-      testMode: settings.mail_test_mode || settings.department_mail_test_mode, testRecipient });
+      testMode: settings.mail_test_mode || settings.department_mail_test_mode, testRecipient, emails: settings.department_emails });
     if (rcpt.reason) { out.push({ department: m.department, sent: false, reason: rcpt.reason }); continue; }
     if (budget <= 0) { console.error('send-protocol-mail: department hourly cap reached'); out.push({ department: m.department, sent: false, reason: 'rate_limited' }); continue; }
     const { data: claim, error: claimErr } = await db.from('department_mail_log')
@@ -66,6 +66,25 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 }
 
+// Protocol photos (bucket protocol-photos) as JPEG attachments: at most 8, each at most 3 MB; one that fails is left out
+// deno-lint-ignore no-explicit-any
+async function photoAttachments(db: any, paths: unknown) {
+  const list = (Array.isArray(paths) ? paths : []).filter((x) => typeof x === 'string' && /^\d{4}-\d{2}\/[0-9a-f-]{36}\.jpg$/.test(x)).slice(0, 8);
+  const out: { filename: string; content: string; encoding: 'base64'; contentType: string }[] = [];
+  for (let i = 0; i < list.length; i++) {
+    try {
+      const { data, error } = await db.storage.from('protocol-photos').download(list[i]);
+      if (error || !data) throw error || new Error('missing');
+      const bytes = new Uint8Array(await data.arrayBuffer());
+      if (bytes.length > 3_000_000) continue;
+      let bin = '';
+      for (let j = 0; j < bytes.length; j += 0x8000) bin += String.fromCharCode(...bytes.subarray(j, j + 0x8000));
+      out.push({ filename: `foto-${i + 1}.jpg`, content: btoa(bin), encoding: 'base64', contentType: 'image/jpeg' });
+    } catch (e) { console.error('send-protocol-mail: photo left out', list[i], e); }
+  }
+  return out;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
@@ -79,9 +98,10 @@ Deno.serve(async (req) => {
   const testRecipient = Deno.env.get('TEST_RECIPIENT') || '';
 
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-  const { data: p, error } = await db
+  // photos only exists from migration jenni_runde_4 on: without it the protocol is loaded (and mailed) without photos
+  const load = (withPhotos: boolean) => db
     .from('protocols')
-    .select(`id, date, action, job_no, notes_damages, notes_incidents, notes_feedback, al_name_fallback, pl_name_fallback, pl_id, mailed_at, side_of,
+    .select(`id, date, action, job_no, shortages,${withPhotos ? ' photos,' : ''} notes_damages, notes_incidents, notes_feedback, al_name_fallback, pl_name_fallback, pl_id, mailed_at, side_of,
       main:side_of(projects(name)),
       projects(name, location),
       al:app_users!protocols_al_id_fkey(full_name),
@@ -91,6 +111,8 @@ Deno.serve(async (req) => {
       worker_ratings(temp_worker_name, rating, is_star)`)
     .eq('id', protocol_id)
     .maybeSingle();
+  let { data: p, error } = await load(true);
+  if (error && /photos/.test(error.message || '')) ({ data: p, error } = await load(false));
   if (error) {
     // Malformed UUID = the protocol can't exist; anything else is retryable
     if (error.code === '22P02') return json({ sent: false, reason: 'not_found' });
@@ -148,13 +170,14 @@ Deno.serve(async (req) => {
 
   const { html, text } = buildBody(p);
   const pdf = safePdfBase64(pdf_base64);
+  const photos = await photoAttachments(db, p.photos);
   try {
     await sendGmail({
       to,
       subject: buildSubject(p, !!is_update, rcpt.test ? plName : undefined),
       text,
       html,
-      attachments: pdf ? [{ filename: attachmentName(p), content: pdf, encoding: 'base64', contentType: 'application/pdf' }] : [],
+      attachments: [...(pdf ? [{ filename: attachmentName(p), content: pdf, encoding: 'base64' as const, contentType: 'application/pdf' }] : []), ...photos],
     });
   } catch (e) {
     console.error('send-protocol-mail: SMTP failed', e);

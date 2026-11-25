@@ -385,6 +385,8 @@ function handleSession(user) {
 
     console.log('User logged in locally:', user.full_name, 'Role:', userRole);
     enforceUI();
+    // "Plant den Wochenplan" opens PLANEN: once it is known, the tiles are drawn again
+    if (typeof plLoadFlag === 'function') plLoadFlag().then(function() { if (typeof renderHome === 'function') renderHome(); });
     // The reminder banner depends on the admin switches → load them first (cached values if offline)
     var settingsReady = (typeof loadAppSettings === 'function') ? loadAppSettings() : Promise.resolve();
     settingsReady.then(function() { if (typeof loadErinnerungen === 'function') loadErinnerungen(); });
@@ -398,7 +400,7 @@ function handleSession(user) {
     if (typeof handleOrdnerDeepLink === 'function') handleOrdnerDeepLink();
     // Wochenplan restored from before the login needs the user to load "Meine Schichten"
     if (!wpDeepLink && typeof activeModule !== 'undefined' && activeModule === 'wochenplan' && typeof initWochenplan === 'function') initWochenplan();
-    if (typeof activeModule !== 'undefined' && activeModule === 'auftraege' && typeof initAuftraege === 'function') initAuftraege();
+    if (typeof activeModule !== 'undefined' && activeModule === 'auftraege' && typeof initPlanen === 'function') initPlanen();
     // /admin or #admin link → open the admin page; a restored admin page needs the role to load its numbers
     const adminDeepLink = typeof adminTabFromHash === 'function' && adminTabFromHash(location.hash);
     if (adminDeepLink && typeof handleAdminDeepLink === 'function') handleAdminDeepLink();
@@ -442,7 +444,8 @@ var GAST_MODULES = ['produkte', 'ordner'];
 function moduleAllowedForRole(m, role) {
   if (role === 'Gast') return GAST_MODULES.indexOf(m) !== -1;
   if (m === 'protokoll') return role !== 'MA';
-  if (m === 'auftraege') return role === 'Admin' || role === 'PL' || !!(typeof window !== 'undefined' && window.currentUserSeesInterest);
+  // PLANEN (module key 'auftraege'): Admin, PL, whoever plans the week, and whoever decides Meldungen
+  if (m === 'auftraege') return role === 'Admin' || role === 'PL' || !!(typeof window !== 'undefined' && (window.currentUserSeesInterest || window.currentUserPlansWeek));
   if (m === 'dashboard') return ['AL', 'PL', 'Buchhaltung', 'Admin'].indexOf(role) !== -1;
   if (m === 'admin') return role === 'Admin';
   return true;

@@ -7,12 +7,12 @@ var HOME_TILES = [
   { mode: 'stunden', label: 'Stundenzettel', icon: 'clock' },
   { mode: 'protokoll', label: 'Protokoll schreiben', icon: 'clipboard' },
   { mode: 'wochenplan', label: 'Wochenplan', icon: 'calendar' },
-  { mode: 'auftraege', label: 'Aufträge', icon: 'file' },
+  { mode: 'auftraege', label: 'Planen', icon: 'seats' },
   { mode: 'produkte', label: 'Produktdatenbank', icon: 'box' },
   { mode: 'ordner', label: 'Projektordner', icon: 'folder' },
   // The office dashboard is two tiles: same module (role guard), different view
   { mode: 'dashboard', view: 'prot', id: 'dashboard-prot', label: 'Protokoll-Übersicht', icon: 'file' },
-  { mode: 'dashboard', view: 'work', id: 'dashboard-work', label: 'Personal', icon: 'chart' },
+  { mode: 'dashboard', view: 'work', id: 'dashboard-work', label: 'Personal', icon: 'users' },
   { mode: 'admin', label: 'Admin', icon: 'shield' }
 ];
 
@@ -91,9 +91,10 @@ function homeTodayHtml(s) {
     (addr || maps ? '<div class="home-today-addr">' + (addr ? '<span>' + WP_ICON.pin + ' ' + escapeHtml(addr) + '</span>' : '') +
       (maps ? '<a class="ui-btn dash-small-btn" href="' + escapeHtml(maps) + '" target="_blank" rel="noopener">Route</a>' : '') + '</div>' : '') +
     (s.ap ? '<div class="ui-sub">PL ' + escapeHtml(s.ap) + '</div>' : '') +
+    // Buttons above the details (Jenni, 25.11.2026): the material list can be long, „Material abhaken“ stays in reach
+    (function(btns) { return btns ? '<div class="home-today-actions">' + btns + '</div>' : ''; })(wpProtButton(s, 'primary') + (typeof mcButtonHtml === 'function' ? mcButtonHtml(s) : '')) +
     wpDetails(s) +
-    '<div class="home-today-actions">' + wpProtButton(s, 'primary') + (typeof mcButtonHtml === 'function' ? mcButtonHtml(s) : '') +
-      '<button type="button" class="ord-textbtn" onclick="selectMode(\'wochenplan\')">Im Wochenplan öffnen</button></div>' +
+    '<div class="home-today-actions"><button type="button" class="ord-textbtn" onclick="selectMode(\'wochenplan\')">Im Wochenplan öffnen</button></div>' +
   '</div>';
 }
 

@@ -11,8 +11,8 @@
   <title>LÜBBERT APP</title>
 
 
-  <link rel="stylesheet" href="css/style.css?v=45">
-  <link rel="stylesheet" href="css/ui.css?v=49">
+  <link rel="stylesheet" href="css/style.css?v=46">
+  <link rel="stylesheet" href="css/ui.css?v=50">
 </head>
 
 <body>
@@ -230,6 +230,11 @@
               <textarea id="prot-incidents" class="prot-text" placeholder="z. B. Verzögerungen, Probleme vor Ort" oninput="saveProtDraft(); growProtText(this)"></textarea></label>
             <label class="ui-field"><span>Feedback zur Location / Sonstiges</span>
               <textarea id="prot-feedback" class="prot-text" placeholder="Lob, Kritik, Verbesserungsvorschläge" oninput="saveProtDraft(); growProtText(this)"></textarea></label>
+            <div class="ui-field"><span>Fotos (z. B. Schäden, Aufbau)</span>
+              <div class="prot-photos" id="prot-photos"></div>
+              <button type="button" class="ui-add-row" id="prot-photo-btn" onclick="protPickPhoto()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Foto hinzufügen</button>
+              <input type="file" id="prot-photo-file" accept="image/*" multiple hidden onchange="protAddPhotos(this)">
+            </div>
           </section>
 
           <!-- Section: Unterschrift -->
@@ -423,7 +428,6 @@
               <button type="button" class="active" id="wp-tab-mine" role="tab" aria-selected="true" onclick="wpSetView('mine')">Meine Schichten</button>
               <button type="button" id="wp-tab-all" role="tab" aria-selected="false" onclick="wpSetView('all')">Ganze Woche</button>
               <button type="button" id="wp-tab-avail" role="tab" aria-selected="false" hidden onclick="wpSetView('avail')">Verfügbarkeit</button>
-              <button type="button" id="wp-tab-plan" role="tab" aria-selected="false" hidden onclick="wpSetView('plan')">Planen</button>
             </div>
             <div id="wp-week-nav" class="wp-weeknav" style="display:none;">
               <button type="button" id="wp-prev" aria-label="Vorige Woche" onclick="wpStepWeek(-1)"><svg class="wp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6"/></svg></button>
@@ -447,7 +451,6 @@
 
     <div class="page" id="page-auftraege" style="overflow-y:auto; -webkit-overflow-scrolling:touch;">
       <div class="dash-container ord-wrap">
-        <h2 class="ord-h">Aufträge</h2>
         <div id="ord-content"></div>
       </div>
     </div>
@@ -776,7 +779,8 @@
       <div id="opt-sec-pay">
         <div class="ui-label">Verdienst im Stundenzettel</div>
         <div class="opt-group">
-          <label class="opt-row opt-row-static" for="inp-wage"><span class="opt-row-label">Stundenlohn<small>gilt, wenn die Abteilung keinen eigenen hat</small></span>
+          <div class="opt-row opt-row-static" id="opt-db-wage" hidden><span class="opt-row-label">Dein Lohn laut Büro<small>wird automatisch verwendet</small></span><span class="opt-value"></span></div>
+          <label class="opt-row opt-row-static" for="inp-wage"><span class="opt-row-label">Stundenlohn<small>nur, wenn das Büro keinen hinterlegt hat</small></span>
             <span class="opt-money"><input type="number" id="inp-wage" step="0.50" min="0" inputmode="decimal" placeholder="0,00" onchange="settingsApply()"><span>€/h</span></span></label>
           <div class="opt-row opt-row-static"><span class="opt-row-label">Abrechnungsschluss<small>wird zentral eingestellt</small></span><span class="opt-value" id="inp-cutoff-info"></span></div>
         </div>
@@ -876,16 +880,10 @@
               <option value="Fest">Festangestellt</option>
             </select>
           </div>
-          <div class="field">
+          <div class="field" id="edit-worker-planung-field" style="display:none;">
             <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
               <input type="checkbox" id="edit-worker-sees-interest">
-              <span style="font-size:14px;">Sieht im Wochenplan, wer Zeit hätte <span style="color:var(--text3); font-size:12px;">(Admin immer)</span></span>
-            </label>
-          </div>
-          <div class="field" id="edit-worker-plans-week-field" style="display:none;">
-            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-              <input type="checkbox" id="edit-worker-plans-week">
-              <span style="font-size:14px;">Plant den Wochenplan <span style="color:var(--text3); font-size:12px;">(baut und veröffentlicht den Plan in der App, Admin immer)</span></span>
+              <span style="font-size:14px;">Planung <span style="color:var(--text3); font-size:12px;">(plant die Woche in PLANEN, entscheidet Meldungen und veröffentlicht; nur Admin ändert das, Admin hat es immer)</span></span>
             </label>
           </div>
           <div class="field">
@@ -951,36 +949,37 @@
   </div>
 
   <!-- Scripts -->
-  <script src="js/errors.js?v=5"></script>
-  <script src="js/problem.js?v=1"></script>
+  <script src="js/errors.js?v=6"></script>
+  <script src="js/problem.js?v=2"></script>
   <script src="vendor/supabase-js-2.119.0.js"></script>
   <script src="js/supabase-config.js?v=10"></script>
-  <script src="js/auth.js?v=45"></script>
+  <script src="js/auth.js?v=46"></script>
   <script src="js/logo.js?v=9"></script>
-  <script src="js/formulas.js?v=19"></script>
+  <script src="js/formulas.js?v=20"></script>
   <script src="js/utils.js?v=28"></script>
-  <script src="js/ui.js?v=7"></script>
+  <script src="js/ui.js?v=8"></script>
   <script src="js/changelog.js?v=2"></script>
-  <script src="js/settings.js?v=16"></script>
+  <script src="js/settings.js?v=17"></script>
   <script src="js/mitarbeiter.js?v=4"></script>
   <script src="js/stundenzettel.js?v=37"></script>
-  <script src="js/protokoll.js?v=61"></script>
+  <script src="js/protokoll.js?v=62"></script>
   <script src="js/erinnerung.js?v=14"></script>
   <script src="js/plan-pdf.js?v=3"></script>
   <script src="js/plan-parser.js?v=27"></script>
   <script src="js/order-parser.js?v=10"></script>
   <script src="js/order-slots.js?v=5"></script>
-  <script src="js/planer.js?v=11"></script>
-  <script src="js/auftraege.js?v=15"></script>
-  <script src="js/wochenplan.js?v=41"></script>
+  <script src="js/planer.js?v=12"></script>
+  <script src="js/auftraege.js?v=17"></script>
+  <script src="js/planen.js?v=1"></script>
+  <script src="js/wochenplan.js?v=42"></script>
   <script src="js/material.js?v=5"></script>
-  <script src="js/home.js?v=12"></script>
-  <script src="js/dashboard.js?v=67"></script>
+  <script src="js/home.js?v=13"></script>
+  <script src="js/dashboard.js?v=68"></script>
   <script src="js/fehler.js?v=2"></script>
   <script src="js/admin.js?v=3"></script>
   <script src="js/produkte.js?v=22"></script>
   <script src="js/ordner.js?v=40"></script>
-  <script src="js/app.js?v=33"></script>
+  <script src="js/app.js?v=34"></script>
 </body>
 
 </html>
