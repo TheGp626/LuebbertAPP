@@ -849,3 +849,6 @@ div.pn-alert { font-weight: 400; cursor: default; }
 .pn-td-wann, .pn-td-pl { white-space: nowrap; }
 .pn-names { display: flex; flex-direction: column; gap: 4px; margin: 0 0 10px; padding: 10px 12px; border-radius: var(--r-control); background: var(--bg2); border: 0.5px solid var(--border); }
 .pn-names > span { font-size: 13px; color: var(--text2); margin-bottom: 4px; }
+/* In the Plan tab the Wochenplan's section bar (.wp-sticky) already sticks to the top: the day strip scrolls with the board */
+#wp-content .pn-strip { position: static; }
+#wp-content .pn-day { scroll-margin-top: 64px; }
