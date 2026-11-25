@@ -530,6 +530,16 @@ test('protShortBreaks: under the legal minimum (over 6 h 30 min, over 9 h 45 min
   assert.equal(run('protPauseMin')({ start: '10:00', end: '' }), 0);
 });
 
+test('protClampPause: below the legal minimum goes back to it, longer stays', () => {
+  run('protState').personnel = [{ name: 'Paul', start: '10:00', end: '18:00', pause: '10' }, { name: 'Peer', start: '10:00', end: '18:00', pause: '60' }];
+  const el = { value: '10' };
+  run('protClampPause')(0, el);
+  run('protClampPause')(1, null);
+  assert.equal(run('protState').personnel[0].pause, '30');
+  assert.equal(el.value, 30);
+  assert.equal(run('protState').personnel[1].pause, '60');
+});
+
 test('saveProtokoll: break under the minimum → no reason sends nothing; reason lands in Vorkommnisse, asked once', async () => {
   dom['prot-total-cost'] = { textContent: '0,00' };
   dom['prot-incidents'] = { value: 'nein' };

@@ -4,7 +4,7 @@
 // Cron runs several times in the 9:00 hour; reminder_log / plan_reminder_log make later runs no-ops and retry failures.
 // Body: { mode? ("evening" → evening push), force?, only_user_id?, dry_run? (list only, send/log nothing), plan_override? (daily dry runs: treat plan reminders as on) } or { mode: "test", user_id } (test push, Admin only)
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
-import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, pendingPlIds, testPush, testPushResult, dropWaivedPlanRows, LOOKBACK_DAYS } from './reminders.mjs';
+import { berlinDate, isBerlinNineAm, classify, groupPushes, plMail, mergePlanJobs, groupPlanPushes, planJobVenue, planWindowStart, buildEveningPushes, berlinHour, planMailLogKeys, pendingPlIds, testPush, testPushResult, dropWaivedPlanRows, LOOKBACK_DAYS, isHoursCheckDay, hoursCheckPush } from './reminders.mjs';
 import { gmailConfigured, sendGmail } from '../_shared/gmail.ts';
 import { loadSettings } from '../_shared/settings.ts';
 import { callerRole, isAdminRole } from '../_shared/caller.ts';
@@ -38,6 +38,7 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
   const today = berlinDate(now);
   const from = shiftDate(today, -LOOKBACK_DAYS), to = shiftDate(today, -1);
   const dry = !!input.dry_run;
+  const hoursCheck = await runHoursCheck(db, input, settings, today);
 
   // ── Folder jobs ──
   let q = db.from('einsaetze')
@@ -73,7 +74,7 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
       title: r.shift.title, wann: r.shift.wann, ap_user_id: r.shift.ap_user_id }));
     planJobs = mergePlanJobs(einsaetze || [], dropWaivedPlanRows(planRows, wvErr ? [] : waivers));
   }
-  if (!(einsaetze || []).length && !planJobs.length) return json({ pushed: 0, mailed: 0, removed_subscriptions: 0, ...(dry ? { dry_run: true } : {}) });
+  if (!(einsaetze || []).length && !planJobs.length) return json({ pushed: 0, mailed: 0, removed_subscriptions: 0, hours_check: hoursCheck, ...(dry ? { dry_run: true } : {}) });
 
   // Which (al_id, date) pairs already have a protocol
   const all = [...(einsaetze || []), ...planJobs];
@@ -160,7 +161,7 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
     testRecipient, plEmail: g.plEmail, plId: g.plId }), m: plMail(g.items) }));
 
   if (dry) {
-    return json({ dry_run: true, enabled: settings.reminders_enabled, plan_enabled: settings.plan_reminders_enabled,
+    return json({ dry_run: true, hours_check: hoursCheck, enabled: settings.reminders_enabled, plan_enabled: settings.plan_reminders_enabled,
       pushes: [...folderPushes.map(p => ({ al_id: p.al_id, title: p.title, body: p.body, url: p.url })), ...planPushes.map(p => ({ al_id: p.al_id, title: p.title, body: p.body, url: p.url }))],
       mails: mailPlans.map(x => ({ pl: x.g.plName, to: x.rcpt.to ? (x.rcpt.test ? 'TEST_RECIPIENT' : 'PL') : null, reason: x.rcpt.reason, subject: x.m.subject })) });
   }
@@ -223,7 +224,45 @@ async function runDaily(db: Db, input: Input, settings: Record<string, unknown>,
   }
   await logPlan(planMailLogKeys(planResults), 'pl_mail');
 
-  return json({ pushed, mailed, removed_subscriptions: removed, ...((folderPushes.length || planPushes.length) && !vapid ? { push_skipped: 'vapid_not_configured' } : {}) });
+  return json({ pushed, mailed, removed_subscriptions: removed, hours_check: hoursCheck, ...((folderPushes.length || planPushes.length) && !vapid ? { push_skipped: 'vapid_not_configured' } : {}) });
+}
+
+// "Check mal deine Stunden" (Jenni, 25.11.2026): once a month to everyone with push (not Gast), logged per person in
+// plan_reminder_log (kind 'hours_check', date = day = today), so the later runs in the 9:00 hour send nothing twice.
+// Never fails the daily run: an error is logged and reported.
+async function runHoursCheck(db: Db, input: Input, settings: Record<string, unknown>, today: string) {
+  const cutoff = Number(settings.billing_cutoff);
+  // force (an Admin re-running the daily reminders) must not push this to everyone; a dry run only counts
+  if (!input.dry_run && !isHoursCheckDay(today, cutoff)) return { skipped: 'not_today' };
+  try {
+    let q = db.from('push_subscriptions').select('user_id, app_users!inner(role, is_active)').eq('app_users.is_active', true).neq('app_users.role', 'Gast');
+    if (input.only_user_id) q = q.eq('user_id', input.only_user_id);
+    const { data: subs, error } = await q;
+    if (error) throw error;
+    const users = [...new Set((subs || []).map((s: Db) => s.user_id))] as string[];
+    if (!users.length) return { pushed: 0 };
+    const { data: logged, error: lErr } = await db.from('plan_reminder_log').select('al_id').in('al_id', users).eq('date', today).eq('day', today).eq('kind', 'hours_check');
+    if (lErr) throw lErr;
+    const done = new Set((logged || []).map((l: Db) => l.al_id));
+    const todo = users.filter((u) => !done.has(u));
+    if (input.dry_run) return { dry_run: true, users: todo.length };
+    if (!todo.length) return { pushed: 0 };
+    if (!vapidReady()) return { pushed: 0, push_skipped: 'vapid_not_configured' };
+    const p = hoursCheckPush(cutoff);
+    let pushed = 0;
+    for (const u of todo) {
+      const r = await pushTo(db, u, p);
+      pushed += r.ok;
+      if (r.ok > 0 || r.failed === 0) {
+        const { error: wErr } = await db.from('plan_reminder_log').upsert({ al_id: u, date: today, day: today, kind: 'hours_check' }, { ignoreDuplicates: true });
+        if (wErr) console.error('send-reminders: hours check log failed', wErr);
+      }
+    }
+    return { pushed, users: todo.length };
+  } catch (e) {
+    console.error('send-reminders: hours check failed', e);
+    return { error: 'failed' };
+  }
 }
 
 // Evening push (cron 'send-evening-push', body {"mode":"evening"}): one message per AL about tomorrow.

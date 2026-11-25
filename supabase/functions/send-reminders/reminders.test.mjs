@@ -218,3 +218,13 @@ test('dropWaivedPlanRows: rows marked "Kein Protokoll nötig" get no reminder', 
   assert.equal(dropWaivedPlanRows(rows, null).length, 4);
   assert.deepEqual(dropWaivedPlanRows(null, []), []);
 });
+
+test('hours check: 2 days before the cut-off, never for a cut-off without such a day', async () => {
+  const { isHoursCheckDay, hoursCheckPush } = await import('./reminders.mjs');
+  assert.equal(isHoursCheckDay('2026-12-18', 20), true);
+  assert.equal(isHoursCheckDay('2026-12-19', 20), false);
+  assert.equal(isHoursCheckDay('2026-12-01', 3), true);
+  assert.equal(isHoursCheckDay('2026-12-30', 2), false);
+  assert.equal(isHoursCheckDay('2026-12-18', NaN), false);
+  assert.match(hoursCheckPush(20).body, /Am 20\. ist Abrechnungsschluss/);
+});

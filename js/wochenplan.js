@@ -195,7 +195,8 @@ function wpInterestBlock(s) {
   if ((s._orders && s._orders.length) || !s._interest) return '';
   var mine = wpMyInterest(s), call = 'event.stopPropagation(); wpToggleInterest(this, \'' + s.id + '\')';
   if (mine) {
-    return '<div class="wp-ord-action wp-int-action" onclick="event.stopPropagation()">' + wpMeldungPill(mine) +
+    var vb = ((s._interest || []).find(function(r) { return r.user_id === wpMe(); }) || {}).vorbehalt;
+    return '<div class="wp-ord-action wp-int-action" onclick="event.stopPropagation()">' + wpMeldungPill(mine) + (vb ? '<span class="ui-sub">' + wpEsc(vb) + '</span>' : '') +
       (mine === 'offen' ? '<button type="button" class="ord-textbtn" onclick="' + call + '">Zurückziehen</button>' : '') + '</div>';
   }
   if (!wpCanApply(s, wpMe(), localDateStr(), wpWho())) return '';
@@ -279,14 +280,42 @@ async function wpWithdrawCancel(btn, shiftId) {
 // Admin always, everyone else (PL included) only when "Sieht Bewerbungen" is switched on for them
 function wpSeesInterest() { return (typeof userRole !== 'undefined' && userRole === 'Admin') || !!window.currentUserSeesInterest; }
 
-async function wpToggleInterest(btn, shiftId) {
+// ── „Mit Vorbehalt“ (Jenni, 25.11.2026): after „Ich kann“ an optional limit (only until / only from), shown to whoever decides ──
+// kind null → no limit (null); a bad time → undefined
+function wpVorbehalt(kind, time) {
+  if (!kind) return null;
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time || '')) return undefined;
+  return (kind === 'bis' ? 'nur bis ' : 'erst ab ') + time + ' Uhr';
+}
+var _wpVbThen = null;
+function wpAskVorbehalt(then) {
+  _wpVbThen = then;
+  var row = function(kind, label) {
+    return '<div class="wp-vb-row"><label class="ui-field"><span>' + label + '</span><input type="time" id="wp-vb-' + kind + '"></label>' +
+      '<button type="button" class="ui-btn" onclick="wpVorbehaltPick(\'' + kind + '\')">Melden</button></div>';
+  };
+  pinSheetOpen({ title: 'Ich kann', body: '<p class="ui-sub" style="margin:0 0 12px;">Kannst du die ganze Zeit?</p>' +
+    '<button type="button" class="ui-btn ui-btn-primary ui-btn-block" onclick="wpVorbehaltPick(null)">Ja, die ganze Zeit</button>' +
+    '<p class="ui-sub" style="margin:16px 0 4px;">Oder nur einen Teil:</p>' + row('bis', 'Nur bis') + row('ab', 'Erst ab') });
+}
+function wpVorbehaltPick(kind) {
+  var v = wpVorbehalt(kind, kind ? (document.getElementById('wp-vb-' + kind) || {}).value : '');
+  if (v === undefined) { showToast('Bitte eine Uhrzeit eintragen.', 'danger'); return; }
+  var then = _wpVbThen;
+  _wpVbThen = null;
+  closePinSheet();
+  if (then) then(v);
+}
+
+async function wpToggleInterest(btn, shiftId, vorbehalt) {
   var s = _wpShiftCache[shiftId], me = wpMe();
   if (!s || !s._interest || !me) return;
-  btn.disabled = true;
   var on = !!wpMyInterest(s), q = supabaseClient.from('plan_shift_interest');
+  if (!on && vorbehalt === undefined) { wpAskVorbehalt(function(v) { wpToggleInterest(btn, shiftId, v); }); return; }
+  btn.disabled = true;
   // .select(): RLS answers a blocked write with 0 rows and no error; only an undecided Meldung can be withdrawn
   var r = on ? await q.delete().eq('week_id', s.week_id).eq('shift_key', s.key).eq('user_id', me).eq('status', 'offen').select('user_id')
-             : await q.insert({ week_id: s.week_id, shift_key: s.key, user_id: me }).select('user_id');
+             : await q.insert(Object.assign({ week_id: s.week_id, shift_key: s.key, user_id: me }, vorbehalt ? { vorbehalt: vorbehalt } : {})).select('user_id');
   if (r.error || !r.data || !r.data.length) {
     console.error('Ich kann (Schicht):', r.error);
     showToast(on ? 'Nicht zurückgezogen – vielleicht wurde schon entschieden.' : 'Nicht gespeichert. Prüf deine Verbindung.', 'danger');
@@ -845,7 +874,7 @@ async function wpRenderWeek() {
   var none = Promise.resolve({ data: [], error: null }); // virtual week: nothing from the scheduler yet
   var [res, iq, slots] = await Promise.all([
     week._virtual ? none : supabaseClient.from('plan_shifts').select('*, plan_assignments(*)').eq('week_id', week.id).order('date').order('sort'),
-    week._virtual ? none : supabaseClient.from('plan_shift_interest').select('shift_key, user_id, status').eq('week_id', week.id),
+    week._virtual ? none : supabaseClient.from('plan_shift_interest').select('*').eq('week_id', week.id), // '*': vorbehalt only after migration jenni_runde_3
     wpLoadSlots(),
     wpLoadMyCancels()
   ]);
@@ -952,12 +981,13 @@ function wpOrderCard(slot, opts) {
     '</div></div>';
 }
 
-async function wpOrderApply(jobNo, phase, on) {
+async function wpOrderApply(jobNo, phase, on, vorbehalt) {
   var me = wpMe(), slot = (_wpSlots || []).find(function(x) { return x.job_no === jobNo && x.phase === phase; });
   if (!me || !slot) return;
+  if (on && vorbehalt === undefined) { wpAskVorbehalt(function(v) { wpOrderApply(jobNo, phase, true, v); }); return; }
   try {
     var q = supabaseClient.from('order_applications');
-    var r = on ? await q.insert({ job_no: jobNo, phase: phase, user_id: me }).select('job_no')
+    var r = on ? await q.insert(Object.assign({ job_no: jobNo, phase: phase, user_id: me }, vorbehalt ? { vorbehalt: vorbehalt } : {})).select('job_no')
       : await q.delete().eq('job_no', jobNo).eq('phase', phase).eq('user_id', me).eq('status', 'offen').select('job_no');
     if (r.error || !r.data || !r.data.length) throw r.error || new Error(on ? 'nicht gespeichert' : 'schon entschieden');
     slot.my_status = on ? 'offen' : null;

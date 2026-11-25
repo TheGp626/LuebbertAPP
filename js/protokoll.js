@@ -924,7 +924,7 @@ function renderProtPersonnel() {
         '<div class="prot-time-grid">' +
           '<label class="ui-field"><span>Start</span><input type="time" value="' + (p.start || '') + '" oninput="updateProtPersonnel(' + i + ', \'start\', this.value)"/></label>' +
           '<label class="ui-field"><span>Ende</span><input type="time" value="' + (p.end || '') + '" oninput="updateProtPersonnel(' + i + ', \'end\', this.value)"/></label>' +
-          '<label class="ui-field"><span>Pause</span><input type="number" placeholder="Min" value="' + (p.pause || '0') + '" oninput="updateProtPersonnel(' + i + ', \'pause\', this.value)"/></label>' +
+          '<label class="ui-field"><span>Pause</span><input type="number" placeholder="Min" min="' + protPauseMin(p) + '" value="' + (p.pause || '0') + '" oninput="updateProtPersonnel(' + i + ', \'pause\', this.value)" onchange="protClampPause(' + i + ', this)"/></label>' +
         '</div>' +
         // Always present (hidden when the break is enough), toggled by protPauseHint without a re-render
         '<div class="prot-pause-warn" id="prot-pwarn-' + i + '"' + (protShortBreaks([p]).length ? '' : ' hidden') + '>' + protPauseHintText(p) + '</div>' +
@@ -985,7 +985,19 @@ function renderProtPersonnelAfterPicker() {
 }
 
 function protPauseHintText(p) {
-  return 'Gesetzlich mind. ' + protPauseMin(p) + ' min Pause bei dieser Arbeitszeit. Weniger geht, braucht beim Senden aber eine Begründung.';
+  return 'Gesetzlich mind. ' + protPauseMin(p) + ' min Pause bei dieser Arbeitszeit. Kürzer geht nicht, nur länger.';
+}
+// The break is set automatically and can only be made longer (Jenni, 25.11.2026): below the legal minimum → back to it.
+// On change, not on input, so typing "45" is not cut off at "4".
+function protClampPause(i, el) {
+  var p = protState.personnel[i];
+  if (!p) return;
+  var min = protPauseMin(p);
+  if ((parseInt(p.pause, 10) || 0) < min) {
+    updateProtPersonnel(i, 'pause', String(min));
+    if (el) el.value = min;
+    showToast('Pause mind. ' + min + ' min. Länger geht, kürzer nicht.', 'info');
+  }
 }
 function protPauseHint(i) {
   var el = document.getElementById('prot-pwarn-' + i), p = protState.personnel[i];

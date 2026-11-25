@@ -421,12 +421,12 @@ async function ordLoadCtx() {
   // An order stays listed until its Abbau, so its Aufbau can already lie in the past: load the plan entries 14 days back
   var ordPlanFrom = localDateStr(new Date(Date.now() - 14 * 864e5));
   var res = await Promise.all([
-    supabaseClient.from('order_applications').select('job_no, phase, user_id, status'),
+    supabaseClient.from('order_applications').select('*'), // '*': vorbehalt only after migration jenni_runde_3
     supabaseClient.from('order_plan_links').select('job_no, phase, plan_date, plan_key'),
     supabaseClient.from('plan_shifts').select('id, week_id, date, key, venue, location, title, wann, open_slots, plan_assignments(user_id, name, role)').gte('date', ordPlanFrom),
     supabaseClient.from('availability').select('user_id, day, level').gte('day', today),
     supabaseClient.from('app_users').select('id, full_name, role, is_active, availability_enabled, can_drive'),
-    supabaseClient.from('plan_shift_interest').select('week_id, shift_key, user_id, status'),
+    supabaseClient.from('plan_shift_interest').select('*'),
     supabaseClient.rpc('order_slots'), // accepted ids for everyone (security definer)
     typeof mitLoadPhotos === 'function' ? mitLoadPhotos() : null // Profilbilder (never throws)
   ]);
@@ -469,14 +469,14 @@ function ordInbox(jobs, today) {
     if (!x || !x.job[a.phase]) return;
     var start = x.job[a.phase].start || '', info = ordPhaseInfo(x, a.phase);
     push({ kind: 'order', night: ordPhaseNight(x.job[a.phase]), date: start.slice(0, 10), time: start.slice(11, 16), title: [ordVenueLabel(x.title), x.job.name].filter(Boolean).join(' – '),
-      phase: ORD_PHASE[a.phase], user_id: a.user_id, job_no: a.job_no, phaseKey: a.phase, ps: info.ps,
+      phase: ORD_PHASE[a.phase], user_id: a.user_id, vorbehalt: a.vorbehalt || '', job_no: a.job_no, phaseKey: a.phase, ps: info.ps,
       full: info.needed ? info.taken.length + ' von ' + info.needed + ' besetzt' : '' }, a.status);
   });
   (_ordCtx.interest || []).forEach(function(r) {
     var p = _ordCtx.plan.find(function(s) { return s.week_id === r.week_id && s.key === r.shift_key; });
     if (!p) return;
     push({ kind: 'shift', night: (typeof mitNightForMinor === 'function') && mitNightForMinor(null, null, p.wann), date: p.date, time: '', title: [p.venue, p.title].filter(Boolean).join(' – '),
-      phase: String(p.wann || '').split('\n')[0], user_id: r.user_id, week_id: r.week_id, shift_key: r.shift_key, ps: p,
+      phase: String(p.wann || '').split('\n')[0], user_id: r.user_id, vorbehalt: r.vorbehalt || '', week_id: r.week_id, shift_key: r.shift_key, ps: p,
       full: (p.open_slots || []).map(function(o) { return o.count + ' ' + (o.role || 'MA') + (o.count === 1 ? ' fehlt' : ' fehlen'); }).join(', ') }, r.status || 'offen');
   });
   var low = (typeof mitLowFirst === 'function' && mitLowFirst()), share = function(it) { return mitShareSort((_ordCtx.shares || {})[it.user_id]); };
@@ -497,7 +497,7 @@ function ordInboxHtml(box, avail) {
     var what = [ordDay(it.date) + (it.time ? ' ' + it.time : ''), it.title, it.phase, it.full].filter(Boolean).map(ordEsc).join(' · ');
     return '<li class="ord-req"><div class="ord-inbox-what">' + what + '</div>' +
       '<div class="ord-req-top"><span class="ord-avatar ' + (accepted ? 'ord-avatar-ok' : 'ord-avatar-new') + '">' + ordInitial(it.user_id) + '</span>' +
-        '<b class="ord-person-name">' + ordEsc(ordName(it.user_id)) + '</b>' + (accepted ? '' : ordHints(it.user_id, it.date, it.ps) + ordShare(it.user_id)) +
+        '<b class="ord-person-name">' + ordEsc(ordName(it.user_id)) + '</b>' + (it.vorbehalt ? '<span class="ord-pill ord-pill-warn">' + ordEsc(it.vorbehalt) + '</span>' : '') + (accepted ? '' : ordHints(it.user_id, it.date, it.ps) + ordShare(it.user_id)) +
         (accepted ? '<button type="button" class="ord-textbtn" onclick="' + call(it, 'offen') + '">Zurücknehmen</button>' : '') + '</div>' +
       (accepted ? '' : '<div class="ord-req-acts">' + (ordMinorLocked(it.user_id, it.night) ? ORD_MINOR_LOCK : '<button type="button" class="ord-accept" onclick="' + call(it, 'angenommen') + '">' + ORD_ICON.check + 'Annehmen</button>') +
         '<button type="button" class="ord-reject" aria-label="' + ordEsc(ordName(it.user_id)) + ' ablehnen" onclick="' + call(it, 'abgelehnt') + '">' + ORD_ICON.x + '</button></div>') +
