@@ -486,3 +486,12 @@ test('plUnmatchedCancels: Absagen whose plan key belongs to no row of the draft'
   assert.deepEqual(plain(ctx.plUnmatchedCancels({ r1: 'k1', r2: 'k2' }, { k1: ['a'], k3: ['b', 'c'] })), [
     { key: 'k3', user_id: 'b' }, { key: 'k3', user_id: 'c' }]);
 });
+
+test('plVorbehaltFor: the limit of the Auftrag Meldung first, then the one on the plan entry', () => {
+  const vb = { 'o|26-0415.01|setup|u1': 'nur bis 16:00 Uhr', 's|k1|u1': 'erst ab 10:00 Uhr', 's|k1|u2': 'erst ab 10:00 Uhr' };
+  const job = { job_no: '26-0415.01', phase: 'setup' };
+  assert.equal(ctx.plVorbehaltFor(job, 'k1', vb, 'u1'), 'nur bis 16:00 Uhr');
+  assert.equal(ctx.plVorbehaltFor(job, 'k1', vb, 'u2'), 'erst ab 10:00 Uhr');
+  assert.equal(ctx.plVorbehaltFor({}, 'k1', vb, 'u3'), '');
+  assert.equal(ctx.plVorbehaltFor(job, null, undefined, 'u1'), '');
+});

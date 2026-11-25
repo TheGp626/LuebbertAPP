@@ -1,17 +1,17 @@
 # Graph Report - LuebbertAPP  (2026-11-25)
 
 ## Corpus Check
-- 113 files · ~170,491 words
+- 113 files · ~170,617 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 4 file(s) not represented in the graph (top: (none) 2, .css 2)
 
 ## Summary
-- 1642 nodes · 3648 edges · 86 communities (61 shown, 25 thin omitted)
-- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 214 edges (avg confidence: 0.85)
+- 1644 nodes · 3653 edges · 87 communities (62 shown, 25 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 215 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `7f90e740`
+- Built from commit: `8819b81d`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -77,6 +77,7 @@
 - public.staff_minors
 - sw.js
 - changelog.js
+- plan-ics.mjs
 - public.plan_inbox
 - 20261030_ordner_auto_loeschen.sql
 - 20261104_role_rls.sql
@@ -111,11 +112,11 @@
 ## Import Cycles
 - None detected.
 
-## Communities (86 total, 25 thin omitted)
+## Communities (87 total, 25 thin omitted)
 
 ### Community 0 - "planer.js"
 Cohesion: 0.06
-Nodes (99): plAddDays(), plAddPerson(), plAfterPublish(), plApplied(), plAppliedFor(), plBounds(), plBox(), plCancelCount() (+91 more)
+Nodes (101): plAddDays(), plAddPerson(), plAfterPublish(), plApplied(), plAppliedFor(), plBounds(), plBox(), plCancelCount() (+93 more)
 
 ### Community 1 - "wochenplan.js"
 Cohesion: 0.05
@@ -182,8 +183,8 @@ Cohesion: 0.10
 Nodes (36): AREA_LABELS, AREA_ORDER, buildDepartmentBody(), buildDepartmentSubject(), DEFAULT_ROUTES, DEPARTMENT_EMAIL_RE, departmentFeedback(), departmentRecipient() (+28 more)
 
 ### Community 17 - "pin.mjs"
-Cohesion: 0.07
-Nodes (40): dedupeShifts(), parseToken(), windowStart(), CORS, CORS, json(), serverError(), CORS (+32 more)
+Cohesion: 0.14
+Nodes (24): CORS, json(), serverError(), CORS, json(), serverError(), CORS, json() (+16 more)
 
 ### Community 18 - "admin.js"
 Cohesion: 0.16
@@ -353,6 +354,10 @@ Nodes (3): assetUrlsOf(), LAZY_ASSETS, precache()
 Cohesion: 0.67
 Nodes (3): CHANGELOG, showChangelogIfNew(), unseenChangelog()
 
+### Community 62 - "plan-ics.mjs"
+Cohesion: 0.17
+Nodes (16): dedupeShifts(), parseToken(), windowStart(), CORS, RFC-5545, PLAN_WHEN_LABELS, planEventName(), planIcs() (+8 more)
+
 ### Community 64 - "public.plan_inbox"
 Cohesion: 0.83
 Nodes (3): plan_inbox_handled_by_idx, plan_inbox_status_idx, public.plan_inbox
@@ -366,16 +371,16 @@ Nodes (3): plan_inbox_handled_by_idx, plan_inbox_status_idx, public.plan_inbox
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `planShiftFromDb()` connect `wochenplan.js` to `dashboard.js`, `plan-parser.js`?**
-  _High betweenness centrality (0.042) - this node is a cross-community bridge._
+  _High betweenness centrality (0.054) - this node is a cross-community bridge._
 - **What connects `RFC-5545`, `RFC-5545` to the rest of the system?**
   _2 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `planer.js` be split into smaller, more focused modules?**
-  _Cohesion score 0.05901766647252961 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.057692307692307696 - nodes in this community are weakly interconnected._
 - **Why does `dashStartProtokollFromPlan()` connect `dashboard.js` to `wochenplan.js`?**
-  _High betweenness centrality (0.038) - this node is a cross-community bridge._
+  _High betweenness centrality (0.046) - this node is a cross-community bridge._
 - **Should `wochenplan.js` be split into smaller, more focused modules?**
   _Cohesion score 0.0548258138206739 - nodes in this community are weakly interconnected._
 - **Why does `planStripPhones()` connect `plan-parser.js` to `planer.js`?**
-  _High betweenness centrality (0.038) - this node is a cross-community bridge._
+  _High betweenness centrality (0.037) - this node is a cross-community bridge._
 - **Should `stundenzettel.js` be split into smaller, more focused modules?**
   _Cohesion score 0.06163401815575729 - nodes in this community are weakly interconnected._
