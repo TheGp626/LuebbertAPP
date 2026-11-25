@@ -87,25 +87,46 @@ function plWannText(phase, startAt, endAt) {
 
 // One Auftrag phase (planner_order_phases / order_slots row) → a new draft row; accepted Meldungen are placed right away.
 // need null = no MA number entered yet ("MA?" in PLANEN)
-function plRowFromSlot(slot, week, users) {
+// The fields a Bestätigung decides for its plan entry (shared by plRowFromSlot and plMergeSlots)
+// `manual` after a save from the edit sheet: every field that differs from the row's value counts as changed by hand
+// (a later revised Bestätigung then leaves it alone and only reports its own value)
+var PL_MANUAL_FIELDS = ['date', 'wann', 'location', 'title', 'venue'];
+function plManualAfter(row, changes) {
+  var out = Array.isArray(row && row.manual) ? row.manual.slice() : [];
+  PL_MANUAL_FIELDS.forEach(function(k) {
+    if (k in changes && (changes[k] == null ? null : changes[k]) !== (row[k] == null ? null : row[k]) && out.indexOf(k) === -1) out.push(k);
+  });
+  return out;
+}
+
+function plSlotFields(slot) {
   var title = String(slot.title || ''), event = title.split('_').slice(2).join(' ').trim();
+  return { date: ordSlotDate(slot), wann: plText(plWannText(slot.phase, slot.start_at, slot.end_at)),
+    location: plText([event, slot.room].filter(Boolean).join('\n')), title: plText(slot.name), need: slot.needed == null ? null : slot.needed };
+}
+
+function plRowFromSlot(slot, week, users) {
+  var title = String(slot.title || ''), f = plSlotFields(slot);
   var people = [];
   (Array.isArray(slot.accepted_ids) ? slot.accepted_ids : []).forEach(function(id) {
     var u = (users || []).find(function(x) { return x.id === id && x.is_active !== false; });
     if (u && !people.some(function(p) { return p.user_id === id; })) people.push({ user_id: id, name: plShortName(u, users), role: 'MA', note: null });
   });
   return {
-    year: week.year, kw: week.kw, date: ordSlotDate(slot), sort: 0, job_no: slot.job_no, phase: slot.phase,
-    venue: ordVenueLabel(title) || plText(title), location: plText([event, slot.room].filter(Boolean).join('\n')),
-    title: plText(slot.name), details: null, wann: plText(plWannText(slot.phase, slot.start_at, slot.end_at)),
-    ap: null, ap_user_id: null, notes: null, need: slot.needed == null ? null : slot.needed, people: people, kind: 'auftrag'
+    year: week.year, kw: week.kw, date: f.date, sort: 0, job_no: slot.job_no, phase: slot.phase,
+    venue: ordVenueLabel(title) || plText(title), location: f.location,
+    title: f.title, details: null, wann: f.wann,
+    ap: null, ap_user_id: null, notes: null, need: f.need, people: people, kind: 'auftrag'
   };
 }
 
-// Draft rows against the Auftrag phases of the week. Existing rows are never removed and keep people and texts;
-// only the day and the MA number follow the Auftrag (both are maintained in Aufträge / the project folder).
-// slots === null (not loaded) changes nothing.
-function plMergeSlots(rows, slots, week, users) {
+// Draft rows against the Auftrag phases of the week. Existing rows are never removed and keep their people.
+// Day and MA number always follow the Auftrag. Rows with the column `manual` (migration planen_flow) also follow time,
+// room/event and name, except fields a person changed by hand (listed in `manual`); every difference the merge sees is
+// added once to auftrag_changes ({field, from, to, kept, at}; „Gesehen“ marks them seen, they are never added twice).
+// Older rows without the column keep their texts (they may hold hand edits nobody recorded).
+// slots === null (not loaded) changes nothing. now = timestamp written into new change entries.
+function plMergeSlots(rows, slots, week, users, now) {
   var out = { add: [], patch: [], stale: [] };
   if (!slots) return out;
   var inWeek = {}, any = {};
@@ -120,9 +141,18 @@ function plMergeSlots(rows, slots, week, users) {
     var k = r.job_no + '|' + r.phase, s = inWeek[k];
     have[k] = true;
     if (!s) { out.stale.push(r.id); return; }
-    var ch = {}, d = ordSlotDate(s);
-    if (d !== r.date) ch.date = d;
-    if (s.needed != null && s.needed !== r.need) ch.need = s.needed;
+    var ch = {}, f = plSlotFields(s), tracked = 'manual' in r, manual = Array.isArray(r.manual) ? r.manual : [];
+    var log = Array.isArray(r.auftrag_changes) ? r.auftrag_changes.slice() : [], logged = log.length;
+    var same = function(a, b) { return (a == null ? null : a) === (b == null ? null : b); };
+    ['date', 'need'].concat(tracked ? ['wann', 'location', 'title'] : []).forEach(function(k) {
+      if ((k === 'need' && f.need == null) || same(r[k], f[k])) return;
+      var kept = manual.indexOf(k) !== -1;
+      if (!kept) ch[k] = f[k];
+      // the MA number is set in PLANEN itself: not reported as a change of the Auftrag
+      if (tracked && k !== 'need' && !log.some(function(c) { return c.field === k && same(c.to, f[k]); }))
+        log.push({ field: k, from: r[k] == null ? null : r[k], to: f[k], kept: kept, at: now || null });
+    });
+    if (log.length !== logged) ch.auftrag_changes = log;
     if (Object.keys(ch).length) out.patch.push({ id: r.id, changes: ch });
   });
   Object.keys(inWeek).forEach(function(k) { if (!have[k]) out.add.push(plRowFromSlot(inWeek[k], week, users)); });
@@ -583,7 +613,7 @@ async function plRender() {
 
 // Brings the Auftrag phases of the week into an existing draft. true = something was written and the board was reloaded.
 async function plSyncSlots(seq) {
-  var st = plState, m = plMergeSlots(st.rows, st.slots, st.week, wpUsers), wrote = false;
+  var st = plState, m = plMergeSlots(st.rows, st.slots, st.week, wpUsers, new Date().toISOString()), wrote = false;
   st.stale = m.stale;
   if (m.add.length) {
     var ins = await supabaseClient.from('plan_draft_shifts').insert(plForInsert(m.add)).select('id');
@@ -950,6 +980,7 @@ async function plSaveSheet(id) {
     ch.ap = u ? plShortName(u, wpUsers) : null;
   }
   if (!ch.venue && !ch.title) { showToast('Bitte Ort oder „Was“ eintragen.', 'danger'); return; }
+  if (row && 'manual' in row) ch.manual = plManualAfter(row, ch);
   var btn = document.getElementById('pl-f-save');
   if (btn) btn.disabled = true;
   var ok;

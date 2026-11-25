@@ -46,6 +46,20 @@ function pnSeats(row) {
   return seats;
 }
 
+// Changes a revised Bestätigung made (auftrag_changes) that nobody has looked at yet, as readable lines
+var PN_FIELD_LABELS = { date: 'Tag', wann: 'Zeit', location: 'Raum / Veranstaltung', title: 'Name' };
+function pnChangeLines(row) {
+  var show = function(field, v) {
+    if (v == null || v === '') return '–';
+    return field === 'date' ? plDayShort(v) : String(v).replace(/\n/g, ', ');
+  };
+  return (Array.isArray(row && row.auftrag_changes) ? row.auftrag_changes : []).filter(function(c) { return c && !c.seen; }).map(function(c) {
+    var label = PN_FIELD_LABELS[c.field] || c.field;
+    return c.kept ? label + ': laut Auftrag jetzt ' + show(c.field, c.to) + ', von Hand ' + show(c.field, c.from) + ' behalten'
+      : label + ': ' + show(c.field, c.from) + ' → ' + show(c.field, c.to);
+  });
+}
+
 // "PB" for "Piotr B.", "K" for "Konrad"
 function pnInitials(name) {
   var w = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -104,7 +118,7 @@ function pnSeatsHtml(row, gone) {
 
 function pnRowHtml(r) {
   var st = plState, w = planWhen(plLines(r.wann)), need = r.need || 0, filled = plFilled(r), open = pnOpenCount(r);
-  var waiting = plOpenMeldungen(r, plApplied(r)), gone = {};
+  var waiting = plOpenMeldungen(r, plApplied(r)), gone = {}, changed = pnChangeLines(r).length;
   plCancelsOnRow(r, st.keys[r.id], st.cancels, wpUsers).forEach(function(c) { if (c.index !== -1) gone[c.user_id] = true; });
   var nGone = Object.keys(gone).length;
   var count = r.need == null ? 'MA?' : need || open ? filled + '/' + (need || filled) : (filled ? String(filled) : '');
@@ -115,10 +129,11 @@ function pnRowHtml(r) {
     '<span class="pn-main">' +
       '<span class="pn-what"><b>' + pnE(r.venue || 'Ohne Ort') + '</b>' + (r.title ? '<span>' + pnE(r.title) + '</span>' : '') + plKindTag(r) + '</span>' +
       pnSeatsHtml(r, gone) +
-      ((waiting || nGone || st.stale.indexOf(r.id) !== -1) ? '<span class="pn-flags">' +
+      ((waiting || nGone || changed || st.stale.indexOf(r.id) !== -1) ? '<span class="pn-flags">' +
+        (changed ? '<span class="pn-flag pn-flag-changed">Auftrag geändert</span>' : '') +
         (waiting ? '<span class="pn-flag pn-flag-new">' + waiting + (waiting === 1 ? ' Meldung' : ' Meldungen') + '</span>' : '') +
         (nGone ? '<span class="pn-flag pn-flag-gone">' + nGone + ' abgesagt</span>' : '') +
-        (st.stale.indexOf(r.id) !== -1 ? '<span class="pn-flag pn-flag-gone">Auftrag nicht mehr in dieser Woche</span>' : '') + '</span>' : '') +
+        (st.stale.indexOf(r.id) !== -1 ? '<span class="pn-flag pn-flag-gone">Auftrag nicht mehr gültig</span>' : '') + '</span>' : '') +
     '</span>' +
     '<span class="pn-count">' + pnE(count) + '</span>' +
   '</button>';
@@ -352,6 +367,7 @@ function pnSheetPaint() {
     (plLines(row.location).length || row.ap ? '<p class="pn-sheet-sub">' + pnE(plLines(row.location).join(', ')) + (row.ap ? (plLines(row.location).length ? '<br>' : '') + 'PL ' + pnE(row.ap) : '') + '</p>' : '') +
     details +
     (can ? '<button type="button" class="ord-textbtn pn-edit" onclick="plEditRow(' + id + ')">Eintrag bearbeiten</button>' : '') +
+    pnChangesHtml(row, can) + pnStaleHtml(row) +
     stepper +
     (rp ? '<div class="pn-replace">Ersatz für <b>' + pnE(rp.name) + '</b> wählen <button type="button" class="ord-textbtn" onclick="pnStopReplace()">Abbrechen</button></div>' : '') +
     (people ? '<h4 class="pn-h">Eingeplant</h4><ul class="pn-list">' + people + '</ul>' : '') +
@@ -385,6 +401,38 @@ function pnSheetPaint() {
   m.firstChild.scrollTop = scroll;
   if (role && document.getElementById('pl-role')) document.getElementById('pl-role').value = role;
   if (_pnQuery) pnFilter();
+}
+
+function pnChangesHtml(row, can) {
+  var lines = pnChangeLines(row);
+  if (!lines.length) return '';
+  return '<div class="pn-changed"><b>Die Auftragsbestätigung hat sich geändert</b><ul>' + lines.map(function(l) { return '<li>' + pnE(l) + '</li>'; }).join('') + '</ul>' +
+    (can ? '<button type="button" class="ui-btn pn-small" onclick="pnSeen(\'' + jsAttrArg(row.id) + '\')">Gesehen</button>' : '') + '</div>';
+}
+
+async function pnSeen(id) {
+  var row = plRowById(id);
+  if (!row) return;
+  await plSave(row, { auftrag_changes: (row.auftrag_changes || []).map(function(c) { return Object.assign({}, c, { seen: true }); }) });
+}
+
+// An Auftrag that left the week or vanished: delete the entry, or keep it as a free entry (no longer synced)
+function pnStaleHtml(row) {
+  if (!plState || plState.stale.indexOf(row.id) === -1) return '';
+  var planner = plCanPublish(plWho()), id = "'" + jsAttrArg(row.id) + "'";
+  return '<div class="pn-stale"><b>Auftrag ' + pnE(row.job_no) + ' ist nicht mehr gültig</b><span>Er ist verschoben, storniert oder nicht mehr in den Projektordnern.</span>' +
+    (planner ? '<div class="pn-stale-acts"><button type="button" class="ui-btn ui-btn-danger pn-small" onclick="plDeleteRow(' + id + ')">Eintrag löschen</button>' +
+      '<button type="button" class="ui-btn pn-small" onclick="pnKeepStale(' + id + ')">Behalten</button></div>' : '') + '</div>';
+}
+
+async function pnKeepStale(id) {
+  var row = plRowById(id);
+  if (!row) return;
+  var note = 'Auftrag ' + row.job_no + ' (nicht mehr gültig)';
+  if (await plSave(row, { job_no: null, phase: null, notes: plText([note, row.notes].filter(Boolean).join('\n')) })) {
+    plState.stale = plState.stale.filter(function(x) { return x !== id; });
+    pnPaint();
+  }
 }
 
 function pnStopReplace() { if (plState) plState.replace = null; pnSheetPaint(); }
