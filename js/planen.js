@@ -747,8 +747,8 @@ async function pnPublishGo() {
     if (m) m.remove();
     showToast('KW ' + job.week.kw + ' veröffentlicht', 'success');
     if (res.oldNotDeleted) showToast('Die alten Einsätze der Woche konnten nicht gelöscht werden – Einsätze erscheinen doppelt. Bitte beim Admin melden.', 'danger');
-    if (typeof wpWeeks !== 'undefined') wpWeeks = []; // the Wochenplan loads its weeks fresh on its next open
-    await plRender();
+    // Planen is a section of the Wochenplan: reload its weeks (initWochenplan paints this section again via wpSetView)
+    if (typeof initWochenplan === 'function') await initWochenplan(); else await plRender();
   } catch (e) {
     console.error('Veröffentlichen:', e);
     showToast('Nicht veröffentlicht: ' + (e.message || e), 'danger');

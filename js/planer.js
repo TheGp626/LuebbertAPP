@@ -920,7 +920,7 @@ async function plDeleteWeek() {
   if (d.error || !d.data || !d.data.length) { console.error('Entwurf löschen:', d.error); showToast('Der Entwurf konnte nicht gelöscht werden.', 'danger'); return plRender(); }
   showToast(app ? 'KW ' + kw + ' gelöscht' : 'Entwurf für KW ' + kw + ' gelöscht');
   plState = null;
-  await plRender(); // the Wochenplan loads its week list fresh when it is opened
+  if (app && typeof initWochenplan === 'function') await initWochenplan(); else await plRender(); // the other sections still held the deleted plan
 }
 
 /* ── Edit sheet ── */
