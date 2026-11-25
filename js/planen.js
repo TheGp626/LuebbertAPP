@@ -197,6 +197,9 @@ function pnHeadHtml(st, who) {
       arrow(1, 'Nächste Woche', st.week.weekStart >= b.max, 'M10 6l6 6-6 6') + '</div>' +
     (st.draft ? '<div class="pn-status">' + pnE(status) + '</div>' +
       '<div class="pn-actions">' +
+        '<div class="ui-seg pn-viewseg" role="group" aria-label="Ansicht">' +
+          '<button type="button" class="' + (pnView() === 'board' ? 'active' : '') + '" aria-pressed="' + (pnView() === 'board') + '" onclick="pnSetView(\'board\')">Tafel</button>' +
+          '<button type="button" class="' + (pnView() === 'table' ? 'active' : '') + '" aria-pressed="' + (pnView() === 'table') + '" onclick="pnSetView(\'table\')">Tabelle</button></div>' +
         (planner ? '<button type="button" class="ui-btn ui-btn-primary" onclick="plPublish()">Veröffentlichen</button>' : '') +
         (planner ? '<button type="button" class="ui-btn" onclick="pnQuickOpen()">Neuer Eintrag</button>' : '') +
         '<button type="button" class="ui-icon-btn" aria-label="Weitere Aktionen" onclick="pnMenu()">' + uiIcon('dots') + '</button>' +
@@ -280,6 +283,9 @@ function pnPaint() {
       (d.open ? '<em class="pn-day-open">' + d.open + ' offen</em>' : '') + '</h3>' +
       (d.rows.length ? d.rows.map(pnRowHtml).join('') : '<div class="pn-none">Kein Einsatz</div>') + '</section>';
   });
+  var table = pnView() === 'table' && pnWide(), wrap = box.closest ? box.closest('.ord-wrap') : null;
+  if (table) html = pnTableHtml(days);
+  if (wrap) wrap.classList.toggle('pn-wide', table);
   box.innerHTML = pnHeadHtml(st, who) + pnStripHtml(days) + pnAlertsHtml(st, plSorted(st.rows), who) + html +
     (planner ? '' : '<p class="pn-note">Du besetzt deine Aufträge. Veröffentlicht wird der Plan von der Planung.</p>');
   pnSheetPaint();
@@ -711,4 +717,38 @@ async function pnPublishGo() {
     showToast('Nicht veröffentlicht: ' + (e.message || e), 'danger');
     if (btn) { btn.disabled = false; btn.textContent = 'Veröffentlichen'; }
   }
+}
+
+/* ── Table view (wide screens): the week like Daniel's Excel sheet, Tag | Was | Wann | Wer | PL ── */
+
+var PN_VIEW_KEY = 'luebbert_pn_view';
+function pnWide() { return typeof window !== 'undefined' && window.matchMedia ? matchMedia('(min-width: 900px)').matches : false; }
+function pnView() { try { return localStorage.getItem(PN_VIEW_KEY) === 'table' ? 'table' : 'board'; } catch (e) { return 'board'; } }
+function pnSetView(v) { try { localStorage.setItem(PN_VIEW_KEY, v); } catch (e) { /* private mode: only this time */ } pnPaint(); }
+
+// "Konrad N. (AL), Piotr B., +2 MA, +1 Fahrer"
+function pnWhoText(row) {
+  var names = (row.people || []).map(function(p) { return p.name + (p.role && p.role !== 'MA' ? ' (' + p.role + ')' : ''); });
+  var open = plOpenSlots(row).map(function(o) { return '+' + o.count + ' ' + o.role; });
+  return names.concat(row.need == null ? ['MA?'] : open).join(', ');
+}
+
+function pnTableHtml(days) {
+  var body = '';
+  days.forEach(function(d) {
+    var dt = plUtc(d.date), day = PL_DAYS_SHORT[dt.getUTCDay()] + ' ' + dt.getUTCDate() + '.' + (dt.getUTCMonth() + 1) + '.';
+    if (!d.rows.length) { body += '<tr class="pn-tr-empty"><th scope="row">' + day + '</th><td colspan="4">Kein Einsatz</td></tr>'; return; }
+    d.rows.forEach(function(r, i) {
+      body += '<tr class="pn-tr pn-' + pnRowState(r) + '" tabindex="0" onclick="pnOpen(\'' + jsAttrArg(r.id) + '\')" onkeydown="if (event.key === \'Enter\') pnOpen(\'' + jsAttrArg(r.id) + '\')">' +
+        (i === 0 ? '<th scope="rowgroup" rowspan="' + d.rows.length + '">' + day + (d.open ? '<em class="pn-day-open">' + d.open + ' offen</em>' : '') + '</th>' : '') +
+        '<td class="pn-td-was">' + pnE([r.venue, r.title].filter(Boolean).join(', ')) + (plKindTag(r) ? ' ' + plKindTag(r) : '') +
+          (plLines(r.details).length ? '<small>' + pnE(plLines(r.details).join(', ')) + '</small>' : '') +
+          (pnChangeLines(r).length ? ' <span class="pn-flag pn-flag-changed">Auftrag geändert</span>' : '') + '</td>' +
+        '<td class="pn-td-wann">' + pnE(plLines(r.wann).join(', ')) + '</td>' +
+        '<td>' + pnE(pnWhoText(r)) + '</td>' +
+        '<td class="pn-td-pl">' + pnE(r.ap || '') + '</td></tr>';
+    });
+  });
+  return '<div class="pn-tablewrap"><table class="pn-table"><thead><tr><th scope="col">Tag</th><th scope="col">Was</th><th scope="col">Wann</th><th scope="col">Wer</th><th scope="col">PL</th></tr></thead><tbody>' +
+    body + '</tbody></table></div>';
 }

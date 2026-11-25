@@ -106,3 +106,8 @@ test('pnPublishSummary: counts and who gets a push (people on new or changed ent
   // agency names without an account get no push
   assert.deepEqual(plain(ctx.pnPublishSummary(null, { shifts: [{ people: [{ name: 'Zenjob 1', userId: null, role: 'Zenjob' }] }] })).people, []);
 });
+
+test('pnWhoText: names with role, then open places; "MA?" without a number', () => {
+  assert.equal(ctx.pnWhoText(row({ need: 4, people: [P('Konrad N.', 'AL'), P('Piotr B.')], open_other: [{ role: 'Fahrer', count: 1 }] })), 'Konrad N. (AL), Piotr B., +2 MA, +1 Fahrer');
+  assert.equal(ctx.pnWhoText(row({ need: null, people: [] })), 'MA?');
+});
