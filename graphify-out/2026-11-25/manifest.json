@@ -48,9 +48,9 @@
     "semantic_hash": ""
   },
   "js/errors.js": {
-    "mtime": 1795614923.2799397,
-    "seen": 1795615455.3458414,
-    "ast_hash": "f7b60e090318413b298bc892785381f7",
+    "mtime": 1795634840.804914,
+    "seen": 1795634851.0714157,
+    "ast_hash": "71bbafb617aac2f0a7bad86d32c4e81e",
     "semantic_hash": ""
   },
   "js/fehler.js": {
@@ -126,9 +126,9 @@
     "semantic_hash": ""
   },
   "js/problem.js": {
-    "mtime": 1795614923.2810514,
-    "seen": 1795615455.3458614,
-    "ast_hash": "3225457b05cc7b0597f05e822f2a0d8f",
+    "mtime": 1795634821.8974705,
+    "seen": 1795634851.0714343,
+    "ast_hash": "7b19fe62016803da7dadf6d25356c20a",
     "semantic_hash": ""
   },
   "js/produkte.js": {
@@ -654,9 +654,9 @@
     "semantic_hash": ""
   },
   "sw.js": {
-    "mtime": 1795633993.8951824,
-    "seen": 1795634006.1650872,
-    "ast_hash": "48b46126ab01e362f51c9fb34c72932d",
+    "mtime": 1795634836.5102153,
+    "seen": 1795634851.071549,
+    "ast_hash": "224b2c995624f6fbb0eb9fddf1bb74b4",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
@@ -672,9 +672,9 @@
     "semantic_hash": ""
   },
   "index.html": {
-    "mtime": 1795633993.894822,
-    "seen": 1795634006.1650918,
-    "ast_hash": "83c74e70776f97ae960bb1c6263ecb68",
+    "mtime": 1795634836.5083315,
+    "seen": 1795634851.0715535,
+    "ast_hash": "7f759567cb588971736b1368ef902aec",
     "semantic_hash": ""
   },
   "supabase/migrations/20261202_jenni_runde_3.sql": {

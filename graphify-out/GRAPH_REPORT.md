@@ -1,7 +1,7 @@
 # Graph Report - LuebbertAPP  (2026-11-25)
 
 ## Corpus Check
-- 127 files · ~194,281 words
+- 127 files · ~194,290 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 5 file(s) not represented in the graph (top: .css 3, (none) 2)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `71713532`
+- Built from commit: `1d804b95`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -117,10 +117,10 @@
   README.md → js/utils.js
 - `für entwickler` --references--> `needLib()`  [INFERRED]
   README.md → js/utils.js
+- `navPaint()` --indirect_call--> `moduleAllowedForRole()`  [INFERRED]
+  js/nav.js → js/auth.js
 - `plSaveSheet()` --indirect_call--> `planStripPhones()`  [INFERRED]
   js/planer.js → js/plan-parser.js
-- `dashStartProtokollFromPlan()` --indirect_call--> `planShiftFromDb()`  [INFERRED]
-  js/dashboard.js → js/plan-parser.js
 
 ## Import Cycles
 - None detected.
@@ -442,10 +442,10 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `Staffing Planner UI` be split into smaller, more focused modules?**
   _Cohesion score 0.054455445544554455 - nodes in this community are weakly interconnected._
 - **Why does `dashStartProtokollFromPlan()` connect `dashStartProtokollFromPlan` to `Weekly Plan View`, `Dashboard Protocol Editing`?**
-  _High betweenness centrality (0.051) - this node is a cross-community bridge._
+  _High betweenness centrality (0.047) - this node is a cross-community bridge._
 - **Should `Weekly Plan View` be split into smaller, more focused modules?**
   _Cohesion score 0.052650494159928125 - nodes in this community are weakly interconnected._
 - **Why does `planStripPhones()` connect `Plan Parsing Helpers` to `Staffing Planner UI`?**
-  _High betweenness centrality (0.034) - this node is a cross-community bridge._
+  _High betweenness centrality (0.036) - this node is a cross-community bridge._
 - **Should `Timesheet Shifts` be split into smaller, more focused modules?**
   _Cohesion score 0.059574468085106386 - nodes in this community are weakly interconnected._

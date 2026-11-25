@@ -1,17 +1,17 @@
 # Graph Report - LuebbertAPP  (2026-11-25)
 
 ## Corpus Check
-- 127 files · ~194,098 words
+- 127 files · ~194,281 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 5 file(s) not represented in the graph (top: .css 3, (none) 2)
 
 ## Summary
-- 1812 nodes · 3995 edges · 97 communities (75 shown, 22 thin omitted)
+- 1812 nodes · 3996 edges · 97 communities (75 shown, 22 thin omitted)
 - Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 246 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `f3aed089`
+- Built from commit: `71713532`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -104,8 +104,8 @@
 3. `runDaily()` - 23 edges
 4. `fetchShiftsNow()` - 21 edges
 5. `saveProtokoll()` - 19 edges
-6. `calcProtCosts()` - 18 edges
-7. `wpEsc()` - 18 edges
+6. `wpEsc()` - 18 edges
+7. `calcProtCosts()` - 18 edges
 8. `openMaterialCheck()` - 18 edges
 9. `renderProtPersonnel()` - 17 edges
 10. `_mcRender()` - 17 edges
@@ -117,8 +117,8 @@
   README.md → js/utils.js
 - `für entwickler` --references--> `needLib()`  [INFERRED]
   README.md → js/utils.js
-- `navPaint()` --indirect_call--> `moduleAllowedForRole()`  [INFERRED]
-  js/nav.js → js/auth.js
+- `plSaveSheet()` --indirect_call--> `planStripPhones()`  [INFERRED]
+  js/planer.js → js/plan-parser.js
 - `dashStartProtokollFromPlan()` --indirect_call--> `planShiftFromDb()`  [INFERRED]
   js/dashboard.js → js/plan-parser.js
 
@@ -212,7 +212,7 @@ Cohesion: 0.18
 Nodes (18): dashBillingCutoff(), dashBillingRange(), dashBookMonth(), dashCloseKeys(), dashLoadMonthSummary(), dashMayBook(), dashMonthSummary(), dashRenderWorkerMonth() (+10 more)
 
 ### Community 21 - "Error Logging Client"
-Cohesion: 0.16
+Cohesion: 0.17
 Nodes (23): breadcrumb(), deviceString(), _errEnqueue(), _errInit(), errorContextSnapshot(), errorFingerprint(), errQueuePut(), _errQueueRead() (+15 more)
 
 ### Community 22 - "saveProtDraft"
@@ -436,16 +436,16 @@ Nodes (3): dashMergePlanPeople(), dashStartProtokollFromPlan(), planAlUserId()
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `planShiftFromDb()` connect `Weekly Plan View` to `dashStartProtokollFromPlan`, `Plan Parsing Helpers`, `planen.js`?**
-  _High betweenness centrality (0.062) - this node is a cross-community bridge._
+  _High betweenness centrality (0.067) - this node is a cross-community bridge._
 - **What connects `RFC-5545`, `RFC-5545` to the rest of the system?**
   _2 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Staffing Planner UI` be split into smaller, more focused modules?**
   _Cohesion score 0.054455445544554455 - nodes in this community are weakly interconnected._
 - **Why does `dashStartProtokollFromPlan()` connect `dashStartProtokollFromPlan` to `Weekly Plan View`, `Dashboard Protocol Editing`?**
-  _High betweenness centrality (0.050) - this node is a cross-community bridge._
+  _High betweenness centrality (0.051) - this node is a cross-community bridge._
 - **Should `Weekly Plan View` be split into smaller, more focused modules?**
   _Cohesion score 0.052650494159928125 - nodes in this community are weakly interconnected._
 - **Why does `planStripPhones()` connect `Plan Parsing Helpers` to `Staffing Planner UI`?**
-  _High betweenness centrality (0.030) - this node is a cross-community bridge._
+  _High betweenness centrality (0.034) - this node is a cross-community bridge._
 - **Should `Timesheet Shifts` be split into smaller, more focused modules?**
   _Cohesion score 0.059574468085106386 - nodes in this community are weakly interconnected._
