@@ -100,6 +100,11 @@ function validDepartmentEmails(v) {
   var deps = DEPARTMENT_OPTIONS.map(function(o) { return o[0]; }).filter(Boolean);
   return Object.keys(v).every(function(k) { return deps.indexOf(k) !== -1 && typeof v[k] === 'string' && (v[k] === '' || DEPARTMENT_EMAIL_RE.test(v[k])); });
 }
+// Area labels whose route points at a department without an address (the mail would silently go nowhere)
+function routesWithoutAddress(routes, emails) {
+  if (!routes || !emails) return [];
+  return DEPARTMENT_AREAS.filter(function(a) { var d = routes[a[0]]; return d && !String(emails[d] || '').trim(); }).map(function(a) { return a[1]; });
+}
 function validDepartmentRoutes(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
   var areas = DEPARTMENT_AREAS.map(function(a) { return a[0]; }), deps = DEPARTMENT_OPTIONS.map(function(o) { return o[0]; });
@@ -339,6 +344,8 @@ async function saveSettingsTab() {
   var form = _readSettingsForm();
   var bad = validateSettings(form);
   if (bad) { err.textContent = 'Ungültiger Wert für ' + (SETTINGS_LABELS[bad] || bad) + '.'; return; }
+  var noAddr = routesWithoutAddress(form.department_routes, form.department_emails);
+  if (noAddr.length) { err.textContent = noAddr.join(', ') + ' geht an eine Abteilung ohne Adresse. Adresse eintragen oder „keine Mail“ wählen.'; return; }
   var changes = changedSettings(_settingsRendered, form);
   if (!Object.keys(changes).length) { showToast('Keine Änderungen'); return; }
   btn.disabled = true; btn.textContent = 'Speichert…';
@@ -414,6 +421,6 @@ async function sendTestPush() {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { APP_SETTINGS_DEFAULTS: APP_SETTINGS_DEFAULTS, appSetting: appSetting, appSettingsFromCache: appSettingsFromCache,
     validateSettings: validateSettings, changedSettings: changedSettings, testPushMessage: testPushMessage,
-    settingsRpcMissing: settingsRpcMissing, validVehicleRates: validVehicleRates, validDepartmentRoutes: validDepartmentRoutes, validDepartmentEmails: validDepartmentEmails, readVehicleRates: readVehicleRates, validPersonnelRates: validPersonnelRates,
+    settingsRpcMissing: settingsRpcMissing, validVehicleRates: validVehicleRates, validDepartmentRoutes: validDepartmentRoutes, validDepartmentEmails: validDepartmentEmails, routesWithoutAddress: routesWithoutAddress, readVehicleRates: readVehicleRates, validPersonnelRates: validPersonnelRates,
     SETTINGS_SWITCHES: SETTINGS_SWITCHES };
 }

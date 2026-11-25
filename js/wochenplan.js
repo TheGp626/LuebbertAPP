@@ -883,7 +883,7 @@ async function wpRenderWeek() {
   if (error) { console.error('Woche laden:', error); content.innerHTML = '<div class="wp-empty">Die Woche konnte nicht geladen werden.</div>'; return; }
   if (iq.error) console.error('Interesse laden:', iq.error); // plan still shows, just no buttons/list
   (data || []).forEach(function(s) {
-    s._interest = iq.error ? null : (iq.data || []).filter(function(r) { return r.shift_key === s.key; }).map(function(r) { return { user_id: r.user_id, status: r.status || 'offen' }; });
+    s._interest = iq.error ? null : (iq.data || []).filter(function(r) { return r.shift_key === s.key; }).map(function(r) { return { user_id: r.user_id, status: r.status || 'offen', vorbehalt: r.vorbehalt || null }; });
   });
   (data || []).forEach(function(s) { _wpShiftCache[s.id] = s; });
   _wpSlots = slots;

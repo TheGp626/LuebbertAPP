@@ -219,3 +219,9 @@ test('department addresses: editable, only @peterluebbert.de, bad cached values 
   S.appSettingsFromCache();
   assert.equal(S.appSetting('department_emails').lager, 'lager@peterluebbert.de');
 });
+
+test('routesWithoutAddress: a route to a department with an empty address is named', () => {
+  assert.deepEqual(S.routesWithoutAddress({ logistik: 'logistik', mobiliar: 'lager', tischlerei: '' }, { logistik: '', lager: 'lager@peterluebbert.de' }), ['Lager / Logistik']);
+  assert.deepEqual(S.routesWithoutAddress({ logistik: 'lager' }, { lager: 'lager@peterluebbert.de' }), []);
+  assert.deepEqual(S.routesWithoutAddress(undefined, {}), []);
+});
