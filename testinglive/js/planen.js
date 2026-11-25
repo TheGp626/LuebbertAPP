@@ -576,6 +576,9 @@ function pnQuickOpen() {
       field('Abbau', '<select id="pnq-tdate">' + pnDayOptions('', true) + '</select>') +
       field('Uhrzeit', '<input type="time" id="pnq-ttime" value="22:00">') + '</div>' +
     '<div class="pn-quick-grid">' + field('MA gebraucht', '<input type="number" id="pnq-need" min="0" max="99" inputmode="numeric" value="2">') +
+      field('PL', '<select id="pnq-ap"><option value="">Niemand</option>' + (typeof wpUsers !== 'undefined' ? wpUsers : [])
+        .filter(function(u) { return u.is_active !== false && PLAN_PL_ROLES.indexOf(u.role) !== -1; })
+        .map(function(u) { return '<option value="' + pnE(u.id) + '">' + pnE(u.full_name) + '</option>'; }).join('') + '</select>') +
       (st.hasKind ? field('Art', '<select id="pnq-kind">' + PL_KIND_ORDER.map(function(k) { return '<option value="' + k + '">' + PL_KINDS[k].label + '</option>'; }).join('') + '</select>') : '') + '</div>' +
     '<p class="pn-none">„Was“: oben, was es ist, darunter pro Zeile ein Teil (Material). Raum und Notizen gehen über „Alle Felder“ oder später über „Eintrag bearbeiten“.</p>' +
     '<div class="ui-sheet-actions"><button type="button" class="ui-btn" onclick="document.getElementById(\'pn-quick\').remove(); plEditRow(null)">Alle Felder</button>' +
@@ -598,6 +601,8 @@ async function pnQuickSave() {
   if (!st) return;
   var res = pnQuickRows({ venue: val('venue'), was: val('was'), kind: val('kind'), need: val('need'), setupDate: val('sdate'), setupTime: val('stime'),
     teardownDate: val('tdate'), teardownTime: val('ttime') }, st.week, pnNewId());
+  var apUser = val('ap') && wpUsers.find(function(u) { return u.id === val('ap'); });
+  if (apUser && res.rows) res.rows.forEach(function(r) { r.ap_user_id = apUser.id; r.ap = plShortName(apUser, wpUsers); });
   if (res.error) { showToast(res.error, 'danger'); return; }
   var btn = document.getElementById('pnq-save');
   if (btn) btn.disabled = true;
