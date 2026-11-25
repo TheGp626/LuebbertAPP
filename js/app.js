@@ -307,7 +307,17 @@ function titleTap() {
   }
 }
 
+// The person's own Lohn from the Stammdaten (role_rates / hourly_rate_conni, js/formulas.js personPayRate); null = none
+function ownPayRate(dept) {
+  var u = typeof currentUser !== 'undefined' ? currentUser : null;
+  var r = u && typeof personPayRate === 'function' ? personPayRate(u, dept || '') : null;
+  return r > 0 ? r : null;
+}
+
+// Stammdaten first (Jenni, 25.11.2026); the wage typed in on this device only when the office has none on file
 function getDeptWage(dept) {
+  var own = ownPayRate(dept);
+  if (own) return own;
   if (dept && deptWages[dept] > 0) return deptWages[dept];
   // "MA Minijob" / "MA": wages saved under the old names ("MA frei") still count
   var f = dept && typeof splitPosition === 'function' ? splitPosition(dept).func : null;
@@ -510,12 +520,22 @@ function optSections(role) {
   return { push: member, account: member, pay: member };
 }
 
+// The own photo when one is set, else the initials (mitAvatarInner: js/mitarbeiter.js)
+function optPaintAvatar(name) {
+  var el = document.getElementById('opt-avatar'), uid = typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null;
+  if (!el) return;
+  if (typeof mitAvatarInner === 'function') el.innerHTML = mitAvatarInner(uid, mitEsc(optInitials(name)));
+  else el.textContent = optInitials(name);
+}
+
 function openSettingsModal() {
   var m = document.getElementById('settings-modal'), w = document.getElementById('inp-wage'), c = document.getElementById('inp-cutoff-info');
   var role = typeof userRole !== 'undefined' ? userRole : null;
   var name = (typeof currentUser !== 'undefined' && currentUser && currentUser.full_name) || '';
   var set = function(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; };
-  set('opt-avatar', optInitials(name));
+  optPaintAvatar(name);
+  // Photos load after login; if they arrive later, paint again
+  if (typeof mitLoadPhotos === 'function') mitLoadPhotos().then(function() { optPaintAvatar(name); });
   set('opt-name', name || 'Nicht angemeldet');
   set('opt-role', OPT_ROLE_NAMES[role] || role || '');
   var sec = optSections(role), show = function(id, on) { var el = document.getElementById(id); if (el) el.hidden = !on; };
@@ -525,6 +545,8 @@ function openSettingsModal() {
   optPaintTheme();
   if (sec.push) optPaintPush();
   if (w) w.value = hourlyWage > 0 ? hourlyWage : '';
+  var dbw = ownPayRate(typeof currentUser !== 'undefined' && currentUser ? currentUser.default_dept : ''), dbEl = document.getElementById('opt-db-wage');
+  if (dbEl) { dbEl.hidden = !dbw; dbEl.querySelector('.opt-value').textContent = dbw ? dbw.toFixed(2).replace('.', ',') + ' €/h' : ''; }
   if (c) c.textContent = billingCutoff + '. des Monats';
   renderSettingsDepts(); 
   if (m) m.classList.add('open');

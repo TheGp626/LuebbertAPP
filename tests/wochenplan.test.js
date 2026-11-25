@@ -160,9 +160,17 @@ test('wpToggleInterest: withdraw deletes only an open own row; insert otherwise'
   assert.equal(calls[0].op, 'delete');
   assert.deepEqual(plain(calls[0].filters), [['week_id', 'w'], ['shift_key', 'k'], ['user_id', 'me'], ['status', 'offen']]);
   s._interest = [];
+  // „Ich kann“ first asks for a limit; „Ja, die ganze Zeit“ inserts without one
+  let sheet = null; ctx.pinSheetOpen = (h) => { sheet = h; }; ctx.closePinSheet = () => {};
   await ctx.wpToggleInterest({ disabled: false }, 'p1');
+  assert.equal(calls.length, 1);
+  assert.match(sheet.body, /Ja, die ganze Zeit/);
+  ctx.wpVorbehaltPick(null);
+  await new Promise(r => setTimeout(r, 0));
   assert.equal(calls[1].op, 'insert');
   assert.deepEqual(plain(calls[1].row), { week_id: 'w', shift_key: 'k', user_id: 'me' });
+  await ctx.wpToggleInterest({ disabled: false }, 'p1', 'nur bis 16:00 Uhr');
+  assert.deepEqual(plain(calls[2].row), { week_id: 'w', shift_key: 'k', user_id: 'me', vorbehalt: 'nur bis 16:00 Uhr' });
 });
 
 test('wochenplan.js: no top-level function is defined twice (the later one silently wins)', () => {
@@ -363,7 +371,7 @@ test('wpOrderApply: insert row shape; error toasts and keeps the state', async (
   ctx.wpRenderWeek = async () => {}; ctx.wpRenderMine = async () => {};
   vm.runInContext('_wpSlots = [' + JSON.stringify(oslot()) + ']', ctx);
   let sb = applyClient(false); ctx.supabaseClient = sb;
-  await ctx.wpOrderApply('26-0415.01', 'setup', true);
+  await ctx.wpOrderApply('26-0415.01', 'setup', true, null);
   assert.equal(sb.calls[0].t, 'order_applications');
   assert.deepEqual(plain(sb.calls[0].row), { job_no: '26-0415.01', phase: 'setup', user_id: 'me' });
   assert.equal(vm.runInContext('_wpSlots[0].my_status', ctx), 'offen');
@@ -511,4 +519,12 @@ test('wpCancelContact: the AL of the shift; Daniel (Planung), never the PL, when
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Piotr' }], 'Judith'), 'me'))), { role: 'Planung', name: 'Daniel' });
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Piotr' }]), 'me'))), { role: 'Planung', name: 'Daniel' });
   assert.equal(ctx.wpCancelText({ role: 'AL', name: 'Konrad' }), 'Ruf bitte Konrad (AL) an oder schreib eine Nachricht, damit vor Ort alle Bescheid wissen.');
+});
+
+test('wpVorbehalt: no limit, only until, only from; a missing or bad time is refused', () => {
+  assert.equal(ctx.wpVorbehalt(null, ''), null);
+  assert.equal(ctx.wpVorbehalt('bis', '16:00'), 'nur bis 16:00 Uhr');
+  assert.equal(ctx.wpVorbehalt('ab', '09:30'), 'erst ab 09:30 Uhr');
+  assert.equal(ctx.wpVorbehalt('bis', ''), undefined);
+  assert.equal(ctx.wpVorbehalt('ab', '25:00'), undefined);
 });
