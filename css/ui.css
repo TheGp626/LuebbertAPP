@@ -810,3 +810,6 @@ div.pn-alert { font-weight: 400; cursor: default; }
 @media (max-width: 420px) { .pn-person { flex-wrap: wrap; } .pn-person-acts { margin-left: 44px; } }
 @media (prefers-reduced-motion: reduce) { .pn-strip-day, .pn-row { transition: none; } }
 #page-auftraege .ord-wrap { max-width: 780px; margin-left: auto; margin-right: auto; }
+.pn-unknown { --pn-bar: var(--warn); }
+.pn-unknown .pn-count { color: var(--warn); font-size: 13px; }
+.pn-strip-unknown { background: var(--warn-bg); color: var(--warn); }

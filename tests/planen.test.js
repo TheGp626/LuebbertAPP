@@ -51,3 +51,15 @@ test('pnInitials / pnWeekRange', () => {
   assert.equal(ctx.pnWeekRange({ weekStart: '2026-12-07', weekEnd: '2026-12-13' }), '7.–13. Dezember');
   assert.equal(ctx.pnWeekRange(WEEK), '30. November – 6. Dezember');
 });
+
+test('MA number not entered yet (need null): row state "unknown", counts as 0 open, the day knows it', () => {
+  const slot = { job_no: '26-0447.01', phase: 'setup', name: 'Lounge', title: '261201_Estrel_Gala', room: 'Saal', start_at: '2026-12-01T07:00', end_at: '2026-12-01T16:00', needed: null, accepted_ids: [] };
+  const r = ctx.plRowFromSlot(slot, WEEK, []);
+  assert.equal(r.need, null);
+  assert.equal(ctx.pnRowState(r), 'unknown');
+  assert.equal(ctx.pnOpenCount(r), 0);
+  const d = ctx.pnDays(WEEK, [Object.assign({ id: 'x' }, r), row({ id: 'y', need: 2 })]);
+  assert.equal(d[1].open, 2);
+  assert.equal(d[1].unknown, 1);
+  assert.equal(ctx.pnRowState(row({ need: 0 })), 'none');
+});
