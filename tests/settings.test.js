@@ -82,6 +82,12 @@ test('readVehicleRates / validVehicleRates: blank rows skipped, duplicates and b
   assert.equal(S.validateSettings({ vehicle_rates: {} }), 'vehicle_rates');
   assert.equal(S.validateSettings({ vehicle_rates: null }), 'vehicle_rates');
   assert.equal(S.validateSettings({ vehicle_rates: { PKW: { wk: 20, sa: 20, so: 20 } } }), null);
+  // night rate: optional, blank = day rate, otherwise 0–100000
+  assert.deepEqual(S.readVehicleRates([{ name: 'Solo', wk: '70', sa: '70', so: '70', na: '95' }, { name: 'PKW', wk: '20', sa: '20', so: '20', na: '' }]),
+    { Solo: { wk: 70, sa: 70, so: 70, na: 95 }, PKW: { wk: 20, sa: 20, so: 20 } });
+  assert.equal(S.validateSettings({ vehicle_rates: { Solo: { wk: 70, sa: 70, so: 70, na: 95 } } }), null);
+  assert.equal(S.validateSettings({ vehicle_rates: { Solo: { wk: 70, sa: 70, so: 70, na: -1 } } }), 'vehicle_rates');
+  assert.equal(S.validateSettings({ vehicle_rates: { Solo: { wk: 70, sa: 70, so: 70, xx: 1 } } }), 'vehicle_rates');
 });
 
 test('a broken vehicle_rates value from the server keeps the default rates', () => {

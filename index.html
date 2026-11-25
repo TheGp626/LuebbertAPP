@@ -239,6 +239,11 @@
               <textarea id="prot-incidents" class="prot-text" placeholder="z. B. Verzögerungen, Probleme vor Ort" oninput="saveProtDraft(); growProtText(this)"></textarea></label>
             <label class="ui-field"><span>Feedback zur Location / Sonstiges</span>
               <textarea id="prot-feedback" class="prot-text" placeholder="Lob, Kritik, Verbesserungsvorschläge" oninput="saveProtDraft(); growProtText(this)"></textarea></label>
+            <div class="ui-field"><span>Fotos (z. B. Schäden, Aufbau)</span>
+              <div class="prot-photos" id="prot-photos"></div>
+              <button type="button" class="ui-add-row" id="prot-photo-btn" onclick="protPickPhoto()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Foto hinzufügen</button>
+              <input type="file" id="prot-photo-file" accept="image/*" multiple hidden onchange="protAddPhotos(this)">
+            </div>
           </section>
 
           <!-- Section: Unterschrift -->
@@ -979,7 +984,7 @@
   <script src="js/auth.js?v=48"></script>
   <script src="js/viewas.js?v=1"></script>
   <script src="js/logo.js?v=9"></script>
-  <script src="js/formulas.js?v=19"></script>
+  <script src="js/formulas.js?v=20"></script>
   <script src="js/utils.js?v=28"></script>
   <script src="js/ui.js?v=10"></script>
   <script src="js/nav.js?v=12"></script>

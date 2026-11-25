@@ -710,8 +710,9 @@ function refreshDashboard() {
 async function refreshDashboardOnce() {
   try {
     await ensureRateUsers();
-    const protSelect = (withCreator) => `
-        id, date, action, is_holiday, total_cost, al_id, pl_id, job_no,${withCreator ? ' created_by,' : ''}
+    // Explicit columns: '*' would also load every signature image (signature_text, ~11 KB each)
+    const protSelect = (withEdited) => `
+        id, date, action, is_holiday, total_cost, al_id, pl_id, job_no, created_by,${withEdited ? ' edited_by, edited_at, photos,' : ''}
         notes_damages, notes_incidents, notes_feedback,
         al_name_fallback, pl_name_fallback, created_at, mailed_at,
         projects(name, location),
@@ -723,10 +724,10 @@ async function refreshDashboardOnce() {
         protocol_equipments(*),
         worker_ratings(temp_worker_name, rating, is_star)
       `;
-    const load = (withCreator) => sbFetchAll(() => supabaseClient.from('protocols').select(protSelect(withCreator)).order('date', { ascending: false }).order('id'));
+    const load = (withEdited) => sbFetchAll(() => supabaseClient.from('protocols').select(protSelect(withEdited)).order('date', { ascending: false }).order('id'));
     let { data: protocols, error: protError } = await load(true);
-    // created_by not migrated yet: load without it (everything then counts via AL/PL)
-    if (protError && /created_by/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(false));
+    // edited_by/edited_at/photos not migrated yet (jenni_runde_4): load without them
+    if (protError && /edited_|photos/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(false));
     if (protError) throw protError;
 
     dashboardProtocols = protocols;
@@ -1762,7 +1763,7 @@ function dashShiftCosts(date, isHoliday, s) {
 function dashTransportsFromRows(rows) {
   return (rows || []).map(function(t) {
     return { type: t.vehicle_type, driver: t.driver_name || '', hours: t.driver_hours == null ? null : Number(t.driver_hours),
-      driverUserId: t.driver_user_id || '', cost: t.cost == null ? null : Number(t.cost) };
+      driverUserId: t.driver_user_id || '', cost: t.cost == null ? null : Number(t.cost), night: !!t.night };
   });
 }
 
@@ -1771,7 +1772,7 @@ function dashTransportsFromRows(rows) {
 function calcDashProtTotal(date, isHoliday, transports, shifts) {
   var total = 0;
   (transports || []).forEach(function(t) {
-    total += (typeof calcTransportCost === 'function') ? calcTransportCost(t.type, date, t.cost) : 0;
+    total += (typeof calcTransportCost === 'function') ? calcTransportCost(t.type, date, t.cost, t.night) : 0;
     var drv = (typeof protDriverCost === 'function') ? protDriverCost(t, typeof appUsers !== 'undefined' ? appUsers : []) : null;
     if (drv) total += drv.amount;
   });
@@ -1958,7 +1959,7 @@ function openDashDetail(id) {
     <div>
       <div class="stat-label">Projektleiter (PL)</div>
       <div style="font-weight:600;">${escapeHtml(plName)}</div>
-    </div>${p.job_no ? `
+    </div>${dashEditedHtml(p)}${p.job_no ? `
     <div>
       <div class="stat-label">Projektnummer</div>
       <div style="font-weight:600;">${escapeHtml(p.job_no)}</div>
@@ -2086,8 +2087,8 @@ function openDashDetail(id) {
 
     // Transport costs
     (p.protocol_transports || []).forEach(function(t) {
-      var r = (typeof calcTransportCost !== 'undefined') ? calcTransportCost(t.vehicle_type, p.date, t.cost) : 0;
-      var label = escapeHtml(t.vehicle_type || '—');
+      var r = (typeof calcTransportCost !== 'undefined') ? calcTransportCost(t.vehicle_type, p.date, t.cost, t.night) : 0;
+      var label = escapeHtml(t.vehicle_type || '—') + (t.night ? ' (Nacht)' : '');
       if (t.vehicle_type === 'Spedition' && t.cost == null) {
         rows.push({ section: 'transport', label: label, detail: escapeHtml(t.driver_name || '') + ' (siehe Rechnung)', cost: 0 });
       } else if (r > 0) {
@@ -2156,9 +2157,26 @@ function openDashDetail(id) {
     <div style="margin-bottom:12px;"><strong>Mängel / Schäden:</strong><br/>${safeNote(p.notes_damages)}</div>
     <div style="margin-bottom:12px;"><strong>Besondere Vorkommnisse:</strong><br/>${safeNote(p.notes_incidents)}</div>
     <div><strong>Feedback Location:</strong><br/>${safeNote(p.notes_feedback)}</div>
+    ${(p.photos || []).length ? '<div style="margin-top:12px;"><strong>Fotos:</strong><div class="prot-photos" id="det-photos" style="margin-top:6px;"></div></div>' : ''}
   `;
+  dashPaintPhotos(p);
 
   modal.classList.add('open');
+}
+
+// Protocol photos (private bucket protocol-photos): signed links, a tap opens the full picture
+async function dashPaintPhotos(p) {
+  const list = (p && p.photos) || [], box = document.getElementById('det-photos');
+  if (!list.length || !box) return;
+  let urls = [];
+  try {
+    const s = await supabaseClient.storage.from('protocol-photos').createSignedUrls(list, 3600);
+    urls = (s.data || []).map(d => d && d.signedUrl);
+  } catch (e) { console.warn('Fotos laden:', e); }
+  if (_editProtId !== p.id) return; // another protocol was opened meanwhile
+  box.innerHTML = list.map((path, i) => urls[i]
+    ? `<div class="prot-photo"><a href="${escapeHtml(urls[i])}" target="_blank" rel="noopener"><img src="${escapeHtml(urls[i])}" alt="Foto ${i + 1}" loading="lazy"></a></div>`
+    : '<div class="prot-photo"><span class="ui-sub">nicht geladen</span></div>').join('');
 }
 
 function closeDashDetail() {
@@ -2200,6 +2218,14 @@ function setDashPeAction(v) {
   renderDashPeActionSeg();
 }
 
+// "Zuletzt bearbeitet von … am …" (protocols.edited_by / edited_at, set by the database on every change by a person)
+function dashEditedHtml(p) {
+  if (!p || !p.edited_at) return '';
+  var u = p.edited_by && typeof appUsers !== 'undefined' ? (appUsers || []).find(function(x) { return x.id === p.edited_by; }) : null;
+  var when = new Date(p.edited_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return '<div><div class="stat-label">Zuletzt bearbeitet</div><div style="font-weight:600;">' + escapeHtml((u ? u.full_name + ', ' : '') + when) + '</div></div>';
+}
+
 function openDashProtEdit() {
   const p = dashboardProtocols.find(x => x.id === _editProtId);
   if (!p) return;
@@ -2223,7 +2249,8 @@ function openDashProtEdit() {
     hours: t.driver_hours == null ? null : Number(t.driver_hours),
     punctuality: t.punctuality || 'pünktlich',
     delay: t.delay_mins || '',
-    cost: t.cost == null ? null : Number(t.cost)
+    cost: t.cost == null ? null : Number(t.cost),
+    night: !!t.night
   }));
   _editProtShifts = (p.shifts || []).map(dashShiftToRow);
 
@@ -2445,7 +2472,7 @@ function dashTransportToDb(protocolId, t) {
   return { protocol_id: protocolId, vehicle_type: t.type, driver_name: t.driver || null,
            punctuality: t.punctuality, delay_mins: t.punctuality === 'verspätet' && t.delay ? (parseInt(t.delay, 10) || 0) : 0,
            driver_hours: parseFloat(t.hours) >= 0 ? parseFloat(t.hours) : null, driver_user_id: t.driverUserId || null,
-           cost: t.type === 'Spedition' && parseFloat(t.cost) >= 0 ? parseFloat(t.cost) : null };
+           cost: t.type === 'Spedition' && parseFloat(t.cost) >= 0 ? parseFloat(t.cost) : null, ...(t.night ? { night: true } : {}) };
 }
 
 // Did the transports (type, driver, driver hours – the cost-relevant parts) change against the stored rows?

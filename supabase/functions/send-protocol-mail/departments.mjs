@@ -1,6 +1,6 @@
 // Abteilungs-Mails (Spec Teil B): Lager, Logistik, Tischlerei, Stoffe and Floristik get a short mail when their protocol area has feedback.
 // Pure (no Deno/Node APIs) → testable with `node --test`. No staff, times, costs or signature ever go in.
-import { escapeHtml, formatDateDE } from './mail.mjs';
+import { escapeHtml, formatDateDE, shortageLines } from './mail.mjs';
 
 // The departments are fixed here; their addresses are the Admin setting department_emails ('' = no mail)
 export const DEPARTMENTS = Object.freeze({
@@ -50,6 +50,9 @@ export function departmentFeedback(p, routes) {
     }
     if (lines.length) out[dep] = (out[dep] || []).concat(lines);
   }
+  // Fehlmengen from Material abhaken go to whoever gets Lager / Logistik
+  const dep = routeOf('logistik', routes), short = shortageLines(p && p.shortages);
+  if (dep && short.length) out[dep] = (out[dep] || []).concat(short.map(l => 'Fehlmenge ' + l));
   return out;
 }
 

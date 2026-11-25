@@ -66,6 +66,25 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 }
 
+// Protocol photos (bucket protocol-photos) as JPEG attachments: at most 8, each at most 3 MB; one that fails is left out
+// deno-lint-ignore no-explicit-any
+async function photoAttachments(db: any, paths: unknown) {
+  const list = (Array.isArray(paths) ? paths : []).filter((x) => typeof x === 'string' && /^\d{4}-\d{2}\/[0-9a-f-]{36}\.jpg$/.test(x)).slice(0, 8);
+  const out: { filename: string; content: string; encoding: 'base64'; contentType: string }[] = [];
+  for (let i = 0; i < list.length; i++) {
+    try {
+      const { data, error } = await db.storage.from('protocol-photos').download(list[i]);
+      if (error || !data) throw error || new Error('missing');
+      const bytes = new Uint8Array(await data.arrayBuffer());
+      if (bytes.length > 3_000_000) continue;
+      let bin = '';
+      for (let j = 0; j < bytes.length; j += 0x8000) bin += String.fromCharCode(...bytes.subarray(j, j + 0x8000));
+      out.push({ filename: `foto-${i + 1}.jpg`, content: btoa(bin), encoding: 'base64', contentType: 'image/jpeg' });
+    } catch (e) { console.error('send-protocol-mail: photo left out', list[i], e); }
+  }
+  return out;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
@@ -81,7 +100,7 @@ Deno.serve(async (req) => {
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const { data: p, error } = await db
     .from('protocols')
-    .select(`id, date, action, job_no, notes_damages, notes_incidents, notes_feedback, al_name_fallback, pl_name_fallback, pl_id, mailed_at, side_of,
+    .select(`id, date, action, job_no, shortages, photos, notes_damages, notes_incidents, notes_feedback, al_name_fallback, pl_name_fallback, pl_id, mailed_at, side_of,
       main:side_of(projects(name)),
       projects(name, location),
       al:app_users!protocols_al_id_fkey(full_name),
@@ -148,13 +167,14 @@ Deno.serve(async (req) => {
 
   const { html, text } = buildBody(p);
   const pdf = safePdfBase64(pdf_base64);
+  const photos = await photoAttachments(db, p.photos);
   try {
     await sendGmail({
       to,
       subject: buildSubject(p, !!is_update, rcpt.test ? plName : undefined),
       text,
       html,
-      attachments: pdf ? [{ filename: attachmentName(p), content: pdf, encoding: 'base64', contentType: 'application/pdf' }] : [],
+      attachments: [...(pdf ? [{ filename: attachmentName(p), content: pdf, encoding: 'base64' as const, contentType: 'application/pdf' }] : []), ...photos],
     });
   } catch (e) {
     console.error('send-protocol-mail: SMTP failed', e);

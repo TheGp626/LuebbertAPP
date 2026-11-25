@@ -66,14 +66,15 @@ function changedSettings(rendered, form) {
   return out;
 }
 
-// { name: { wk, sa, so } }, 1–50 vehicles, trimmed names up to 40 chars, € 0–100000; mirrors the RPC
+// { name: { wk, sa, so, na? } }, 1–50 vehicles, trimmed names up to 40 chars, € 0–100000; na (night) optional; mirrors the RPC
 function validVehicleRates(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
-  var names = Object.keys(v);
+  var names = Object.keys(v), money = function(x) { return typeof x === 'number' && x >= 0 && x <= 100000; };
   return names.length >= 1 && names.length <= 50 && names.every(function(n) {
     var r = v[n];
-    return n === n.trim() && n.length >= 1 && n.length <= 40 && !!r && typeof r === 'object' && Object.keys(r).length === 3 &&
-      ['wk', 'sa', 'so'].every(function(f) { return typeof r[f] === 'number' && r[f] >= 0 && r[f] <= 100000; });
+    return n === n.trim() && n.length >= 1 && n.length <= 40 && !!r && typeof r === 'object' &&
+      Object.keys(r).every(function(k) { return ['wk', 'sa', 'so', 'na'].indexOf(k) !== -1; }) &&
+      ['wk', 'sa', 'so'].every(function(f) { return money(r[f]); }) && (!('na' in r) || money(r.na));
   });
 }
 
@@ -220,9 +221,9 @@ async function renderSettingsTab() {
     '<input type="number" min="1" max="24" step="1" id="set-inactive_months" class="meta-input set-num" value="' + appSetting('inactive_months') + '"></label></div>';
   var rates = appSetting('vehicle_rates');
   html += '<div class="set-group"><div class="set-group-title">Fahrzeugsätze (€ pro Einsatz)</div>' +
-    '<div class="set-veh-row set-veh-head"><span>Fahrzeug</span><span>Mo–Fr</span><span>Sa</span><span>So</span><span></span></div>' +
+    '<div class="set-veh-row set-veh-head set-veh-n"><span>Fahrzeug</span><span>Mo–Fr</span><span>Sa</span><span>So</span><span>Nacht</span><span></span></div>' +
     '<div id="set-vehicles">' + Object.keys(rates).sort(function(a, b) { return a.localeCompare(b, 'de'); }).map(function(n) { return vehicleRateRowHtml(n, rates[n]); }).join('') + '</div>' +
-    '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Spedition: Kosten werden pro Protokoll eingetragen (laut Rechnung). Neue Sätze gelten für neue Berechnungen, gespeicherte Protokoll-Summen bleiben.</small></span>' +
+    '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Spedition: Kosten werden pro Protokoll eingetragen (laut Rechnung). Nacht = Nachtfahrt 22–6 Uhr, leer = Tagessatz. Neue Sätze gelten für neue Berechnungen, gespeicherte Protokoll-Summen bleiben.</small></span>' +
     '<button type="button" class="btn" style="flex:none; width:auto; padding:8px 18px;" onclick="addVehicleRateRow()">+ Fahrzeug</button></div></div>';
   var pr = appSetting('personnel_rates');
   html += '<div class="set-group"><div class="set-group-title">Stundensätze nach Beschäftigungsart (€/h)</div>' +
@@ -265,7 +266,7 @@ function _readSettingsForm() {
   });
   changes.vehicle_rates = readVehicleRates(Array.from(document.querySelectorAll('#set-vehicles .set-veh-row')).map(function(row) {
     var val = function(f) { return row.querySelector('[data-f="' + f + '"]').value; };
-    return { name: val('name'), wk: val('wk'), sa: val('sa'), so: val('so') };
+    return { name: val('name'), wk: val('wk'), sa: val('sa'), so: val('so'), na: val('na') };
   }));
   var deps = Array.from(document.querySelectorAll('select.set-dep'));
   if (deps.length) changes.department_routes = {};
@@ -287,21 +288,22 @@ function readVehicleRates(rows) {
   var out = {};
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i], name = r.name.trim();
-    if (!name && r.wk === '' && r.sa === '' && r.so === '') continue;
+    if (!name && r.wk === '' && r.sa === '' && r.so === '' && !r.na) continue;
     if (Object.prototype.hasOwnProperty.call(out, name)) return null;
     var num = function(v) { return v === '' ? NaN : Number(v); };
     out[name] = { wk: num(r.wk), sa: num(r.sa), so: num(r.so) };
+    if (r.na !== undefined && r.na !== '') out[name].na = num(r.na); // blank night rate → the day's rate applies
   }
   return out;
 }
 
 function vehicleRateRowHtml(name, r) {
-  r = r || { wk: '', sa: '', so: '' };
+  r = r || { wk: '', sa: '', so: '', na: '' };
   var num = function(f, label) {
-    return '<input type="number" min="0" step="0.01" inputmode="decimal" class="meta-input" data-f="' + f + '" aria-label="' + label + '" value="' + _settingsEsc(r[f]) + '">';
+    return '<input type="number" min="0" step="0.01" inputmode="decimal" class="meta-input" data-f="' + f + '" aria-label="' + label + '"' + (f === 'na' ? ' placeholder="= Tag"' : '') + ' value="' + _settingsEsc(r[f]) + '">';
   };
-  return '<div class="set-veh-row"><input type="text" maxlength="40" class="meta-input" data-f="name" aria-label="Fahrzeug" value="' + _settingsEsc(name) + '">' +
-    num('wk', 'Satz Mo–Fr') + num('sa', 'Satz Samstag') + num('so', 'Satz Sonntag') +
+  return '<div class="set-veh-row set-veh-n"><input type="text" maxlength="40" class="meta-input" data-f="name" aria-label="Fahrzeug" value="' + _settingsEsc(name) + '">' +
+    num('wk', 'Satz Mo–Fr') + num('sa', 'Satz Samstag') + num('so', 'Satz Sonntag') + num('na', 'Satz Nacht') +
     '<button type="button" class="ui-icon-btn" aria-label="Fahrzeug entfernen" onclick="this.parentNode.remove()">×</button></div>';
 }
 

@@ -38,6 +38,16 @@ function ratingLabel(r) {
   return (r.rating === 'up' ? 'gut' : 'schlecht') + (r.is_star ? ' + Stern' : '');
 }
 
+// Fehlmengen laut Auftrag (from Material abhaken, protocols.shortages) → "Stuhl Napoleon: 6 fehlen (Soll 100, Ist 94). Bemerkung: …"
+export function shortageLines(list) {
+  return (Array.isArray(list) ? list : []).filter(s => s && s.name).map(s => {
+    const n = Number(s.fehlt);
+    return `${String(s.name).trim()}: ${isFinite(n) && n > 0 ? n + ' fehlen' : 'fehlt'}`
+      + (s.soll != null && s.ist != null ? ` (Soll ${s.soll}, Ist ${s.ist})` : '')
+      + (s.note && String(s.note).trim() ? `. Bemerkung: ${String(s.note).trim()}` : '');
+  });
+}
+
 // Returns [label, value] rows; values are plain text (escaped later for HTML)
 function summaryRows(p) {
   const rows = [
@@ -50,6 +60,8 @@ function summaryRows(p) {
     p.side_of ? ['Zusatzauftrag', 'im Zuge von ' + ((p.main && p.main.projects && p.main.projects.name) || 'Hauptprotokoll')]
       : ['Personal', String((p.shifts || []).length)]
   ];
+  const nPhotos = Array.isArray(p.photos) ? Math.min(p.photos.length, 8) : 0;
+  if (nPhotos) rows.push(['Fotos', nPhotos + ' im Anhang']);
   return rows;
 }
 
@@ -59,6 +71,8 @@ function sections(p) {
     .filter(eq => eq.status && eq.status !== 'okay')
     .map(eq => `${GEWERKE_LABELS[eq.category_id] || eq.category_id}: ${eq.status}` + (eq.note ? ` – ${eq.note}` : ''));
   if (issues.length) out.push(['Gewerke mit Problemen', issues]);
+  const short = shortageLines(p.shortages);
+  if (short.length) out.push(['Fehlmengen laut Auftrag', short]);
   if (!isEmptyNote(p.notes_damages)) out.push(['Mängel / Schäden', [p.notes_damages]]);
   if (!isEmptyNote(p.notes_incidents)) out.push(['Besondere Vorkommnisse', [p.notes_incidents]]);
   if (!isEmptyNote(p.notes_feedback)) out.push(['Feedback Location', [p.notes_feedback]]);

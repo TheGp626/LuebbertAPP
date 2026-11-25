@@ -267,12 +267,13 @@ function protRowToEntry(r) {
     jobNo: r.job_no || '',
     sideOf: r.side_of || null,
     shortages: Array.isArray(r.shortages) ? r.shortages : null,
+    photos: Array.isArray(r.photos) ? r.photos : [],
     totalCost: (Number(r.total_cost) || 0).toFixed(2).replace('.', ',') + ' €',
     transports: (r.protocol_transports || []).map(function(t) {
       // hours stays null for rows saved before driver hours existed → no driver cost on recalc
       return { type: t.vehicle_type, driver: t.driver_name, punctuality: t.punctuality, delay: t.delay_mins,
         hours: t.driver_hours == null ? null : Number(t.driver_hours), driverUserId: t.driver_user_id || '',
-        cost: t.cost == null ? null : Number(t.cost) };
+        cost: t.cost == null ? null : Number(t.cost), night: !!t.night, nightSet: true };
     }),
     personnel: personnel,
     categories: catMap,
@@ -555,7 +556,7 @@ function protTransportSummary(t) {
   var hrs = parseFloat(t.hours);
   var when = t.punctuality === 'verspätet' ? ((t.delay ? t.delay + ' min ' : '') + 'Verspätung') : 'pünktlich';
   var eur = t.type === 'Spedition' && parseFloat(t.cost) >= 0 ? ' · ' + parseFloat(t.cost).toFixed(2).replace('.', ',') + ' €' : '';
-  return (t.type || 'Fahrzeug') + eur + ' · ' + driver + (hrs > 0 ? ' · ' + String(hrs).replace('.', ',') + ' h' : '') + ' · ' + when;
+  return (t.type || 'Fahrzeug') + (t.night ? ' (Nacht)' : '') + eur + ' · ' + driver + (hrs > 0 ? ' · ' + String(hrs).replace('.', ',') + ' h' : '') + ' · ' + when;
 }
 
 // Same driver: by user id when both sides have one, else by name (case-insensitive)
@@ -632,6 +633,7 @@ function renderProtTransport() {
           '<label class="ui-field"><span>Fahrzeugtyp</span><select onchange="updateProtTransport(' + i + ', \'type\', this.value)">' + vehicles + '</select></label>' +
           '<div class="ui-field"><span>Fahrer</span>' + uiComboHtml('prot-drv-' + i, t.driver || '', 'Name tippen…', 'onProtDriverName', i) + '</div>' +
         '</div>' +
+        '<label class="prot-switch-label" style="margin:0 2px 12px;"><input type="checkbox" class="ui-switch"' + (t.night ? ' checked' : '') + ' onchange="updateProtTransport(' + i + ', \'night\', this.checked)"> Nachtfahrt (22–6 Uhr)</label>' +
         '<label class="ui-field"><span>Fahrerstunden</span><input type="number" step="0.5" min="0" placeholder="0" value="' + escapeHtml(t.hours == null ? '' : t.hours) + '" oninput="updateProtTransport(' + i + ', \'hours\', this.value)"/></label>' +
         '<div class="ui-sub" id="prot-drvhint-' + i + '" style="margin:-6px 2px 10px;"></div>' +
         (t.type === 'Spedition' ? '<label class="ui-field"><span>Kosten Spedition (€)</span><input type="number" step="0.01" min="0" inputmode="decimal" placeholder="laut Rechnung" value="' + escapeHtml(t.cost == null ? '' : t.cost) + '" oninput="updateProtTransport(' + i + ', \'cost\', this.value)"/></label>' : '') +
@@ -653,6 +655,7 @@ function renderProtTransport() {
 
 function updateProtTransport(idx, field, val) {
   protState.transports[idx][field] = val;
+  if (field === 'night') protState.transports[idx].nightSet = true; // set by hand: AL times no longer change it
   if (field === 'punctuality') {
     if (val !== 'verspätet') protState.transports[idx].delay = '';
     renderProtTransport();
@@ -661,7 +664,14 @@ function updateProtTransport(idx, field, val) {
   if (sum) sum.textContent = protTransportSummary(protState.transports[idx]);
   saveProtDraft();
   if (field === 'type') { calcProtCosts(); renderProtTransport(); }
-  if (field === 'hours' || field === 'cost') calcProtCosts();
+  if (field === 'hours' || field === 'cost' || field === 'night') calcProtCosts();
+}
+
+// Nachtfahrt follows the AL's times (mostly 22–6 Uhr) until someone sets it by hand
+function protAutoNight() {
+  var al = protState.personnel[0], night = !!al && isMostlyNight(timeToMins(al.start), timeToMins(al.end)), changed = false;
+  protState.transports.forEach(function(t) { if (!t.nightSet && !!t.night !== night) { t.night = night; changed = true; } });
+  if (changed) { renderProtTransport(); calcProtCosts(); }
 }
 
 // Transport rows of other protocols on the form's date (read-only), cached per date + edited protocol;
@@ -984,6 +994,88 @@ function renderProtPersonnelAfterPicker() {
   renderProtPersonnel();
 }
 
+// ── Fotos (Jenni, 25.11.2026): up to 8 per protocol, shrunk on the phone and uploaded at once to the private bucket
+// protocol-photos; the protocol keeps only the paths (protocols.photos), so a draft stays small. Needs internet.
+// shortcut: a photo removed again, or one of a protocol never sent, stays in the bucket; add a cleanup job if that grows
+var PROT_PHOTO_MAX = 8, PROT_PHOTO_BUCKET = 'protocol-photos', _protPhotoUrls = {}, _protPhotoBusy = false;
+
+function protPhotoPath(now, id) { return now.toISOString().slice(0, 7) + '/' + id + '.jpg'; }
+
+// Longest side at most `max` px (never enlarged), JPEG 80 %
+function protResizePhoto(file, max) {
+  return new Promise(function(resolve, reject) {
+    var img = new Image(), url = URL.createObjectURL(file);
+    img.onload = function() {
+      var k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob(function(b) { b ? resolve(b) : reject(new Error('Foto konnte nicht verkleinert werden')); }, 'image/jpeg', 0.8);
+    };
+    img.onerror = function() { URL.revokeObjectURL(url); reject(new Error('Kein lesbares Bild')); };
+    img.src = url;
+  });
+}
+
+function protPickPhoto() {
+  if ((protState.photos || []).length >= PROT_PHOTO_MAX) { showToast('Höchstens ' + PROT_PHOTO_MAX + ' Fotos pro Protokoll.', 'danger'); return; }
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) { showToast('Fotos gehen nur mit Internet.', 'danger'); return; }
+  var inp = document.getElementById('prot-photo-file');
+  if (inp) inp.click();
+}
+
+async function protAddPhotos(input) {
+  var files = [].slice.call(input.files || []);
+  input.value = '';
+  if (!files.length || _protPhotoBusy) return;
+  protState.photos = protState.photos || [];
+  var room = PROT_PHOTO_MAX - protState.photos.length;
+  if (files.length > room) showToast('Höchstens ' + PROT_PHOTO_MAX + ' Fotos: ' + (room > 0 ? 'nur die ersten ' + room + ' werden genommen.' : 'keins mehr möglich.'), 'danger');
+  files = files.slice(0, Math.max(0, room));
+  _protPhotoBusy = true;
+  renderProtPhotos();
+  var failed = 0;
+  for (var i = 0; i < files.length; i++) {
+    try {
+      var blob = await protResizePhoto(files[i], 1600), path = protPhotoPath(new Date(), crypto.randomUUID());
+      var up = await supabaseClient.storage.from(PROT_PHOTO_BUCKET).upload(path, blob, { contentType: 'image/jpeg' });
+      if (up.error) throw up.error;
+      protState.photos.push(path);
+      _protPhotoUrls[path] = URL.createObjectURL(blob);
+    } catch (e) { console.error('Foto hochladen:', e); failed++; }
+  }
+  _protPhotoBusy = false;
+  if (failed) showToast(failed === 1 ? 'Ein Foto wurde nicht hochgeladen. Prüf deine Verbindung.' : failed + ' Fotos wurden nicht hochgeladen.', 'danger');
+  saveProtDraft();
+  renderProtPhotos();
+}
+
+function protRemovePhoto(i) {
+  if (!confirm('Foto aus dem Protokoll entfernen?')) return;
+  protState.photos.splice(i, 1);
+  saveProtDraft();
+  renderProtPhotos();
+}
+
+async function renderProtPhotos() {
+  var box = typeof document !== 'undefined' && document.getElementById && document.getElementById('prot-photos');
+  if (!box) return;
+  var list = protState.photos || [], missing = list.filter(function(p) { return !_protPhotoUrls[p]; });
+  if (missing.length && typeof supabaseClient !== 'undefined') {
+    try {
+      var s = await supabaseClient.storage.from(PROT_PHOTO_BUCKET).createSignedUrls(missing, 3600);
+      (s.data || []).forEach(function(d, i) { if (d && d.signedUrl) _protPhotoUrls[missing[i]] = d.signedUrl; });
+    } catch (e) { console.warn('Fotos laden:', e); }
+  }
+  box.innerHTML = list.map(function(p, i) {
+    var url = _protPhotoUrls[p];
+    return '<div class="prot-photo">' + (url ? '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener"><img src="' + escapeHtml(url) + '" alt="Foto ' + (i + 1) + '" loading="lazy"></a>' : '<span class="ui-sub">offline</span>') +
+      '<button type="button" class="prot-photo-x" aria-label="Foto ' + (i + 1) + ' entfernen" onclick="protRemovePhoto(' + i + ')">×</button></div>';
+  }).join('') + (_protPhotoBusy ? '<div class="prot-photo prot-photo-busy"><span class="ui-sub">lädt…</span></div>' : '');
+  var btn = document.getElementById('prot-photo-btn');
+  if (btn) { btn.disabled = _protPhotoBusy; btn.lastChild.textContent = ' Foto hinzufügen' + (list.length ? ' (' + list.length + '/' + PROT_PHOTO_MAX + ')' : ''); }
+}
+
 function protPauseHintText(p) {
   return 'Gesetzlich mind. ' + protPauseMin(p) + ' min Pause bei dieser Arbeitszeit. Kürzer geht nicht, nur länger.';
 }
@@ -1037,6 +1129,7 @@ function updateProtPersonnel(idx, field, val) {
       renderProtPersonnelAfterPicker();
     }
     
+    if (idx === 0 && field !== 'userId') protAutoNight();
     // Time sync: if AL (index 0) changes, update others if they are empty or matched old AL time
     if (idx === 0 && field !== 'userId') {
       protState.personnel.forEach(function(p, i) {
@@ -1121,7 +1214,7 @@ function protDriverCost(t, users) {
 function protCostLines(state, date, holiday) {
   var lines = [];
   (state.transports || []).forEach(function(t) {
-    lines.push({ label: t.type || 'Fahrzeug', amount: calcTransportCost(t.type, date, t.cost) });
+    lines.push({ label: (t.type || 'Fahrzeug') + (t.night ? ' (Nacht)' : ''), amount: calcTransportCost(t.type, date, t.cost, t.night) });
     var drv = protDriverCost(t, appUsers);
     if (drv) lines.push({ label: 'Fahrer ' + ((t.driver || '').trim() || 'ohne Name'), amount: drv.amount });
   });
@@ -1360,6 +1453,7 @@ function saveProtDraft() {
     editingId: protState.editingId || null,
     editingLocalId: protState.editingLocalId || null,
     sideOf: protState.sideOf || null,
+    photos: protState.photos || [],
     savedAt: new Date().toISOString()
   };
   localStorage.setItem('luebbert_protokoll_draft', JSON.stringify(data));
@@ -1378,9 +1472,10 @@ function protDraftOwner() {
 // Empties the form state and fields without touching localStorage (used when a foreign draft is discarded)
 function resetProtFormState() {
   protStep = 'basis';
-  protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null, editingId: null, editingLocalId: null, signature: null, sideOf: null, shortages: null };
+  protState = { transports: [], personnel: [], categories: {}, alId: null, plId: null, editingId: null, editingLocalId: null, signature: null, sideOf: null, shortages: null, photos: [] };
   protOpenRows = {};
   renderProtShortages();
+  renderProtPhotos();
   ['prot-event', 'prot-location', 'prot-job', 'prot-date', 'prot-damages', 'prot-incidents', 'prot-feedback', 'prot-al', 'prot-pl'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.value = '';
@@ -1425,7 +1520,9 @@ function loadProtDraft() {
     protState.editingId = data.editingId || null;
     protState.editingLocalId = data.editingLocalId || null;
     protState.sideOf = data.sideOf || null;
+    protState.photos = Array.isArray(data.photos) ? data.photos : [];
     renderProtSide();
+    renderProtPhotos();
     return true;
   } catch(e) { console.error("Error loading draft", e); return false; }
 }
@@ -1591,6 +1688,8 @@ async function saveProtokoll() {
   // "Fehlmengen laut Auftrag": taken over from Material abhaken; not looked at yet → look now (short wait at most)
   if (protState.shortages === null || protState.shortages === undefined) await refreshProtShortages(6000);
   if (Array.isArray(protState.shortages)) data.shortages = protState.shortages;
+  // Only when there are photos or there were some (an edit that removed all): older protocols keep their column untouched
+  if ((protState.photos || []).length || protState.photosLoaded) data.photos = (protState.photos || []).slice();
 
   showToast('Speichere & Sende an Server...', 'info');
   var btn = document.querySelector('#page-protokoll .ui-actionbar .ui-btn-primary');
@@ -1620,6 +1719,7 @@ async function saveProtokoll() {
     jobNo: data.jobNo || '',
     sideOf: data.sideOf || null,
     shortages: data.shortages || null,
+    photos: data.photos || [],
     // Author stays as first saved; an edit by someone else does not take it over
     createdBy: (protState.editingLocalId && (archive.find(x => x.id === protState.editingLocalId) || {}).createdBy) ||
       (!isUpdate && typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null),
@@ -1785,6 +1885,7 @@ async function syncProtokollToSupabase(data, targetId, out) {
     if (data.sideOf !== undefined) protPayload.side_of = data.sideOf || null;
     // Only when known: a retry of an older entry must not clear what is stored
     if (Array.isArray(data.shortages)) protPayload.shortages = data.shortages.length ? data.shortages : null;
+    if (Array.isArray(data.photos)) protPayload.photos = data.photos.length ? data.photos : null;
 
     // Server signatures are not kept in localStorage (see mergeProtHistory): an edit loaded without one
     // must not overwrite the stored signature with null
@@ -1798,7 +1899,11 @@ async function syncProtokollToSupabase(data, targetId, out) {
         delete protPayload.side_of;
         ({ data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', editId).select('id'));
       }
-      // Column not migrated yet: save without the shortages rather than lose the edit
+      // Column not migrated yet: save without the photos / shortages rather than lose the edit
+      if (upErr && /photos/.test(upErr.message || '')) {
+        delete protPayload.photos;
+        ({ data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', editId).select('id'));
+      }
       if (upErr && /shortages/.test(upErr.message || '')) {
         delete protPayload.shortages;
         ({ data: upData, error: upErr } = await supabaseClient.from('protocols').update(protPayload).eq('id', editId).select('id'));
@@ -1823,6 +1928,10 @@ async function syncProtokollToSupabase(data, targetId, out) {
         delete insPayload.side_of;
         ({ data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single());
       }
+      if (protError && /photos/.test(protError.message || '')) {
+        delete insPayload.photos;
+        ({ data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single());
+      }
       if (protError && /shortages/.test(protError.message || '')) {
         delete insPayload.shortages;
         ({ data: protData, error: protError } = await supabaseClient.from('protocols').insert(insPayload).select().single());
@@ -1841,7 +1950,7 @@ async function syncProtokollToSupabase(data, targetId, out) {
     // 3. Insert Transports
     if (data.transports.length > 0) {
       var transInserts = data.transports.map(function(t) {
-        return {
+        return Object.assign({
           protocol_id: protId,
           vehicle_type: t.type,
           driver_name: t.driver || null,
@@ -1850,7 +1959,7 @@ async function syncProtokollToSupabase(data, targetId, out) {
           driver_hours: (t.hours === null || t.hours === undefined || t.hours === '' || isNaN(parseFloat(t.hours))) ? null : parseFloat(t.hours),
           driver_user_id: t.driverUserId || null,
           cost: t.type === 'Spedition' && parseFloat(t.cost) >= 0 ? parseFloat(t.cost) : null
-        };
+        }, t.night ? { night: true } : {});
       });
       var { error: trErr } = await supabaseClient.from('protocol_transports').insert(transInserts);
       if (trErr) throw trErr;
@@ -2281,6 +2390,9 @@ function loadProtFromHistory(id) {
   protState.transports = (entry.transports || []).map(function(t) { return Object.assign({}, t); });
   protState.shortages = Array.isArray(entry.shortages) ? entry.shortages : null;
   renderProtShortages();
+  protState.photos = Array.isArray(entry.photos) ? entry.photos.slice() : [];
+  protState.photosLoaded = protState.photos.length > 0;
+  renderProtPhotos();
   protState.personnel  = (entry.personnel  || []).map(function(p) { return Object.assign({}, p); });
   protOpenRows = {};
   protState.categories = JSON.parse(JSON.stringify(entry.categories || {}));
@@ -2515,8 +2627,8 @@ function buildProtPdfDoc(entry, opts) {
   var calcDate = (data.date && data.date !== '—') ? data.date : localDateStr();
   data.transports.forEach(function(t) {
     if (!t.type) return;
-    var r = calcTransportCost(t.type, calcDate, t.cost);
-    doc.text('- ' + t.type + (t.driver ? ' (' + t.driver + ')' : '') + ': ' + r.toFixed(2) + ' EUR', ml + 5, y); y += 4;
+    var r = calcTransportCost(t.type, calcDate, t.cost, t.night);
+    doc.text('- ' + t.type + (t.night ? ' (Nacht)' : '') + (t.driver ? ' (' + t.driver + ')' : '') + ': ' + r.toFixed(2) + ' EUR', ml + 5, y); y += 4;
     if (y > 280) { doc.addPage(); y = 20; }
     var drv = protDriverCost(t, appUsers);
     if (drv) {
