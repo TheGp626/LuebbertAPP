@@ -1049,13 +1049,10 @@ async function plPublish() {
   }
   if (ex && !(st.draft.published_version != null && st.draft.published_version === ex.version))
     parsed.warnings.push('Für diese Woche gibt es einen hochgeladenen Plan (Stand ' + ex.version + '). Mit „Übernehmen“ ersetzt der Entwurf ihn.');
-  wpImport = { parsed: parsed, fileName: 'Besetzungsplaner', existing: ex, unresolved: {},
+  var imp = { parsed: parsed, fileName: 'Besetzungsplaner', existing: ex, unresolved: {},
     afterSave: function(weekId) { return plAfterPublish(week, parsed, weekId, lastChange); } };
-  // The preview and „Übernehmen“ are the Wochenplan's (same as a PDF upload): open it there
-  var imp = wpImport;
-  selectMode('wochenplan');
-  wpImport = imp;
-  wpRenderImport();
+  // Confirm sheet in PLANEN (what changes, who gets a push), then wpCommitPlan: same save as a PDF upload, no page change
+  pnPublishSheet(imp, week);
 }
 
 // After wpSaveImport committed: remember which Stand the draft was published as and pin every Auftrag phase to its plan row

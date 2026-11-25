@@ -658,3 +658,57 @@ async function pnPrepareSave() {
     showToast(copies.length === 1 ? '1 Eintrag übernommen' : copies.length + ' Einträge übernommen', 'success');
   }
 }
+
+/* ── Publish inside PLANEN ── */
+
+// What publishing changes, for the confirm sheet. diff = planDiff(old, parsed.shifts) or null for the first Stand.
+// people = app users on new or changed entries and on removed ones (an estimate: notify-plan-change decides).
+function pnPublishSummary(diff, parsed) {
+  var st = diff ? diff.status : parsed.shifts.map(function() { return 'neu'; }), names = {};
+  var add = function(s) { (s.people || []).forEach(function(x) { if (x.userId) names[x.name] = true; }); };
+  parsed.shifts.forEach(function(s, i) { if (st[i]) add(s); });
+  ((diff && diff.removed) || []).forEach(add);
+  return { neu: st.filter(function(x) { return x === 'neu'; }).length, geaendert: st.filter(function(x) { return x === 'geändert'; }).length,
+    entfernt: ((diff && diff.removed) || []).length, people: Object.keys(names).sort(function(a, b) { return a.localeCompare(b, 'de'); }) };
+}
+
+var _pnPublish = null; // { imp, week } while the confirm sheet is open
+
+function pnPublishSheet(imp, week) {
+  _pnPublish = { imp: imp, week: week };
+  var p = imp.parsed, ex = imp.existing;
+  var diff = ex ? planDiff((ex.plan_shifts || []).map(planShiftFromDb), p.shifts) : null;
+  var sum = pnPublishSummary(diff, p), checks = [];
+  try { checks = planChecks(p.shifts, null); } catch (e) { console.error('Prüfung:', e); }
+  var nothing = diff && !sum.neu && !sum.geaendert && !sum.entfernt;
+  var stat = function(n, label) { return '<div><b>' + n + '</b><span>' + label + '</span></div>'; };
+  pnSheetOpen('pn-publish', 'KW ' + p.kw + ' veröffentlichen',
+    (nothing ? '<p class="pn-none">Seit dem letzten Veröffentlichen hat sich nichts geändert.</p>'
+      : '<div class="pn-pubstats">' + (diff ? stat(sum.neu, 'neu') + stat(sum.geaendert, 'geändert') + stat(sum.entfernt, 'entfernt') : stat(p.shifts.length, p.shifts.length === 1 ? 'Einsatz' : 'Einsätze')) + '</div>' +
+        '<p class="pn-pubpeople">' + (sum.people.length ? '<b>Eine Push-Nachricht bekommen voraussichtlich:</b> ' + pnE(sum.people.join(', ')) : 'Niemand mit App-Konto ist betroffen, es gehen keine Push-Nachrichten raus.') + '</p>') +
+    (p.warnings.length ? '<div class="pn-changed">' + p.warnings.map(pnE).join('<br>') + '</div>' : '') +
+    (checks.length ? '<div class="pn-changed"><b>Bitte prüfen</b><ul>' + checks.slice(0, 8).map(function(c) { return '<li>' + pnE(c.text) + '</li>'; }).join('') + '</ul>' +
+      (checks.length > 8 ? '<span>… und ' + (checks.length - 8) + ' weitere.</span>' : '') + 'Nur Hinweise, veröffentlichen geht trotzdem.</div>' : '') +
+    '<div class="ui-sheet-actions"><button type="button" class="ui-btn" onclick="document.getElementById(\'pn-publish\').remove()">Abbrechen</button>' +
+      '<button type="button" class="ui-btn ui-btn-primary" id="pn-publish-go" onclick="pnPublishGo()"' + (nothing ? ' disabled' : '') + '>Veröffentlichen</button></div>');
+}
+
+async function pnPublishGo() {
+  var job = _pnPublish, btn = document.getElementById('pn-publish-go');
+  if (!job) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Wird veröffentlicht…'; }
+  try {
+    var res = await wpCommitPlan(job.imp, []);
+    _pnPublish = null;
+    var m = document.getElementById('pn-publish');
+    if (m) m.remove();
+    showToast('KW ' + job.week.kw + ' veröffentlicht', 'success');
+    if (res.oldNotDeleted) showToast('Die alten Einsätze der Woche konnten nicht gelöscht werden – Einsätze erscheinen doppelt. Bitte beim Admin melden.', 'danger');
+    if (typeof wpWeeks !== 'undefined') wpWeeks = []; // the Wochenplan loads its weeks fresh on its next open
+    await plRender();
+  } catch (e) {
+    console.error('Veröffentlichen:', e);
+    showToast('Nicht veröffentlicht: ' + (e.message || e), 'danger');
+    if (btn) { btn.disabled = false; btn.textContent = 'Veröffentlichen'; }
+  }
+}

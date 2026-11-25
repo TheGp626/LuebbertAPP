@@ -825,3 +825,8 @@ div.pn-alert { font-weight: 400; cursor: default; }
 .pn-edit { display: flex; gap: 16px; margin: 2px 0 10px; }
 .pn-check { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 14px; line-height: 1.4; }
 .pn-check input { margin-top: 3px; }
+.pn-pubstats { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 8px; margin: 4px 0 12px; }
+.pn-pubstats div { display: flex; flex-direction: column; align-items: center; padding: 10px; border-radius: var(--r-control); background: var(--bg2); border: 0.5px solid var(--border); }
+.pn-pubstats b { font-size: 22px; font-variant-numeric: tabular-nums; }
+.pn-pubstats span { font-size: 12.5px; color: var(--text2); }
+.pn-pubpeople { font-size: 14px; line-height: 1.45; margin: 0 0 10px; }
