@@ -672,7 +672,7 @@
       <section class="ui-section">
         <div class="ui-section-head"><span class="ui-label">Basis</span></div>
         <div class="prot-date-row">
-          <label class="ui-field"><span>Datum</span><input type="date" id="pe-date"></label>
+          <label class="ui-field"><span>Datum</span><input type="date" id="pe-date" onchange="renderDashPeSide()"></label>
           <label class="prot-switch-label"><input type="checkbox" class="ui-switch" id="pe-holiday"> Feiertag</label>
         </div>
         <div class="ui-field"><span>Aktion</span>
@@ -685,17 +685,22 @@
         </div>
         <label class="ui-field"><span>Projektnummer (optional)</span>
           <input type="text" id="pe-job" placeholder="z. B. 26-0447" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12"></label>
+        <div class="ui-field">
+          <label class="prot-switch-label"><input type="checkbox" class="ui-switch" id="pe-side-on" onchange="renderDashPeSide()"> Zusatzauftrag (lief im Zuge eines anderen Auf-/Abbaus mit)</label>
+          <select id="pe-side-of" hidden aria-label="Läuft mit bei"></select>
+          <small id="pe-side-hint" hidden></small>
+        </div>
       </section>
 
       <!-- Transporte -->
-      <section class="ui-section">
+      <section class="ui-section" id="pe-sec-transports">
         <div class="ui-section-head"><span class="ui-label">Transporte</span></div>
         <div id="pe-transports"></div>
         <button type="button" class="ui-add-row" onclick="addDashProtTransport()">+ Transport</button>
       </section>
 
       <!-- Personal -->
-      <section class="ui-section">
+      <section class="ui-section" id="pe-sec-shifts">
         <div class="ui-section-head"><span class="ui-label">Personal</span></div>
         <div id="pe-shifts"></div>
         <button type="button" class="ui-add-row" onclick="addDashPeShift()">+ Person</button>
