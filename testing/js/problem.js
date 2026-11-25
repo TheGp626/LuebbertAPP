@@ -62,9 +62,13 @@ function sendProblemForm() {
   if (!p) { showToast('Bitte kurz beschreiben, was passiert ist.', 'danger'); return; }
   // errors.js failed to load (very old browser): say so instead of a false "Danke"
   if (typeof queueReport !== 'function') { showToast('Senden geht gerade nicht. Bitte lade die App neu.', 'danger'); return; }
-  queueReport(p);
   closeProblemForm();
-  showToast(navigator.onLine === false ? 'Wird gesendet, sobald du online bist' : 'Danke, ist angekommen');
+  if (navigator.onLine === false) { queueReport(p); showToast('Wird gesendet, sobald du online bist'); return; }
+  showToast('Wird gesendet…');
+  // „angekommen“ only once the server has it; otherwise it stays on the phone and goes out later by itself
+  queueReport(p).then(function (ok) {
+    showToast(ok ? 'Danke, ist angekommen' : 'Noch nicht angekommen – wird automatisch gesendet, sobald die Verbindung klappt', ok ? undefined : 'danger');
+  });
 }
 
 // After a crash (once per page load): offer the form while the person still remembers what they did
