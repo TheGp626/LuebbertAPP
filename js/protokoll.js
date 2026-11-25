@@ -1481,6 +1481,20 @@ function protLongerThanAl(personnel, alId) {
 }
 
 // ── PROTOKOLL SAVE (replaces PDF Export) ──
+// Name of a protocol on the server with the same date + action and the same job number (or, without one, the same event); '' if none or offline
+async function protFindDuplicate(data) {
+  if (typeof supabaseClient === 'undefined' || navigator.onLine === false || !data.date || data.date === '—' || data.action === '—') return '';
+  try {
+    var res = await supabaseClient.from('protocols').select('job_no, projects(name)').eq('date', data.date).eq('action', data.action);
+    if (res.error) return '';
+    var hit = (res.data || []).find(function(r) {
+      var name = (r.projects && r.projects.name) || '';
+      return data.jobNo ? r.job_no === data.jobNo : (!!name && name === data.event);
+    });
+    return hit ? ((hit.projects && hit.projects.name) || hit.job_no) : '';
+  } catch (e) { return ''; }
+}
+
 async function saveProtokoll() {
   var side = protState.sideOf || null;
   if (protSideOn() && !side) { showToast('Bitte das Hauptprotokoll auswählen, bei dem dieser Zusatzauftrag mitlief.', 'danger'); return; }
@@ -1544,6 +1558,11 @@ async function saveProtokoll() {
     totalCost: document.getElementById('prot-total-cost').textContent + ' €'
   };
   data = protApplySide(data, side);
+  // Same day + action + job (or event) already on the server → probably sent twice
+  if (!protState.editingId && !protState.editingLocalId) {
+    var dupe = await protFindDuplicate(data);
+    if (dupe && !confirm('Für diesen Tag gibt es schon ein Protokoll "' + dupe + '" (' + data.action + ').\n\nTrotzdem noch eins speichern?\n(Lief es nur mit? Dann oben "Zusatzauftrag" einschalten.)')) return;
+  }
   // "Fehlmengen laut Auftrag": taken over from Material abhaken; not looked at yet → look now (short wait at most)
   if (protState.shortages === null || protState.shortages === undefined) await refreshProtShortages(6000);
   if (Array.isArray(protState.shortages)) data.shortages = protState.shortages;
@@ -1903,7 +1922,8 @@ async function syncProtokollToSupabase(data, targetId, out) {
     return protId;
   } catch(e) {
     console.error("Sync Exception:", e);
-    showToast((e && e.userMessage) || "Server Sync fehlgeschlagen. Offline gespeichert.", "danger");
+    // 23514 = a database guard said no (e.g. "Doppelte Schicht: …"): its text is written for people
+    showToast((e && e.userMessage) || (e && e.code === '23514' && e.message) || "Server Sync fehlgeschlagen. Offline gespeichert.", "danger");
     return null;
   }
 }
