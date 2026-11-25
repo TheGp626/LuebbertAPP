@@ -120,6 +120,7 @@ function pnWeekRange(week) {
 var _pnJobs = {};       // job no → { job, file } from the Auftragsbestätigungen (material, notes, PDF)
 var _pnQuery = '';      // search text in the sheet, kept across repaints
 var _pnParsedOnce = false;
+var _pnAutoStarted = {}; // 'year-kw' → draft creation already tried this session
 
 // Entry point of the tab (app.js selectMode, auth.js after login)
 async function initPlanen() {
@@ -254,6 +255,15 @@ function pnPaint() {
   var who = plWho(), planner = plCanPublish(who);
   st.keys = plRowKeys(st.week, st.rows, wpUsers);
   if (!st.draft) {
+    // Whoever plans gets the draft right away (once per week and session, so a failing insert does not loop);
+    // a week with an uploaded PDF plan still asks first, because the draft then takes over that plan's entries
+    var key = st.week.year + '-' + st.week.kw;
+    if (planner && !st.planWeek && !_pnAutoStarted[key]) {
+      _pnAutoStarted[key] = true;
+      box.innerHTML = pnHeadHtml(st, who) + '<div class="wp-empty">KW ' + st.week.kw + ' wird angelegt…</div>';
+      plStart();
+      return;
+    }
     var text, btn = '<button type="button" class="ui-btn ui-btn-primary wp-empty-btn" onclick="plStart()">Woche planen</button>';
     if (st.planWeek && !planner) { text = 'Diese Woche hat schon einen hochgeladenen Plan. Weiterplanen kann hier nur, wer den Wochenplan plant.'; btn = ''; }
     else if (st.planWeek) text = 'Der Plan dieser Woche wurde als PDF hochgeladen. Alle Einträge daraus kommen mit, du planst hier weiter.';
@@ -330,7 +340,8 @@ function pnSheetPaint() {
   var placeBtn = function(uid, label) { return can ? '<button type="button" class="ui-btn ui-btn-primary pn-small" onclick="plPlace(' + id + ', \'' + jsAttrArg(uid) + '\')">' + (label || 'Einplanen') + '</button>' : ''; };
 
   // Places: the stepper (an Auftrag's number is the PL's, written to order_staffing; a free entry's is the planner's)
-  var canNeed = row.job_no ? ((typeof ordCanEdit === 'function') && ordCanEdit()) : can;
+  // Auftrag numbers: PL, Admin and Planung (RLS on order_staffing, migration planen_flow); a free entry's: whoever edits it
+  var canNeed = row.job_no ? (((typeof ordCanEdit === 'function') && ordCanEdit()) || plCanPublish(who)) : can;
   var stepper = '<div class="pn-need">' +
     '<div><b>' + (row.need == null ? 'Wie viele MA? Noch nicht eingetragen' : need ? filled + ' von ' + need + ' besetzt' : filled ? filled + ' eingeplant' : 'Noch keine MA gebraucht') + '</b>' +
       '<span>' + (row.job_no ? 'MA laut Auftrag ' + pnE(row.job_no) : 'MA für diesen Eintrag') + '</span></div>' +
