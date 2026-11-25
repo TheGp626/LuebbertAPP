@@ -289,7 +289,7 @@ function initAuthNamePicker() {
 // was deactivated, or nothing was shown from the cache yet
 function authSessionChanged(shown, fresh) {
   if (!shown || !fresh) return true;
-  return ['full_name', 'role', 'default_dept', 'hourly_rate_conni', 'hourly_rate_internal', 'employment_type', 'can_drive']
+  return ['full_name', 'role', 'default_dept', 'hourly_rate_conni', 'hourly_rate_internal', 'employment_type', 'can_drive', 'photo_path']
     .some(function(k) { return String(shown[k] == null ? '' : shown[k]) !== String(fresh[k] == null ? '' : fresh[k]); })
     || JSON.stringify(shown.role_rates || []) !== JSON.stringify(fresh.role_rates || [])
     // Wochenplan switches; a cached profile from before a new column existed counts as false
@@ -355,7 +355,8 @@ function handleSession(user) {
 
   if (user) {
     currentUser = { id: user.id, email: '', full_name: user.full_name || '', role: user.role,
-      role_rates: Array.isArray(user.role_rates) ? user.role_rates : [], employment_type: user.employment_type || 'Minijob' }; // Mock basic GoTrue object for backwards compatibility (+ name for the start page greeting)
+      role_rates: Array.isArray(user.role_rates) ? user.role_rates : [], employment_type: user.employment_type || 'Minijob',
+      photo_path: user.photo_path || null, photo_consent_at: user.photo_consent_at || null }; // Mock basic GoTrue object for backwards compatibility (+ name for the start page greeting)
     userRole = user.role;
     // Costs and rates only for PL/Buchhaltung/Admin: every '.cost-only' element is hidden otherwise (css/ui.css)
     document.body.classList.toggle('no-costs', !canSeeCosts(currentUser));
