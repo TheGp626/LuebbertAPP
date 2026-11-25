@@ -637,7 +637,7 @@ function wpSetView(v) {
   });
   document.getElementById('wp-week-nav').style.display = v === 'all' ? 'flex' : 'none';
   document.getElementById('wp-days').style.display = v === 'all' ? 'flex' : 'none';
-  if (v === 'mine') wpRenderMine(); else if (v === 'avail') wpRenderAvail(); else if (v === 'plan') plRender(); else wpRenderWeek();
+  if (v === 'mine') wpRenderMine(); else if (v === 'avail') wpRenderAvail(); else if (v === 'plan') initPlanen(); else wpRenderWeek();
 }
 
 // Verfügbarkeit tab: own calendar (unlocked people) and/or the planner grid

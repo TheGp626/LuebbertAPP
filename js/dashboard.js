@@ -1046,8 +1046,7 @@ function dashNkJobHtml(j, links) {
 function renderDashNachkalk() {
   var box = document.getElementById('dash-nachkalk');
   if (!box) return;
-  // Its home is the Aufträge tab, where Admin and PL see it; here it only shows for the others (Buchhaltung, AL)
-  if (typeof userRole !== 'undefined' && (userRole === 'Admin' || userRole === 'PL')) { box.innerHTML = ''; return; }
+  // Its home since PLANEN replaced the Aufträge tab (25.11.2026): here, for everyone who sees the Protokoll-Übersicht
   var wasOpen = !!(box.querySelector('details.dash-nk') || {}).open, openJobs = {};
   box.querySelectorAll('details.dash-nk-job[open] summary b').forEach(function(b) { openJobs[b.textContent] = true; });
   var jobs = dashNachkalk(dashboardProtocols, _dashStaffing, dashNkTransportCost);
