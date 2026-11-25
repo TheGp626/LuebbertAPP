@@ -58,6 +58,9 @@ alter table public.plan_draft_shifts
   add column if not exists manual text[] not null default '{}',
   add column if not exists auftrag_changes jsonb,
   add column if not exists pair_id uuid;
+-- Auftrag rows planned before this migration may hold hand edits nobody recorded: their texts count as hand-edited, so a
+-- revised Bestätigung only reports a different time/room/name for them instead of overwriting it
+update public.plan_draft_shifts set manual = '{wann,location,title}' where job_no is not null;
 
 drop policy if exists rls_order_staffing_insert on public.order_staffing;
 create policy rls_order_staffing_insert on public.order_staffing for insert to authenticated

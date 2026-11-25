@@ -814,3 +814,10 @@ div.pn-alert { font-weight: 400; cursor: default; }
 .pn-unknown { --pn-bar: var(--warn); }
 .pn-unknown .pn-count { color: var(--warn); font-size: 13px; }
 .pn-strip-unknown { background: var(--warn-bg); color: var(--warn); }
+.pn-flag-changed { background: var(--warn-bg); color: var(--warn); }
+.pn-changed, .pn-stale { margin: 6px 0 10px; padding: 10px 12px; border-radius: var(--r-control); font-size: 14px; line-height: 1.4; }
+.pn-changed { background: var(--warn-bg); color: var(--warn); }
+.pn-changed ul { margin: 6px 0 8px; padding-left: 18px; }
+.pn-stale { background: var(--danger-bg); color: var(--danger); display: flex; flex-direction: column; gap: 4px; }
+.pn-stale span { color: var(--text2); font-size: 13px; }
+.pn-stale-acts { display: flex; gap: 8px; margin-top: 6px; }

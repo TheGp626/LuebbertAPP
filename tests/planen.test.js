@@ -63,3 +63,13 @@ test('MA number not entered yet (need null): row state "unknown", counts as 0 op
   assert.equal(d[1].unknown, 1);
   assert.equal(ctx.pnRowState(row({ need: 0 })), 'none');
 });
+
+test('pnChangeLines: unseen changes as readable lines, hand-kept ones say so', () => {
+  const r = row({ auftrag_changes: [
+    { field: 'wann', from: 'Aufbau: 07:00 Uhr', to: 'Aufbau: 08:00 Uhr', kept: false },
+    { field: 'location', from: 'Saal 1', to: 'Gala\nSaal 2', kept: true },
+    { field: 'title', from: 'A', to: 'B', kept: false, seen: true }] });
+  assert.deepEqual(plain(ctx.pnChangeLines(r)), ['Zeit: Aufbau: 07:00 Uhr → Aufbau: 08:00 Uhr',
+    'Raum / Veranstaltung: laut Auftrag jetzt Gala, Saal 2, von Hand Saal 1 behalten']);
+  assert.deepEqual(plain(ctx.pnChangeLines(row())), []);
+});
