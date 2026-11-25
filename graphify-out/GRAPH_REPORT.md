@@ -1,17 +1,17 @@
 # Graph Report - LuebbertAPP  (2026-11-25)
 
 ## Corpus Check
-- 127 files · ~194,392 words
+- 129 files · ~195,521 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 5 file(s) not represented in the graph (top: .css 3, (none) 2)
 
 ## Summary
-- 1812 nodes · 3997 edges · 97 communities (75 shown, 22 thin omitted)
-- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 246 edges (avg confidence: 0.85)
+- 1839 nodes · 4048 edges · 99 communities (77 shown, 22 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 248 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `84648b47`
+- Built from commit: `2e46d173`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -60,7 +60,7 @@
 - Plan Inbox Polling
 - Shift Interest Cancellations
 - Protocol History Sync
-- Protocol Mail Builder
+- ask-shift/index.ts
 - saveProtokoll
 - planen.js
 - On-Site Plans
@@ -97,6 +97,8 @@
 - Lübbert App
 - public.save_app_settings
 - dashStartProtokollFromPlan
+- public.ask_log
+- frage.js
 
 ## God Nodes (most connected - your core abstractions)
 1. `saveProtDraft()` - 26 edges
@@ -117,15 +119,15 @@
   README.md → js/utils.js
 - `für entwickler` --references--> `needLib()`  [INFERRED]
   README.md → js/utils.js
-- `pnPublishSheet()` --indirect_call--> `planShiftFromDb()`  [INFERRED]
-  js/planen.js → js/plan-parser.js
-- `plSaveSheet()` --indirect_call--> `planStripPhones()`  [INFERRED]
-  js/planer.js → js/plan-parser.js
+- `ordLoadNachkalk()` --indirect_call--> `dashNkTransportCost()`  [INFERRED]
+  js/auftraege.js → js/dashboard.js
+- `navPaint()` --indirect_call--> `moduleAllowedForRole()`  [INFERRED]
+  js/nav.js → js/auth.js
 
 ## Import Cycles
 - None detected.
 
-## Communities (97 total, 22 thin omitted)
+## Communities (99 total, 22 thin omitted)
 
 ### Community 0 - "Staffing Planner UI"
 Cohesion: 0.05
@@ -164,8 +166,8 @@ Cohesion: 0.10
 Nodes (46): aufbauDateiBarHtml(), aufbauDateiInlineHtml(), aufbauFileKind(), aufbauPageScale(), closeLightbox(), closeProduktForm(), closeProduktViewer(), contentTypeFor() (+38 more)
 
 ### Community 9 - "Job Orders Board"
-Cohesion: 0.12
-Nodes (42): initAuftraege(), ordAcceptAvailable(), ordAvailable(), ordByShare(), ordCanDecide(), ordCanEdit(), ordCardHtml(), ordCardSlot() (+34 more)
+Cohesion: 0.11
+Nodes (46): initAuftraege(), ordAcceptAvailable(), ordAsk(), ordAskPick(), ordAskPicked(), ordAvailable(), ordByShare(), ordCanDecide() (+38 more)
 
 ### Community 10 - "Shared Utilities"
 Cohesion: 0.09
@@ -184,8 +186,8 @@ Cohesion: 0.20
 Nodes (10): addDashPeShift(), addDashProtTransport(), dashShiftToRow(), openDashProtEdit(), removeDashPeShift(), renderDashPeActionSeg(), renderDashPeShifts(), renderDashProtEquipment() (+2 more)
 
 ### Community 14 - "Reminder Edge Function"
-Cohesion: 0.12
-Nodes (36): CORS, Db, Input, json(), runDaily(), runEvening(), runTest(), shiftDate() (+28 more)
+Cohesion: 0.11
+Nodes (38): CORS, Db, Input, json(), runDaily(), runEvening(), runTest(), shiftDate() (+30 more)
 
 ### Community 15 - "Protocol Form Helpers"
 Cohesion: 0.11
@@ -196,8 +198,8 @@ Cohesion: 0.12
 Nodes (16): public.auth_user_set_display_name(), public.pin_register_failure(), app_users_pl_guard, public.app_users_pl_guard(), app_users_pl_guard, public.app_users_pl_guard(), public.register_push_subscription(), public.renew_calendar_token() (+8 more)
 
 ### Community 17 - "Department Mail Routing"
-Cohesion: 0.13
-Nodes (23): AREA_LABELS, AREA_ORDER, buildDepartmentBody(), buildDepartmentSubject(), DEFAULT_ROUTES, departmentFeedback(), departmentRecipient(), DEPARTMENTS (+15 more)
+Cohesion: 0.11
+Nodes (33): AREA_LABELS, AREA_ORDER, buildDepartmentBody(), buildDepartmentSubject(), DEFAULT_ROUTES, departmentFeedback(), departmentRecipient(), DEPARTMENTS (+25 more)
 
 ### Community 18 - "PIN Login Functions"
 Cohesion: 0.14
@@ -292,8 +294,8 @@ Cohesion: 0.20
 Nodes (14): dashGroupLabel(), dashInactiveHtml(), dashIsFest(), dashMayManageStaff(), dashMayResetPin(), dashResetWorkerPin(), dashSelectedWorker(), dashWorkerList() (+6 more)
 
 ### Community 41 - "Plan Inbox Polling"
-Cohesion: 0.16
-Nodes (11): authPassed(), isPdf(), MAX_PDF_BYTES, parseAllowed(), pickPlanPdfs(), senderAllowed(), storagePath(), CORS (+3 more)
+Cohesion: 0.22
+Nodes (8): authPassed(), isPdf(), MAX_PDF_BYTES, parseAllowed(), pickPlanPdfs(), senderAllowed(), storagePath(), CORS
 
 ### Community 42 - "Shift Interest Cancellations"
 Cohesion: 0.22
@@ -303,9 +305,9 @@ Nodes (10): plan_shift_interest_user_id_idx, public.plan_shift_interest, plan_sh
 Cohesion: 0.24
 Nodes (13): deleteProtHistory(), mailProtokoll(), markProtMailed(), mergeProtHistory(), protArchiveShrink(), protRowToEntry(), protSaveArchive(), renderProtHistory() (+5 more)
 
-### Community 44 - "Protocol Mail Builder"
-Cohesion: 0.31
-Nodes (12): actionText(), attachmentName(), buildBody(), buildSubject(), escapeHtml(), formatDateDE(), GEWERKE_LABELS, isEmptyNote() (+4 more)
+### Community 44 - "ask-shift/index.ts"
+Cohesion: 0.23
+Nodes (9): askLabel(), askPush(), askRef(), MAX_ASKS_PER_HOUR, mayAsk(), CORS, runHoursCheck(), pushTo() (+1 more)
 
 ### Community 45 - "saveProtokoll"
 Cohesion: 0.19
@@ -313,7 +315,7 @@ Nodes (14): protApplySide(), protIncompleteNames(), protJobNo(), protJobNoValid(
 
 ### Community 46 - "planen.js"
 Cohesion: 0.08
-Nodes (48): initPlanen(), pnAlertsHtml(), pnAskTarget(), pnAvatar(), pnChangeLines(), pnChangesHtml(), pnClose(), pnCopyRows() (+40 more)
+Nodes (51): initPlanen(), pnAlertsHtml(), pnAsked(), pnAskRef(), pnAskTarget(), pnAvatar(), pnChangeLines(), pnChangesHtml() (+43 more)
 
 ### Community 47 - "On-Site Plans"
 Cohesion: 0.33
@@ -427,25 +429,33 @@ Nodes (5): Branches, builds, databases, Checking the UI (keep image tokens low),
 Cohesion: 0.67
 Nodes (3): dashMergePlanPeople(), dashStartProtokollFromPlan(), planAlUserId()
 
+### Community 97 - "public.ask_log"
+Cohesion: 0.47
+Nodes (3): public.answer_ask(), public.ask_answers(), public.my_open_asks()
+
+### Community 98 - "frage.js"
+Cohesion: 0.70
+Nodes (4): frageAnswer(), frageCheck(), frageMeldung(), frageShow()
+
 ## Knowledge Gaps
 - **2 isolated node(s):** `RFC-5545`, `RFC-5545`
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 230 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 233 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **22 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `planShiftFromDb()` connect `Weekly Plan View` to `dashStartProtokollFromPlan`, `Plan Parsing Helpers`, `planen.js`?**
-  _High betweenness centrality (0.060) - this node is a cross-community bridge._
+  _High betweenness centrality (0.053) - this node is a cross-community bridge._
 - **What connects `RFC-5545`, `RFC-5545` to the rest of the system?**
   _2 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Staffing Planner UI` be split into smaller, more focused modules?**
   _Cohesion score 0.054455445544554455 - nodes in this community are weakly interconnected._
 - **Why does `dashStartProtokollFromPlan()` connect `dashStartProtokollFromPlan` to `Weekly Plan View`, `Dashboard Protocol Editing`?**
-  _High betweenness centrality (0.044) - this node is a cross-community bridge._
+  _High betweenness centrality (0.039) - this node is a cross-community bridge._
 - **Should `Weekly Plan View` be split into smaller, more focused modules?**
   _Cohesion score 0.052650494159928125 - nodes in this community are weakly interconnected._
 - **Why does `planStripPhones()` connect `Plan Parsing Helpers` to `Staffing Planner UI`?**
-  _High betweenness centrality (0.032) - this node is a cross-community bridge._
+  _High betweenness centrality (0.037) - this node is a cross-community bridge._
 - **Should `Timesheet Shifts` be split into smaller, more focused modules?**
   _Cohesion score 0.059574468085106386 - nodes in this community are weakly interconnected._

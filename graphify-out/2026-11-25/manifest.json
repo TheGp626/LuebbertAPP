@@ -654,9 +654,9 @@
     "semantic_hash": ""
   },
   "sw.js": {
-    "mtime": 1795635662.0301225,
-    "seen": 1795635694.1716185,
-    "ast_hash": "6d1fab22b281af6cf1b45f2059fb2a3a",
+    "mtime": 1795635949.7340066,
+    "seen": 1795635953.3227415,
+    "ast_hash": "a0ec423c1248acac7bf4805d2973b222",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
@@ -672,9 +672,9 @@
     "semantic_hash": ""
   },
   "index.html": {
-    "mtime": 1795635662.0021617,
-    "seen": 1795635694.1716232,
-    "ast_hash": "8718455a5772ef2edd54fa1540966276",
+    "mtime": 1795635949.7040482,
+    "seen": 1795635953.322747,
+    "ast_hash": "7038828a5453aad40bdb80770821c4fb",
     "semantic_hash": ""
   },
   "supabase/migrations/20261202_jenni_runde_3.sql": {
@@ -702,9 +702,9 @@
     "semantic_hash": ""
   },
   "js/planen.js": {
-    "mtime": 1795635661.9842954,
-    "seen": 1795635694.1714964,
-    "ast_hash": "6c761a48dd1d8e1576c2e5dc111cbaaa",
+    "mtime": 1795635920.0733683,
+    "seen": 1795635953.3226385,
+    "ast_hash": "7025cc7ab46693e31582c6895639bc37",
     "semantic_hash": ""
   },
   "supabase/migrations/20261204_planung_ein_schalter.sql": {

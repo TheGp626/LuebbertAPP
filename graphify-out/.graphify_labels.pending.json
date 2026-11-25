@@ -2,6 +2,7 @@
   "13": "openDashProtEdit",
   "22": "saveProtDraft",
   "27": "renderProtSectionNav",
+  "44": "ask-shift/index.ts",
   "45": "saveProtokoll",
   "46": "planen.js",
   "52": "renderProtPersonnel",
@@ -15,5 +16,7 @@
   "93": "public.staff_minors",
   "94": "Lübbert App",
   "95": "public.save_app_settings",
-  "96": "dashStartProtokollFromPlan"
+  "96": "dashStartProtokollFromPlan",
+  "97": "public.ask_log",
+  "98": "frage.js"
 }

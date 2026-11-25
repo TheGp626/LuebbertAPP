@@ -11,13 +11,13 @@ test('askRef: plan entry or Auftrag phase, anything else refused', () => {
   assert.equal(askRef(null), null);
 });
 
-test('askLabel / askPush: one clean line, first name of the asker, link to the Wochenplan', () => {
+test('askLabel / askPush: one clean line, first name of the asker, link that opens the Ja/Nein popup', () => {
   assert.equal(askLabel(' Fr 28.11.\n07:00 \u0007 Estrel '), 'Fr 28.11. 07:00 Estrel');
   assert.equal(askLabel('x'.repeat(200)).length, 120);
   const p = askPush('Jenni Muster', 'Fr 28.11. · Estrel');
   assert.equal(p.title, 'Hast du Zeit?');
-  assert.equal(p.body, 'Jenni fragt: Fr 28.11. · Estrel. Tipp im Wochenplan auf „Ich kann“.');
-  assert.equal(p.url, './index.html?open=wochenplan');
+  assert.equal(p.body, 'Jenni fragt: Fr 28.11. · Estrel. Tippen zum Antworten.');
+  assert.equal(p.url, './index.html?ask=1');
 });
 
 test('mayAsk: Admin or „Sieht Bewerbungen“, never inactive', () => {

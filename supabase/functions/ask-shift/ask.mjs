@@ -19,7 +19,8 @@ export function askLabel(s) {
 
 export function askPush(askerName, label) {
   const who = String(askerName || '').trim().split(/\s+/)[0] || 'Das Büro';
-  return { title: 'Hast du Zeit?', body: `${who} fragt: ${label || 'ein Einsatz'}. Tipp im Wochenplan auf „Ich kann“.`, url: './index.html?open=wochenplan' };
+  // ?ask=1: the app opens the Ja/Nein popup (js/frage.js); older app versions ignore it and open the start page
+  return { title: 'Hast du Zeit?', body: `${who} fragt: ${label || 'ein Einsatz'}. Tippen zum Antworten.`, url: './index.html?ask=1' };
 }
 
 // Same rule as public.sees_plan_interest(): Admin, or anyone with the switch "Sieht Bewerbungen"

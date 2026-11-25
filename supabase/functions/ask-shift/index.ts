@@ -43,13 +43,16 @@ Deno.serve(async (req) => {
   if ((count || 0) >= MAX_ASKS_PER_HOUR) return json({ error: 'rate_limited' }, 429);
 
   // Claim first (unique user + shift): a double tap or a second decider does not ask twice
-  const { data: claim, error: insErr } = await db.from('ask_log').insert({ asked_by: callerId, user_id: target.id, ref }).select('id').maybeSingle();
+  // label: the shift as the popup shows it (column from migration ask_antwort; without it the ask is stored without)
+  const label = askLabel(input.label);
+  let { data: claim, error: insErr } = await db.from('ask_log').insert({ asked_by: callerId, user_id: target.id, ref, label }).select('id').maybeSingle();
+  if (insErr && /label/.test(insErr.message || '')) ({ data: claim, error: insErr } = await db.from('ask_log').insert({ asked_by: callerId, user_id: target.id, ref }).select('id').maybeSingle());
   if (insErr) {
     if (insErr.code === '23505') return json({ skipped: 'already_asked' });
     console.error('ask-shift: claim failed', insErr);
     return json({ error: 'db_error' }, 500);
   }
-  const r = await pushTo(db, target.id, askPush(caller.full_name, askLabel(input.label)));
+  const r = await pushTo(db, target.id, askPush(caller.full_name, label));
   if (r.ok === 0) {
     // Nobody reached (no device with push, or a failure): release, so asking again later works
     await db.from('ask_log').delete().eq('id', claim.id);
