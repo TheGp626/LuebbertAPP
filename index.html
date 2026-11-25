@@ -11,7 +11,7 @@
   <title>LÜBBERT APP</title>
 
 
-  <link rel="stylesheet" href="css/style.css?v=45">
+  <link rel="stylesheet" href="css/style.css?v=46">
   <link rel="stylesheet" href="css/ui.css?v=50">
 </head>
 
@@ -230,6 +230,11 @@
               <textarea id="prot-incidents" class="prot-text" placeholder="z. B. Verzögerungen, Probleme vor Ort" oninput="saveProtDraft(); growProtText(this)"></textarea></label>
             <label class="ui-field"><span>Feedback zur Location / Sonstiges</span>
               <textarea id="prot-feedback" class="prot-text" placeholder="Lob, Kritik, Verbesserungsvorschläge" oninput="saveProtDraft(); growProtText(this)"></textarea></label>
+            <div class="ui-field"><span>Fotos (z. B. Schäden, Aufbau)</span>
+              <div class="prot-photos" id="prot-photos"></div>
+              <button type="button" class="ui-add-row" id="prot-photo-btn" onclick="protPickPhoto()"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Foto hinzufügen</button>
+              <input type="file" id="prot-photo-file" accept="image/*" multiple hidden onchange="protAddPhotos(this)">
+            </div>
           </section>
 
           <!-- Section: Unterschrift -->
@@ -958,7 +963,7 @@
   <script src="js/supabase-config.js?v=10"></script>
   <script src="js/auth.js?v=45"></script>
   <script src="js/logo.js?v=9"></script>
-  <script src="js/formulas.js?v=19"></script>
+  <script src="js/formulas.js?v=20"></script>
   <script src="js/utils.js?v=28"></script>
   <script src="js/ui.js?v=8"></script>
   <script src="js/changelog.js?v=2"></script>
@@ -976,7 +981,7 @@
   <script src="js/wochenplan.js?v=42"></script>
   <script src="js/material.js?v=5"></script>
   <script src="js/home.js?v=13"></script>
-  <script src="js/dashboard.js?v=67"></script>
+  <script src="js/dashboard.js?v=68"></script>
   <script src="js/fehler.js?v=2"></script>
   <script src="js/admin.js?v=3"></script>
   <script src="js/produkte.js?v=22"></script>

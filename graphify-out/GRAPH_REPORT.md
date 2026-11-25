@@ -1,17 +1,17 @@
 # Graph Report - LuebbertAPP  (2026-11-25)
 
 ## Corpus Check
-- 113 files · ~170,617 words
+- 116 files · ~173,823 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 4 file(s) not represented in the graph (top: (none) 2, .css 2)
 
 ## Summary
-- 1644 nodes · 3653 edges · 87 communities (62 shown, 25 thin omitted)
+- 1676 nodes · 3714 edges · 90 communities (64 shown, 26 thin omitted)
 - Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 215 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `8819b81d`
+- Built from commit: `9a2c991e`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -41,7 +41,7 @@
 - erinnerung.js
 - cleanup-folders/index.ts
 - renderWorkerShifts
-- cleanup-folders/index.ts
+- openDashProtEdit
 - public.order_slots
 - dashRenderWorkerMonth
 - settings.js
@@ -84,16 +84,18 @@
 - public.protocol_waivers
 - supabase-config.js
 - 20261105_shift_roles_typed.sql
+- ask-shift/index.ts
+- 20261203_jenni_runde_4.sql
 
 ## God Nodes (most connected - your core abstractions)
 1. `plPaint()` - 26 edges
-2. `wpMe()` - 25 edges
-3. `runDaily()` - 23 edges
-4. `saveProtDraft()` - 23 edges
+2. `saveProtDraft()` - 25 edges
+3. `wpMe()` - 25 edges
+4. `runDaily()` - 23 edges
 5. `fetchShiftsNow()` - 21 edges
-6. `wpEsc()` - 18 edges
-7. `openMaterialCheck()` - 18 edges
-8. `calcProtCosts()` - 17 edges
+6. `calcProtCosts()` - 18 edges
+7. `wpEsc()` - 18 edges
+8. `openMaterialCheck()` - 18 edges
 9. `renderProtPersonnel()` - 17 edges
 10. `_mcRender()` - 17 edges
 
@@ -104,15 +106,15 @@
   README.md → js/utils.js
 - `für entwickler` --references--> `needLib()`  [INFERRED]
   README.md → js/utils.js
-- `plSaveSheet()` --indirect_call--> `planStripPhones()`  [INFERRED]
-  js/planer.js → js/plan-parser.js
+- `ordLoadNachkalk()` --indirect_call--> `dashNkTransportCost()`  [INFERRED]
+  js/auftraege.js → js/dashboard.js
 - `dashStartProtokollFromPlan()` --indirect_call--> `planShiftFromDb()`  [INFERRED]
   js/dashboard.js → js/plan-parser.js
 
 ## Import Cycles
 - None detected.
 
-## Communities (87 total, 25 thin omitted)
+## Communities (90 total, 26 thin omitted)
 
 ### Community 0 - "planer.js"
 Cohesion: 0.06
@@ -151,12 +153,12 @@ Cohesion: 0.10
 Nodes (46): aufbauDateiBarHtml(), aufbauDateiInlineHtml(), aufbauFileKind(), aufbauPageScale(), closeLightbox(), closeProduktForm(), closeProduktViewer(), contentTypeFor() (+38 more)
 
 ### Community 9 - "dashboard.js"
-Cohesion: 0.08
-Nodes (44): addDashPeShift(), addDashProtTransport(), calcDashProtTotal(), closeDashProtEdit(), dashboardCurrentShifts, dashboardProtocols, dashboardWorkers, dashMergePlanPeople() (+36 more)
+Cohesion: 0.10
+Nodes (36): calcDashProtTotal(), closeDashProtEdit(), dashboardCurrentShifts, dashboardProtocols, dashboardWorkers, dashEditedHtml(), dashMergePlanPeople(), dashNkTransportCost() (+28 more)
 
 ### Community 10 - "auftraege.js"
-Cohesion: 0.12
-Nodes (42): initAuftraege(), ordAcceptAvailable(), ordAvailable(), ordByShare(), ordCanDecide(), ordCanEdit(), ordCardHtml(), ordCardSlot() (+34 more)
+Cohesion: 0.11
+Nodes (45): initAuftraege(), ordAcceptAvailable(), ordAsk(), ordAskPick(), ordAskPicked(), ordAvailable(), ordByShare(), ordCanDecide() (+37 more)
 
 ### Community 11 - "app.js"
 Cohesion: 0.09
@@ -164,23 +166,23 @@ Nodes (34): addDepartment(), applyTheme(), closeSettingsModal(), closeSigModal()
 
 ### Community 12 - "send-reminders/index.ts"
 Cohesion: 0.13
-Nodes (37): CORS, Db, Input, json(), runDaily(), runEvening(), runHoursCheck(), runTest() (+29 more)
+Nodes (38): CORS, Db, Input, json(), runDaily(), runEvening(), runHoursCheck(), runTest() (+30 more)
 
 ### Community 13 - "public.app_users"
 Cohesion: 0.10
 Nodes (19): public.apply_app_settings(), public.apply_app_settings(), public.sees_plan_interest(), public.sees_plan_interest(), public.app_role(), public.app_user_private, public.user_directory(), public.apply_app_settings() (+11 more)
 
 ### Community 14 - "protokoll.js"
-Cohesion: 0.11
-Nodes (22): fetchAppUsers(), populateAlPlSelects(), protDriverBusyCount(), protDriverSame(), protFilterScope(), protGuessVehicleType(), protIsMine(), protKeepOnLogout() (+14 more)
+Cohesion: 0.10
+Nodes (26): fetchAppUsers(), populateAlPlSelects(), protAddPhotos(), protDriverBusyCount(), protDriverSame(), protFilterScope(), protGuessVehicleType(), protIsMine() (+18 more)
 
 ### Community 15 - "public"
 Cohesion: 0.12
 Nodes (16): public.auth_user_set_display_name(), public.pin_register_failure(), app_users_pl_guard, public.app_users_pl_guard(), app_users_pl_guard, public.app_users_pl_guard(), public.register_push_subscription(), public.renew_calendar_token() (+8 more)
 
 ### Community 16 - "send-protocol-mail/index.ts"
-Cohesion: 0.10
-Nodes (36): AREA_LABELS, AREA_ORDER, buildDepartmentBody(), buildDepartmentSubject(), DEFAULT_ROUTES, DEPARTMENT_EMAIL_RE, departmentFeedback(), departmentRecipient() (+28 more)
+Cohesion: 0.09
+Nodes (37): AREA_LABELS, AREA_ORDER, buildDepartmentBody(), buildDepartmentSubject(), DEFAULT_ROUTES, DEPARTMENT_EMAIL_RE, departmentFeedback(), departmentRecipient() (+29 more)
 
 ### Community 17 - "pin.mjs"
 Cohesion: 0.14
@@ -191,8 +193,8 @@ Cohesion: 0.16
 Nodes (26): adminBindChart(), adminDelta(), _adminDeltaHtml(), adminFmtNum(), adminFourthKpiHtml(), adminHashFor(), _adminIsAdmin(), adminIsPatryk() (+18 more)
 
 ### Community 19 - "saveProtDraft"
-Cohesion: 0.12
-Nodes (30): addProtPersonnel(), addProtTransport(), calcProtCosts(), clearProtForm(), clearProtSig(), growProtText(), initProtokoll(), initProtSig() (+22 more)
+Cohesion: 0.13
+Nodes (29): addProtPersonnel(), addProtTransport(), calcProtCosts(), clearProtForm(), clearProtSig(), growProtText(), initProtokoll(), initProtSig() (+21 more)
 
 ### Community 20 - "errors.js"
 Cohesion: 0.16
@@ -207,24 +209,24 @@ Cohesion: 0.21
 Nodes (22): enablePushReminders(), erFolderProjectNo(), erJobForShift(), erPickFolder(), erPickJob(), erPickShift(), erPlanLocation(), erPlanShifts() (+14 more)
 
 ### Community 23 - "cleanup-folders/index.ts"
-Cohesion: 0.13
-Nodes (14): CORS, buildFolderPushes(), ddmm(), pgUuidArray(), CORS, buildPlanPushes(), ddmm(), planPushText() (+6 more)
+Cohesion: 0.11
+Nodes (19): chunk(), dueFolderTrees(), hasUpcomingJob(), pathsNotIn(), storagePaths(), CORS, CORS, buildFolderPushes() (+11 more)
 
 ### Community 24 - "renderWorkerShifts"
 Cohesion: 0.12
 Nodes (22): addDashboardUser(), closeDashWorker(), closeEditWorker(), closeShiftEditModal(), dashEditPause(), dashPlansWeekChange(), dashRefreshRateUsers(), dashShiftSaveRole() (+14 more)
 
-### Community 25 - "cleanup-folders/index.ts"
-Cohesion: 0.31
-Nodes (6): chunk(), dueFolderTrees(), hasUpcomingJob(), pathsNotIn(), storagePaths(), CORS
+### Community 25 - "openDashProtEdit"
+Cohesion: 0.20
+Nodes (10): addDashPeShift(), addDashProtTransport(), dashShiftToRow(), openDashProtEdit(), removeDashPeShift(), renderDashPeActionSeg(), renderDashPeShifts(), renderDashProtEquipment() (+2 more)
 
 ### Community 26 - "public.order_slots"
 Cohesion: 0.17
 Nodes (11): public.order_parsed, public.order_staffing, order_applications_decided, public.order_applications, public.order_applications_decided(), public.order_plan_links, public.order_slots(), einsaetze_job_no_idx (+3 more)
 
 ### Community 27 - "dashRenderWorkerMonth"
-Cohesion: 0.17
-Nodes (20): dashBees(), dashBillingCutoff(), dashCloseKeys(), dashEligible(), dashInactive(), dashIsNightShift(), dashMayBook(), dashNightRanking() (+12 more)
+Cohesion: 0.15
+Nodes (22): dashBees(), dashBillingCutoff(), dashCloseKeys(), dashEligible(), dashInactive(), dashIsNightShift(), dashMayBook(), dashNightRanking() (+14 more)
 
 ### Community 28 - "settings.js"
 Cohesion: 0.21
@@ -235,8 +237,8 @@ Cohesion: 0.18
 Nodes (12): closeUiMenu(), openTopbarMenu(), openUiMenu(), topbarMenuItems(), uiArg(), uiComboHtml(), uiComboMatches(), uiComboRender() (+4 more)
 
 ### Community 30 - "saveProtokoll"
-Cohesion: 0.18
-Nodes (17): buildProtPdfDoc(), getEffectivePersonnelRate(), pdfStr(), protApplySide(), protBasePos(), protCostLines(), protDriverCost(), protIncompleteNames() (+9 more)
+Cohesion: 0.16
+Nodes (19): buildProtPdfDoc(), getEffectivePersonnelRate(), pdfStr(), protApplySide(), protBasePos(), protCostLines(), protDriverCost(), protIncompleteNames() (+11 more)
 
 ### Community 31 - "fehler.js"
 Cohesion: 0.27
@@ -251,7 +253,7 @@ Cohesion: 0.16
 Nodes (15): dashMonthStats(), dashNachkalk(), dashNkEuro(), dashNkHours(), dashNkJobHtml(), dashNkRowHtml(), dashProtMatches(), dashProtToEntry() (+7 more)
 
 ### Community 34 - "formulas.js"
-Cohesion: 0.23
+Cohesion: 0.21
 Nodes (10): calcSplitShiftCosts(), calcTransportCost(), personCostRate(), personnelRate(), personPayRate(), personRoleRate(), protVehicleRates(), protVehicleTypes() (+2 more)
 
 ### Community 35 - "order-slots.js"
@@ -275,28 +277,28 @@ Cohesion: 0.22
 Nodes (10): plan_shift_interest_user_id_idx, public.plan_shift_interest, plan_shift_interest_decided, public.order_applications_decided(), plan_cancellations_decided, plan_cancellations_decided_by_idx, plan_cancellations_replacement_user_id_idx, plan_cancellations_user_id_idx (+2 more)
 
 ### Community 40 - "protSaveArchive"
-Cohesion: 0.24
-Nodes (13): deleteProtHistory(), mailProtokoll(), markProtMailed(), mergeProtHistory(), protArchiveShrink(), protRowToEntry(), protSaveArchive(), renderProtHistory() (+5 more)
+Cohesion: 0.20
+Nodes (15): deleteProtHistory(), mailProtokoll(), markProtMailed(), mergeProtHistory(), protArchiveShrink(), protKeepOnLogout(), protLogoutCleanup(), protRowToEntry() (+7 more)
 
 ### Community 41 - "debug-input.mjs"
 Cohesion: 0.50
 Nodes (3): DEBUG_KEYS, stripDebug(), wantsDebug()
 
 ### Community 42 - "loadProtFromHistory"
-Cohesion: 0.13
-Nodes (18): loadProtDraft(), loadProtFromHistory(), protBasisValues(), protDraftBelongsTo(), protPdfFileName(), protSectionStatus(), protServerSignature(), protSideOn() (+10 more)
+Cohesion: 0.18
+Nodes (15): loadProtDraft(), loadProtFromHistory(), protBasisValues(), protDraftBelongsTo(), protRemovePhoto(), protSectionStatus(), protSideOn(), renderProtPhotos() (+7 more)
 
 ### Community 43 - "renderProtPersonnel"
-Cohesion: 0.26
-Nodes (13): protClampPause(), protMinor(), protMinorWarnings(), protPauseHint(), protPauseHintText(), protPauseMin(), protPersonSummary(), protRatingButtons() (+5 more)
+Cohesion: 0.21
+Nodes (15): protAutoNight(), protClampPause(), protMinor(), protMinorWarnings(), protPauseHint(), protPauseHintText(), protPauseMin(), protPersonSummary() (+7 more)
 
 ### Community 44 - "was drin ist"
 Cohesion: 0.17
 Nodes (12): 🛡️ Admin-Seite (nur Admin), 🧩 Besetzungsplaner (testversion), 📊 Dashboard (AL, PL, Buchhaltung, Admin), 🔔 Erinnerungen, ⚙️ Optionen, 📦 Produktdatenbank, 📁 Projektordner, 📋 Protokoll (+4 more)
 
 ### Community 45 - "renderDashMissing"
-Cohesion: 0.20
-Nodes (11): dashMayWaive(), dashUnwaiveMissing(), dashUserName(), dashWaiveMissing(), initDashboardRealtime(), loadDashMissing(), refreshDashboard(), refreshDashboardOnce() (+3 more)
+Cohesion: 0.25
+Nodes (9): dashMayWaive(), dashUnwaiveMissing(), dashUserName(), dashWaiveMissing(), loadDashMissing(), refreshDashboardOnce(), renderDashMissing(), toggleDashMissing() (+1 more)
 
 ### Community 46 - "public.protocols"
 Cohesion: 0.25
@@ -362,16 +364,24 @@ Nodes (16): dedupeShifts(), parseToken(), windowStart(), CORS, RFC-5545, PLAN_WH
 Cohesion: 0.83
 Nodes (3): plan_inbox_handled_by_idx, plan_inbox_status_idx, public.plan_inbox
 
+### Community 87 - "ask-shift/index.ts"
+Cohesion: 0.36
+Nodes (6): askLabel(), askPush(), askRef(), MAX_ASKS_PER_HOUR, mayAsk(), CORS
+
+### Community 88 - "20261203_jenni_runde_4.sql"
+Cohesion: 0.38
+Nodes (4): ask_log_asked_by_idx, protocols_mark_edited, public.ask_log, public.protocols_mark_edited()
+
 ## Knowledge Gaps
 - **2 isolated node(s):** `RFC-5545`, `RFC-5545`
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 212 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **25 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 220 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **26 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `planShiftFromDb()` connect `wochenplan.js` to `dashboard.js`, `plan-parser.js`?**
-  _High betweenness centrality (0.054) - this node is a cross-community bridge._
+  _High betweenness centrality (0.049) - this node is a cross-community bridge._
 - **What connects `RFC-5545`, `RFC-5545` to the rest of the system?**
   _2 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `planer.js` be split into smaller, more focused modules?**

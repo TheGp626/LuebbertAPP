@@ -1266,10 +1266,12 @@ canvas#historyChart {
 .set-veh-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, 78px) 28px; gap: 6px; align-items: center; padding: 4px 0; }
 .set-veh-row .meta-input { width: 100%; margin: 0; padding: 6px; font-size: 14px; }
 .set-veh-row .meta-input[type="number"] { text-align: right; }
+.set-veh-n { grid-template-columns: minmax(0, 1fr) repeat(4, 66px) 28px; } /* vehicles: Mo–Fr, Sa, So, Nacht */
 .set-veh-head { font-size: 12px; color: var(--text2); padding-top: 8px; }
 @media (max-width: 520px) {
   .set-veh-row { grid-template-columns: repeat(3, minmax(0, 1fr)) 28px; }
   .set-veh-row > :first-child { grid-column: 1 / -1; }
+  .set-veh-n { grid-template-columns: repeat(4, minmax(0, 1fr)) 28px; }
   .set-veh-head > :first-child { display: none; }
   #set-vehicles .set-veh-row { padding: 8px 0; border-top: 0.5px solid var(--border); }
 }

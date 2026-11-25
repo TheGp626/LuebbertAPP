@@ -274,6 +274,8 @@ function ordSlotHtml(x, phase) {
     (people ? '<ul class="ord-people">' + people + '</ul>' : '') +
     (requests ? '<div class="ord-label">Meldungen' + (open.length ? ' · ' + open.length + ' neu' : '') + '</div><ul class="ord-reqs">' + requests + '</ul>'
       : needed > taken.length && ordCanDecide() ? '<div class="ord-slot-sub">Noch keine Meldungen.</div>' : '') +
+    (needed > taken.length && ordCanDecide() && date >= localDateStr() ? '<button type="button" class="ord-textbtn" onclick="ordAskPick(\'order\', \'' + jobArg + '\', \'' + phase + '\', \'' +
+      jsAttrArg([ordDay(date) + (x.job[phase].start ? ' ' + x.job[phase].start.slice(11, 16) : ''), ordVenueLabel(x.title), ORD_PHASE[phase]].filter(Boolean).join(' · ')) + '\')">Jemanden fragen</button>' : '') +
     (extra.length ? '<div class="ord-slot-sub">Angenommen über Auftrag: ' + extra.map(function(a) { return ordEsc(ordName(a.user_id)); }).join(', ') + ' – Daniel Bescheid geben, damit er sie einplant.</div>' : '') +
   '</section>';
 }
@@ -510,15 +512,17 @@ function ordInboxHtml(box, avail) {
     (box.accepted.length ? '<div class="ord-label">Angenommen, noch nicht in Daniels Plan</div><ul class="ord-reqs">' +
       box.accepted.map(function(it) { return row(it, true); }).join('') + '</ul>' : '') +
     ((avail || []).length ? '<div class="ord-label">Hätten laut Verfügbarkeit Zeit</div><ul class="ord-reqs">' + avail.map(function(g) {
+      var what = [ordDay(g.date) + (g.time ? ' ' + g.time : ''), g.title, g.phase].filter(Boolean).join(' · ');
       var add = function(p) {
         return '<li class="ord-person"><span class="ord-avatar">' + ordInitial(p.user_id) + '</span><span class="ord-person-name">' + ordEsc(ordName(p.user_id)) + '</span>' +
           (p.notfall ? '<span class="ord-pill ord-pill-warn">nur im Notfall</span>' : '') + ordShare(p.user_id) +
+          '<button type="button" class="ord-textbtn" onclick="ordAsk(\'' + g.kind + '\', \'' + jsAttrArg(g.kind === 'shift' ? g.week_id : g.job_no) + '\', \'' +
+            jsAttrArg(g.kind === 'shift' ? g.shift_key : g.phaseKey) + '\', \'' + jsAttrArg(p.user_id) + '\', \'' + jsAttrArg(what) + '\')">Fragen</button>' +
           '<button type="button" class="ord-textbtn" onclick="ordAcceptAvailable(\'' + g.kind + '\', \'' + jsAttrArg(g.kind === 'shift' ? g.week_id : g.job_no) + '\', \'' +
             jsAttrArg(g.kind === 'shift' ? g.shift_key : g.phaseKey) + '\', \'' + jsAttrArg(p.user_id) + '\')">Annehmen</button></li>';
       };
-      var what = [ordDay(g.date) + (g.time ? ' ' + g.time : ''), g.title, g.phase, g.full].filter(Boolean).map(ordEsc).join(' · ');
       var rest = g.people.slice(5);
-      return '<li class="ord-req"><div class="ord-inbox-what">' + what + '</div><ul class="ord-people">' + g.people.slice(0, 5).map(add).join('') + '</ul>' +
+      return '<li class="ord-req"><div class="ord-inbox-what">' + [what, g.full].filter(Boolean).map(ordEsc).join(' · ') + '</div><ul class="ord-people">' + g.people.slice(0, 5).map(add).join('') + '</ul>' +
         (rest.length ? '<details class="ord-more"><summary class="ord-textbtn">+' + rest.length + ' weitere</summary><ul class="ord-people">' + rest.map(add).join('') + '</ul></details>' : '') + '</li>';
     }).join('') + '</ul>' : '') +
   '</section>';
@@ -566,6 +570,36 @@ function ordAvailable(jobs, today) {
       week_id: p.week_id, shift_key: p.key, people: list });
   });
   return groups.sort(function(a, b) { return a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.title.localeCompare(b.title); });
+}
+
+// ── „Hey, hast du Zeit?“ (Jenni, 25.11.2026): a push to one person about one shift (Edge Function ask-shift) ──
+async function ordAsk(kind, a, b, userId, label) {
+  var body = kind === 'shift' ? { kind: kind, week_id: a, shift_key: b, user_id: userId, label: label } : { kind: kind, job_no: a, phase: b, user_id: userId, label: label };
+  var name = ordName(userId), r;
+  try { r = await supabaseClient.functions.invoke('ask-shift', { body: body }); } catch (e) { r = { error: e }; }
+  var d = r && r.data;
+  if (r.error || !d) { console.error('Fragen:', r && r.error); showToast('Nicht gesendet. Prüf deine Verbindung.', 'danger'); return; }
+  if (d.sent) showToast('Gefragt. ' + name + ' bekommt eine Push-Nachricht.', 'success');
+  else if (d.skipped === 'already_asked') showToast(name + ' wurde dazu schon gefragt.');
+  else if (d.reason === 'no_device') showToast(name + ' hat keine Push-Benachrichtigungen an. Lieber anrufen.', 'danger');
+  else showToast('Nicht gesendet. Versuch es später noch einmal.', 'danger');
+}
+
+// Pick anyone (not only who marked themselves free) for an Auftrag phase, then ask
+var _ordAskFor = null;
+function ordAskPick(kind, a, b, label) {
+  _ordAskFor = { kind: kind, a: a, b: b, label: label };
+  window._ordAskUsers = (_ordCtx.users || []).filter(function(u) { return u.is_active !== false && u.role !== 'Gast'; });
+  pinSheetOpen({ title: 'Hast du Zeit?', body: '<p class="ui-sub" style="margin:0 0 10px;">' + ordEsc(label) + '</p>' +
+    '<div class="ui-field"><span>Wen fragen?</span>' + uiComboHtml('ord-ask-name', '', 'Name tippen…', 'ordAskPicked', '', '_ordAskUsers') + '</div>' +
+    '<p class="ui-sub">Die Person bekommt eine Push-Nachricht und meldet sich mit „Ich kann“ im Wochenplan.</p>' });
+}
+function ordAskPicked(arg, name) {
+  var u = (window._ordAskUsers || []).find(function(x) { return x.full_name === name; }), f = _ordAskFor;
+  if (!u || !f) return; // typed text without a match: nothing to send
+  _ordAskFor = null;
+  closePinSheet();
+  ordAsk(f.kind, f.a, f.b, u.id, f.label);
 }
 
 // Accept someone straight from „Hätten laut Verfügbarkeit Zeit“: an accepted Meldung on their behalf
