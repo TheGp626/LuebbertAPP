@@ -69,7 +69,8 @@ function pnPlanTime(t) {
 // Quick Einsatz without a Bestätigung: one row for the Aufbau and, when its day is filled, one for the Abbau, linked by
 // pair_id. form = { venue, was, kind, need, setupDate, setupTime, teardownDate, teardownTime }. → { rows } | { error }
 function pnQuickRows(form, week, pairId) {
-  var venue = plText(form.venue), was = plText(form.was);
+  // „Was“: first line = what it is, every further line = one material line (details), like the Auftrag entries
+  var wasLines = plLines(form.was), venue = plText(form.venue), was = wasLines[0] || null, details = wasLines.slice(1).join('\n') || null;
   if (!venue && !was) return { error: 'Bitte Ort oder „Was“ eintragen.' };
   var inWeek = function(d) { return !!d && d >= week.weekStart && d <= week.weekEnd; };
   if (!inWeek(form.setupDate)) return { error: 'Der Aufbau muss in KW ' + week.kw + ' liegen.' };
@@ -78,7 +79,7 @@ function pnQuickRows(form, week, pairId) {
   var need = Math.max(0, Math.min(99, parseInt(form.need, 10) || 0)), kind = PL_KINDS[form.kind] ? form.kind : 'auftrag';
   var make = function(date, label, time) {
     var t = pnPlanTime(time);
-    return { year: week.year, kw: week.kw, date: date, sort: 0, job_no: null, phase: null, venue: venue, location: null, title: was, details: null,
+    return { year: week.year, kw: week.kw, date: date, sort: 0, job_no: null, phase: null, venue: venue, location: null, title: was, details: details,
       wann: label + (t ? ': ' + t + ' Uhr' : ''), ap: null, ap_user_id: null, notes: null, need: need, people: [], kind: kind,
       pair_id: form.teardownDate ? pairId : null };
   };
@@ -569,14 +570,14 @@ function pnQuickOpen() {
   var field = function(label, html) { return '<label class="ui-field"><span>' + label + '</span>' + html + '</label>'; };
   pnSheetOpen('pn-quick', 'Neuer Einsatz',
     field('Ort', '<input type="text" id="pnq-venue" placeholder="z. B. Estrel" autocomplete="off">') +
-    field('Was', '<input type="text" id="pnq-was" placeholder="z. B. Gala, 20 Stehtische" autocomplete="off">') +
+    field('Was', '<textarea id="pnq-was" rows="3" placeholder="z. B. Gala\n20 Stehtische\n4 Monster Energy" autocomplete="off"></textarea>') +
     '<div class="pn-quick-grid">' + field('Aufbau', '<select id="pnq-sdate">' + pnDayOptions(first) + '</select>') +
       field('Uhrzeit', '<input type="time" id="pnq-stime" value="07:00">') +
       field('Abbau', '<select id="pnq-tdate">' + pnDayOptions('', true) + '</select>') +
       field('Uhrzeit', '<input type="time" id="pnq-ttime" value="22:00">') + '</div>' +
     '<div class="pn-quick-grid">' + field('MA gebraucht', '<input type="number" id="pnq-need" min="0" max="99" inputmode="numeric" value="2">') +
       (st.hasKind ? field('Art', '<select id="pnq-kind">' + PL_KIND_ORDER.map(function(k) { return '<option value="' + k + '">' + PL_KINDS[k].label + '</option>'; }).join('') + '</select>') : '') + '</div>' +
-    '<p class="pn-none">Tag und Uhrzeit für Auf- und Abbau, mehr braucht es nicht. Raum, Material und Notizen gehen über „Alle Felder“ oder später über „Eintrag bearbeiten“.</p>' +
+    '<p class="pn-none">„Was“: oben, was es ist, darunter pro Zeile ein Teil (Material). Raum und Notizen gehen über „Alle Felder“ oder später über „Eintrag bearbeiten“.</p>' +
     '<div class="ui-sheet-actions"><button type="button" class="ui-btn" onclick="document.getElementById(\'pn-quick\').remove(); plEditRow(null)">Alle Felder</button>' +
       '<button type="button" class="ui-btn ui-btn-primary" id="pnq-save" onclick="pnQuickSave()">Anlegen</button></div>');
   var v = document.getElementById('pnq-venue');
