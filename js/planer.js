@@ -515,7 +515,7 @@ async function plRender() {
       supabaseClient.from('plan_weeks').select('id, version, file_name').eq('year', week.year).eq('kw', week.kw).maybeSingle(),
       wpLoadSlots(),
       supabaseClient.from('availability').select('user_id, day, level').gte('day', week.weekStart).lte('day', week.weekEnd),
-      supabaseClient.from('order_applications').select('job_no, phase, user_id, status'),
+      supabaseClient.from('order_applications').select('*'), // '*': vorbehalt only after migration jenni_runde_3
       supabaseClient.rpc('availability_people'),
       supabaseClient.from('plan_draft_shifts').select('kind').limit(1),
       supabaseClient.from('plan_draft_shifts').select('open_other').limit(1)
@@ -527,22 +527,26 @@ async function plRender() {
     box.innerHTML = nav + '<div class="wp-empty">Der Planer konnte nicht geladen werden. Prüf deine Verbindung.</div>';
     return;
   }
-  var avail = {}, apps = {}, tracked = {};
+  var avail = {}, apps = {}, tracked = {}, vb = {};
   // All three are extras: without the right to read them the board still works, just without the hints
   ((res[4] && !res[4].error && res[4].data) || []).forEach(function(r) { avail[r.user_id + '|' + r.day] = r.level; });
   ((res[5] && !res[5].error && res[5].data) || []).forEach(function(a) {
     var k = a.job_no + '|' + a.phase;
     (apps[k] = apps[k] || {})[a.user_id] = a.status;
+    if (a.vorbehalt) vb['o|' + k + '|' + a.user_id] = a.vorbehalt;
   });
   ((res[6] && !res[6].error && res[6].data) || []).forEach(function(p) { tracked[p.id] = true; });
   plState = { week: week, draft: res[0].data || null, rows: res[1].data || [], planWeek: res[2].data || null, slots: res[3], avail: avail, apps: apps,
-    tracked: tracked, interest: {}, keys: {}, stale: [], cancels: null, replace: null, hasKind: !!(res[7] && !res[7].error), hasOpen: !!(res[8] && !res[8].error) };
+    tracked: tracked, vb: vb, interest: {}, keys: {}, stale: [], cancels: null, replace: null, hasKind: !!(res[7] && !res[7].error), hasOpen: !!(res[8] && !res[8].error) };
   if (plState.planWeek) {
     // "Ich kann" on entries of the published plan (free entries with open places); an extra like the hints above
     var pi;
-    try { pi = await supabaseClient.from('plan_shift_interest').select('shift_key, user_id, status').eq('week_id', plState.planWeek.id); } catch (e) { pi = { error: e }; }
+    try { pi = await supabaseClient.from('plan_shift_interest').select('*').eq('week_id', plState.planWeek.id); } catch (e) { pi = { error: e }; }
     if (seq !== plSeq || wpView !== 'plan') return;
-    ((pi && !pi.error && pi.data) || []).forEach(function(r) { (plState.interest[r.shift_key] = plState.interest[r.shift_key] || {})[r.user_id] = r.status || 'offen'; });
+    ((pi && !pi.error && pi.data) || []).forEach(function(r) {
+      (plState.interest[r.shift_key] = plState.interest[r.shift_key] || {})[r.user_id] = r.status || 'offen';
+      if (r.vorbehalt) plState.vb['s|' + r.shift_key + '|' + r.user_id] = r.vorbehalt;
+    });
     // Absagen: without the table (migration absagen not applied yet) or the right to read it, cancels stays null
     var pc;
     try { pc = await supabaseClient.from('plan_cancellations').select('shift_key, user_id').eq('week_id', plState.planWeek.id).eq('status', 'offen'); } catch (e) { pc = { error: e }; }
@@ -649,6 +653,13 @@ function plForInsert(rows) {
 
 function plApplied(r) { return plAppliedFor(r, plState.keys[r.id], plState.apps, plState.interest); }
 
+// „Mit Vorbehalt“ of a person's Meldung for a row ("nur bis 16:00 Uhr"); the Auftrag Meldung first, then the plan entry's
+function plVorbehaltFor(row, key, vb, uid) {
+  if (!uid || !vb) return '';
+  return (row && row.job_no && vb['o|' + row.job_no + '|' + row.phase + '|' + uid]) || (key && vb['s|' + key + '|' + uid]) || '';
+}
+function plVorbehalt(r, uid) { return plVorbehaltFor(r, plState.keys[r.id], plState.vb, uid); }
+
 function plCancelCount(st) {
   var n = 0;
   Object.keys((st && st.cancels) || {}).forEach(function(k) { n += st.cancels[k].length; });
@@ -682,7 +693,7 @@ function plRowHtml(r, who) {
     var role = '<b>' + plE(p.role || 'MA') + '</b>';
     return '<span class="pl-chip' + (PL_AGENCY.indexOf(p.role) !== -1 ? ' pl-chip-agency' : '') + (gone[i] ? ' pl-chip-cancel' : '') + '">' +
       (can ? '<button type="button" class="pl-chip-role" aria-label="Rolle von ' + plE(p.name) + ' ändern, jetzt ' + plE(p.role || 'MA') + '" onclick="plRoleMenu(' + id + ', ' + i + ')">' + role + '</button>' : role) +
-      '<span>' + (gone[i] ? '<s>' + plE(p.name) + '</s>' : plE(p.name)) + (gone[i] ? ' <small>sagt ab</small>' : p.note ? ' <small>' + plE(p.note) + '</small>' : '') + '</span>' +
+      '<span>' + (gone[i] ? '<s>' + plE(p.name) + '</s>' : plE(p.name)) + (gone[i] ? ' <small>sagt ab</small>' : [p.note, plVorbehalt(r, p.user_id)].filter(Boolean).map(function(t) { return ' <small>' + plE(t) + '</small>'; }).join('')) + '</span>' +
       (can ? '<button type="button" class="pl-chip-x" aria-label="' + plE(p.name) + ' entfernen" onclick="plRemove(' + id + ', ' + i + ')">×</button>' : '') +
     '</span>';
   }).join('');
@@ -717,6 +728,8 @@ function plPickerHtml(r) {
     var u = wpUsers.find(function(x) { return x.id === c.id; });
     var tag = c.applied === 'angenommen' ? '<span class="ord-pill ord-pill-ok">angenommen</span>'
       : c.applied === 'offen' ? '<span class="ord-pill ord-pill-new">hat sich gemeldet</span>' : '';
+    var vbt = c.applied ? plVorbehalt(r, c.id) : '';
+    if (vbt) tag += '<span class="ord-pill ord-pill-warn">' + plE(vbt) + '</span>';
     if (c.free) tag += '<span class="ord-pill ord-pill-ok">hat Zeit</span>';
     if (c.level === 'nein') tag += '<span class="ord-pill ord-pill-danger">geht nicht</span>';
     else if (c.level === 'notfall') tag += '<span class="ord-pill ord-pill-warn">nur im Notfall</span>';
@@ -1221,5 +1234,5 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { plCancelsOnRow: plCancelsOnRow, plReplacePerson: plReplacePerson, plUnmatchedCancels: plUnmatchedCancels, plMonday: plMonday, plWeekOf: plWeekOf, plShortName: plShortName, plWannText: plWannText, plRowFromSlot: plRowFromSlot,
     plMergeSlots: plMergeSlots, plRowsFromPlan: plRowsFromPlan, plSeed: plSeed, plFilled: plFilled, plOpenSlots: plOpenSlots, plToParsed: plToParsed,
     plCandidates: plCandidates, plSearchMatch: plSearchMatch, plPlaceRole: plPlaceRole, plCanEdit: plCanEdit, plCanPublish: plCanPublish, plCanOpen: plCanOpen, plPublishProblems: plPublishProblems,
-    plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plKindOfColor: plKindOfColor, plKind: plKind, plWithoutKind: plWithoutKind, plWithout: plWithout, plOpenOther: plOpenOther, plTakeOpen: plTakeOpen, plSetOpen: plSetOpen, plRowKeys: plRowKeys, plAppliedFor: plAppliedFor, plOpenMeldungen: plOpenMeldungen, plMeldungTargets: plMeldungTargets, plWasText: plWasText, plWasSplit: plWasSplit, plIsAppWeek: plIsAppWeek, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };
+    plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plKindOfColor: plKindOfColor, plKind: plKind, plWithoutKind: plWithoutKind, plWithout: plWithout, plOpenOther: plOpenOther, plTakeOpen: plTakeOpen, plSetOpen: plSetOpen, plRowKeys: plRowKeys, plAppliedFor: plAppliedFor, plVorbehaltFor: plVorbehaltFor, plOpenMeldungen: plOpenMeldungen, plMeldungTargets: plMeldungTargets, plWasText: plWasText, plWasSplit: plWasSplit, plIsAppWeek: plIsAppWeek, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };
 }
