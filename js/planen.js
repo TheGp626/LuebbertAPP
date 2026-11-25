@@ -780,10 +780,10 @@ function pnTableHtml(days) {
   var body = '';
   days.forEach(function(d) {
     var dt = plUtc(d.date), day = PL_DAYS_SHORT[dt.getUTCDay()] + ' ' + dt.getUTCDate() + '.' + (dt.getUTCMonth() + 1) + '.';
-    if (!d.rows.length) { body += '<tr class="pn-tr-empty"><th scope="row">' + day + '</th><td colspan="4">Kein Einsatz</td></tr>'; return; }
+    if (!d.rows.length) { body += '<tr class="pn-tr-empty"><th scope="row" id="pn-day-' + d.date + '">' + day + '</th><td colspan="4">Kein Einsatz</td></tr>'; return; }
     d.rows.forEach(function(r, i) {
       body += '<tr class="pn-tr pn-' + pnRowState(r) + '" tabindex="0" onclick="pnOpen(\'' + jsAttrArg(r.id) + '\')" onkeydown="if (event.key === \'Enter\') pnOpen(\'' + jsAttrArg(r.id) + '\')">' +
-        (i === 0 ? '<th scope="rowgroup" rowspan="' + d.rows.length + '">' + day + (d.open ? '<em class="pn-day-open">' + d.open + ' offen</em>' : '') + '</th>' : '') +
+        (i === 0 ? '<th scope="rowgroup" rowspan="' + d.rows.length + '" id="pn-day-' + d.date + '">' + day + (d.open ? '<em class="pn-day-open">' + d.open + ' offen</em>' : '') + '</th>' : '') +
         '<td class="pn-td-was">' + pnE([r.venue, r.title].filter(Boolean).join(', ')) + (plKindTag(r) ? ' ' + plKindTag(r) : '') +
           (plLines(r.details).length ? '<small>' + pnE(plLines(r.details).join(', ')) + '</small>' : '') +
           (pnChangeLines(r).length ? ' <span class="pn-flag pn-flag-changed">Auftrag geändert</span>' : '') + '</td>' +
