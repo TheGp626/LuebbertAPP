@@ -791,7 +791,7 @@ function pnTableHtml(days) {
         '<td class="pn-td-pl">' + pnE(r.ap || '') + '</td></tr>';
     });
   });
-  return '<div class="pn-tablewrap"><table class="pn-table"><thead><tr><th scope="col">Tag</th><th scope="col">Was</th><th scope="col">Wann</th><th scope="col">Wer</th><th scope="col">PL</th></tr></thead><tbody>' +
+  return '<div class="pn-tablewrap"><table class="pn-table"><colgroup><col class="pn-c-tag"><col class="pn-c-was"><col class="pn-c-wann"><col class="pn-c-wer"><col class="pn-c-pl"></colgroup><thead><tr><th scope="col">Tag</th><th scope="col">Was</th><th scope="col">Wann</th><th scope="col">Wer</th><th scope="col">PL</th></tr></thead><tbody>' +
     body + '</tbody></table></div>';
 }
 
