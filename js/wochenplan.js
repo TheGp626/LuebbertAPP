@@ -220,15 +220,14 @@ function wpCanCancel(s, me, today) {
   return !!(me && s && s.week_id && s.key && s.date >= today && (s.plan_assignments || []).some(function(a) { return a.user_id === me; }));
 }
 function wpCancelSoon(date, today) { return date <= wpAddDays(today, 1); }
-// Who hears about an Absage first: the AL of the shift (they run the site); the PL when you are the AL or none is named
+// Who hears about an Absage first: the AL of the shift (they run the site); Daniel (Planung) when you are the AL or
+// none is named. Never the PL (Jenni, 25.11.2026).
 function wpCancelContact(s, me) {
   var al = ((s && s.plan_assignments) || []).find(function(a) { return a.role === 'AL' && a.user_id !== me && a.name; });
-  if (al) return { role: 'AL', name: al.name };
-  return s && s.ap ? { role: 'PL', name: s.ap } : null;
+  return al ? { role: 'AL', name: al.name } : { role: 'Planung', name: 'Daniel' };
 }
 function wpCancelText(c) {
-  return c ? 'Ruf bitte ' + c.name + ' (' + c.role + ') an oder schreib eine Nachricht, damit vor Ort alle Bescheid wissen.'
-    : 'Sag bitte deiner AL Bescheid, per Anruf oder Nachricht.';
+  return 'Ruf bitte ' + c.name + ' (' + c.role + ') an oder schreib eine Nachricht, damit vor Ort alle Bescheid wissen.';
 }
 function wpCancelBlock(s) {
   if (!_wpCancels || !s || !s.week_id) return '';
@@ -258,7 +257,7 @@ async function wpCancelShift(btn, shiftId) {
     return;
   }
   if (_wpCancels) _wpCancels[s.week_id + '|' + s.key] = 'offen';
-  showToast('Abgesagt. ' + (contact ? 'Gib noch ' + contact.name + ' (' + contact.role + ') Bescheid.' : 'Gib noch deiner AL Bescheid.'), 'success');
+  showToast('Abgesagt. Gib noch ' + contact.name + ' (' + contact.role + ') Bescheid.', 'success');
   wpSetView(wpView);
 }
 async function wpWithdrawCancel(btn, shiftId) {

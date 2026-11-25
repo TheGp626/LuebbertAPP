@@ -23,6 +23,7 @@ var APP_SETTINGS_DEFAULTS = {
   department_mail_enabled: true,
   department_mail_test_mode: true,
   department_routes: { logistik: 'lager', mobiliar: 'lager', tischlerei: '', stoffe: 'stoffe', floristik: 'floristik' },
+  department_emails: { lager: 'lager@peterluebbert.de', logistik: '', tischlerei: '', stoffe: 'Stoffe@peterluebbert.de', floristik: 'Florist@peterluebbert.de' },
   vehicle_rates: (typeof PROT_VEHICLE_RATES !== 'undefined') ? PROT_VEHICLE_RATES : {}, // js/formulas.js
   personnel_rates: (typeof PERSONNEL_RATE_DEFAULTS !== 'undefined') ? PERSONNEL_RATE_DEFAULTS : {} // js/formulas.js
 };
@@ -39,7 +40,8 @@ function _settingsMerge(obj) {
     if (k in APP_SETTINGS_DEFAULTS && typeof obj[k] === typeof APP_SETTINGS_DEFAULTS[k]
         && (k !== 'vehicle_rates' || validVehicleRates(obj[k]))
         && (k !== 'personnel_rates' || validPersonnelRates(obj[k]))
-        && (k !== 'department_routes' || validDepartmentRoutes(obj[k]))) out[k] = k === 'department_routes' ? Object.assign({}, APP_SETTINGS_DEFAULTS.department_routes, obj[k]) : obj[k];
+        && (k !== 'department_routes' || validDepartmentRoutes(obj[k]))
+        && (k !== 'department_emails' || validDepartmentEmails(obj[k]))) out[k] = (k === 'department_routes' || k === 'department_emails') ? Object.assign({}, APP_SETTINGS_DEFAULTS[k], obj[k]) : obj[k];
   });
   return out;
 }
@@ -87,9 +89,16 @@ function validPersonnelRates(v) {
   });
 }
 
-// Abteilungs-Mails: protocol area → department; the addresses are fixed on the server (mirrors the RPC)
+// Abteilungs-Mails: protocol area → department → address (Admin setting; mirrors the RPC and send-protocol-mail)
 var DEPARTMENT_AREAS = [['logistik', 'Lager / Logistik'], ['mobiliar', 'Mobiliar'], ['tischlerei', 'Tischlerei'], ['stoffe', 'Stoffe und Hussen'], ['floristik', 'Floristik']];
-var DEPARTMENT_OPTIONS = [['', 'keine Mail'], ['lager', 'Lager (lager@)'], ['stoffe', 'Stoffe (Stoffe@)'], ['floristik', 'Floristik (Florist@)']];
+var DEPARTMENT_OPTIONS = [['', 'keine Mail'], ['lager', 'Lager'], ['logistik', 'Logistik'], ['tischlerei', 'Tischlerei'], ['stoffe', 'Stoffe'], ['floristik', 'Floristik']];
+// Only company addresses, so a setting can never send protocol details outside
+var DEPARTMENT_EMAIL_RE = /^[A-Za-z0-9._%+-]{1,64}@peterluebbert\.de$/i;
+function validDepartmentEmails(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  var deps = DEPARTMENT_OPTIONS.map(function(o) { return o[0]; }).filter(Boolean);
+  return Object.keys(v).every(function(k) { return deps.indexOf(k) !== -1 && typeof v[k] === 'string' && (v[k] === '' || DEPARTMENT_EMAIL_RE.test(v[k])); });
+}
 function validDepartmentRoutes(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
   var areas = DEPARTMENT_AREAS.map(function(a) { return a[0]; }), deps = DEPARTMENT_OPTIONS.map(function(o) { return o[0]; });
@@ -110,6 +119,7 @@ function validateSettings(changes) {
     if (k === 'vehicle_rates' && !validVehicleRates(v)) return k;
     if (k === 'personnel_rates' && !validPersonnelRates(v)) return k;
     if (k === 'department_routes' && !validDepartmentRoutes(v)) return k;
+    if (k === 'department_emails' && !validDepartmentEmails(v)) return k;
   }
   return null;
 }
@@ -186,6 +196,13 @@ async function renderSettingsTab() {
         DEPARTMENT_OPTIONS.map(function(o) { return '<option value="' + o[0] + '"' + ((routes[a[0]] || '') === o[0] ? ' selected' : '') + '>' + _settingsEsc(o[1]) + '</option>'; }).join('') +
         '</select></label>';
     }).join('') + '</div>';
+  var emails = appSetting('department_emails') || {};
+  html += '<div class="set-group"><div class="set-group-title">Abteilungs-Mails: Adressen</div>' +
+    DEPARTMENT_OPTIONS.filter(function(o) { return o[0]; }).map(function(o) {
+      return '<label class="set-row"><span class="set-text"><b>' + _settingsEsc(o[1]) + '</b></span>' +
+        '<input type="email" maxlength="100" class="meta-input set-dep-email" data-dep="' + o[0] + '" placeholder="leer = keine Mail" aria-label="' + _settingsEsc('Adresse ' + o[1]) + '" value="' + _settingsEsc(emails[o[0]] || '') + '"></label>';
+    }).join('') +
+    '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Nur Adressen @peterluebbert.de. Leer = diese Abteilung bekommt keine Mail.</small></span></div></div>';
   html += '<div class="set-group"><div class="set-group-title">Abrechnung</div>' +
     '<label class="set-row"><span class="set-text"><b>Abrechnungsstichtag</b><small>Tag im Monat, ab dem Stunden zum nächsten Abrechnungsmonat zählen (gilt auf allen Geräten)</small></span>' +
     '<input type="number" min="1" max="31" step="1" id="set-billing_cutoff" class="meta-input set-num" value="' + appSetting('billing_cutoff') + '"></label>' +
@@ -247,6 +264,9 @@ function _readSettingsForm() {
   var deps = Array.from(document.querySelectorAll('select.set-dep'));
   if (deps.length) changes.department_routes = {};
   deps.forEach(function(sel) { changes.department_routes[sel.dataset.area] = sel.value; });
+  var mails = Array.from(document.querySelectorAll('input.set-dep-email'));
+  if (mails.length) changes.department_emails = {};
+  mails.forEach(function(inp) { changes.department_emails[inp.dataset.dep] = inp.value.trim(); });
   var pInputs = Array.from(document.querySelectorAll('#set-personnel input[data-type]'));
   if (pInputs.length) changes.personnel_rates = {}; // table not rendered → leave the setting out
   pInputs.forEach(function(inp) {
@@ -289,7 +309,7 @@ function addVehicleRateRow() {
 var SETTINGS_LABELS = { evening_push_hour: 'Uhrzeit Abend-Push', billing_cutoff: 'Abrechnungsstichtag (1–31)',
   vehicle_rates: 'Fahrzeugsätze (jeder Name einmal, alle Beträge 0–100000 €)',
   personnel_rates: 'Stundensätze nach Beschäftigungsart (alle Felder 0–1000 €)',
-  department_routes: 'Abteilungs-Mails (Bereich → Abteilung)', inactive_months: 'Lange kein Einsatz (1–24 Monate)',
+  department_routes: 'Abteilungs-Mails (Bereich → Abteilung)', department_emails: 'Abteilungs-Adressen (nur @peterluebbert.de)', inactive_months: 'Lange kein Einsatz (1–24 Monate)',
   income_limit_minijob: 'Verdienstgrenze Minijob (0–100000 €)', income_limit_midijob: 'Verdienstgrenze Midijob (0–100000 €)' };
 
 async function saveSettingsTab() {
@@ -370,6 +390,6 @@ async function sendTestPush() {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { APP_SETTINGS_DEFAULTS: APP_SETTINGS_DEFAULTS, appSetting: appSetting, appSettingsFromCache: appSettingsFromCache,
     validateSettings: validateSettings, changedSettings: changedSettings, testPushMessage: testPushMessage,
-    validVehicleRates: validVehicleRates, validDepartmentRoutes: validDepartmentRoutes, readVehicleRates: readVehicleRates, validPersonnelRates: validPersonnelRates,
+    validVehicleRates: validVehicleRates, validDepartmentRoutes: validDepartmentRoutes, validDepartmentEmails: validDepartmentEmails, readVehicleRates: readVehicleRates, validPersonnelRates: validPersonnelRates,
     SETTINGS_SWITCHES: SETTINGS_SWITCHES };
 }

@@ -1,17 +1,17 @@
-# Graph Report - main-wt  (2026-11-24)
+# Graph Report - LuebbertAPP  (2026-11-25)
 
 ## Corpus Check
-- 110 files · ~168,465 words
+- 112 files · ~169,275 words
 - Verdict: corpus is large enough that graph structure adds value.
-- Unclassified: 5 file(s) not represented in the graph (top: (none) 3, .css 2)
+- Unclassified: 4 file(s) not represented in the graph (top: (none) 2, .css 2)
 
 ## Summary
-- 1625 nodes · 3612 edges · 87 communities (65 shown, 22 thin omitted)
-- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 212 edges (avg confidence: 0.85)
+- 1631 nodes · 3618 edges · 87 communities (63 shown, 24 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 213 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `602b0f16`
+- Built from commit: `3475d6cf`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -39,7 +39,7 @@
 - errors.js
 - utils.js
 - erinnerung.js
-- notify-folder/index.ts
+- cleanup-folders/index.ts
 - renderWorkerShifts
 - plan-ics.mjs
 - public.order_slots
@@ -68,7 +68,7 @@
 - Lübbert App
 - manifest.json
 - 20261119_material_abhaken.sql
-- cleanup-folders/index.ts
+- Lübbert App – live branch
 - renderRoleRatesList
 - 20261104_auth_display_name.sql
 - plan-pdf.js
@@ -79,7 +79,6 @@
 - sw.js
 - changelog.js
 - notify-plan-change/notify.mjs
-- debug-input.mjs
 - public.plan_inbox
 - 20261030_ordner_auto_loeschen.sql
 - 20261104_role_rls.sql
@@ -114,7 +113,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (87 total, 22 thin omitted)
+## Communities (87 total, 24 thin omitted)
 
 ### Community 0 - "planer.js"
 Cohesion: 0.06
@@ -165,8 +164,8 @@ Cohesion: 0.09
 Nodes (32): addDepartment(), applyTheme(), closeSettingsModal(), closeSigModal(), cycleTheme(), deleteDepartment(), deptLabel(), exitToMenu() (+24 more)
 
 ### Community 12 - "send-reminders/index.ts"
-Cohesion: 0.15
-Nodes (33): CORS, Db, Input, json(), runDaily(), runEvening(), runTest(), shiftDate() (+25 more)
+Cohesion: 0.12
+Nodes (38): CORS, Db, Input, json(), runDaily(), runEvening(), runTest(), shiftDate() (+30 more)
 
 ### Community 13 - "public.app_users"
 Cohesion: 0.10
@@ -181,8 +180,8 @@ Cohesion: 0.12
 Nodes (16): public.auth_user_set_display_name(), public.pin_register_failure(), app_users_pl_guard, public.app_users_pl_guard(), app_users_pl_guard, public.app_users_pl_guard(), public.register_push_subscription(), public.renew_calendar_token() (+8 more)
 
 ### Community 16 - "send-protocol-mail/index.ts"
-Cohesion: 0.13
-Nodes (23): AREA_LABELS, AREA_ORDER, buildDepartmentBody(), buildDepartmentSubject(), DEFAULT_ROUTES, departmentFeedback(), departmentRecipient(), DEPARTMENTS (+15 more)
+Cohesion: 0.12
+Nodes (24): AREA_LABELS, AREA_ORDER, buildDepartmentBody(), buildDepartmentSubject(), DEFAULT_ROUTES, DEPARTMENT_EMAIL_RE, departmentFeedback(), departmentRecipient() (+16 more)
 
 ### Community 17 - "pin.mjs"
 Cohesion: 0.14
@@ -208,9 +207,9 @@ Nodes (9): canSeeCosts(), escapeHtml(), jsAttrArg(), pdfPatch(), pdfText(), safe
 Cohesion: 0.21
 Nodes (22): enablePushReminders(), erFolderProjectNo(), erJobForShift(), erPickFolder(), erPickJob(), erPickShift(), erPlanLocation(), erPlanShifts() (+14 more)
 
-### Community 23 - "notify-folder/index.ts"
-Cohesion: 0.15
-Nodes (12): CORS, buildFolderPushes(), ddmm(), pgUuidArray(), CORS, callerRole(), isAdminRole(), pushTo() (+4 more)
+### Community 23 - "cleanup-folders/index.ts"
+Cohesion: 0.12
+Nodes (16): chunk(), dueFolderTrees(), hasUpcomingJob(), pathsNotIn(), storagePaths(), CORS, CORS, buildFolderPushes() (+8 more)
 
 ### Community 24 - "renderWorkerShifts"
 Cohesion: 0.12
@@ -230,7 +229,7 @@ Nodes (20): dashBees(), dashBillingCutoff(), dashCloseKeys(), dashEligible(), da
 
 ### Community 28 - "settings.js"
 Cohesion: 0.23
-Nodes (18): addVehicleRateRow(), appSetting(), appSettingsFromCache(), changedSettings(), loadAppSettings(), _readSettingsForm(), readVehicleRates(), renderSettingsTab() (+10 more)
+Nodes (19): addVehicleRateRow(), appSetting(), appSettingsFromCache(), changedSettings(), loadAppSettings(), _readSettingsForm(), readVehicleRates(), renderSettingsTab() (+11 more)
 
 ### Community 29 - "ui.js"
 Cohesion: 0.18
@@ -324,10 +323,6 @@ Nodes (9): background_color, description, display, icons, name, orientation, sho
 Cohesion: 0.27
 Nodes (6): public.fits_plan_slot(), order_checks_plan_date_idx, order_checks_stamp, order_checks_updated_by_idx, public.order_check_mine(), public.order_checks
 
-### Community 52 - "cleanup-folders/index.ts"
-Cohesion: 0.31
-Nodes (6): chunk(), dueFolderTrees(), hasUpcomingJob(), pathsNotIn(), storagePaths(), CORS
-
 ### Community 53 - "renderRoleRatesList"
 Cohesion: 0.28
 Nodes (9): addRoleRateRow(), dashRoleOptions(), dashRoleRowAuto(), dashSyncInternal(), loadEditWorkerPlansWeek(), openEditWorker(), removeRoleRateRow(), renderRoleRatesList() (+1 more)
@@ -368,18 +363,14 @@ Nodes (3): CHANGELOG, showChangelogIfNew(), unseenChangelog()
 Cohesion: 0.83
 Nodes (3): buildPlanPushes(), ddmm(), planPushText()
 
-### Community 63 - "debug-input.mjs"
-Cohesion: 0.50
-Nodes (3): DEBUG_KEYS, stripDebug(), wantsDebug()
-
 ### Community 64 - "public.plan_inbox"
 Cohesion: 0.83
 Nodes (3): plan_inbox_handled_by_idx, plan_inbox_status_idx, public.plan_inbox
 
 ## Knowledge Gaps
 - **2 isolated node(s):** `RFC-5545`, `RFC-5545`
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 207 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **22 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 211 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **24 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_

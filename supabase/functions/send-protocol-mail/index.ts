@@ -17,7 +17,7 @@ const THROTTLE_MS = 60_000;
 const MAX_MAILS_PER_HOUR = 30;
 const MAX_DEPARTMENT_MAILS_PER_HOUR = 30;
 
-// Abteilungs-Mails (Lager, Stoffe, Floristik): independent of the PL mail and never blocking it.
+// Abteilungs-Mails (Lager, Logistik, Tischlerei, Stoffe, Floristik): independent of the PL mail and never blocking it.
 // department_mail_log is claimed before sending (unique protocol + department + feedback hash), so a retry or a
 // second call at the same time sends nothing twice; a failed send releases the claim.
 // deno-lint-ignore no-explicit-any
@@ -36,7 +36,7 @@ async function sendDepartmentMails(db: any, p: any, settings: any, testRecipient
   let budget = MAX_DEPARTMENT_MAILS_PER_HOUR - (count || 0);
   for (const m of plan) {
     const rcpt = departmentRecipient(m.department, { enabled: settings.department_mail_enabled,
-      testMode: settings.mail_test_mode || settings.department_mail_test_mode, testRecipient });
+      testMode: settings.mail_test_mode || settings.department_mail_test_mode, testRecipient, emails: settings.department_emails });
     if (rcpt.reason) { out.push({ department: m.department, sent: false, reason: rcpt.reason }); continue; }
     if (budget <= 0) { console.error('send-protocol-mail: department hourly cap reached'); out.push({ department: m.department, sent: false, reason: 'rate_limited' }); continue; }
     const { data: claim, error: claimErr } = await db.from('department_mail_log')

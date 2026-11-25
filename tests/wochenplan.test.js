@@ -504,12 +504,11 @@ test('wpCancelSoon: today or tomorrow asks to call the PL as well', () => {
   assert.equal(ctx.wpCancelSoon('2026-11-13', '2026-11-11'), false);
 });
 
-test('wpCancelContact: the AL of the shift; the PL when you are the AL yourself or no AL is named', () => {
+test('wpCancelContact: the AL of the shift; Daniel (Planung), never the PL, when you are the AL yourself or no AL is named', () => {
   const s = (people, ap) => ({ ap: ap || null, plan_assignments: people });
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Piotr' }, { user_id: 'k', role: 'AL', name: 'Konrad' }], 'Judith'), 'me'))), { role: 'AL', name: 'Konrad' });
-  assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'AL', name: 'Piotr' }], 'Judith'), 'me'))), { role: 'PL', name: 'Judith' });
-  assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Piotr' }], 'Judith'), 'me'))), { role: 'PL', name: 'Judith' });
-  assert.equal(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Piotr' }]), 'me'), null);
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'AL', name: 'Piotr' }], 'Judith'), 'me'))), { role: 'Planung', name: 'Daniel' });
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Piotr' }], 'Judith'), 'me'))), { role: 'Planung', name: 'Daniel' });
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.wpCancelContact(s([{ user_id: 'me', role: 'MA', name: 'Piotr' }]), 'me'))), { role: 'Planung', name: 'Daniel' });
   assert.equal(ctx.wpCancelText({ role: 'AL', name: 'Konrad' }), 'Ruf bitte Konrad (AL) an oder schreib eine Nachricht, damit vor Ort alle Bescheid wissen.');
-  assert.equal(ctx.wpCancelText(null), 'Sag bitte deiner AL Bescheid, per Anruf oder Nachricht.');
 });

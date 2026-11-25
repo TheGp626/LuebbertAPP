@@ -14,8 +14,10 @@ export const SETTINGS_DEFAULTS = Object.freeze({
   billing_cutoff: 20,
   department_mail_enabled: true,
   department_mail_test_mode: true,
-  // protocol area → department (lager | stoffe | floristik | '' = no mail); addresses are fixed in send-protocol-mail
+  // protocol area → department (lager | logistik | tischlerei | stoffe | floristik | '' = no mail)
   department_routes: Object.freeze({ logistik: 'lager', mobiliar: 'lager', tischlerei: '', stoffe: 'stoffe', floristik: 'floristik' }),
+  // department → address ('' = no mail); only @peterluebbert.de, checked again in send-protocol-mail
+  department_emails: Object.freeze({ lager: 'lager@peterluebbert.de', logistik: '', tischlerei: '', stoffe: 'Stoffe@peterluebbert.de', floristik: 'Florist@peterluebbert.de' }),
 });
 
 // rows: [{key, value}] from app_settings, or null when the read failed.
