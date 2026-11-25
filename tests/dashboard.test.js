@@ -900,6 +900,17 @@ test('protocol editor: changed times recalculate the break also for people alrea
   assert.equal(run('_editProtShifts[0].pause'), '15', 'typed by hand → kept');
 });
 
+test('protocol editor: a break below the legal minimum goes back to it, a longer one stays', () => {
+  ctx.document.getElementById = () => null; ctx.showToast = () => {};
+  run("_editProtShifts = [{ id: 's1', userId: 'u1', name: 'Anna', pos: 'MA', start: '10:00', end: '18:00', pause: '10' }, { id: 's2', userId: 'u2', name: 'Ben', pos: 'MA', start: '10:00', end: '18:00', pause: '60' }]");
+  const el = { value: '10' };
+  ctx.dashClampPause(0, el);
+  ctx.dashClampPause(1, null);
+  assert.equal(run('_editProtShifts[0].pause'), '30');
+  assert.equal(el.value, 30);
+  assert.equal(run('_editProtShifts[1].pause'), '60');
+});
+
 test('dashPeNewShortBreaks: only breaks this edit makes too short need a reason; untouched old rows do not', () => {
   const old = [
     { id: 's1', start_time: '10:00:00', end_time: '18:00:00', pause_mins: 0 },   // old 0-min break, untouched

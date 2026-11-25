@@ -326,11 +326,13 @@ function pnAvatar(uid, name) {
   return '<i class="pn-seat">' + (uid && typeof mitAvatarInner === 'function' ? mitAvatarInner(uid, inner) : inner) + '</i>';
 }
 
-// Who may be asked by push about this row: an Auftrag phase, or a published plan entry
-function pnAskTarget(row) {
-  var st = plState;
-  if (row.job_no) return { kind: 'order', a: row.job_no, b: row.phase };
-  if (st.planWeek && st.keys[row.id]) return { kind: 'shift', a: st.planWeek.id, b: st.keys[row.id] };
+// What a „Hast du Zeit?“ push can point at, or null when the person could not answer it with „Ich kann“:
+// an Auftrag phase only with an MA number (order_slots shows phases with MA > 0), a free entry only once it is published.
+// keys = draft row id → plan key; publishedKeys = { key: true } of the published week.
+function pnAskTarget(row, keys, planWeekId, publishedKeys) {
+  if (row.job_no) return row.need > 0 ? { kind: 'order', a: row.job_no, b: row.phase } : null;
+  var key = keys && keys[row.id];
+  if (planWeekId && key && publishedKeys && publishedKeys[key]) return { kind: 'shift', a: planWeekId, b: key };
   return null;
 }
 
@@ -342,7 +344,7 @@ function pnSheetPaint() {
   var need = row.need || 0, filled = plFilled(row);
   var job = row.job_no ? _pnJobs[row.job_no] : null;
   var decide = (typeof ordCanDecide === 'function') && ordCanDecide();
-  var ask = pnAskTarget(row);
+  var ask = pnAskTarget(row, st.keys, st.planWeek && st.planWeek.id, st.publishedKeys);
   var askLabel = [PL_DAYS_SHORT[dt.getUTCDay()] + ' ' + dt.getUTCDate() + '.' + (dt.getUTCMonth() + 1) + '.' + (w.time ? ' ' + w.time : ''), row.venue, row.title, w.label].filter(Boolean).join(', ');
   var askBtn = function(uid, name) {
     return ask && decide ? '<button type="button" class="ord-textbtn" onclick="ordAsk(\'' + ask.kind + '\', \'' + jsAttrArg(ask.a) + '\', \'' + jsAttrArg(ask.b) + '\', \'' +
@@ -673,14 +675,36 @@ async function pnPrepareSave() {
 /* ── Publish inside PLANEN ── */
 
 // What publishing changes, for the confirm sheet. diff = planDiff(old, parsed.shifts) or null for the first Stand.
-// people = app users on new or changed entries and on removed ones (an estimate: notify-plan-change decides).
+// people = app users on new or changed entries, taken off an entry, and on removed ones (an estimate: notify-plan-change decides).
 function pnPublishSummary(diff, parsed) {
   var st = diff ? diff.status : parsed.shifts.map(function() { return 'neu'; }), names = {};
   var add = function(s) { (s.people || []).forEach(function(x) { if (x.userId) names[x.name] = true; }); };
-  parsed.shifts.forEach(function(s, i) { if (st[i]) add(s); });
+  parsed.shifts.forEach(function(s, i) {
+    if (st[i]) add(s);
+    // people taken off an entry that stays (planUnassigned in the save): they are told too
+    var old = diff && diff.matched && diff.matched[i];
+    if (old) (old.people || []).forEach(function(x) {
+      if (x.userId && !(s.people || []).some(function(y) { return y.userId === x.userId; })) names[x.name] = true;
+    });
+  });
   ((diff && diff.removed) || []).forEach(add);
   return { neu: st.filter(function(x) { return x === 'neu'; }).length, geaendert: st.filter(function(x) { return x === 'geändert'; }).length,
     entfernt: ((diff && diff.removed) || []).length, people: Object.keys(names).sort(function(a, b) { return a.localeCompare(b, 'de'); }) };
+}
+
+// Names on the plan without an app account and without a remembered match (agency workers never need one):
+// [{ key, name, count }] sorted by name. Applies remembered matches (aliases: planAliasKey → user id) on the way.
+function pnUnresolvedNames(parsed, aliases) {
+  var out = {};
+  parsed.shifts.forEach(function(s) {
+    (s.people || []).forEach(function(x) {
+      if (x.userId || PL_AGENCY.indexOf(x.role) !== -1) return;
+      var k = planAliasKey(x.name);
+      if (aliases && aliases[k]) { x.userId = aliases[k]; return; }
+      (out[k] = out[k] || { key: k, name: x.name, count: 0 }).count++;
+    });
+  });
+  return Object.keys(out).map(function(k) { return out[k]; }).sort(function(a, b) { return a.name.localeCompare(b.name, 'de'); });
 }
 
 var _pnPublish = null; // { imp, week } while the confirm sheet is open
@@ -689,7 +713,14 @@ function pnPublishSheet(imp, week) {
   _pnPublish = { imp: imp, week: week };
   var p = imp.parsed, ex = imp.existing;
   var diff = ex ? planDiff((ex.plan_shifts || []).map(planShiftFromDb), p.shifts) : null;
+  var open = pnUnresolvedNames(p, typeof wpAliases !== 'undefined' ? wpAliases : null);
   var sum = pnPublishSummary(diff, p), checks = [];
+  var users = wpUsers.filter(function(u) { return u.is_active !== false && u.role !== 'Gast'; });
+  var names = open.length ? '<div class="pn-names"><b>Namen ohne App-Konto</b><span>Gehört einer davon zu jemandem in der App, wähl ihn aus: dann bekommt er den Einsatz und die Push-Nachricht. Die App merkt sich das.</span>' +
+    open.map(function(r) {
+      return '<label class="ui-field"><span>„' + pnE(r.name) + '“ ' + r.count + '×</span><select data-alias="' + pnE(r.key) + '"><option value="">Kein App-Konto (nur Name)</option>' +
+        users.map(function(u) { return '<option value="' + pnE(u.id) + '">' + pnE(u.full_name) + '</option>'; }).join('') + '</select></label>';
+    }).join('') + '</div>' : '';
   try { checks = planChecks(p.shifts, null); } catch (e) { console.error('Prüfung:', e); }
   var nothing = diff && !sum.neu && !sum.geaendert && !sum.entfernt;
   var stat = function(n, label) { return '<div><b>' + n + '</b><span>' + label + '</span></div>'; };
@@ -697,6 +728,7 @@ function pnPublishSheet(imp, week) {
     (nothing ? '<p class="pn-none">Seit dem letzten Veröffentlichen hat sich nichts geändert.</p>'
       : '<div class="pn-pubstats">' + (diff ? stat(sum.neu, 'neu') + stat(sum.geaendert, 'geändert') + stat(sum.entfernt, 'entfernt') : stat(p.shifts.length, p.shifts.length === 1 ? 'Einsatz' : 'Einsätze')) + '</div>' +
         '<p class="pn-pubpeople">' + (sum.people.length ? '<b>Eine Push-Nachricht bekommen voraussichtlich:</b> ' + pnE(sum.people.join(', ')) : 'Niemand mit App-Konto ist betroffen, es gehen keine Push-Nachrichten raus.') + '</p>') +
+    names +
     (p.warnings.length ? '<div class="pn-changed">' + p.warnings.map(pnE).join('<br>') + '</div>' : '') +
     (checks.length ? '<div class="pn-changed"><b>Bitte prüfen</b><ul>' + checks.slice(0, 8).map(function(c) { return '<li>' + pnE(c.text) + '</li>'; }).join('') + '</ul>' +
       (checks.length > 8 ? '<span>… und ' + (checks.length - 8) + ' weitere.</span>' : '') + 'Nur Hinweise, veröffentlichen geht trotzdem.</div>' : '') +
@@ -709,7 +741,12 @@ async function pnPublishGo() {
   if (!job) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Wird veröffentlicht…'; }
   try {
-    var res = await wpCommitPlan(job.imp, []);
+    // Names matched in the sheet: remembered (plan_name_aliases, like the PDF preview) and put on the plan
+    var newAliases = [];
+    document.querySelectorAll('#pn-publish select[data-alias]').forEach(function(sel) {
+      if (sel.value) { wpAliases[sel.dataset.alias] = sel.value; newAliases.push({ alias: sel.dataset.alias, user_id: sel.value }); }
+    });
+    var res = await wpCommitPlan(job.imp, newAliases);
     _pnPublish = null;
     var m = document.getElementById('pn-publish');
     if (m) m.remove();
@@ -756,4 +793,10 @@ function pnTableHtml(days) {
   });
   return '<div class="pn-tablewrap"><table class="pn-table"><thead><tr><th scope="col">Tag</th><th scope="col">Was</th><th scope="col">Wann</th><th scope="col">Wer</th><th scope="col">PL</th></tr></thead><tbody>' +
     body + '</tbody></table></div>';
+}
+
+// Rotating a tablet or resizing the window across 900 px switches between table and board
+if (typeof window !== 'undefined' && window.matchMedia) {
+  var _pnWideMq = window.matchMedia('(min-width: 900px)'), _pnOnWide = function() { if (plState && plActive() && pnView() === 'table') pnPaint(); };
+  if (_pnWideMq.addEventListener) _pnWideMq.addEventListener('change', _pnOnWide); else if (_pnWideMq.addListener) _pnWideMq.addListener(_pnOnWide);
 }

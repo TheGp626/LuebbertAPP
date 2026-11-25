@@ -227,6 +227,9 @@ function plSeed(planShifts, slots, week, users) {
         used[k] = true;
         rows[i].job_no = s.job_no; rows[i].phase = s.phase;
         if (s.needed != null) rows[i].need = s.needed;
+        // The uploaded plan's texts are Daniel's: a revised Bestätigung only reports its own (plForInsert drops the key
+        // before migration planen_flow)
+        rows[i].manual = ['wann', 'location', 'title'];
       } else rest.push(s);
     });
   });
@@ -598,6 +601,12 @@ async function plRender() {
       (plState.interest[r.shift_key] = plState.interest[r.shift_key] || {})[r.user_id] = r.status || 'offen';
       if (r.vorbehalt) plState.vb['s|' + r.shift_key + '|' + r.user_id] = r.vorbehalt;
     });
+    // Keys of the published entries: „Fragen“ only makes sense for an entry the crew can see in the Wochenplan
+    var pk;
+    try { pk = await supabaseClient.from('plan_shifts').select('key').eq('week_id', plState.planWeek.id); } catch (e) { pk = { error: e }; }
+    if (seq !== plSeq || !plActive()) return;
+    plState.publishedKeys = {};
+    ((pk && !pk.error && pk.data) || []).forEach(function(r) { plState.publishedKeys[r.key] = true; });
     // Absagen: without the table (migration absagen not applied yet) or the right to read it, cancels stays null
     var pc;
     try { pc = await supabaseClient.from('plan_cancellations').select('shift_key, user_id').eq('week_id', plState.planWeek.id).eq('status', 'offen'); } catch (e) { pc = { error: e }; }
@@ -1035,7 +1044,15 @@ async function plPublish() {
     parsed.warnings.push('Für diese Woche gibt es einen hochgeladenen Plan (Stand ' + ex.version + '). Mit „Übernehmen“ ersetzt der Entwurf ihn.');
   var imp = { parsed: parsed, fileName: 'Besetzungsplaner', existing: ex, unresolved: {},
     afterSave: function(weekId) { return plAfterPublish(week, parsed, weekId, lastChange); } };
-  // Confirm sheet in PLANEN (what changes, who gets a push), then wpCommitPlan: same save as a PDF upload, no page change
+  // Remembered name matches come from the Wochenplan, which may not have been opened yet
+  if (!Object.keys(wpAliases).length) {
+    try {
+      var al = await supabaseClient.from('plan_name_aliases').select('alias, user_id');
+      (al.data || []).forEach(function(r) { wpAliases[planAliasKey(r.alias)] = r.user_id; });
+    } catch (e) { console.warn('Namen laden:', e); }
+  }
+  // Confirm sheet in PLANEN (what changes, names without account, who gets a push), then wpCommitPlan: same save as a PDF
+  // upload, no page change
   pnPublishSheet(imp, week);
 }
 

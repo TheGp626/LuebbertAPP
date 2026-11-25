@@ -2283,7 +2283,7 @@ function renderDashPeShifts() {
       '<div class="prot-time-grid">' +
         '<label class="ui-field"><span>Start</span><input type="time" id="pe-sh-start-' + i + '" value="' + escapeHtml(r.start || '') + '" oninput="updateDashPeShift(' + i + ',\'start\',this.value)"></label>' +
         '<label class="ui-field"><span>Ende</span><input type="time" id="pe-sh-end-' + i + '" value="' + escapeHtml(r.end || '') + '" oninput="updateDashPeShift(' + i + ',\'end\',this.value)"></label>' +
-        '<label class="ui-field"><span>Pause</span><input type="number" inputmode="numeric" id="pe-sh-pause-' + i + '" placeholder="Min" value="' + escapeHtml(r.pause || 0) + '" oninput="updateDashPeShift(' + i + ',\'pause\',this.value)"></label>' +
+        '<label class="ui-field"><span>Pause</span><input type="number" inputmode="numeric" id="pe-sh-pause-' + i + '" placeholder="Min" value="' + escapeHtml(r.pause || 0) + '" oninput="updateDashPeShift(' + i + ',\'pause\',this.value)" onchange="dashClampPause(' + i + ', this)"></label>' +
       '</div>' +
       '<div class="prot-pause-warn" id="pe-sh-pwarn-' + i + '"' + (typeof protShortBreaks === 'function' && protShortBreaks([r]).length ? '' : ' hidden') + '>' +
         (typeof protPauseHintText === 'function' ? escapeHtml(protPauseHintText(r).replace('beim Senden', 'beim Speichern')) : '') + '</div>' +
@@ -2320,6 +2320,18 @@ function updateDashPeShift(idx, field, val) {
     if (el) el.value = r.pause;
   }
   dashPePauseHint(idx);
+}
+
+// Same rule as the protocol form (protClampPause): the break can only be made longer, below the minimum it goes back to it
+function dashClampPause(idx, el) {
+  var r = _editProtShifts[idx];
+  if (!r || typeof protPauseMin !== 'function') return;
+  var min = protPauseMin(r);
+  if ((parseInt(r.pause, 10) || 0) < min) {
+    updateDashPeShift(idx, 'pause', String(min));
+    if (el) el.value = min;
+    if (typeof showToast === 'function') showToast('Pause mind. ' + min + ' min. Länger geht, kürzer nicht.', 'info');
+  }
 }
 
 // Break under the legal minimum in the editor: same hint and rule as the protocol form (protokoll.js protShortBreaks)
