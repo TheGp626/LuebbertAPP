@@ -1,13 +1,18 @@
-// Abteilungs-Mails (Spec Teil B): Lager, Stoffe and Floristik get a short mail when their protocol area has feedback.
+// Abteilungs-Mails (Spec Teil B): Lager, Logistik, Tischlerei, Stoffe and Floristik get a short mail when their protocol area has feedback.
 // Pure (no Deno/Node APIs) → testable with `node --test`. No staff, times, costs or signature ever go in.
 import { escapeHtml, formatDateDE } from './mail.mjs';
 
-// Fixed here on purpose: a protocol or a setting can never point a mail at another address
+// The departments are fixed here; their addresses are the Admin setting department_emails ('' = no mail)
 export const DEPARTMENTS = Object.freeze({
-  lager: { label: 'Lager', to: 'lager@peterluebbert.de' },
-  stoffe: { label: 'Stoffe', to: 'Stoffe@peterluebbert.de' },
-  floristik: { label: 'Floristik', to: 'Florist@peterluebbert.de' },
+  lager: { label: 'Lager' },
+  logistik: { label: 'Logistik' },
+  tischlerei: { label: 'Tischlerei' },
+  stoffe: { label: 'Stoffe' },
+  floristik: { label: 'Floristik' },
 });
+
+// Only company addresses: a changed setting can never send protocol details outside (mirrors the RPC and js/settings.js)
+export const DEPARTMENT_EMAIL_RE = /^[A-Za-z0-9._%+-]{1,64}@peterluebbert\.de$/i;
 
 export const DEFAULT_ROUTES = Object.freeze({ logistik: 'lager', mobiliar: 'lager', tischlerei: '', stoffe: 'stoffe', floristik: 'floristik' });
 
@@ -20,7 +25,7 @@ function emptyNote(s) {
   return !t || /^(nein|—|-|okay|ok)$/i.test(t);
 }
 
-// area → department; unknown or '' → none. Only the three known departments are ever returned.
+// area → department; unknown or '' → none. Only the known departments are ever returned.
 export function routeOf(area, routes) {
   const r = (routes && typeof routes === 'object' && area in routes) ? routes[area] : DEFAULT_ROUTES[area];
   return Object.prototype.hasOwnProperty.call(DEPARTMENTS, r) ? r : '';
@@ -109,9 +114,11 @@ export function buildDepartmentBody(p, dep, lines, isSupplement) {
   return { text, html };
 }
 
-// Recipient: off → none; test mode (global or for departments) → TEST_RECIPIENT or held back; else the fixed address
-export function departmentRecipient(dep, { enabled, testMode, testRecipient }) {
+// Recipient: off → none; test mode (global or for departments) → TEST_RECIPIENT or held back;
+// else the address from the settings, if it is a company address (none → 'no_address')
+export function departmentRecipient(dep, { enabled, testMode, testRecipient, emails }) {
   if (!enabled) return { to: null, reason: 'disabled', test: false };
   if (testMode) return testRecipient ? { to: testRecipient, reason: null, test: true } : { to: null, reason: 'not_configured', test: true };
-  return { to: DEPARTMENTS[dep].to, reason: null, test: false };
+  const to = emails && typeof emails[dep] === 'string' ? emails[dep].trim() : '';
+  return DEPARTMENT_EMAIL_RE.test(to) ? { to, reason: null, test: false } : { to: null, reason: 'no_address', test: false };
 }

@@ -27,7 +27,7 @@ test('topbarMenuItems: module items first, Optionen always last', () => {
 
 test('uiIcon returns an svg for known names and empty svg for unknown', () => {
   assert.match(U.uiIcon('clock'), /^<svg class="ui-ico"/);
-  ['clock', 'clipboard', 'calendar', 'box', 'folder', 'chart', 'chevron-left', 'chevron-right', 'dots', 'plus', 'search', 'file', 'image', 'video', 'trash', 'edit', 'download', 'upload', 'check']
+  ['clock', 'clipboard', 'calendar', 'box', 'folder', 'chart', 'users', 'chevron-left', 'chevron-right', 'dots', 'plus', 'search', 'file', 'image', 'video', 'trash', 'edit', 'download', 'upload', 'check']
     .forEach(n => assert.ok(U.UI_ICONS[n], n));
 });
 

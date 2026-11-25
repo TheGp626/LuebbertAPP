@@ -203,3 +203,19 @@ test('department mail settings: defaults, validation, merge keeps unknown areas 
   S.appSettingsFromCache();
   assert.equal(S.appSetting('department_routes').stoffe, 'stoffe');
 });
+
+test('department addresses: editable, only @peterluebbert.de, bad cached values fall back', () => {
+  assert.equal(S.appSetting('department_emails').lager, 'lager@peterluebbert.de');
+  assert.equal(S.validateSettings({ department_emails: { logistik: 'd.test@peterluebbert.de', tischlerei: '' } }), null);
+  assert.equal(S.validateSettings({ department_routes: { logistik: 'logistik', tischlerei: 'tischlerei' } }), null);
+  assert.equal(S.validateSettings({ department_emails: { lager: 'x@evil.test' } }), 'department_emails');
+  assert.equal(S.validateSettings({ department_emails: { lager: 'a@peterluebbert.de.evil.test' } }), 'department_emails');
+  assert.equal(S.validateSettings({ department_emails: { kueche: 'k@peterluebbert.de' } }), 'department_emails');
+  store.luebbert_app_settings = JSON.stringify({ department_emails: { logistik: 'd@peterluebbert.de' } });
+  S.appSettingsFromCache();
+  assert.equal(S.appSetting('department_emails').logistik, 'd@peterluebbert.de');
+  assert.equal(S.appSetting('department_emails').stoffe, 'Stoffe@peterluebbert.de');
+  store.luebbert_app_settings = JSON.stringify({ department_emails: { lager: 'x@evil.test' } });
+  S.appSettingsFromCache();
+  assert.equal(S.appSetting('department_emails').lager, 'lager@peterluebbert.de');
+});

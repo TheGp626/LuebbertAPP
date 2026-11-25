@@ -84,5 +84,10 @@ test('recipient: off, test mode with and without test address, live', () => {
   assert.equal(departmentRecipient('lager', { enabled: false, testMode: false }).reason, 'disabled');
   assert.deepEqual(departmentRecipient('lager', { enabled: true, testMode: true, testRecipient: 't@x.de' }), { to: 't@x.de', reason: null, test: true });
   assert.equal(departmentRecipient('lager', { enabled: true, testMode: true, testRecipient: '' }).reason, 'not_configured');
-  assert.equal(departmentRecipient('floristik', { enabled: true, testMode: false }).to, DEPARTMENTS.floristik.to);
+  const emails = { floristik: 'Florist@peterluebbert.de', lager: 'x@evil.test', logistik: '' };
+  assert.equal(departmentRecipient('floristik', { enabled: true, testMode: false, emails }).to, 'Florist@peterluebbert.de');
+  assert.equal(departmentRecipient('lager', { enabled: true, testMode: false, emails }).reason, 'no_address');
+  assert.equal(departmentRecipient('logistik', { enabled: true, testMode: false, emails }).reason, 'no_address');
+  assert.equal(departmentRecipient('stoffe', { enabled: true, testMode: false }).reason, 'no_address');
+  assert.ok(DEPARTMENTS.tischlerei && DEPARTMENTS.logistik);
 });
