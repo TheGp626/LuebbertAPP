@@ -394,6 +394,7 @@ function handleSession(user) {
     // Employee list for the Protokoll pickers and rates — only readable with a session (no anon access)
     if (userChanged && typeof fetchAppUsers === 'function') fetchAppUsers();
     if (userChanged && typeof mitAfterLogin === 'function') mitAfterLogin(); // unter 18, Profilbilder, Foto-Hinweis
+    if (userChanged && typeof frageCheck === 'function') setTimeout(function() { frageCheck(true); }, 2500); // „Hast du Zeit?“ Ja/Nein (js/frage.js)
     // A ?open=wochenplan link goes through selectMode(), which already initialises the plan
     const wpDeepLink = new URLSearchParams(location.search).get('open') === 'wochenplan';
     if (typeof handleEinsatzDeepLink === 'function') handleEinsatzDeepLink();

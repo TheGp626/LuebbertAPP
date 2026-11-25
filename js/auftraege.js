@@ -580,6 +580,7 @@ async function ordAsk(kind, a, b, userId, label, name) {
   try { r = await supabaseClient.functions.invoke('ask-shift', { body: body }); } catch (e) { r = { error: e }; }
   var d = r && r.data;
   if (r.error || !d) { console.error('Fragen:', r && r.error); showToast('Nicht gesendet. Prüf deine Verbindung.', 'danger'); return; }
+  if ((d.sent || d.skipped === 'already_asked') && typeof pnAsked === 'function') pnAsked(kind, a, b, userId);
   if (d.sent) showToast('Gefragt. ' + name + ' bekommt eine Push-Nachricht.', 'success');
   else if (d.skipped === 'already_asked') showToast(name + ' wurde dazu schon gefragt.');
   else if (d.reason === 'no_device') showToast(name + ' hat keine Push-Benachrichtigungen an. Lieber anrufen.', 'danger');
