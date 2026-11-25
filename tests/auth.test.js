@@ -176,3 +176,10 @@ test('moduleAllowedForRole: auftraege for Admin/PL, others only with „Sieht Be
   assert.equal(ok('auftraege', 'Gast'), false);
   delete globalThis.window;
 });
+
+test("Jenni 25.11.: a photo set elsewhere (cached profile without it) re-runs the session, so no photo hint", () => {
+  const changed = load("authSessionChanged");
+  const u = { id: "a", full_name: "Anna", role: "AL", default_dept: "AL", employment_type: "Minijob", role_rates: [] };
+  assert.equal(changed(u, Object.assign({}, u, { photo_path: "a/1.jpg" })), true);
+  assert.equal(changed(Object.assign({}, u, { photo_path: "a/1.jpg" }), Object.assign({}, u, { photo_path: "a/1.jpg" })), false);
+});
