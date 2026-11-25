@@ -1,17 +1,17 @@
 # Graph Report - LuebbertAPP  (2026-11-25)
 
 ## Corpus Check
-- 113 files · ~170,410 words
+- 113 files · ~170,491 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 4 file(s) not represented in the graph (top: (none) 2, .css 2)
 
 ## Summary
-- 1641 nodes · 3646 edges · 87 communities (62 shown, 25 thin omitted)
-- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 213 edges (avg confidence: 0.85)
+- 1642 nodes · 3648 edges · 86 communities (61 shown, 25 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 214 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `4e873861`
+- Built from commit: `7f90e740`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -41,7 +41,7 @@
 - erinnerung.js
 - cleanup-folders/index.ts
 - renderWorkerShifts
-- plan-ics.mjs
+- cleanup-folders/index.ts
 - public.order_slots
 - dashRenderWorkerMonth
 - settings.js
@@ -57,7 +57,7 @@
 - poll-plan-inbox/index.ts
 - public.plan_cancellations
 - protSaveArchive
-- mail.mjs
+- debug-input.mjs
 - loadProtFromHistory
 - renderProtPersonnel
 - was drin ist
@@ -77,7 +77,6 @@
 - public.staff_minors
 - sw.js
 - changelog.js
-- notify-plan-change/notify.mjs
 - public.plan_inbox
 - 20261030_ordner_auto_loeschen.sql
 - 20261104_role_rls.sql
@@ -112,7 +111,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (87 total, 25 thin omitted)
+## Communities (86 total, 25 thin omitted)
 
 ### Community 0 - "planer.js"
 Cohesion: 0.06
@@ -163,8 +162,8 @@ Cohesion: 0.09
 Nodes (34): addDepartment(), applyTheme(), closeSettingsModal(), closeSigModal(), cycleTheme(), deleteDepartment(), deptLabel(), exitToMenu() (+26 more)
 
 ### Community 12 - "send-reminders/index.ts"
-Cohesion: 0.12
-Nodes (40): CORS, Db, Input, json(), runDaily(), runEvening(), runHoursCheck(), runTest() (+32 more)
+Cohesion: 0.13
+Nodes (37): CORS, Db, Input, json(), runDaily(), runEvening(), runHoursCheck(), runTest() (+29 more)
 
 ### Community 13 - "public.app_users"
 Cohesion: 0.10
@@ -179,12 +178,12 @@ Cohesion: 0.12
 Nodes (16): public.auth_user_set_display_name(), public.pin_register_failure(), app_users_pl_guard, public.app_users_pl_guard(), app_users_pl_guard, public.app_users_pl_guard(), public.register_push_subscription(), public.renew_calendar_token() (+8 more)
 
 ### Community 16 - "send-protocol-mail/index.ts"
-Cohesion: 0.12
-Nodes (24): AREA_LABELS, AREA_ORDER, buildDepartmentBody(), buildDepartmentSubject(), DEFAULT_ROUTES, DEPARTMENT_EMAIL_RE, departmentFeedback(), departmentRecipient() (+16 more)
+Cohesion: 0.10
+Nodes (36): AREA_LABELS, AREA_ORDER, buildDepartmentBody(), buildDepartmentSubject(), DEFAULT_ROUTES, DEPARTMENT_EMAIL_RE, departmentFeedback(), departmentRecipient() (+28 more)
 
 ### Community 17 - "pin.mjs"
-Cohesion: 0.14
-Nodes (24): CORS, json(), serverError(), CORS, json(), serverError(), CORS, json() (+16 more)
+Cohesion: 0.07
+Nodes (40): dedupeShifts(), parseToken(), windowStart(), CORS, CORS, json(), serverError(), CORS (+32 more)
 
 ### Community 18 - "admin.js"
 Cohesion: 0.16
@@ -207,16 +206,16 @@ Cohesion: 0.21
 Nodes (22): enablePushReminders(), erFolderProjectNo(), erJobForShift(), erPickFolder(), erPickJob(), erPickShift(), erPlanLocation(), erPlanShifts() (+14 more)
 
 ### Community 23 - "cleanup-folders/index.ts"
-Cohesion: 0.12
-Nodes (16): chunk(), dueFolderTrees(), hasUpcomingJob(), pathsNotIn(), storagePaths(), CORS, CORS, buildFolderPushes() (+8 more)
+Cohesion: 0.13
+Nodes (14): CORS, buildFolderPushes(), ddmm(), pgUuidArray(), CORS, buildPlanPushes(), ddmm(), planPushText() (+6 more)
 
 ### Community 24 - "renderWorkerShifts"
 Cohesion: 0.12
 Nodes (22): addDashboardUser(), closeDashWorker(), closeEditWorker(), closeShiftEditModal(), dashEditPause(), dashPlansWeekChange(), dashRefreshRateUsers(), dashShiftSaveRole() (+14 more)
 
-### Community 25 - "plan-ics.mjs"
-Cohesion: 0.17
-Nodes (16): dedupeShifts(), parseToken(), windowStart(), CORS, RFC-5545, PLAN_WHEN_LABELS, planEventName(), planIcs() (+8 more)
+### Community 25 - "cleanup-folders/index.ts"
+Cohesion: 0.31
+Nodes (6): chunk(), dueFolderTrees(), hasUpcomingJob(), pathsNotIn(), storagePaths(), CORS
 
 ### Community 26 - "public.order_slots"
 Cohesion: 0.17
@@ -227,8 +226,8 @@ Cohesion: 0.17
 Nodes (20): dashBees(), dashBillingCutoff(), dashCloseKeys(), dashEligible(), dashInactive(), dashIsNightShift(), dashMayBook(), dashNightRanking() (+12 more)
 
 ### Community 28 - "settings.js"
-Cohesion: 0.23
-Nodes (19): addVehicleRateRow(), appSetting(), appSettingsFromCache(), changedSettings(), loadAppSettings(), _readSettingsForm(), readVehicleRates(), renderSettingsTab() (+11 more)
+Cohesion: 0.21
+Nodes (20): addVehicleRateRow(), appSetting(), appSettingsFromCache(), changedSettings(), loadAppSettings(), _readSettingsForm(), readVehicleRates(), renderSettingsTab() (+12 more)
 
 ### Community 29 - "ui.js"
 Cohesion: 0.18
@@ -267,8 +266,8 @@ Cohesion: 0.20
 Nodes (14): dashGroupLabel(), dashInactiveHtml(), dashIsFest(), dashMayManageStaff(), dashMayResetPin(), dashResetWorkerPin(), dashSelectedWorker(), dashWorkerList() (+6 more)
 
 ### Community 38 - "poll-plan-inbox/index.ts"
-Cohesion: 0.18
-Nodes (9): authPassed(), isPdf(), MAX_PDF_BYTES, parseAllowed(), pickPlanPdfs(), senderAllowed(), storagePath(), CORS (+1 more)
+Cohesion: 0.22
+Nodes (8): authPassed(), isPdf(), MAX_PDF_BYTES, parseAllowed(), pickPlanPdfs(), senderAllowed(), storagePath(), CORS
 
 ### Community 39 - "public.plan_cancellations"
 Cohesion: 0.22
@@ -278,9 +277,9 @@ Nodes (10): plan_shift_interest_user_id_idx, public.plan_shift_interest, plan_sh
 Cohesion: 0.24
 Nodes (13): deleteProtHistory(), mailProtokoll(), markProtMailed(), mergeProtHistory(), protArchiveShrink(), protRowToEntry(), protSaveArchive(), renderProtHistory() (+5 more)
 
-### Community 41 - "mail.mjs"
-Cohesion: 0.31
-Nodes (12): actionText(), attachmentName(), buildBody(), buildSubject(), escapeHtml(), formatDateDE(), GEWERKE_LABELS, isEmptyNote() (+4 more)
+### Community 41 - "debug-input.mjs"
+Cohesion: 0.50
+Nodes (3): DEBUG_KEYS, stripDebug(), wantsDebug()
 
 ### Community 42 - "loadProtFromHistory"
 Cohesion: 0.13
@@ -354,10 +353,6 @@ Nodes (3): assetUrlsOf(), LAZY_ASSETS, precache()
 Cohesion: 0.67
 Nodes (3): CHANGELOG, showChangelogIfNew(), unseenChangelog()
 
-### Community 62 - "notify-plan-change/notify.mjs"
-Cohesion: 0.83
-Nodes (3): buildPlanPushes(), ddmm(), planPushText()
-
 ### Community 64 - "public.plan_inbox"
 Cohesion: 0.83
 Nodes (3): plan_inbox_handled_by_idx, plan_inbox_status_idx, public.plan_inbox
@@ -371,16 +366,16 @@ Nodes (3): plan_inbox_handled_by_idx, plan_inbox_status_idx, public.plan_inbox
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `planShiftFromDb()` connect `wochenplan.js` to `dashboard.js`, `plan-parser.js`?**
-  _High betweenness centrality (0.051) - this node is a cross-community bridge._
+  _High betweenness centrality (0.042) - this node is a cross-community bridge._
 - **What connects `RFC-5545`, `RFC-5545` to the rest of the system?**
   _2 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `planer.js` be split into smaller, more focused modules?**
   _Cohesion score 0.05901766647252961 - nodes in this community are weakly interconnected._
 - **Why does `dashStartProtokollFromPlan()` connect `dashboard.js` to `wochenplan.js`?**
-  _High betweenness centrality (0.044) - this node is a cross-community bridge._
+  _High betweenness centrality (0.038) - this node is a cross-community bridge._
 - **Should `wochenplan.js` be split into smaller, more focused modules?**
   _Cohesion score 0.0548258138206739 - nodes in this community are weakly interconnected._
 - **Why does `planStripPhones()` connect `plan-parser.js` to `planer.js`?**
-  _High betweenness centrality (0.032) - this node is a cross-community bridge._
+  _High betweenness centrality (0.038) - this node is a cross-community bridge._
 - **Should `stundenzettel.js` be split into smaller, more focused modules?**
   _Cohesion score 0.06163401815575729 - nodes in this community are weakly interconnected._
