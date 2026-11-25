@@ -75,7 +75,7 @@ test('plRowFromSlot: an Auftrag phase becomes a row with the accepted people alr
 
 test('plRowFromSlot: no MA number yet and a title without parts', () => {
   const r = plain(ctx.plRowFromSlot(slot({ needed: null, title: 'Lager', room: null, accepted_ids: null }), WEEK, USERS));
-  assert.equal(r.need, 0);
+  assert.equal(r.need, null); // "MA?" in PLANEN until someone enters the number
   assert.equal(r.venue, 'Lager');
   assert.equal(r.location, null);
   assert.deepEqual(r.people, []);

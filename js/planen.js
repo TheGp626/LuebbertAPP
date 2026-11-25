@@ -13,20 +13,22 @@ function pnOpenCount(row) {
   return plOpenSlots(row).reduce(function(n, o) { return n + o.count; }, 0);
 }
 
-// State of a row for its colour bar: 'full' | 'part' | 'empty' | 'none' (nothing asked for)
+// State of a row for its colour bar: 'full' | 'part' | 'empty' | 'none' (nothing asked for) | 'unknown' (no MA number yet)
 function pnRowState(row) {
-  var need = (row && row.need) || 0, open = pnOpenCount(row), filled = plFilled(row);
+  if (row && row.need == null) return 'unknown';
+  var need = row.need || 0, open = pnOpenCount(row), filled = plFilled(row);
   if (!need && !open) return 'none';
   if (!open) return 'full';
   return filled ? 'part' : 'empty';
 }
 
-// One entry per day of the week: { date, rows, open } (open = places still missing that day)
+// One entry per day of the week: { date, rows, open, unknown } (open = places still missing, unknown = rows without MA number)
 function pnDays(week, rows) {
   var out = [];
   for (var i = 0; i < 7; i++) {
     var d = plAddDays(week.weekStart, i), list = plSorted(rows || []).filter(function(r) { return r.date === d; });
-    out.push({ date: d, rows: list, open: list.reduce(function(n, r) { return n + pnOpenCount(r); }, 0) });
+    out.push({ date: d, rows: list, open: list.reduce(function(n, r) { return n + pnOpenCount(r); }, 0),
+      unknown: list.filter(function(r) { return r.need == null; }).length });
   }
   return out;
 }
@@ -100,8 +102,8 @@ function pnRowHtml(r) {
   var waiting = plOpenMeldungen(r, plApplied(r)), gone = {};
   plCancelsOnRow(r, st.keys[r.id], st.cancels, wpUsers).forEach(function(c) { if (c.index !== -1) gone[c.user_id] = true; });
   var nGone = Object.keys(gone).length;
-  var count = need || open ? filled + '/' + (need || filled) : (filled ? String(filled) : '');
-  var label = (r.venue || 'Ohne Ort') + (r.title ? ', ' + r.title : '') + (need ? ', ' + filled + ' von ' + need + ' besetzt' : '') +
+  var count = r.need == null ? 'MA?' : need || open ? filled + '/' + (need || filled) : (filled ? String(filled) : '');
+  var label = (r.venue || 'Ohne Ort') + (r.title ? ', ' + r.title : '') + (r.need == null ? ', MA-Zahl fehlt noch' : need ? ', ' + filled + ' von ' + need + ' besetzt' : '') +
     (waiting ? ', ' + waiting + (waiting === 1 ? ' Meldung' : ' Meldungen') : '') + (nGone ? ', ' + nGone + ' abgesagt' : '');
   return '<button type="button" class="pn-row pn-' + pnRowState(r) + '" onclick="pnOpen(\'' + jsAttrArg(r.id) + '\')" aria-label="' + pnE(label) + '">' +
     '<span class="pn-time"><b>' + pnE(w.time || '–') + '</b><small>' + pnE(w.label || (r.phase ? PL_PHASE[r.phase] : '')) + '</small></span>' +
@@ -157,8 +159,9 @@ function pnStripHtml(days) {
   var today = localDateStr();
   return '<nav class="pn-strip" aria-label="Tage der Woche">' + days.map(function(d) {
     var dt = plUtc(d.date), mark = !d.rows.length ? '<em class="pn-strip-none">–</em>'
-      : d.open ? '<em class="pn-strip-open">' + d.open + '</em>' : '<em class="pn-strip-ok">✓</em>';
-    var label = PL_DAYS[dt.getUTCDay()] + ' ' + dt.getUTCDate() + '.: ' + (!d.rows.length ? 'kein Einsatz' : d.open ? d.open + ' offen' : 'alles besetzt');
+      : d.open ? '<em class="pn-strip-open">' + d.open + '</em>' : d.unknown ? '<em class="pn-strip-unknown">?</em>' : '<em class="pn-strip-ok">✓</em>';
+    var label = PL_DAYS[dt.getUTCDay()] + ' ' + dt.getUTCDate() + '.: ' + (!d.rows.length ? 'kein Einsatz' : d.open ? d.open + ' offen' : d.unknown ? 'MA-Zahl fehlt' : 'alles besetzt') +
+      (d.open && d.unknown ? ', bei ' + d.unknown + ' fehlt die MA-Zahl' : '');
     return '<button type="button" class="pn-strip-day' + (d.date === today ? ' pn-today' : '') + '" aria-label="' + pnE(label) + '" onclick="pnJump(\'' + d.date + '\')">' +
       '<span>' + PL_DAYS_SHORT[dt.getUTCDay()] + '</span><b>' + dt.getUTCDate() + '</b>' + mark + '</button>';
   }).join('') + '</nav>';
@@ -272,11 +275,11 @@ function pnSheetPaint() {
   // Places: the stepper (an Auftrag's number is the PL's, written to order_staffing; a free entry's is the planner's)
   var canNeed = row.job_no ? ((typeof ordCanEdit === 'function') && ordCanEdit()) : can;
   var stepper = '<div class="pn-need">' +
-    '<div><b>' + (need ? filled + ' von ' + need + ' besetzt' : filled ? filled + ' eingeplant' : 'Noch keine MA gebraucht') + '</b>' +
+    '<div><b>' + (row.need == null ? 'Wie viele MA? Noch nicht eingetragen' : need ? filled + ' von ' + need + ' besetzt' : filled ? filled + ' eingeplant' : 'Noch keine MA gebraucht') + '</b>' +
       '<span>' + (row.job_no ? 'MA laut Auftrag ' + pnE(row.job_no) : 'MA für diesen Eintrag') + '</span></div>' +
     (canNeed ? '<div class="ord-step" role="group" aria-label="MA gebraucht">' +
       '<button type="button" aria-label="Einen MA weniger"' + (need ? '' : ' disabled') + ' onclick="pnNeed(' + id + ', -1)">' + ORD_ICON.minus + '</button>' +
-      '<output>' + need + '<small>MA</small></output>' +
+      '<output>' + (row.need == null ? '–' : need) + '<small>MA</small></output>' +
       '<button type="button" aria-label="Einen MA mehr"' + (need >= 99 ? ' disabled' : '') + ' onclick="pnNeed(' + id + ', 1)">' + ORD_ICON.plus + '</button></div>' : '') +
   '</div>';
 

@@ -85,7 +85,8 @@ function plWannText(phase, startAt, endAt) {
   return (label ? label + ': ' : '') + t + ' Uhr';
 }
 
-// One Auftrag phase (order_slots row) → a new draft row; accepted Meldungen are placed right away
+// One Auftrag phase (planner_order_phases / order_slots row) → a new draft row; accepted Meldungen are placed right away.
+// need null = no MA number entered yet ("MA?" in PLANEN)
 function plRowFromSlot(slot, week, users) {
   var title = String(slot.title || ''), event = title.split('_').slice(2).join(' ').trim();
   var people = [];
@@ -97,7 +98,7 @@ function plRowFromSlot(slot, week, users) {
     year: week.year, kw: week.kw, date: ordSlotDate(slot), sort: 0, job_no: slot.job_no, phase: slot.phase,
     venue: ordVenueLabel(title) || plText(title), location: plText([event, slot.room].filter(Boolean).join('\n')),
     title: plText(slot.name), details: null, wann: plText(plWannText(slot.phase, slot.start_at, slot.end_at)),
-    ap: null, ap_user_id: null, notes: null, need: slot.needed == null ? 0 : slot.needed, people: people, kind: 'auftrag'
+    ap: null, ap_user_id: null, notes: null, need: slot.needed == null ? null : slot.needed, people: people, kind: 'auftrag'
   };
 }
 
@@ -475,6 +476,17 @@ async function plLoadFlag() {
 
 function plTabVisible() { return !!window.plReady && plCanOpen(plWho()); }
 
+// Every Auftrag phase, also without an MA number (planner_order_phases, migration planen_flow); before that migration
+// the Wochenplan's order_slots (phases with MA > 0 only). null = could not load.
+async function plLoadPhases() {
+  try {
+    var r = await supabaseClient.rpc('planner_order_phases');
+    if (!r.error) return r.data || [];
+    console.warn('planner_order_phases fehlt, nehme order_slots:', r.error);
+  } catch (e) { console.warn('planner_order_phases:', e); }
+  return wpLoadSlots();
+}
+
 function plBounds() {
   var min = plMonday(localDateStr());
   return { min: min, max: plAddDays(min, PL_WEEKS_AHEAD * 7) };
@@ -521,7 +533,7 @@ async function plRender() {
       supabaseClient.from('plan_draft_weeks').select('*').eq('year', week.year).eq('kw', week.kw).maybeSingle(),
       supabaseClient.from('plan_draft_shifts').select('*').eq('year', week.year).eq('kw', week.kw),
       supabaseClient.from('plan_weeks').select('id, version, file_name').eq('year', week.year).eq('kw', week.kw).maybeSingle(),
-      wpLoadSlots(),
+      plLoadPhases(),
       supabaseClient.from('availability').select('user_id, day, level').gte('day', week.weekStart).lte('day', week.weekEnd),
       supabaseClient.from('order_applications').select('*'), // '*': vorbehalt only after migration jenni_runde_3
       supabaseClient.rpc('availability_people'),
