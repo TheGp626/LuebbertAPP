@@ -133,7 +133,6 @@ body { color: var(--w-ink); -webkit-font-smoothing: antialiased; font-size: 15px
 
 /* ── Logo (brand guide: never altered, minimum 32 px; the white version on dark) ── */
 .w-logo { display: block; height: auto; }
-.w-logo-auth { width: 160px; margin: 0 auto 20px; }
 .w-logo-home { width: 140px; margin: 2px 0 18px; }
 .w-logo-dark { display: none; }
 [data-theme="dark"] .w-logo-light { display: none; }
@@ -298,11 +297,22 @@ input[type="text"], input[type="search"], input[type="number"], input[type="date
 .ui-seg > button { flex: 1 0 auto; padding: 0 12px; white-space: nowrap; }
 
 /* Login */
-#auth-overlay { background: var(--w-paper) !important; }
+/* Login: brand header (teal, petal pattern, white logo as on page 3 of the brand guide), the card overlaps it */
+#auth-overlay { position: fixed; inset: 0; z-index: 10000; flex-direction: column; align-items: center; overflow-y: auto;
+  background: var(--w-paper) !important; padding: 0 0 24px; box-sizing: border-box; }
+.auth-hero { position: relative; flex: 0 0 auto; width: 100%; height: 40vh; min-height: 260px; padding-bottom: 48px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; overflow: hidden; background: #56ADC2; }
+.auth-hero::before { content: ''; position: absolute; inset: 0; opacity: .16; background: url(../icons/logo-mark-white.png) center / 42px auto round; }
+.auth-logo { position: relative; width: 180px; height: auto; }
+[data-theme="dark"] .auth-hero { background: #1E5866; }
+@media (prefers-color-scheme: dark) { [data-theme="auto"] .auth-hero { background: #1E5866; } }
+.auth-card { position: relative; width: calc(100% - 32px); max-width: 400px; margin: -56px 16px 0 !important; padding: 28px 22px 22px !important;
+  cursor: default; box-shadow: 0 12px 32px rgba(31, 34, 35, .12); }
+.auth-card #auth-sub { margin: 0 0 18px; }
+.auth-card #auth-submit-btn { margin-top: 4px; }
 #auth-overlay > .ui-card { border: 0; border-radius: var(--w-petal); text-align: left !important; }
-#auth-title { font-family: var(--w-display); font-size: 34px; font-weight: 300; line-height: 1.05; margin-top: 6px; }
+#auth-title { font-family: var(--w-display); font-size: 34px; font-weight: 300; line-height: 1.05; margin: 0 0 6px; }
 #auth-overlay .ui-btn-primary { min-height: 52px; font-size: 16px; }
-#auth-overlay > .ui-card > img { margin-left: 0 !important; }
 
 /* Sheets, modals, toasts */
 .sig-modal-inner { border: 0; border-radius: var(--w-r-card); background: var(--w-paper); }
@@ -552,8 +562,9 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
   body.w-has-tabbar .app { padding-left: 104px; box-sizing: border-box; }
   .w-tabbar { position: fixed; left: 0; top: 0; bottom: 0; width: 104px; flex-direction: column; align-items: stretch; gap: 2px;
     padding: 18px 8px; border-top: 0; border-right: 1px solid var(--w-soft); overflow-y: auto; }
-  .w-tabbar::before { content: ''; display: block; height: 34px; margin: 0 0 14px; background: url(../icons/logo.png) left center / auto 28px no-repeat;
-    background-size: 150px auto; background-position: 4px center; width: 34px; overflow: hidden; align-self: center; }
+  /* The petal mark on its own (icons/logo-mark.png, cut from the brand-guide logo; at least 32 px per the guide) */
+  .w-tabbar::before { content: ''; display: block; flex: 0 0 auto; width: 40px; height: 46px; margin: 0 0 16px; align-self: center;
+    background: url(../icons/logo-mark.png) center / contain no-repeat; }
   .w-tab { flex: 0 0 auto; height: 64px; border-radius: var(--w-r-ctl); }
   .w-tab:hover { background: var(--w-tint); }
   .w-tab:last-child { margin-top: auto; }

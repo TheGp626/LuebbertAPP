@@ -13,17 +13,18 @@
 
   <link rel="stylesheet" href="css/style.css?v=46">
   <link rel="stylesheet" href="css/ui.css?v=55">
-  <link rel="stylesheet" href="css/werk.css?v=35">
+  <link rel="stylesheet" href="css/werk.css?v=36">
 </head>
 
 <body>
   <!-- ── AUTH OVERLAY ── -->
-  <div id="auth-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg); z-index: 10000; flex-direction: column; align-items: center; justify-content: center; padding: 20px; overflow-y: auto;">
-    <div class="ui-card" style="width: 100%; max-width: 400px; padding: 24px 20px; margin: 0; cursor: default; text-align: center;">
-      <img src="icons/logo-vertical.png" class="w-logo w-logo-auth w-logo-light" alt="Lübbert Event Interiors" width="480" height="327">
-      <img src="icons/logo-vertical-white.png" class="w-logo w-logo-auth w-logo-dark" alt="" width="480" height="327">
-      <h2 id="auth-title" class="ui-title" style="margin-bottom: 6px;">Login</h2>
-      <p id="auth-sub" class="ui-sub" style="margin-bottom: 18px;">Wähle deinen Namen aus.</p>
+  <div id="auth-overlay" style="display: none;">
+    <div class="auth-hero">
+      <img src="icons/logo-vertical-white.png" class="auth-logo" alt="Lübbert Event Interiors" width="480" height="327">
+    </div>
+    <div class="ui-card auth-card">
+      <h2 id="auth-title" class="ui-title">Willkommen</h2>
+      <p id="auth-sub" class="ui-sub">Wähle deinen Namen aus.</p>
       <div id="auth-error" style="color: var(--danger); font-size: 13px; margin-bottom: 12px; display: none;"></div>
       <div class="ui-field" style="position: relative;">
         <input type="text" id="auth-name-input" placeholder="Name tippen oder auswählen…" autocomplete="off" autocapitalize="words" />
@@ -35,8 +36,7 @@
         <input type="password" id="auth-pin-repeat" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="new-password" style="display: none; margin-top: 8px;" placeholder="PIN wiederholen" />
         <input type="password" id="auth-admin-pin" autocomplete="off" style="display: none; margin-top: 8px;" placeholder="Admin-Passwort (nur beim ersten Mal)" />
       </div>
-      <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="ui-btn ui-btn-primary ui-btn-block" style="margin-bottom: 12px;">Anmelden</button>
-      <div class="ui-sub" style="font-size: 12px;">Powered by Supabase</div>
+      <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="ui-btn ui-btn-primary ui-btn-block">Anmelden</button>
     </div>
     <button type="button" class="problem-link" onclick="openProblemForm()">Problem melden</button>
   </div>
@@ -985,7 +985,7 @@
   <script src="js/supabase-config.js?v=10"></script>
   <script src="js/auth.js?v=50"></script>
   <script src="js/viewas.js?v=1"></script>
-  <script src="js/logo.js?v=9"></script>
+  <script src="js/logo.js?v=10"></script>
   <script src="js/formulas.js?v=21"></script>
   <script src="js/utils.js?v=28"></script>
   <script src="js/ui.js?v=11"></script>
