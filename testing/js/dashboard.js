@@ -688,8 +688,8 @@ async function refreshDashboardOnce() {
   try {
     await ensureRateUsers();
     // Explicit columns: '*' would also load every signature image (signature_text, ~11 KB each)
-    const protSelect = (withEdited) => `
-        id, date, action, is_holiday, total_cost, al_id, pl_id, job_no, created_by,${withEdited ? ' edited_by, edited_at, photos, side_of,' : ''}
+    const protSelect = (withEdited, withChanged) => `
+        id, date, action, is_holiday, total_cost, al_id, pl_id, job_no, created_by,${withEdited ? ' edited_by, edited_at, photos, side_of,' : ''}${withChanged ? ' changed_after_mail_at,' : ''}
         notes_damages, notes_incidents, notes_feedback,
         al_name_fallback, pl_name_fallback, created_at, mailed_at,
         projects(name, location),
@@ -701,8 +701,10 @@ async function refreshDashboardOnce() {
         protocol_equipments(*),
         worker_ratings(temp_worker_name, rating, is_star)
       `;
-    const load = (withEdited) => sbFetchAll(() => supabaseClient.from('protocols').select(protSelect(withEdited)).order('date', { ascending: false }).order('id'));
-    let { data: protocols, error: protError } = await load(true);
+    const load = (withEdited, withChanged) => sbFetchAll(() => supabaseClient.from('protocols').select(protSelect(withEdited, withChanged)).order('date', { ascending: false }).order('id'));
+    let { data: protocols, error: protError } = await load(true, true);
+    // changed_after_mail_at not migrated yet (20261211): load without it
+    if (protError && /changed_after_mail_at/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(true, false));
     // edited_by/edited_at/photos/side_of not migrated yet: load without them
     if (protError && /edited_|photos|side_of/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(false));
     if (protError) throw protError;
@@ -901,7 +903,8 @@ function renderDashboardTable() {
     const plName = p.pl ? p.pl.full_name : (p.pl_name_fallback || '');
     const costStr = (p.total_cost || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 }) + ' €';
     const holidayTag = (p.is_holiday ? ' <span class="ui-pill ui-pill-warn">Feiertag</span>' : '') +
-      (p.side_of ? ' <span class="ui-pill">Zusatz zu ' + escapeHtml(dashSideLabel(p.side_of)) + '</span>' : '');
+      (p.side_of ? ' <span class="ui-pill">Zusatz zu ' + escapeHtml(dashSideLabel(p.side_of)) + '</span>' : '') +
+      (p.changed_after_mail_at ? ' <span class="ui-pill ui-pill-warn" title="Nach dem ersten Versand geändert, siehe Verlauf">nach Versand geändert</span>' : '');
     const plLine = plName ? `<div class="ui-sub">PL ${escapeHtml(plName)}</div>` : '';
 
     tr.innerHTML = `
@@ -1942,6 +1945,11 @@ function openDashDetail(id) {
   const modal = document.getElementById('dash-detail-modal');
   if (!modal) return;
 
+  const hist = document.getElementById('det-history');
+  if (hist) hist.innerHTML = (p.changed_after_mail_at ? '<div class="ui-pill ui-pill-warn" style="margin-bottom:8px;">nach Versand geändert, zuletzt ' +
+      escapeHtml(new Date(p.changed_after_mail_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })) + '</div>' : '') +
+    '<button type="button" class="ui-btn dash-small-btn" onclick="dashLoadHistory(\'' + escapeHtml(id) + '\')">Verlauf anzeigen</button>';
+
   // ── Header ──
   document.getElementById('det-title').textContent = p.projects ? p.projects.name : 'Protokoll';
   const holidayBadge = p.is_holiday
@@ -2222,6 +2230,83 @@ function renderDashPeActionSeg() {
 function setDashPeAction(v) {
   document.getElementById('pe-action').value = v;
   renderDashPeActionSeg();
+}
+
+// ── Verlauf (protocol_changes, migration 20261211): who changed what, when, old → new ──
+var DASH_CHANGE_FIELDS = { start_time: 'Start', end_time: 'Ende', pause_mins: 'Pause', position_role: 'Rolle', user_id: 'Person',
+  temp_worker_name: 'Name', shift_date: 'Datum', date: 'Datum', action: 'Aktion', total_cost: 'Kosten', is_holiday: 'Feiertag',
+  notes_damages: 'Mängel', notes_incidents: 'Vorkommnisse', notes_feedback: 'Feedback', job_no: 'Projektnummer', project_id: 'Projekt',
+  al_id: 'AL', pl_id: 'PL', al_name_fallback: 'AL', pl_name_fallback: 'PL', side_of: 'Zusatz zu', shortages: 'Fehlmengen', photos: 'Fotos',
+  vehicle_type: 'Fahrzeug', driver_name: 'Fahrer', driver_user_id: 'Fahrer', punctuality: 'Pünktlichkeit', delay_mins: 'Verspätung',
+  driver_hours: 'Fahrerstunden', cost: 'Kosten', night: 'Nachtfahrt', category_id: 'Bereich', note: 'Notiz',
+  hussen_delivered: 'Hussen geliefert', hussen_returned: 'Hussen zurück', ort: 'Ort' };
+var DASH_ATT_LABELS = { verspaetet: 'verspätet', abgesagt: 'kurzfristig abgesagt', krank: 'krank', nicht_erschienen: 'nicht erschienen' };
+
+function dashChangeVal(k, v, users) {
+  if (v === null || v === undefined || v === '') return '—';
+  if ((k === 'user_id' || k === 'al_id' || k === 'pl_id' || k === 'driver_user_id') && users) {
+    var u = users.find(function(x) { return x.id === v; });
+    return u ? u.full_name : 'jemand anderes';
+  }
+  if (k === 'start_time' || k === 'end_time') return String(v).substring(0, 5);
+  if (k === 'pause_mins' || k === 'delay_mins') return v + ' min';
+  if (k === 'status') return DASH_ATT_LABELS[v] || v;
+  if (typeof v === 'boolean') return v ? 'ja' : 'nein';
+  if (typeof v === 'object') return Array.isArray(v) ? v.length + ' Einträge' : 'geändert';
+  var s = String(v);
+  return s.length > 60 ? s.slice(0, 57) + '…' : s;
+}
+
+// Who a row is about: person of a shift / Anwesenheit, vehicle, equipment area
+function dashChangeSubject(c, users) {
+  if (c.subject) return c.subject; // set by the server (person name, vehicle, area)
+  var r = Object.assign({}, c.old_values || {}, c.new_values || {});
+  if (c.table_name === 'shifts' || c.table_name === 'protocol_attendance') return r.user_id ? dashChangeVal('user_id', r.user_id, users) : (r.temp_worker_name || 'Person');
+  if (c.table_name === 'protocol_transports') return r.vehicle_type || 'Fahrzeug';
+  if (c.table_name === 'protocol_equipments') return r.category_id || 'Equipment';
+  return '';
+}
+
+// Lines for the Verlauf, newest first. A delete and an insert with the same content by the same person within two minutes
+// is the protocol form rewriting its vehicles/equipment, not a change, and is left out.
+function dashChangeLines(changes, users) {
+  var list = (changes || []).slice().sort(function(a, b) { return String(b.changed_at).localeCompare(String(a.changed_at)); });
+  var same = function(a, b) { return JSON.stringify(a || {}) === JSON.stringify(b || {}); };
+  var dropped = {};
+  list.forEach(function(d, i) {
+    if (d.action !== 'delete' || dropped[i]) return;
+    var j = list.findIndex(function(x, k) {
+      return !dropped[k] && k !== i && x.action === 'insert' && x.table_name === d.table_name && x.changed_by === d.changed_by &&
+        Math.abs(new Date(x.changed_at) - new Date(d.changed_at)) < 120000 && same(x.new_values, d.old_values);
+    });
+    if (j !== -1) { dropped[i] = true; dropped[j] = true; }
+  });
+  return list.filter(function(_, i) { return !dropped[i]; }).map(function(c) {
+    var who = c.changed_by && users ? (users.find(function(u) { return u.id === c.changed_by; }) || {}).full_name : null;
+    var subj = dashChangeSubject(c, users), text;
+    var what = { shifts: 'Schicht', protocol_attendance: 'Anwesenheit', protocol_transports: 'Fahrzeug', protocol_equipments: 'Equipment', protocols: 'Protokoll' }[c.table_name] || c.table_name;
+    if (c.action === 'insert') text = what + ' hinzugefügt' + (subj ? ': ' + subj : '') + (c.table_name === 'protocol_attendance' ? ' (' + dashChangeVal('status', (c.new_values || {}).status) + ')' : '');
+    else if (c.action === 'delete') text = what + ' entfernt' + (subj ? ': ' + subj : '');
+    else text = (subj ? subj + ': ' : '') + Object.keys(c.new_values || {}).map(function(k) {
+      return (DASH_CHANGE_FIELDS[k] || (k === 'status' ? 'Anwesenheit' : k)) + ' ' + dashChangeVal(k, (c.old_values || {})[k], users) + ' → ' + dashChangeVal(k, c.new_values[k], users);
+    }).join(', ');
+    return { at: c.changed_at, who: who || 'Unbekannt', text: text };
+  });
+}
+
+async function dashLoadHistory(protId) {
+  var box = document.getElementById('det-history');
+  if (!box) return;
+  box.innerHTML = '<div class="ui-sub">Lädt…</div>';
+  var r = await supabaseClient.from('protocol_changes').select('table_name, subject, action, old_values, new_values, changed_by, changed_at')
+    .eq('protocol_id', protId).order('changed_at', { ascending: false }).limit(300);
+  if (_editProtId !== protId) return;
+  if (r.error) { box.innerHTML = '<div class="ui-sub">Verlauf ist noch nicht verfügbar.</div>'; return; }
+  var lines = dashChangeLines(r.data, typeof appUsers !== 'undefined' ? appUsers : []);
+  box.innerHTML = lines.length ? '<div class="dash-history">' + lines.map(function(l) {
+    return '<div class="ui-row"><div class="ui-row-main"><div class="ui-row-title">' + escapeHtml(l.text) + '</div><div class="ui-sub">' +
+      escapeHtml(l.who + ' · ' + new Date(l.at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })) + '</div></div></div>';
+  }).join('') + '</div>' : '<div class="ui-sub">Seit dem ersten Speichern nicht geändert.</div>';
 }
 
 // "Zuletzt bearbeitet von … am …" (protocols.edited_by / edited_at, set by the database on every change by a person)
