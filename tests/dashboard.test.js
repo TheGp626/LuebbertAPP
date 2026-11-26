@@ -952,3 +952,19 @@ test('dashPeNewShortBreaks: only breaks this edit makes too short need a reason;
   assert.deepEqual(plain(run('dashPeNewShortBreaks')(old, rows)), ['Bert 0 min (mind. 30)', 'Neu 30 min (mind. 45)']);
   assert.deepEqual(plain(run('dashPeNewShortBreaks')(old, [rows[0]])), []);
 });
+
+test('nachgetragen: needs a Freigabe (Admin/PL) before booking; month booking skips it; row shows the pill', () => {
+  assert.deepEqual(['MA', 'AL', 'PL', 'Buchhaltung', 'Admin'].map(r => run('dashMayApprove(' + JSON.stringify(r) + ')')), [false, false, true, false, true]);
+  const shifts = [
+    { id: 'a', user_id: 'u1', status: 'offen', shift_date: '2026-10-25', self_entered: true },
+    { id: 'b', user_id: 'u1', status: 'offen', shift_date: '2026-10-26', self_entered: true, approved_at: '2026-10-27T10:00:00Z' },
+    { id: 'c', user_id: 'u1', status: 'offen', shift_date: '2026-10-27' },
+  ];
+  assert.deepEqual([...ctx.dashUnbookedInMonth(shifts, '2026-11', 20).ids], ['b', 'c']);
+  const row = s => run('dashShiftRowHtml(' + JSON.stringify(Object.assign({ id: 's1', shift_date: '2026-11-10', start_time: '08:00:00', end_time: '16:00:00', pause_mins: 30, status: 'offen' }, s)) + ', true)');
+  assert.match(row({ self_entered: true }), /ui-pill-warn"[^>]*>nachgetragen/);
+  assert.match(row({ self_entered: true }), /erst freigeben/);
+  assert.doesNotMatch(row({ self_entered: true }), /shift-booked-cb/);
+  assert.match(row({ self_entered: true, approved_at: '2026-11-11T08:00:00Z' }), /nachgetragen · frei[\s\S]*shift-booked-cb/);
+  assert.doesNotMatch(row({}), /nachgetragen/);
+});

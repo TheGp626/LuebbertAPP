@@ -398,16 +398,17 @@ test('serverShiftPause: the stored pause wins (also 0), automatic pause only whe
   assert.equal(f({ start_time: null, end_time: null }), '0');
 });
 
-test('szFutureDayIdx: filled shifts after tomorrow are refused, today and tomorrow are fine', () => {
+test('szFutureDayIdx: own shifts today or later are refused, past days and protocol shifts are fine', () => {
   const f = new Function(gs('szFutureDayIdx') + '; return szFutureDayIdx;')();
   const mon = new Date(2026, 10, 16), today = new Date(2026, 10, 20, 16, 0); // Fri 20.11.
   const days = Array.from({ length: 7 }, () => ({ shifts: [{ von: '', bis: '' }] }));
+  days[3].shifts = [{ von: '08:00', bis: '16:00' }]; // Thu yesterday
   days[4].shifts = [{ von: '08:00', bis: '16:00' }]; // Fri today
   days[5].shifts = [{ von: '23:00', bis: '07:30' }]; // Sat tomorrow
-  days[6].shifts = [{ von: '02:30', bis: '07:30' }]; // Sun after tomorrow
-  assert.deepEqual(f(mon, days, today), [6]);
-  assert.deepEqual(f(new Date(2026, 11, 7), days, today), [4, 5, 6]); // a December week
-  days[6].shifts = [{ von: '02:30', bis: '' }];
+  assert.deepEqual(f(mon, days, today), [4, 5]);
+  assert.deepEqual(f(new Date(2026, 11, 7), days, today), [3, 4, 5]); // a December week
+  days[4].shifts = [{ von: '08:00', bis: '16:00', isProtocol: true }];
+  days[5].shifts = [{ von: '23:00', bis: '' }];
   assert.deepEqual(f(mon, days, today), []);
 });
 

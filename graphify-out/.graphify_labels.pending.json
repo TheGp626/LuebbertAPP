@@ -3,6 +3,7 @@
   "13": "plSave",
   "22": "saveProtDraft",
   "27": "renderProtSectionNav",
+  "28": "plan-ics.mjs",
   "44": "ask-shift/index.ts",
   "45": "buildProtPdfDoc",
   "46": "planen.js",
@@ -16,12 +17,16 @@
   "89": "pad",
   "90": "Lübbert App",
   "91": "20261204_planung_ein_schalter.sql",
-  "92": "renderDashMissing",
+  "92": "dashboard.js",
+  "93": "loadDashInsights",
   "94": "Lübbert App",
   "95": "20261130_gast_ohne_interne_dokumente.sql",
   "96": "public.plan_reminder_log",
   "97": "public.ask_log",
   "98": "frage.js",
   "99": "20261201_abteilungs_adressen.sql",
-  "100": "20261202_jenni_runde_3.sql"
+  "100": "20261202_jenni_runde_3.sql",
+  "101": "public.shifts_self_entry_guard",
+  "102": "plOpenOther",
+  "103": "debug-input.mjs"
 }
