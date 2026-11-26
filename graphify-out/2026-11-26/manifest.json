@@ -18,9 +18,9 @@
     "semantic_hash": ""
   },
   "js/auftraege.js": {
-    "mtime": 1795725654.5302484,
-    "seen": 1795726052.5233603,
-    "ast_hash": "41a1d9d01cb618b568a5dc5498eab98a",
+    "mtime": 1795728686.1858861,
+    "seen": 1795728758.8212302,
+    "ast_hash": "df548e012aee70d2d95b26764fabf541",
     "semantic_hash": ""
   },
   "js/auth.js": {
@@ -114,9 +114,9 @@
     "semantic_hash": ""
   },
   "js/order-parser.js": {
-    "mtime": 1795725654.5302484,
-    "seen": 1795726052.5233798,
-    "ast_hash": "77f9aec554958677b414c5b2eb977615",
+    "mtime": 1795728708.0562298,
+    "seen": 1795728758.8212535,
+    "ast_hash": "b643a113cd9a405d08b9ef5d1d687dfc",
     "semantic_hash": ""
   },
   "js/order-slots.js": {
@@ -126,9 +126,9 @@
     "semantic_hash": ""
   },
   "js/ordner.js": {
-    "mtime": 1795725753.6300929,
-    "seen": 1795726052.5233817,
-    "ast_hash": "61d74d12dbd01ce8d9193d3296487fae",
+    "mtime": 1795728686.1871314,
+    "seen": 1795728758.821256,
+    "ast_hash": "98a0a6fb8901f0fb4728875c22647a83",
     "semantic_hash": ""
   },
   "js/plan-parser.js": {
@@ -168,9 +168,9 @@
     "semantic_hash": ""
   },
   "js/protokoll.js": {
-    "mtime": 1795727586.547614,
-    "seen": 1795727636.1618345,
-    "ast_hash": "e3f8db966442f956dd8d0405c8e3d5b8",
+    "mtime": 1795728730.4840403,
+    "seen": 1795728758.821265,
+    "ast_hash": "8e488f3f521657d2725d18592c2470e4",
     "semantic_hash": ""
   },
   "js/settings.js": {
@@ -756,9 +756,9 @@
     "semantic_hash": ""
   },
   "sw.js": {
-    "mtime": 1795727858.139241,
-    "seen": 1795727879.2420344,
-    "ast_hash": "7a437a57c8f676cf3bc92fb76a668c0b",
+    "mtime": 1795728754.6279445,
+    "seen": 1795728758.8213975,
+    "ast_hash": "b10e1793b9131ce65ea10ca6c8ce8298",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
@@ -786,9 +786,9 @@
     "semantic_hash": ""
   },
   "index.html": {
-    "mtime": 1795727858.136653,
-    "seen": 1795727879.2420452,
-    "ast_hash": "911b2af2931aa25b89b8059a0496fd84",
+    "mtime": 1795728754.6243942,
+    "seen": 1795728758.821404,
+    "ast_hash": "021db7a57887cde3be2e78acc9dd5c73",
     "semantic_hash": ""
   },
   "supabase/migrations/20261209_nachgetragen_sperre.sql": {
