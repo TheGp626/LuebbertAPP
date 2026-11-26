@@ -72,9 +72,9 @@
     "semantic_hash": ""
   },
   "js/heute.js": {
-    "mtime": 1795725753.6291604,
-    "seen": 1795726052.5233717,
-    "ast_hash": "76b4aee97919ac908746d22647fd665c",
+    "mtime": 1795726923.337873,
+    "seen": 1795726965.9912896,
+    "ast_hash": "69e9a8f28794aec38f9a6ca213a7d40a",
     "semantic_hash": ""
   },
   "js/home.js": {
@@ -168,9 +168,9 @@
     "semantic_hash": ""
   },
   "js/protokoll.js": {
-    "mtime": 1795725753.6302783,
-    "seen": 1795726052.5233896,
-    "ast_hash": "a4f3e3a414f1f34949c041f441c4bcc6",
+    "mtime": 1795726923.3380787,
+    "seen": 1795726965.9913118,
+    "ast_hash": "07aed09ce0a3ea2016b86baaf613b813",
     "semantic_hash": ""
   },
   "js/settings.js": {
@@ -756,9 +756,9 @@
     "semantic_hash": ""
   },
   "sw.js": {
-    "mtime": 1795726469.8601093,
-    "seen": 1795726473.6804836,
-    "ast_hash": "3e85cfd3276c3834e04d8b656d8df180",
+    "mtime": 1795726923.3391938,
+    "seen": 1795726965.991444,
+    "ast_hash": "c96d3d49768f2c6ec7b54a2115361bc1",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
@@ -786,15 +786,33 @@
     "semantic_hash": ""
   },
   "index.html": {
-    "mtime": 1795726469.8570485,
-    "seen": 1795726473.680494,
-    "ast_hash": "89c8c404a0a5a83d7f46e00dbc57aa17",
+    "mtime": 1795726923.3374212,
+    "seen": 1795726965.991451,
+    "ast_hash": "98d2b25766c6430c48312e8a0c879ced",
     "semantic_hash": ""
   },
   "supabase/migrations/20261209_nachgetragen_sperre.sql": {
     "mtime": 1795726278.4663095,
     "seen": 1795726473.680481,
     "ast_hash": "b43316101ddd0ef779a84576828a4aba",
+    "semantic_hash": ""
+  },
+  "supabase/functions/notify-attendance/index.ts": {
+    "mtime": 1795726782.2190318,
+    "seen": 1795726965.9913464,
+    "ast_hash": "b48f2cf3b3c6da15b30f97ff7793969f",
+    "semantic_hash": ""
+  },
+  "supabase/functions/notify-attendance/notify.mjs": {
+    "mtime": 1795726762.309519,
+    "seen": 1795726965.991348,
+    "ast_hash": "aed0fe4bf5abcef10c92df9ec27c5fe4",
+    "semantic_hash": ""
+  },
+  "supabase/migrations/20261210_anwesenheit.sql": {
+    "mtime": 1795726587.5558774,
+    "seen": 1795726965.991443,
+    "ast_hash": "234271e99e10756ccd6a23d52fcf90de",
     "semantic_hash": ""
   }
 }

@@ -968,3 +968,22 @@ test('nachgetragen: needs a Freigabe (Admin/PL) before booking; month booking sk
   assert.match(row({ self_entered: true, approved_at: '2026-11-11T08:00:00Z' }), /nachgetragen · frei[\s\S]*shift-booked-cb/);
   assert.doesNotMatch(row({}), /nachgetragen/);
 });
+
+test('Verlauf: readable lines, newest first; delete+insert of the same vehicle by the form is left out', () => {
+  const users = [{ id: 'u-j', full_name: 'Jenni' }, { id: 'u-m', full_name: 'Max' }];
+  const ch = [
+    { table_name: 'shifts', subject: 'Eva', action: 'update', old_values: { end_time: '16:00:00', pause_mins: 30 }, new_values: { end_time: '17:00:00', pause_mins: 45 }, changed_by: 'u-j', changed_at: '2026-12-08T10:00:00Z' },
+    { table_name: 'protocol_transports', action: 'delete', old_values: { vehicle_type: 'Sprinter', driver_name: 'Tom' }, new_values: null, changed_by: 'u-j', changed_at: '2026-12-08T10:00:01Z' },
+    { table_name: 'protocol_transports', action: 'insert', old_values: null, new_values: { vehicle_type: 'Sprinter', driver_name: 'Tom' }, changed_by: 'u-j', changed_at: '2026-12-08T10:00:02Z' },
+    { table_name: 'protocol_attendance', action: 'insert', old_values: null, new_values: { user_id: 'u-m', temp_worker_name: null, status: 'krank' }, changed_by: 'u-j', changed_at: '2026-12-08T11:00:00Z' },
+    { table_name: 'shifts', action: 'delete', old_values: { user_id: null, temp_worker_name: 'Zed' }, new_values: null, changed_by: 'x', changed_at: '2026-12-08T09:00:00Z' },
+  ];
+  const l = JSON.parse(JSON.stringify(ctx.dashChangeLines(ch, users)));
+  assert.deepEqual(l.map(x => x.text), [
+    'Anwesenheit hinzugefügt: Max (krank)',
+    'Eva: Ende 16:00 → 17:00, Pause 30 min → 45 min',
+    'Schicht entfernt: Zed',
+  ]);
+  assert.equal(l[0].who, 'Jenni');
+  assert.equal(l[2].who, 'Unbekannt');
+});
