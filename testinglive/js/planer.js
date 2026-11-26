@@ -163,8 +163,7 @@ function plMergeSlots(rows, slots, week, users, now) {
   // move onto Daniel's row: it is removed once the job is linked there
   var untouched = {};
   (rows || []).forEach(function(r) {
-    if (r.job_no && r.id && inWeek[r.job_no + '|' + r.phase] && !(r.people || []).length && !(r.manual || []).length &&
-        !r.ap_user_id && !r.notes && !r.details && !(r.auftrag_changes || []).length) untouched[r.job_no + '|' + r.phase] = r.id;
+    if (r.id && inWeek[r.job_no + '|' + r.phase] && plUntouchedJobRow(r)) untouched[r.job_no + '|' + r.phase] = r.id;
   });
   Object.keys(inWeek).forEach(function(k) {
     if (have[k] && !untouched[k]) return;
@@ -183,6 +182,24 @@ function plMergeSlots(rows, slots, week, users, now) {
   });
   out.add.sort(function(a, b) { return a.date.localeCompare(b.date) || String(a.job_no).localeCompare(String(b.job_no)) || (a.phase === 'setup' ? -1 : 1); });
   return out;
+}
+
+// An Auftrag row the app made and nobody touched: no people, no hand edits, no AP, no notes, no material
+function plUntouchedJobRow(r) {
+  return !!r && !!r.job_no && !(r.people || []).length && !(r.manual || []).length && !r.ap_user_id && !r.notes && !r.details &&
+    !(r.auftrag_changes || []).length;
+}
+
+// "Auftrag zuordnen" by hand: target (a free row) takes the Auftrag of jobRow. An untouched jobRow goes away; one with
+// people or edits stays as a free row (it keeps its people and texts). → { remove, detach, patch } for plAttachJob.
+function plAttachPlan(target, jobRow) {
+  if (!target || !jobRow || target.job_no || !jobRow.job_no || target.id === jobRow.id) return null;
+  var patch = { job_no: jobRow.job_no, phase: jobRow.phase, date: jobRow.date };
+  if (jobRow.need != null && !target.need) patch.need = jobRow.need;
+  if ('manual' in target) patch.manual = ['wann', 'location', 'title'];
+  if ('kind' in target && plKind(target) === 'angebot') patch.kind = 'auftrag';
+  var untouched = plUntouchedJobRow(jobRow);
+  return { remove: untouched ? jobRow.id : null, detach: untouched ? null : { id: jobRow.id, changes: { job_no: null, phase: null } }, patch: patch };
 }
 
 function plIsDriver(p) { return !!p && p.role === 'Fahrer'; }
@@ -1004,6 +1021,7 @@ function plEditRow(id) {
     (st.hasOpen ? field('Fahrer fehlt noch (0 = keiner)', '<input type="number" id="pl-f-drivers" min="0" max="9" inputmode="numeric" value="' +
       plOpenOther(v).filter(function(o) { return o.role === 'Fahrer'; }).reduce(function(n, o) { return n + o.count; }, 0) + '">') : '') +
     field('Notizen', area('notes', 'z.B. Fahrzeug, Hinweise')) +
+    (row && planner && !job ? plJobPickHtml(row) : '') +
     '<div class="ui-sheet-actions">' +
       (row && planner ? '<button type="button" class="ui-btn ui-btn-danger" onclick="plDeleteRow(\'' + jsAttrArg(row.id) + '\')">Löschen</button>' : '') +
       '<button type="button" class="ui-btn" onclick="plCloseSheet()">Abbrechen</button>' +
@@ -1011,6 +1029,37 @@ function plEditRow(id) {
     '</div></div>';
   plCloseSheet();
   document.body.appendChild(m);
+}
+
+// Auftrag rows of the same day a free row can take over (manual link when the automatic match did not decide)
+function plJobPickHtml(row) {
+  var jobs = (plState.rows || []).filter(function(r) { return r.job_no && r.date === row.date && r.id !== row.id; });
+  if (!jobs.length) return '';
+  return '<label class="ui-field"><span>Auftrag zuordnen</span><select id="pl-f-job"><option value="">kein Auftrag</option>' +
+    jobs.map(function(r) {
+      return '<option value="' + plE(r.id) + '">' + plE(r.job_no + ' ' + (PL_PHASE[r.phase] || '') + ' · ' + (r.title || r.venue || '')) +
+        (plUntouchedJobRow(r) ? '' : ' (hat schon Leute)') + '</option>';
+    }).join('') + '</select><small class="ui-sub">Die Auftragszeile wird hier angehängt. Ist sie noch leer, verschwindet sie.</small></label>';
+}
+
+async function plAttachJob(target, jobRow) {
+  var plan = plAttachPlan(target, jobRow);
+  if (!plan) return false;
+  // first free the Auftrag (one row per job and phase), then hang it on the target
+  var first = plan.remove
+    ? await supabaseClient.from('plan_draft_shifts').delete().eq('id', plan.remove).select('id')
+    : await supabaseClient.from('plan_draft_shifts').update(plan.detach.changes).eq('id', plan.detach.id).select('id');
+  if (first.error || !first.data || !first.data.length) { console.error('Auftrag zuordnen:', first.error); showToast('Auftrag nicht zugeordnet.', 'danger'); return false; }
+  var up = await supabaseClient.from('plan_draft_shifts').update(plForInsert([plan.patch])[0]).eq('id', target.id).select('*');
+  if (up.error || !up.data || !up.data.length) { console.error('Auftrag zuordnen:', up.error); showToast('Auftrag nicht zugeordnet. Öffne Planen neu.', 'danger'); return false; }
+  var st = plState;
+  st.rows = st.rows.filter(function(r) { return r.id !== plan.remove; }).map(function(r) {
+    if (r.id === target.id) return up.data[0];
+    if (plan.detach && r.id === plan.detach.id) return Object.assign({}, r, plan.detach.changes);
+    return r;
+  });
+  showToast('Auftrag ' + jobRow.job_no + ' zugeordnet.');
+  return true;
 }
 
 async function plSaveSheet(id) {
@@ -1036,8 +1085,10 @@ async function plSaveSheet(id) {
   var btn = document.getElementById('pl-f-save');
   if (btn) btn.disabled = true;
   var ok;
+  var jobPick = val('job');
   if (row) {
     ok = await plSave(row, ch);
+    if (ok && jobPick) { var jr = plRowById(jobPick); if (jr) ok = await plAttachJob(plRowById(row.id) || row, jr); plPaint(); }
     // An Auftrag row: the MA number is the Auftrag's (order_staffing), so the crew's "Ich kann" and the next sync agree
     if (ok && row.job_no && (row.phase === 'setup' || row.phase === 'teardown') && ch.need !== undefined) await plSaveStaff(row.job_no, row.phase, ch.need);
   }
@@ -1167,7 +1218,7 @@ async function plExportPdf() {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { plCancelsOnRow: plCancelsOnRow, plReplacePerson: plReplacePerson, plUnmatchedCancels: plUnmatchedCancels, plMonday: plMonday, plWeekOf: plWeekOf, plShortName: plShortName, plWannText: plWannText, plRowFromSlot: plRowFromSlot,
-    plMergeSlots: plMergeSlots, plRowsFromPlan: plRowsFromPlan, plSeed: plSeed, plFilled: plFilled, plOpenSlots: plOpenSlots, plToParsed: plToParsed,
+    plMergeSlots: plMergeSlots, plAttachPlan: plAttachPlan, plUntouchedJobRow: plUntouchedJobRow, plRowsFromPlan: plRowsFromPlan, plSeed: plSeed, plFilled: plFilled, plOpenSlots: plOpenSlots, plToParsed: plToParsed,
     plCandidates: plCandidates, plSearchMatch: plSearchMatch, plPlaceRole: plPlaceRole, plCanEdit: plCanEdit, plCanPublish: plCanPublish, plCanOpen: plCanOpen, plPublishProblems: plPublishProblems,
     plLastChange: plLastChange, plHasUnpublished: plHasUnpublished, plKindOfColor: plKindOfColor, plKind: plKind, plWithoutKind: plWithoutKind, plWithout: plWithout, plOpenOther: plOpenOther, plTakeOpen: plTakeOpen, plSetOpen: plSetOpen, plRowKeys: plRowKeys, plAppliedFor: plAppliedFor, plVorbehaltFor: plVorbehaltFor, plOpenMeldungen: plOpenMeldungen, plMeldungTargets: plMeldungTargets, plWasText: plWasText, plWasSplit: plWasSplit, plIsAppWeek: plIsAppWeek, plAddPerson: plAddPerson, plRemovePerson: plRemovePerson, plRowPatch: plRowPatch, plWerLines: plWerLines, plPdfTable: plPdfTable };
 }
