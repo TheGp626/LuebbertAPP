@@ -9,7 +9,8 @@
 
 alter table public.shifts
   add column if not exists self_entered boolean not null default false,
-  add column if not exists approved_by uuid references public.app_users(id) on delete set null,
+  -- no FK: a second shifts → app_users link makes every shifts(app_users(…)) embed ambiguous (PostgREST)
+  add column if not exists approved_by uuid,
   add column if not exists approved_at timestamptz;
 
 create or replace function public.shifts_self_entry_guard() returns trigger
