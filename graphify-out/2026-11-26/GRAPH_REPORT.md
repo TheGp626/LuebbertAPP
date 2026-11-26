@@ -1,7 +1,7 @@
 # Graph Report - LuebbertAPP  (2026-11-26)
 
 ## Corpus Check
-- 137 files · ~202,997 words
+- 137 files · ~203,037 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 5 file(s) not represented in the graph (top: .css 3, (none) 2)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `a8d177ad`
+- Built from commit: `54747359`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -107,25 +107,25 @@
 1. `saveProtDraft()` - 26 edges
 2. `wpMe()` - 25 edges
 3. `runDaily()` - 23 edges
-4. `renderProtPersonnel()` - 21 edges
+4. `fetchShiftsNow()` - 21 edges
 5. `saveProtokoll()` - 21 edges
-6. `fetchShiftsNow()` - 21 edges
-7. `calcProtCosts()` - 18 edges
-8. `wpEsc()` - 18 edges
+6. `renderProtPersonnel()` - 21 edges
+7. `wpEsc()` - 18 edges
+8. `calcProtCosts()` - 18 edges
 9. `openMaterialCheck()` - 18 edges
 10. `plRender()` - 17 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `Task 7: Table view on wide screens` --references--> `pnTableHtml()`  [INFERRED]
   docs/superpowers/plans/2026-11-25-planen-flow.md → js/planen.js
-- `Review Focus` --references--> `plFilled()`  [INFERRED]
-  docs/superpowers/plans/2026-11-25-planen-flow.md → js/planer.js
+- `Task 6: Publish inside PLANEN` --references--> `wpCommitPlan()`  [INFERRED]
+  docs/superpowers/plans/2026-11-25-planen-flow.md → js/wochenplan.js
 - `Task 2: Every Auftrag phase reaches PLANEN ("MA?")` --references--> `wpLoadSlots()`  [INFERRED]
   docs/superpowers/plans/2026-11-25-planen-flow.md → js/wochenplan.js
 - `1. Every Auftrag phase reaches PLANEN` --references--> `wpLoadSlots()`  [INFERRED]
   docs/superpowers/specs/2026-11-25-planen-flow-design.md → js/wochenplan.js
-- `Task 6: Publish inside PLANEN` --references--> `plAfterPublish()`  [INFERRED]
-  docs/superpowers/plans/2026-11-25-planen-flow.md → js/planer.js
+- `Task 6: Publish inside PLANEN` --references--> `wpSaveImport()`  [INFERRED]
+  docs/superpowers/plans/2026-11-25-planen-flow.md → js/wochenplan.js
 
 ## Import Cycles
 - None detected.
@@ -457,16 +457,16 @@ Nodes (7): plFilled(), plIsDriver(), plOpenOther(), plOpenSlots(), plSetOpen(), 
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `planShiftFromDb()` connect `Plan Parsing Helpers` to `Weekly Plan View`, `planen.js`?**
-  _High betweenness centrality (0.038) - this node is a cross-community bridge._
+  _High betweenness centrality (0.039) - this node is a cross-community bridge._
 - **What connects `RFC-5545`, `RFC-5545` to the rest of the system?**
   _2 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `planer.js` be split into smaller, more focused modules?**
   _Cohesion score 0.14624505928853754 - nodes in this community are weakly interconnected._
 - **Why does `dashStartProtokollFromPlan()` connect `Plan Parsing Helpers` to `dashboard.js`?**
-  _High betweenness centrality (0.036) - this node is a cross-community bridge._
+  _High betweenness centrality (0.039) - this node is a cross-community bridge._
 - **Should `Weekly Plan View` be split into smaller, more focused modules?**
   _Cohesion score 0.0512287988923503 - nodes in this community are weakly interconnected._
 - **Why does `wpCommitPlan()` connect `Weekly Plan View` to `Plan Parsing Helpers`, `planen.js`?**
-  _High betweenness centrality (0.020) - this node is a cross-community bridge._
+  _High betweenness centrality (0.022) - this node is a cross-community bridge._
 - **Should `Timesheet Shifts` be split into smaller, more focused modules?**
   _Cohesion score 0.059574468085106386 - nodes in this community are weakly interconnected._

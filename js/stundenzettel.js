@@ -1286,20 +1286,16 @@ function collectData() {
   return { name: document.getElementById('inp-name').value || '', abt: used.length === 1 ? used[0] : selectedAbt, weekStart: v, weekLabel: weekLabelFromVal(v), days: days, total: document.getElementById('total-hours').textContent, saved: new Date().toISOString(), depts: used };
 }
 
-// Days (index 0 = Monday) with a filled own shift that has not started yet: a later day, or today with a start after now.
-// Hours are entered only afterwards (Jenni, 26.11.2026). The server enforces the same (shifts_self_entry_guard);
-// Admin, PL and Buchhaltung are exempt there and here. Protocol shifts are not own entries.
+// Days (index 0 = Monday) with a filled own shift after today. Hours are entered up to today, never ahead (Jenni,
+// 26.11.2026). The server enforces the same (shifts_self_entry_guard); Admin, PL and Buchhaltung are exempt there and
+// here. Protocol shifts are not own entries.
 var SZ_LOCK_FREE_ROLES = ['Admin', 'PL', 'Buchhaltung'];
 function szFutureDayIdx(mon, days, now) {
-  var today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), nowMin = now.getHours() * 60 + now.getMinutes();
+  var today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   return (days || []).map(function(dd, i) {
     var day = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i).getTime();
-    var locked = (dd.shifts || []).some(function(sh) {
-      if (!sh.von || !sh.bis || sh.isProtocol) return false;
-      var p = String(sh.von).split(':'), start = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
-      return day > today || (day === today && !(start <= nowMin));
-    });
-    return locked ? i : -1;
+    var filled = (dd.shifts || []).some(function(sh) { return sh.von && sh.bis && !sh.isProtocol; });
+    return filled && day > today ? i : -1;
   }).filter(function(i) { return i >= 0; });
 }
 
@@ -1310,7 +1306,7 @@ async function saveWeek() {
   var lockFree = typeof userRole !== 'undefined' && SZ_LOCK_FREE_ROLES.indexOf(userRole) !== -1;
   var future = lockFree ? [] : szFutureDayIdx(getMondayFromWeekVal(d.weekStart), d.days, new Date());
   if (future.length) {
-    showToast('Nur rückwirkend nachtragen, heute erst ab Beginn der Schicht (' + future.map(function(i) { return d.days[i].day + ' ' + d.days[i].date; }).join(', ') + ').', 'danger');
+    showToast('Nur bis heute nachtragen, zukünftige Zeiten trägt die AL im Protokoll ein (' + future.map(function(i) { return d.days[i].day + ' ' + d.days[i].date; }).join(', ') + ').', 'danger');
     return;
   }
 

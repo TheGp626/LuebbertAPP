@@ -1,6 +1,6 @@
 -- Stundenzettel nur rückwirkend (Jenni, Briefing 26.11.2026, Priorität 1):
--- 1. Own manual shifts (no protocol) of everyone but Admin, PL and Buchhaltung can only be entered afterwards: past days,
---    and today once the shift's start time has passed (Berlin). Later today and the future are locked.
+-- 1. Own manual shifts (no protocol) of everyone but Admin, PL and Buchhaltung can only be entered up to today (Berlin).
+--    Tomorrow and later are locked: the AL's protocol is the source of the hours.
 -- 2. Such shifts are marked shifts.self_entered ("nachgetragen") by the server and need a Freigabe
 --    (approved_by / approved_at) by Admin or PL before they can be booked ('eingetragen').
 --    Changing date or times of a nachgetragen shift as non-office clears the Freigabe.
@@ -27,11 +27,10 @@ begin
   moved := tg_op = 'INSERT' or new.shift_date is distinct from old.shift_date
            or new.start_time is distinct from old.start_time or new.end_time is distinct from old.end_time;
 
-  -- 1. Lock: own manual shifts only afterwards (today from the start time on)
+  -- 1. Lock: own manual shifts only up to today
   if not office and new.user_id = auth.uid() and new.protocol_id is null and moved
-     and (new.shift_date is null or new.shift_date > today
-          or (new.shift_date = today and (new.start_time is null or new.start_time > (now() at time zone 'Europe/Berlin')::time))) then
-    raise exception 'Schichten kannst du nur rückwirkend nachtragen, heute erst ab Beginn der Schicht. Zukünftige Zeiten trägt die AL im Protokoll ein.'
+     and (new.shift_date is null or new.shift_date > today) then
+    raise exception 'Schichten kannst du nur bis heute nachtragen. Zukünftige Zeiten trägt die AL im Protokoll ein.'
       using errcode = 'check_violation';
   end if;
 

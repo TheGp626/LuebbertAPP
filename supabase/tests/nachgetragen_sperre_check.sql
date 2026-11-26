@@ -6,14 +6,8 @@ begin
   select id into adm from public.app_users where role = 'Admin' and is_active is not false limit 1;
   perform set_config('request.jwt.claims', json_build_object('sub', ma, 'role', 'authenticated')::text, true);
 
-  -- today: open from the start time on, locked before it (needs a run between 00:30 and 23:30 Berlin)
-  insert into public.shifts (user_id, position_role, shift_date, start_time, end_time, status) values (ma, 'MA Minijob', today, '00:05', '00:20', 'offen');
-  ok := false;
-  begin
-    insert into public.shifts (user_id, position_role, shift_date, start_time, end_time, status) values (ma, 'MA Minijob', today, '23:45', '23:55', 'offen');
-  exception when check_violation then ok := true;
-  end;
-  if not ok then raise exception 'later today was not locked'; end if;
+  -- today is open, also later today
+  insert into public.shifts (user_id, position_role, shift_date, start_time, end_time, status) values (ma, 'MA Minijob', today, '23:45', '23:55', 'offen');
   ok := false;
   begin
     insert into public.shifts (user_id, position_role, shift_date, start_time, end_time, status) values (ma, 'MA Minijob', today + 1, '08:00', '09:00', 'offen');

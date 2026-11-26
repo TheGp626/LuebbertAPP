@@ -180,9 +180,9 @@
     "semantic_hash": ""
   },
   "js/stundenzettel.js": {
-    "mtime": 1795726404.1607504,
-    "seen": 1795726473.6802657,
-    "ast_hash": "1bfd9c9e796c5dc5c47295950a5e3f9a",
+    "mtime": 1795727796.0440404,
+    "seen": 1795727805.8298285,
+    "ast_hash": "ecac0bd188fe6d1bac34d7ab08504617",
     "semantic_hash": ""
   },
   "js/supabase-config.js": {
@@ -756,9 +756,9 @@
     "semantic_hash": ""
   },
   "sw.js": {
-    "mtime": 1795727613.2563684,
-    "seen": 1795727636.162015,
-    "ast_hash": "e47e1662ea304db72f648f26e03b1ffa",
+    "mtime": 1795727796.0551317,
+    "seen": 1795727805.829958,
+    "ast_hash": "34de3d74ba308b73768b6c4db426075e",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
@@ -786,15 +786,15 @@
     "semantic_hash": ""
   },
   "index.html": {
-    "mtime": 1795727613.2510366,
-    "seen": 1795727636.1620216,
-    "ast_hash": "022963efa73ffc1f55bed051a8b67448",
+    "mtime": 1795727796.0514467,
+    "seen": 1795727805.829964,
+    "ast_hash": "0d91bcd9556d56c1f84e7c4a6d38e4e2",
     "semantic_hash": ""
   },
   "supabase/migrations/20261209_nachgetragen_sperre.sql": {
-    "mtime": 1795726278.4663095,
-    "seen": 1795726473.680481,
-    "ast_hash": "b43316101ddd0ef779a84576828a4aba",
+    "mtime": 1795727760.4801457,
+    "seen": 1795727805.829953,
+    "ast_hash": "285401e6f3e52ebd0f7444be560c0bb5",
     "semantic_hash": ""
   },
   "supabase/functions/notify-attendance/index.ts": {
