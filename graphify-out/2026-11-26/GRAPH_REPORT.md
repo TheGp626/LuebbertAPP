@@ -1,17 +1,17 @@
 # Graph Report - LuebbertAPP  (2026-11-26)
 
 ## Corpus Check
-- 136 files · ~202,102 words
+- 137 files · ~202,997 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 5 file(s) not represented in the graph (top: .css 3, (none) 2)
 
 ## Summary
-- 1946 nodes · 4301 edges · 104 communities (78 shown, 26 thin omitted)
+- 1955 nodes · 4324 edges · 105 communities (79 shown, 26 thin omitted)
 - Extraction: 93% EXTRACTED · 7% INFERRED · 0% AMBIGUOUS · INFERRED: 297 edges (avg confidence: 0.87)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `082bbb5f`
+- Built from commit: `a8d177ad`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -79,7 +79,7 @@
 - Draft Plan Schema
 - Service Worker Cache
 - Changelog Popup
-- loadProtDraft
+- initProtokoll
 - plPlace
 - was drin ist
 - Plan Inbox Schema
@@ -100,44 +100,45 @@
 - frage.js
 - ref_npm_supabase
 - public.protocol_shift_replaces_own
+- plOpenOther
 - 20261030_ordner_auto_loeschen.sql
 
 ## God Nodes (most connected - your core abstractions)
 1. `saveProtDraft()` - 26 edges
 2. `wpMe()` - 25 edges
 3. `runDaily()` - 23 edges
-4. `fetchShiftsNow()` - 21 edges
-5. `saveProtokoll()` - 20 edges
-6. `renderProtPersonnel()` - 19 edges
-7. `wpEsc()` - 18 edges
-8. `calcProtCosts()` - 18 edges
+4. `renderProtPersonnel()` - 21 edges
+5. `saveProtokoll()` - 21 edges
+6. `fetchShiftsNow()` - 21 edges
+7. `calcProtCosts()` - 18 edges
+8. `wpEsc()` - 18 edges
 9. `openMaterialCheck()` - 18 edges
 10. `plRender()` - 17 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `3. Quick Einsatz without Bestätigung` --references--> `plEditRow()`  [INFERRED]
-  docs/superpowers/specs/2026-11-25-planen-flow-design.md → js/planer.js
+- `Task 7: Table view on wide screens` --references--> `pnTableHtml()`  [INFERRED]
+  docs/superpowers/plans/2026-11-25-planen-flow.md → js/planen.js
+- `Review Focus` --references--> `plFilled()`  [INFERRED]
+  docs/superpowers/plans/2026-11-25-planen-flow.md → js/planer.js
 - `Task 2: Every Auftrag phase reaches PLANEN ("MA?")` --references--> `wpLoadSlots()`  [INFERRED]
   docs/superpowers/plans/2026-11-25-planen-flow.md → js/wochenplan.js
 - `1. Every Auftrag phase reaches PLANEN` --references--> `wpLoadSlots()`  [INFERRED]
   docs/superpowers/specs/2026-11-25-planen-flow-design.md → js/wochenplan.js
 - `Task 6: Publish inside PLANEN` --references--> `plAfterPublish()`  [INFERRED]
   docs/superpowers/plans/2026-11-25-planen-flow.md → js/planer.js
-- `Task 3: Auftrag sync with hand-edit protection` --references--> `plDeleteRow()`  [INFERRED]
-  docs/superpowers/plans/2026-11-25-planen-flow.md → js/planer.js
 
 ## Import Cycles
 - None detected.
 
-## Communities (104 total, 26 thin omitted)
+## Communities (105 total, 26 thin omitted)
 
 ### Community 0 - "planer.js"
-Cohesion: 0.12
-Nodes (20): Global Constraints, plApplied(), plAppliedFor(), plFilled(), plForInsert(), plIsDriver(), plKindOfColor(), plNorm() (+12 more)
+Cohesion: 0.15
+Nodes (16): plAddDays(), plApplied(), plAppliedFor(), plBounds(), plDayShort(), plIso(), plMonday(), plNavHtml() (+8 more)
 
 ### Community 1 - "Weekly Plan View"
 Cohesion: 0.05
-Nodes (96): initWochenplan(), wpAddDays(), wpAskVorbehalt(), wpAvailCalendarHtml(), wpAvailDayHtml(), wpAvailGrid(), wpAvailGridBounds(), wpAvailGridStep() (+88 more)
+Nodes (101): PLANEN flow Implementation Plan, 6. Publish inside PLANEN, initWochenplan(), wpAddDays(), wpAskVorbehalt(), wpAvailCalendarHtml(), wpAvailDayHtml(), wpAvailGrid() (+93 more)
 
 ### Community 2 - "Timesheet Shifts"
 Cohesion: 0.06
@@ -152,8 +153,8 @@ Cohesion: 0.07
 Nodes (52): minorShiftIssues(), mitAddMonths(), mitAdminDeletePhoto(), mitAfterLogin(), mitAfterUserCreated(), mitAssign(), mitAssignTo(), mitAvatarInner() (+44 more)
 
 ### Community 5 - "Plan Parsing Helpers"
-Cohesion: 0.06
-Nodes (57): PLANEN flow Implementation Plan, Task 6: Publish inside PLANEN, 6. Publish inside PLANEN, dashMergePlanPeople(), dashStartProtokollFromPlan(), RFC-5545, nextOwnShift(), planAliasKey() (+49 more)
+Cohesion: 0.07
+Nodes (51): dashMergePlanPeople(), dashStartProtokollFromPlan(), RFC-5545, nextOwnShift(), planAliasKey(), planAlUserId(), planBandColor(), planBands() (+43 more)
 
 ### Community 6 - "PIN Authentication"
 Cohesion: 0.09
@@ -184,16 +185,16 @@ Cohesion: 0.09
 Nodes (34): addDepartment(), applyTheme(), closeSettingsModal(), closeSigModal(), cycleTheme(), deleteDepartment(), deptLabel(), exitToMenu() (+26 more)
 
 ### Community 13 - "plSave"
-Cohesion: 0.18
-Nodes (19): 4. Draft created on open, plAfterPublish(), plCanEdit(), plCanOpen(), plCanPublish(), plCloseSheet(), plDeleteRow(), plDeleteWeek() (+11 more)
+Cohesion: 0.15
+Nodes (21): 1. Every Auftrag phase reaches PLANEN, 3. Quick Einsatz without Bestätigung, 4. Draft created on open, 5. Planung may set MA numbers, 7. Table view on wide screens, Design (decided), plAfterPublish(), plCanEdit() (+13 more)
 
 ### Community 14 - "Reminder Edge Function"
 Cohesion: 0.11
 Nodes (41): CORS, Db, Input, json(), runDaily(), runEvening(), runHoursCheck(), runTest() (+33 more)
 
 ### Community 15 - "Protocol Form Helpers"
-Cohesion: 0.10
-Nodes (25): protAddPhotos(), protDriverBusyCount(), protDriverSame(), protFilterScope(), protGuessVehicleType(), protIsMine(), protKeepOnLogout(), protLogoutCleanup() (+17 more)
+Cohesion: 0.09
+Nodes (30): fetchAppUsers(), populateAlPlSelects(), protAddPhotos(), protCanRateStaff(), protDriverBusyCount(), protDriverSame(), protFilterScope(), protGuessVehicleType() (+22 more)
 
 ### Community 16 - "Push Subscriptions RLS"
 Cohesion: 0.10
@@ -220,8 +221,8 @@ Cohesion: 0.17
 Nodes (23): breadcrumb(), deviceString(), _errEnqueue(), _errInit(), errorContextSnapshot(), errorFingerprint(), errQueuePut(), _errQueueRead() (+15 more)
 
 ### Community 22 - "saveProtDraft"
-Cohesion: 0.12
-Nodes (29): addProtPersonnel(), addProtTransport(), calcProtCosts(), growProtText(), initProtokoll(), onProtDriverName(), onProtPersonnelName(), openProtCostSheet() (+21 more)
+Cohesion: 0.14
+Nodes (23): calcProtCosts(), onProtDriverName(), onProtPersonnelName(), openProtCostSheet(), protApplyPlanPersonnel(), protApplyPlanTransports(), protAutoNight(), protDraftOwner() (+15 more)
 
 ### Community 23 - "Dashboard Protocol Editing"
 Cohesion: 0.09
@@ -240,12 +241,12 @@ Cohesion: 0.18
 Nodes (25): addVehicleRateRow(), appSetting(), appSettingsFromCache(), changedSettings(), loadAppSettings(), _readSettingsForm(), readVehicleRates(), renderSettingsTab() (+17 more)
 
 ### Community 27 - "renderProtSectionNav"
-Cohesion: 0.15
-Nodes (18): protApplySide(), protApplyStep(), protBasisValues(), protCurrentStep(), protFindDuplicate(), protGoStep(), protIncompleteNames(), protLongerThanAl() (+10 more)
+Cohesion: 0.16
+Nodes (17): protApplySide(), protApplyStep(), protBasisValues(), protCurrentStep(), protFindDuplicate(), protGoStep(), protIncompleteNames(), protLongerThanAl() (+9 more)
 
 ### Community 28 - "20261211_protokoll_verlauf.sql"
 Cohesion: 0.11
-Nodes (16): public.shifts_self_entry_guard(), shifts_self_entry_guard, _att, protocol_attendance_person, protocol_attendance_user, public.attendance_alerts(), public.protocol_attendance, public.set_protocol_attendance() (+8 more)
+Nodes (19): public.shifts_self_entry_guard(), shifts_self_entry_guard, _att, protocol_attendance_person, protocol_attendance_user, public.attendance_alerts(), public.protocol_attendance, public.set_protocol_attendance() (+11 more)
 
 ### Community 29 - "Order Staffing Schema"
 Cohesion: 0.17
@@ -304,8 +305,8 @@ Cohesion: 0.22
 Nodes (10): plan_shift_interest_user_id_idx, public.plan_shift_interest, plan_shift_interest_decided, public.order_applications_decided(), plan_cancellations_decided, plan_cancellations_decided_by_idx, plan_cancellations_replacement_user_id_idx, plan_cancellations_user_id_idx (+2 more)
 
 ### Community 43 - "Protocol History Sync"
-Cohesion: 0.24
-Nodes (13): deleteProtHistory(), mailProtokoll(), markProtMailed(), mergeProtHistory(), protArchiveShrink(), protRowToEntry(), protSaveArchive(), renderProtHistory() (+5 more)
+Cohesion: 0.20
+Nodes (15): deleteProtHistory(), mailProtokoll(), markProtMailed(), mergeProtHistory(), protArchiveShrink(), protKeepOnLogout(), protLogoutCleanup(), protRowToEntry() (+7 more)
 
 ### Community 44 - "ask-shift/index.ts"
 Cohesion: 0.36
@@ -317,7 +318,7 @@ Nodes (13): buildProtPdfDoc(), getEffectivePersonnelRate(), pdfStr(), protAttend
 
 ### Community 46 - "planen.js"
 Cohesion: 0.07
-Nodes (57): Review Focus, Task 1: Migration `20261205_planen_flow`, Task 2: Every Auftrag phase reaches PLANEN ("MA?"), Task 4: Quick Einsatz, duplicate, Woche vorbereiten, Task 5: Draft on open, Planung sets MA numbers, Task 7: Table view on wide screens, initPlanen(), pnAlertsHtml() (+49 more)
+Nodes (54): Task 4: Quick Einsatz, duplicate, Woche vorbereiten, Task 5: Draft on open, Planung sets MA numbers, Task 6: Publish inside PLANEN, initPlanen(), pnAlertsHtml(), pnAsked(), pnAskRef(), pnAskTarget() (+46 more)
 
 ### Community 47 - "On-Site Plans"
 Cohesion: 0.33
@@ -340,8 +341,8 @@ Cohesion: 0.27
 Nodes (6): public.fits_plan_slot(), order_checks_plan_date_idx, order_checks_stamp, order_checks_updated_by_idx, public.order_check_mine(), public.order_checks
 
 ### Community 52 - "renderProtPersonnel"
-Cohesion: 0.26
-Nodes (14): protAttLabel(), protClampPause(), protIsAbsent(), protMinor(), protMinorWarnings(), protPauseHint(), protPauseHintText(), protPauseMin() (+6 more)
+Cohesion: 0.24
+Nodes (15): protAttLabel(), protClampPause(), protIsAbsent(), protMinor(), protMinorWarnings(), protPauseHint(), protPauseHintText(), protPauseMin() (+7 more)
 
 ### Community 53 - "Auth Display Names"
 Cohesion: 0.27
@@ -364,8 +365,8 @@ Cohesion: 0.43
 Nodes (6): _planApply(), _planHex(), _planMul(), _planReadPages(), _planShapes(), readPlanPdf()
 
 ### Community 58 - "Protocol Shift Picker"
-Cohesion: 0.21
-Nodes (13): clearProtForm(), clearProtSig(), initProtSig(), protIsBlank(), protPickManual(), protPickOrder(), protPickShift(), protPickWindow() (+5 more)
+Cohesion: 0.31
+Nodes (9): protIsBlank(), protPickManual(), protPickOrder(), protPickShift(), protPickWindow(), protRenderPick(), protRenderRestart(), protRestart() (+1 more)
 
 ### Community 59 - "Problem Report Form"
 Cohesion: 0.52
@@ -383,13 +384,13 @@ Nodes (3): assetUrlsOf(), LAZY_ASSETS, precache()
 Cohesion: 0.67
 Nodes (3): CHANGELOG, showChangelogIfNew(), unseenChangelog()
 
-### Community 63 - "loadProtDraft"
-Cohesion: 0.19
-Nodes (13): fetchAppUsers(), loadProtDraft(), loadProtFromHistory(), populateAlPlSelects(), protDraftBelongsTo(), protPersonOptionsHtml(), refreshProtShortages(), renderProtPhotos() (+5 more)
+### Community 63 - "initProtokoll"
+Cohesion: 0.14
+Nodes (21): addProtPersonnel(), addProtTransport(), clearProtForm(), clearProtSig(), growProtText(), initProtokoll(), initProtSig(), loadProtDraft() (+13 more)
 
 ### Community 64 - "plPlace"
-Cohesion: 0.19
-Nodes (19): plAddPerson(), plCancelDone(), plCancelDrop(), plMeldungSet(), plMeldungTargets(), plPickedRole(), plPlace(), plPlaceFree() (+11 more)
+Cohesion: 0.17
+Nodes (22): plAddPerson(), plCancelDone(), plCancelDrop(), plCandidates(), plDraftSync(), plMeldungSet(), plMeldungTargets(), plPickedRole() (+14 more)
 
 ### Community 65 - "was drin ist"
 Cohesion: 0.17
@@ -400,16 +401,16 @@ Cohesion: 0.83
 Nodes (3): plan_inbox_handled_by_idx, plan_inbox_status_idx, public.plan_inbox
 
 ### Community 67 - "plRender"
-Cohesion: 0.18
-Nodes (17): plActive(), plAddDays(), plBounds(), plBox(), plDayShort(), plIso(), plLoadPhases(), plMonday() (+9 more)
+Cohesion: 0.24
+Nodes (11): Global Constraints, plActive(), plBox(), plForInsert(), plLoadPhases(), plPaint(), plRender(), plStartReplace() (+3 more)
 
 ### Community 74 - "plSaveSheet"
-Cohesion: 0.17
-Nodes (16): Task 3: Auftrag sync with hand-edit protection, 1. Every Auftrag phase reaches PLANEN, 2. Auftrag sync with hand-edit protection, 3. Quick Einsatz without Bestätigung, 5. Planung may set MA numbers, 7. Table view on wide screens, Design (decided), plCandidates() (+8 more)
+Cohesion: 0.16
+Nodes (19): Review Focus, Task 1: Migration `20261205_planen_flow`, Task 2: Every Auftrag phase reaches PLANEN ("MA?"), Task 3: Auftrag sync with hand-edit protection, Task 7: Table view on wide screens, 2. Auftrag sync with hand-edit protection, plCloseSheet(), plKindOfColor() (+11 more)
 
 ### Community 88 - "plToParsed"
-Cohesion: 0.21
-Nodes (12): plDraftSync(), plExportPdf(), plKind(), plKindTag(), plLines(), plPdfTable(), plRowKeys(), plRowTime() (+4 more)
+Cohesion: 0.24
+Nodes (11): plExportPdf(), plKind(), plKindTag(), plLines(), plPdfTable(), plRowKeys(), plRowTime(), plSorted() (+3 more)
 
 ### Community 89 - "pad"
 Cohesion: 0.22
@@ -443,6 +444,10 @@ Nodes (4): frageAnswer(), frageCheck(), frageMeldung(), frageShow()
 Cohesion: 0.31
 Nodes (5): CORS, ALERT_STATUSES, ATTENDANCE_LABELS, buildAttendancePushes(), ddmm()
 
+### Community 103 - "plOpenOther"
+Cohesion: 0.33
+Nodes (7): plFilled(), plIsDriver(), plOpenOther(), plOpenSlots(), plSetOpen(), plTakeOpen(), plWerLines()
+
 ## Knowledge Gaps
 - **2 isolated node(s):** `RFC-5545`, `RFC-5545`
   These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 256 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
@@ -452,16 +457,16 @@ Nodes (5): CORS, ALERT_STATUSES, ATTENDANCE_LABELS, buildAttendancePushes(), ddm
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `planShiftFromDb()` connect `Plan Parsing Helpers` to `Weekly Plan View`, `planen.js`?**
-  _High betweenness centrality (0.033) - this node is a cross-community bridge._
+  _High betweenness centrality (0.038) - this node is a cross-community bridge._
 - **What connects `RFC-5545`, `RFC-5545` to the rest of the system?**
   _2 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `planer.js` be split into smaller, more focused modules?**
-  _Cohesion score 0.11965811965811966 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.14624505928853754 - nodes in this community are weakly interconnected._
 - **Why does `dashStartProtokollFromPlan()` connect `Plan Parsing Helpers` to `dashboard.js`?**
-  _High betweenness centrality (0.032) - this node is a cross-community bridge._
+  _High betweenness centrality (0.036) - this node is a cross-community bridge._
 - **Should `Weekly Plan View` be split into smaller, more focused modules?**
-  _Cohesion score 0.05494078819646671 - nodes in this community are weakly interconnected._
-- **Why does `Task 6: Publish inside PLANEN` connect `Plan Parsing Helpers` to `plSave`, `planen.js`?**
-  _High betweenness centrality (0.018) - this node is a cross-community bridge._
+  _Cohesion score 0.0512287988923503 - nodes in this community are weakly interconnected._
+- **Why does `wpCommitPlan()` connect `Weekly Plan View` to `Plan Parsing Helpers`, `planen.js`?**
+  _High betweenness centrality (0.020) - this node is a cross-community bridge._
 - **Should `Timesheet Shifts` be split into smaller, more focused modules?**
   _Cohesion score 0.059574468085106386 - nodes in this community are weakly interconnected._

@@ -36,9 +36,9 @@
     "semantic_hash": ""
   },
   "js/dashboard.js": {
-    "mtime": 1795727320.1417649,
-    "seen": 1795727360.1768649,
-    "ast_hash": "d8946a42f62e06a633c639ceb5a3da20",
+    "mtime": 1795727602.4570763,
+    "seen": 1795727636.161801,
+    "ast_hash": "563899f0beb70e5d7fc0a56143f7542d",
     "semantic_hash": ""
   },
   "js/erinnerung.js": {
@@ -168,9 +168,9 @@
     "semantic_hash": ""
   },
   "js/protokoll.js": {
-    "mtime": 1795726923.3380787,
-    "seen": 1795726965.9913118,
-    "ast_hash": "07aed09ce0a3ea2016b86baaf613b813",
+    "mtime": 1795727586.547614,
+    "seen": 1795727636.1618345,
+    "ast_hash": "e3f8db966442f956dd8d0405c8e3d5b8",
     "semantic_hash": ""
   },
   "js/settings.js": {
@@ -756,9 +756,9 @@
     "semantic_hash": ""
   },
   "sw.js": {
-    "mtime": 1795727356.2845545,
-    "seen": 1795727360.1770306,
-    "ast_hash": "2935ec9d891713a0c36551877169837a",
+    "mtime": 1795727613.2563684,
+    "seen": 1795727636.162015,
+    "ast_hash": "e47e1662ea304db72f648f26e03b1ffa",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
@@ -786,9 +786,9 @@
     "semantic_hash": ""
   },
   "index.html": {
-    "mtime": 1795727356.2815025,
-    "seen": 1795727360.1770382,
-    "ast_hash": "eeac81af12703eec9ab4a54b1135208c",
+    "mtime": 1795727613.2510366,
+    "seen": 1795727636.1620216,
+    "ast_hash": "022963efa73ffc1f55bed051a8b67448",
     "semantic_hash": ""
   },
   "supabase/migrations/20261209_nachgetragen_sperre.sql": {
@@ -819,6 +819,12 @@
     "mtime": 1795727300.0290635,
     "seen": 1795727360.177029,
     "ast_hash": "acbfa65f9ab95045a420975301194cbb",
+    "semantic_hash": ""
+  },
+  "supabase/migrations/20261212_bewertungen_intern.sql": {
+    "mtime": 1795727399.136237,
+    "seen": 1795727636.1620133,
+    "ast_hash": "0ee32b3376b008e44eb9a05b795c5d2e",
     "semantic_hash": ""
   }
 }
