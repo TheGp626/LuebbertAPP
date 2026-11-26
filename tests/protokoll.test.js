@@ -777,6 +777,7 @@ test('saveProtokoll recalculates before it reads the total (stale restored-draft
 test('saveProtokoll resets the driver-hint cache', async () => {
   run('clearProtForm = function() {}; protDayDrivers.key = "2026-10-28|prot-1"');
   dom['prot-total-cost'] = { textContent: '0,00' };
+  dom['prot-event'] = { value: 'Gala' };
   await run('saveProtokoll()');
   assert.equal(run('protDayDrivers.key'), null);
 });
@@ -1299,4 +1300,12 @@ test('Bewertung eigener Leute: only registered own people (not self, not agency,
   const e = plain(ctx.protRowToEntry({ id: 'p1', shifts: [{ id: 's1', user_id: 'u-m', position_role: 'MA Minijob', start_time: '08:00:00', end_time: '16:00:00', app_users: { full_name: 'Max' } }],
     staff_ratings: [{ user_id: 'u-m', rating: 'star', comment: 'gut', rated_by: 'u-al' }, { user_id: 'u-m', rating: 'down', comment: 'x y z', rated_by: 'other' }] }));
   assert.deepEqual([e.personnel[0].srating, e.personnel[0].scomment], ['star', 'gut']);
+});
+
+test('saveProtokoll: without a project name nothing is sent (it would be "Unbekannt")', async () => {
+  run('clearProtForm = function() {}');
+  dom['prot-event'] = { value: '  ' };
+  sb.calls.length = 0;
+  await run('saveProtokoll()');
+  assert.ok(!sb.calls.some(c => c.table === 'protocols'));
 });

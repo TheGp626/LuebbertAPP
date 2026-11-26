@@ -987,3 +987,11 @@ test('Verlauf: readable lines, newest first; delete+insert of the same vehicle b
   assert.equal(l[0].who, 'Jenni');
   assert.equal(l[2].who, 'Unbekannt');
 });
+
+test('Anwesenheit im Dashboard: status of a shift by user or name; people without a shift listed apart', () => {
+  const p = { shifts: [{ user_id: 'u1' }, { user_id: null, temp_worker_name: 'Zed' }],
+    protocol_attendance: [{ user_id: 'u1', status: 'verspaetet' }, { user_id: null, temp_worker_name: 'zed ', status: 'krank' }, { user_id: null, temp_worker_name: 'Kim', status: 'nicht_erschienen' }] };
+  assert.equal(ctx.dashAttendanceOf(p, p.shifts[0]), 'verspaetet');
+  assert.equal(ctx.dashAttendanceOf(p, p.shifts[1]), 'krank');
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.dashAbsentRows(p))), [{ name: 'Kim', status: 'nicht_erschienen' }]);
+});
