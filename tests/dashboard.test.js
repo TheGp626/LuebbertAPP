@@ -235,7 +235,7 @@ test('saveDashProtEdit: one renamed person = one shift update; no shift delete/i
   const dom = {
     'pe-date': { value: '2026-10-28' }, 'pe-action': { value: 'Aufbau' }, 'pe-holiday': { checked: false },
     'pe-al': { value: 'Anna Alt' }, 'pe-pl': { value: '' }, 'pe-damages': { value: '' }, 'pe-incidents': { value: '' }, 'pe-feedback': { value: '' },
-    'pe-save-btn': { disabled: false },
+    'pe-save-btn': { disabled: false }, 'pe-side-on': { checked: false }, 'pe-side-of': { value: '' },
     'pe-sh-0': { value: 'Nora Neu' }, 'pe-sh-1': { value: 'Zora' }, 'pe-sh-2': { value: 'Max Muster' },
   };
   ctx.document.getElementById = id => dom[id] || null;
@@ -296,7 +296,7 @@ function setupEdit(sb, p, extraDom) {
   const dom = Object.assign({
     'pe-date': { value: p.date }, 'pe-action': { value: 'Aufbau' }, 'pe-holiday': { checked: !!p.is_holiday },
     'pe-al': { value: '' }, 'pe-pl': { value: '' }, 'pe-damages': { value: '' }, 'pe-incidents': { value: '' }, 'pe-feedback': { value: '' },
-    'pe-save-btn': { disabled: false },
+    'pe-save-btn': { disabled: false }, 'pe-side-on': { checked: false }, 'pe-side-of': { value: '' },
   }, ['mobiliar', 'stoffe', 'floristik', 'tischlerei', 'logistik'].reduce((o, c) => { o['pe-st-' + c] = { value: '' }; return o; }, {}), extraDom || {});
   ctx.document.getElementById = id => dom[id] || null;
   ctx.supabaseClient = sb;
@@ -418,6 +418,18 @@ test('saveDashProtEdit: a note-only edit keeps the stored total_cost; date/holid
   assert.ok('total_cost' in await payloadOf(d => { d['pe-date'].value = '2026-10-29'; }));
   assert.ok('total_cost' in await payloadOf(() => { run("_editProtTransports[0].hours = '6'"); }));
   assert.ok('total_cost' in await payloadOf(() => { run("_editProtShifts[0].end = '15:00'"); }));
+});
+
+test('saveDashProtEdit: as Zusatzauftrag it stores side_of, drops crew and vehicles and sets the cost to 0', async () => {
+  const sb = mkSb();
+  const p = baseProt({ protocol_transports: [{ id: 't1', vehicle_type: 'Sprinter', driver_name: 'Tom', driver_hours: 5, driver_user_id: null }], shifts: [OLD_SHIFTS[2]] });
+  const { dom } = setupEdit(sb, p);
+  dom['pe-side-on'].checked = true; dom['pe-side-of'].value = 'main1';
+  ctx.confirm = () => true;
+  await run('saveDashProtEdit()');
+  const pay = sb.calls.find(c => c.table === 'protocols').payload;
+  assert.equal(pay.side_of, 'main1');
+  assert.equal(pay.total_cost, 0);
 });
 
 test('dashShiftCosts: a deactivated employee (not in appUsers) is still priced with his own rate', () => {
