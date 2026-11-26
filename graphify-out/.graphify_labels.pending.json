@@ -3,11 +3,13 @@
   "13": "plSave",
   "22": "saveProtDraft",
   "27": "renderProtSectionNav",
-  "28": "plan-ics.mjs",
+  "28": "public.protocol_attendance",
+  "35": "cleanup-folders/index.ts",
+  "37": "renderDashMissing",
   "44": "ask-shift/index.ts",
   "45": "buildProtPdfDoc",
   "46": "planen.js",
-  "52": "calcProtCosts",
+  "52": "renderProtPersonnel",
   "63": "loadProtDraft",
   "64": "plPlace",
   "65": "was drin ist",
@@ -27,6 +29,7 @@
   "99": "20261201_abteilungs_adressen.sql",
   "100": "20261202_jenni_runde_3.sql",
   "101": "public.shifts_self_entry_guard",
-  "102": "plOpenOther",
-  "103": "debug-input.mjs"
+  "102": "public.protocol_shift_replaces_own",
+  "103": "debug-input.mjs",
+  "104": "20261030_ordner_auto_loeschen.sql"
 }

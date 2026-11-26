@@ -105,3 +105,12 @@ test('Dein Monat: hours, shifts, pay, limit share and days left', () => {
   assert.equal(H.heuteMonthModel({ mins: 600, shifts: 1, pay: 200, limit: null }, null, range, '2026-11-01').pct, null);
 });
 
+
+test('Ausfälle card: one row per person with status and where, nothing without rows', () => {
+  global.escapeHtml = s => String(s).replace(/</g, '&lt;');
+  assert.equal(H.heuteAusfallHtml([]), '');
+  const h = H.heuteAusfallHtml([{ name: 'Max <b>', status: 'krank', project: 'Messe Nord', job_no: '26-0447.01', date: '2026-12-08' }]);
+  assert.match(h, /Ausfälle \(3 Tage\)/);
+  assert.match(h, /Max &lt;b> · krank<small>Messe Nord · 26-0447\.01 · 08\.12\.<\/small>/);
+  delete global.escapeHtml;
+});

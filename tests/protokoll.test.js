@@ -41,7 +41,8 @@ function fakeSupabase() {
     };
     return b;
   };
-  fb.functions = { invoke: async () => ({ data: { sent: true }, error: null }) };
+  fb.functions = { invoke: async (name, opts) => { fb.calls.push({ fn: name, body: opts && opts.body }); return { data: { sent: true }, error: null }; } };
+  fb.rpc = async (name, args) => { fb.calls.push({ rpc: name, args }); return { data: 0, error: fb.fail['rpc.' + name] || null }; };
   return fb;
 }
 
@@ -1232,4 +1233,37 @@ test('addProtTransport: a transport added after night times are entered is a Nac
   assert.equal(run('protState.transports[0].night'), true);
   run('protState.personnel = [{ pos: "AL", start: "07:00", end: "16:00", pause: "30" }]; protState.transports = []; addProtTransport()');
   assert.equal(run('protState.transports[0].night'), false);
+});
+
+test('Anwesenheit: absent people get no shift and no cost, the list goes to set_protocol_attendance, Ausfall pushes', async () => {
+  const pers = [
+    { pos: 'AL', name: 'Anna', userId: 'u-a', start: '08:00', end: '16:00', pause: '30' },
+    { pos: 'MA', name: 'Max', userId: 'u-m', start: '', end: '', pause: '0', att: 'krank' },
+    { pos: 'Zenjob', isTemp: true, tempName: 'Zed', name: 'Zed', start: '08:00', end: '16:00', pause: '30', att: 'nicht_erschienen' },
+    { pos: 'MA', name: 'Eva', userId: 'u-e', start: '08:30', end: '16:00', pause: '30', att: 'verspaetet' },
+  ];
+  assert.deepEqual(plain(ctx.protIncompleteNames(pers)), []);
+  const ch = plain(ctx.protShiftChanges([], pers, [], '2026-12-08'));
+  assert.deepEqual(ch.inserts.map(i => i.row.user_id), ['u-a', 'u-e']);
+  assert.equal(plain(ctx.protCostLines({ transports: [], personnel: pers }, '2026-12-08', false)).lines.length, 2);
+  assert.deepEqual(plain(ctx.protAttendanceRows(pers)), [
+    { user_id: 'u-m', name: null, status: 'krank' }, { user_id: null, name: 'Zed', status: 'nicht_erschienen' }, { user_id: 'u-e', name: null, status: 'verspaetet' }]);
+  sb.rows.projects = { id: 'proj-1' };
+  ctx.__d = protData({ personnel: pers });
+  const id = await run('syncProtokollToSupabase(__d, null)');
+  assert.ok(id);
+  const rpc = sb.calls.find(c => c.rpc === 'set_protocol_attendance');
+  assert.equal(rpc.args.rows.length, 3);
+  assert.ok(sb.calls.some(c => c.fn === 'notify-attendance'));
+});
+
+test('Anwesenheit: before migration 20261210 the protocol still saves; the server list fills rows back in', async () => {
+  sb.rows.projects = { id: 'proj-1' };
+  sb.fail['rpc.set_protocol_attendance'] = { code: 'PGRST202', message: 'Could not find the function' };
+  ctx.__d = protData({ personnel: [{ pos: 'MA', name: 'Max', userId: 'u-m', start: '', end: '', att: 'krank' }] });
+  assert.ok(await run('syncProtokollToSupabase(__d, null)'));
+  assert.ok(!sb.calls.some(c => c.fn === 'notify-attendance'));
+  const e = plain(ctx.protRowToEntry({ id: 'p1', shifts: [{ id: 's1', user_id: null, temp_worker_name: 'Eva', position_role: 'MA', start_time: '08:00:00', end_time: '16:00:00' }],
+    protocol_attendance: [{ user_id: null, temp_worker_name: 'eva ', status: 'verspaetet' }, { user_id: null, temp_worker_name: 'Zed', status: 'nicht_erschienen' }] }));
+  assert.deepEqual(e.personnel.map(p => [p.name, p.att, p.start]), [['Eva', 'verspaetet', '08:00'], ['Zed', 'nicht_erschienen', '']]);
 });

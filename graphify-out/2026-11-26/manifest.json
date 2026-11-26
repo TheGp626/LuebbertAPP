@@ -36,9 +36,9 @@
     "semantic_hash": ""
   },
   "js/dashboard.js": {
-    "mtime": 1795725928.7085538,
-    "seen": 1795726052.523364,
-    "ast_hash": "c111801e17b31aeddaba23ae740c1ca3",
+    "mtime": 1795726441.1743193,
+    "seen": 1795726473.6802063,
+    "ast_hash": "30370af4ec63343076121c29d28b4b01",
     "semantic_hash": ""
   },
   "js/erinnerung.js": {
@@ -180,9 +180,9 @@
     "semantic_hash": ""
   },
   "js/stundenzettel.js": {
-    "mtime": 1795725753.6302783,
-    "seen": 1795726052.523392,
-    "ast_hash": "d03a27e5fdc59adb778e02c236ee56a3",
+    "mtime": 1795726404.1607504,
+    "seen": 1795726473.6802657,
+    "ast_hash": "1bfd9c9e796c5dc5c47295950a5e3f9a",
     "semantic_hash": ""
   },
   "js/supabase-config.js": {
@@ -756,9 +756,9 @@
     "semantic_hash": ""
   },
   "sw.js": {
-    "mtime": 1795725980.5983083,
-    "seen": 1795726052.5234888,
-    "ast_hash": "def9ecf68434adb4f1310a9f5bbbcc1f",
+    "mtime": 1795726469.8601093,
+    "seen": 1795726473.6804836,
+    "ast_hash": "3e85cfd3276c3834e04d8b656d8df180",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
@@ -786,9 +786,15 @@
     "semantic_hash": ""
   },
   "index.html": {
-    "mtime": 1795725980.5952275,
-    "seen": 1795726052.5234933,
-    "ast_hash": "bb0adb86c4063611d73883dd058cf151",
+    "mtime": 1795726469.8570485,
+    "seen": 1795726473.680494,
+    "ast_hash": "89c8c404a0a5a83d7f46e00dbc57aa17",
+    "semantic_hash": ""
+  },
+  "supabase/migrations/20261209_nachgetragen_sperre.sql": {
+    "mtime": 1795726278.4663095,
+    "seen": 1795726473.680481,
+    "ast_hash": "b43316101ddd0ef779a84576828a4aba",
     "semantic_hash": ""
   }
 }
