@@ -26,7 +26,9 @@ var APP_SETTINGS_DEFAULTS = {
   department_routes: { logistik: 'lager', mobiliar: 'lager', tischlerei: '', stoffe: 'stoffe', floristik: 'floristik' },
   department_emails: { lager: 'lager@peterluebbert.de', logistik: '', tischlerei: '', stoffe: 'Stoffe@peterluebbert.de', floristik: 'Florist@peterluebbert.de' },
   vehicle_rates: (typeof PROT_VEHICLE_RATES !== 'undefined') ? PROT_VEHICLE_RATES : {}, // js/formulas.js
-  personnel_rates: (typeof PERSONNEL_RATE_DEFAULTS !== 'undefined') ? PERSONNEL_RATE_DEFAULTS : {} // js/formulas.js
+  personnel_rates: (typeof PERSONNEL_RATE_DEFAULTS !== 'undefined') ? PERSONNEL_RATE_DEFAULTS : {}, // js/formulas.js
+  agency_rates: (typeof AGENCY_RATE_DEFAULTS !== 'undefined') ? AGENCY_RATE_DEFAULTS : {},           // js/formulas.js
+  employer_charges: (typeof EMPLOYER_CHARGE_DEFAULTS !== 'undefined') ? EMPLOYER_CHARGE_DEFAULTS : {} // js/formulas.js
 };
 var APP_SETTINGS_CACHE_KEY = 'luebbert_app_settings';
 var _appSettings = Object.assign({}, APP_SETTINGS_DEFAULTS);
@@ -41,6 +43,8 @@ function _settingsMerge(obj) {
     if (k in APP_SETTINGS_DEFAULTS && typeof obj[k] === typeof APP_SETTINGS_DEFAULTS[k]
         && (k !== 'vehicle_rates' || validVehicleRates(obj[k]))
         && (k !== 'personnel_rates' || validPersonnelRates(obj[k]))
+        && (k !== 'agency_rates' || validAgencyRates(obj[k]))
+        && (k !== 'employer_charges' || validEmployerCharges(obj[k]))
         && (k !== 'department_routes' || validDepartmentRoutes(obj[k]))
         && (k !== 'department_emails' || validDepartmentEmails(obj[k]))) out[k] = (k === 'department_routes' || k === 'department_emails') ? Object.assign({}, APP_SETTINGS_DEFAULTS[k], obj[k]) : obj[k];
   });
@@ -91,6 +95,23 @@ function validPersonnelRates(v) {
   });
 }
 
+// { Zenjob|Rockit: { Tag, Nacht, Sonntag, Feiertag } }, all numbers 0–1000 (mirrors the RPC)
+var AGENCY_NAMES = ['Zenjob', 'Rockit'], AGENCY_KINDS = ['Tag', 'Nacht', 'Sonntag', 'Feiertag'];
+function validAgencyRates(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v) || Object.keys(v).length !== 2) return false;
+  return AGENCY_NAMES.every(function(a) {
+    var r = v[a];
+    return !!r && typeof r === 'object' && Object.keys(r).length === 4 &&
+      AGENCY_KINDS.every(function(k) { return typeof r[k] === 'number' && r[k] >= 0 && r[k] <= 1000; });
+  });
+}
+
+// { Minijob, Midijob } in %, 0–100 (mirrors the RPC)
+function validEmployerCharges(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v) || Object.keys(v).length !== 2) return false;
+  return ['Minijob', 'Midijob'].every(function(t) { return typeof v[t] === 'number' && v[t] >= 0 && v[t] <= 100; });
+}
+
 // Abteilungs-Mails: protocol area → department → address (Admin setting; mirrors the RPC and send-protocol-mail)
 var DEPARTMENT_AREAS = [['logistik', 'Lager / Logistik'], ['mobiliar', 'Mobiliar'], ['tischlerei', 'Tischlerei'], ['stoffe', 'Stoffe und Hussen'], ['floristik', 'Floristik']];
 var DEPARTMENT_OPTIONS = [['', 'keine Mail'], ['lager', 'Lager'], ['logistik', 'Logistik'], ['tischlerei', 'Tischlerei'], ['stoffe', 'Stoffe'], ['floristik', 'Floristik']];
@@ -125,6 +146,8 @@ function validateSettings(changes) {
     if ((k === 'income_limit_minijob' || k === 'income_limit_midijob') && !(v >= 0 && v <= 100000)) return k;
     if (k === 'vehicle_rates' && !validVehicleRates(v)) return k;
     if (k === 'personnel_rates' && !validPersonnelRates(v)) return k;
+    if (k === 'agency_rates' && !validAgencyRates(v)) return k;
+    if (k === 'employer_charges' && !validEmployerCharges(v)) return k;
     if (k === 'department_routes' && !validDepartmentRoutes(v)) return k;
     if (k === 'department_emails' && !validDepartmentEmails(v)) return k;
   }
@@ -235,6 +258,23 @@ async function renderSettingsTab() {
         }).join('') + '<span></span></div>';
     }).join('') + '</div>' +
     '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Gilt, wenn bei der Person kein eigener Stundensatz hinterlegt ist. Zenjob/Rockit haben eigene Sätze.</small></span></div></div>';
+  var ar = appSetting('agency_rates');
+  html += '<div class="set-group"><div class="set-group-title">Agentursätze (€/h, für die Nachkalkulation)</div>' +
+    '<div class="set-veh-row set-veh-head set-veh-n"><span>Agentur</span><span>Tag</span><span>Nacht</span><span>Sonntag</span><span>Feiertag</span><span></span></div>' +
+    '<div id="set-agency">' + AGENCY_NAMES.map(function(a) {
+      return '<div class="set-veh-row set-veh-n"><span class="set-text"><b>' + a + '</b></span>' +
+        AGENCY_KINDS.map(function(k) {
+          return '<input type="number" min="0" max="1000" step="0.01" inputmode="decimal" class="meta-input" data-agency="' + a + '" data-kind="' + k + '" aria-label="' + a + ' ' + k + '" value="' + _settingsEsc(ar && ar[a] ? ar[a][k] : '') + '">';
+        }).join('') + '<span></span></div>';
+    }).join('') + '</div>' +
+    '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Nacht = 22–6 Uhr. Mindestens 4 Stunden pro Einsatz. Neue Sätze gelten für neue Berechnungen.</small></span></div></div>';
+  var ch = appSetting('employer_charges');
+  html += '<div class="set-group"><div class="set-group-title">Abgaben Arbeitgeber (%)</div>' +
+    ['Minijob', 'Midijob'].map(function(t) {
+      return '<label class="set-row"><span class="set-text"><b>' + t + '</b><small>Kommt auf den Lohn Conni drauf und ergibt den Satz intern (reale Kosten)</small></span>' +
+        '<input type="number" min="0" max="100" step="0.1" inputmode="decimal" id="set-charge-' + t + '" class="meta-input set-num" value="' + _settingsEsc(ch ? ch[t] : '') + '"></label>';
+    }).join('') +
+    '<div class="set-row" style="cursor:default;"><span class="set-text"><small>Beim Speichern wird der Satz intern aller Minijobber und Midijobber neu berechnet.</small></span></div></div>';
   html += '<div class="set-group"><div class="set-group-title">Push testen</div>' +
     '<div class="set-row"><span class="set-text"><b>Test-Push an mich</b><small>Schickt eine Testnachricht an alle Geräte, auf denen du Benachrichtigungen erlaubt hast</small></span>' +
     '<button type="button" class="btn" id="set-testpush-btn" style="flex:none; width:auto; padding:8px 18px;" onclick="sendTestPush()">Senden</button></div></div>';
@@ -280,6 +320,16 @@ function _readSettingsForm() {
     var t = inp.dataset.type;
     (changes.personnel_rates[t] = changes.personnel_rates[t] || {})[inp.dataset.func] = inp.value === '' ? NaN : Number(inp.value);
   });
+  var aInputs = Array.from(document.querySelectorAll('#set-agency input[data-agency]'));
+  if (aInputs.length) changes.agency_rates = {}; // not rendered → leave the setting out
+  aInputs.forEach(function(inp) {
+    var a = inp.dataset.agency;
+    (changes.agency_rates[a] = changes.agency_rates[a] || {})[inp.dataset.kind] = inp.value === '' ? NaN : Number(inp.value);
+  });
+  var mini = document.getElementById('set-charge-Minijob'), midi = document.getElementById('set-charge-Midijob');
+  if (mini && midi && typeof mini.value === 'string') {
+    changes.employer_charges = { Minijob: mini.value === '' ? NaN : Number(mini.value), Midijob: midi.value === '' ? NaN : Number(midi.value) };
+  }
   return changes;
 }
 
@@ -317,6 +367,7 @@ function addVehicleRateRow() {
 var SETTINGS_LABELS = { evening_push_hour: 'Uhrzeit Abend-Push', billing_cutoff: 'Abrechnungsstichtag (1–31)',
   vehicle_rates: 'Fahrzeugsätze (jeder Name einmal, alle Beträge 0–100000 €)',
   personnel_rates: 'Stundensätze nach Beschäftigungsart (alle Felder 0–1000 €)',
+  agency_rates: 'Agentursätze (alle Felder 0–1000 €)', employer_charges: 'Abgaben Arbeitgeber (0–100 %)',
   department_routes: 'Abteilungs-Mails (Bereich → Abteilung)', department_emails: 'Abteilungs-Adressen (nur @peterluebbert.de)', inactive_months: 'Lange kein Einsatz (1–24 Monate)',
   income_limit_minijob: 'Verdienstgrenze Minijob (0–100000 €)', income_limit_midijob: 'Verdienstgrenze Midijob (0–100000 €)' };
 

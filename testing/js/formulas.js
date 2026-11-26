@@ -51,16 +51,24 @@ var PROT_PERSONNEL_RATES = {
   'MA fest': 0,
   'MA frei': 21.50,
   'Fahrer fest': 0,
-  'Fahrer frei': 30,
-  'Zenjob Tag': 23.50,
-  'Zenjob Nacht': 29.38,
-  'Zenjob Sonntag': 35.25,
-  'Zenjob Feiertag': 35.25,
-  'Rockit Tag': 30,
-  'Rockit Nacht': 45,
-  'Rockit Sonntag': 60,
-  'Rockit Feiertag': 60
+  'Fahrer frei': 30
 };
+
+// Fallback only: admins edit the agency rates in Einstellungen (app_settings.agency_rates), € per hour.
+// Values of Jenni's briefing 26.11.2026 (Rockit: Nacht and Sonntag 45, Feiertag 60).
+var AGENCY_RATE_DEFAULTS = {
+  Zenjob: { Tag: 24.17, Nacht: 30.05, Sonntag: 35.92, Feiertag: 35.92 },
+  Rockit: { Tag: 30, Nacht: 45, Sonntag: 45, Feiertag: 60 }
+};
+
+// "Zenjob Nacht" → € per hour; unknown kind → the agency's Tag rate; no agency → null
+function agencyRate(desc) {
+  var parts = String(desc || '').split(' '), a = parts[0], kind = parts[1] || 'Tag';
+  if (!AGENCY_RATE_DEFAULTS[a]) return null;
+  var s = (typeof appSetting === 'function') ? appSetting('agency_rates') : null;
+  var row = (s && s[a] && typeof s[a].Tag === 'number') ? s[a] : AGENCY_RATE_DEFAULTS[a];
+  return typeof row[kind] === 'number' ? row[kind] : row.Tag;
+}
 
 // ── EMPLOYMENT TYPE (Beschäftigungsart) ──
 // The type lives on the person (app_users.employment_type); a shift stores "<Funktion> <Typ>" (e.g. "MA Minijob")
@@ -119,16 +127,22 @@ function personCostRate(user, pos) {
     (pos ? personnelRate(pos) || null : null);
 }
 
-// Minijob/Midijob: Satz intern is always Lohn Conni + 25 % (the social security Lübbert pays on top). Other types: null
+// Minijob/Midijob: Satz intern is always Lohn Conni + the employer charges Lübbert pays on top (Einstellungen,
+// app_settings.employer_charges in %; the server recomputes stored values with sync_internal_rates). Other types: null
 var INTERNAL_AUTO_TYPES = ['Minijob', 'Midijob'];
+var EMPLOYER_CHARGE_DEFAULTS = { Minijob: 32.7, Midijob: 22 };
+function employerCharge(type) {
+  var s = (typeof appSetting === 'function') ? appSetting('employer_charges') : null;
+  return (s && typeof s[type] === 'number') ? s[type] : EMPLOYER_CHARGE_DEFAULTS[type];
+}
 function autoInternalRate(conni, type) {
   var c = parseFloat(conni);
-  return INTERNAL_AUTO_TYPES.indexOf(type) !== -1 && c > 0 ? Math.round(c * 125) / 100 : null;
+  return INTERNAL_AUTO_TYPES.indexOf(type) !== -1 && c > 0 ? Math.round(c * (100 + employerCharge(type))) / 100 : null;
 }
 
 function personnelRate(key) {
   var p = splitPosition(key);
-  if (!p.type) return PROT_PERSONNEL_RATES[key] || 0;
+  if (!p.type) return agencyRate(key) || PROT_PERSONNEL_RATES[key] || 0;
   var s = (typeof appSetting === 'function') ? appSetting('personnel_rates') : null;
   var row = (s && s[p.type] && typeof s[p.type][p.func] === 'number') ? s[p.type] : PERSONNEL_RATE_DEFAULTS[p.type];
   return row[p.func] || 0;
@@ -157,7 +171,7 @@ function calcNetHours(startMins, endMins, pauseMins) {
 
 // schicht in tag/nacht/sonntag/feiertag aufteilen (für zenjob/rockit)
 // customRate: optional override rate (€/h) for registered employees.
-// If provided and > 0, it replaces PROT_PERSONNEL_RATES for non-Zenjob/Rockit positions.
+// If provided and > 0, it replaces the default rate for non-Zenjob/Rockit positions.
 function calcSplitShiftCosts(basePos, dateStr, isHoliday, startMins, endMins, pauseMins, customRate) {
   var effEnd = (endMins < startMins) ? endMins + 1440 : endMins;
   var totalWorkMins = effEnd - startMins;
@@ -205,8 +219,7 @@ function calcSplitShiftCosts(basePos, dateStr, isHoliday, startMins, endMins, pa
     if (counts[bucketKey] > 0) {
       var bucketHrs = (counts[bucketKey] * netFactor) / 60;
       var desc = basePos + ' ' + bucketLabel;
-      // Fallbacks if Zenjob Feiertag isn't defined
-      var rate = PROT_PERSONNEL_RATES[desc] || PROT_PERSONNEL_RATES[basePos + ' Tag'] || 0;
+      var rate = agencyRate(desc) || 0;
       results.push({ desc: desc, hrs: bucketHrs, rate: rate });
     }
   }

@@ -444,7 +444,7 @@ function dashShiftSaveRole(selected, original, workerType) {
   return positionKey(selected, workerType);
 }
 
-// Minijob/Midijob: Satz intern follows Lohn Conni (+25 %, autoInternalRate) and is not typed. Without a Lohn Conni the
+// Minijob/Midijob: Satz intern follows Lohn Conni (+ employer charges, autoInternalRate) and is not typed. Without a Lohn Conni the
 // stored value stays editable (clearing it would lose it on save). prefix 'edit' = edit sheet, 'new' = add form
 function dashSyncInternal(prefix) {
   var p = prefix === 'new' ? 'new-user-' : 'edit-worker-';
@@ -452,7 +452,7 @@ function dashSyncInternal(prefix) {
   if (!c || !i || !t) return;
   var auto = autoInternalRate(c.value, t.value);
   i.readOnly = auto !== null;
-  i.title = auto !== null ? 'Automatisch: Lohn Conni + 25 %' : '';
+  i.title = auto !== null ? 'Automatisch: Lohn Conni + ' + String(employerCharge(t.value)).replace('.', ',') + ' % Abgaben' : '';
   if (auto !== null) i.value = auto.toFixed(2);
   if (prefix !== 'new') renderRoleRatesList();
 }
@@ -475,7 +475,7 @@ function renderRoleRatesList() {
     return '<div style="display:flex;gap:5px;align-items:center;margin-bottom:4px;">' +
       '<select onchange="updateRoleRateRow(' + i + ',\'role\',this.value)" class="meta-input" style="flex:2;padding:5px 6px;font-size:12px;">' + opts + '</select>' +
       '<input type="number" step="0.5" min="0" placeholder="Conni €/h" value="' + (r.rate_conni || '') + '" oninput="updateRoleRateRow(' + i + ',\'rate_conni\',this.value)" class="meta-input" style="flex:1;padding:5px 6px;font-size:12px;">' +
-      '<input type="number" step="0.5" min="0" placeholder="Intern €/h" id="rr-int-' + i + '" value="' + (r.rate_internal || '') + '"' + (auto !== null ? ' readonly title="Automatisch: Conni + 25 %"' : '') + ' oninput="updateRoleRateRow(' + i + ',\'rate_internal\',this.value)" class="meta-input" style="flex:1;padding:5px 6px;font-size:12px;">' +
+      '<input type="number" step="0.5" min="0" placeholder="Intern €/h" id="rr-int-' + i + '" value="' + (r.rate_internal || '') + '"' + (auto !== null ? ' readonly title="Automatisch: Conni + Abgaben (Einstellungen)"' : '') + ' oninput="updateRoleRateRow(' + i + ',\'rate_internal\',this.value)" class="meta-input" style="flex:1;padding:5px 6px;font-size:12px;">' +
       '<button onclick="removeRoleRateRow(' + i + ')" style="color:var(--danger);background:none;border:none;cursor:pointer;font-size:16px;padding:0 4px;">✕</button>' +
     '</div>';
   }).join('');
