@@ -10,7 +10,7 @@
   "45": "buildProtPdfDoc",
   "46": "planen.js",
   "52": "renderProtPersonnel",
-  "63": "initProtokoll",
+  "63": "loadDashInsights",
   "64": "plPlace",
   "65": "was drin ist",
   "67": "plRender",

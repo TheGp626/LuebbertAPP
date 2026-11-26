@@ -1019,6 +1019,15 @@ test('protGuessVehicleType: known type inside the plan text, else the form defau
   assert.equal(g('', ['LKW', 'Sprinter']), 'LKW');
 });
 
+test('protGuessVehicleType: own plates (550 + 770 Hängerzug, 550 Solo, 50 Sprinter), only when that type exists', () => {
+  const g = run('protGuessVehicleType'), all = ['Hängerzug', 'Solo', 'Sprinter', 'PKW', 'Leih LKW'];
+  assert.equal(g('BAR PL 550 + 770', all), 'Hängerzug');
+  assert.equal(g('BAR PL 550', all), 'Solo');
+  assert.equal(g('BAR PL 50', all), 'Sprinter');
+  assert.equal(g('BAR PL 102', all), 'Hängerzug'); // unknown plate: form default as before
+  assert.equal(g('BAR PL 550', ['Hängerzug', 'Sprinter']), 'Hängerzug'); // no Solo rate → default
+});
+
 test('protPlanTransports: one transport per driver the plan names', () => {
   const shift = planShift({ notes: ['BAR PL 550', 'LeihLkw', 'Bitte pünktlich'], people: [
     { name: 'Anna', role: 'AL', note: 'BAR PL 550', userId: 'u-anna' },

@@ -394,3 +394,27 @@ test('orderParse: page footer without a "Datum:" header after it (Projekt format
     '30× Stehtischdekoration "S"', '138× Kerzenglas', '138× Gellicht']);
   assert.ok(!/Partner Event|Volkswagen|IBAN/.test(r.jobs[0].notes), 'footer and page header stay out of the notes');
 });
+
+test('Lieferschein (easyjob Job Lieferschein): one job with times, Ablauf as notes, groups and articles, footer skipped', () => {
+  const lines = ['Lieferschein 26-0361.01', 'Job: 261127_Estrel_Championsgala', 'Seite: 1 von 2', 'Gedruckt: 25.11.2026 11:00 | mawe',
+    'Estrel Congress Center GmbH Estrel Hotel GmbH', 'Daniela Scholz Sonnenallee 225', '12057 Berlin',
+    'Bearbeiter: Maike Weber Volumen: 2,09 m³', 'Aufbau: 27.11.2026, 12:00 - 20:00 Gewicht: 829,90 kg', 'Abbau 29.11.2026, 02:30 - 12:00 Anzahl Packstücke: 0 Stk.',
+    'Pos. Anzahl Bezeichnung', 'Estrel Projektleitung: Dani Scholz', 'Estrel Koordination: 0176 1683 1030', 'Ablauf:',
+    '- Start mit Aufbau Lounge ab 12 Uhr', '- Zählen der Hussen durch Lübbert, Abbau der', 'Kerzenleuchter', '- Anhänger bleibt im Estrel',
+    'CH I', '1 1600 Stuhlhusse Estrel, mit Armlehne, weiß', '2 160 Kerzenleuchter, silber', 'Raum II/III', '4 17 Flatsofa, weiß',
+    'Geschäftsführung Bankverbindung Tel: +49 30 911468-0', 'Sonja Bertling Deutsche Bank', 'Lieferschein 26-0361.01', 'Job: 261127_Estrel_Championsgala',
+    'Seite: 2 von 2', 'Pos. Anzahl Bezeichnung', 'Ablauf:', '- Start mit Aufbau Lounge ab 12 Uhr', '- Anhänger bleibt im Estrel', '8 3 Loungetisch "Birdy", weiß [TRIO]',
+    'Name in Druckschrift - Unterschrift - Ahrensfelde - Lindenberg, 25.11.2026', 'Hiermit bestätige ich den vollständigen Erhalt'];
+  const r = JSON.parse(JSON.stringify(ctx.orderParse(lines)));
+  assert.equal(r.kind, 'lieferschein');
+  assert.equal(r.project, '26-0361');
+  assert.equal(r.jobs.length, 1);
+  const j = r.jobs[0];
+  assert.equal(j.jobNo, '26-0361.01');
+  assert.deepEqual(j.setup, { start: '2026-11-27T12:00', end: '2026-11-27T20:00' });
+  assert.deepEqual(j.teardown, { start: '2026-11-29T02:30', end: '2026-11-29T12:00' });
+  assert.equal(j.notes, '- Start mit Aufbau Lounge ab 12 Uhr\n- Zählen der Hussen durch Lübbert, Abbau der Kerzenleuchter\n- Anhänger bleibt im Estrel');
+  assert.deepEqual(j.materials.map(g => [g.group, g.items.map(i => i.qty)]), [['CH I', [1600, 160]], ['Raum II/III', [17, 3]]]);
+  assert.doesNotMatch(JSON.stringify(r), /0176|Scholz/);
+  assert.equal(ctx.orderIsAb('LI26-0361.01 261127_Estrel_Championsgala Job Lieferschein.pdf'), true);
+});
