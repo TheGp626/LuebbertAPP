@@ -699,12 +699,12 @@ async function refreshDashboardOnce() {
                app_users(full_name)),
         protocol_transports(*),
         protocol_equipments(*),
-        worker_ratings(temp_worker_name, rating, is_star)
+        worker_ratings(temp_worker_name, rating, is_star)${withChanged ? ', staff_ratings(user_id, rating, comment, rated_by)' : ''}
       `;
     const load = (withEdited, withChanged) => sbFetchAll(() => supabaseClient.from('protocols').select(protSelect(withEdited, withChanged)).order('date', { ascending: false }).order('id'));
     let { data: protocols, error: protError } = await load(true, true);
     // changed_after_mail_at not migrated yet (20261211): load without it
-    if (protError && /changed_after_mail_at/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(true, false));
+    if (protError && /changed_after_mail_at|staff_ratings/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(true, false));
     // edited_by/edited_at/photos/side_of not migrated yet: load without them
     if (protError && /edited_|photos|side_of/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(false));
     if (protError) throw protError;
@@ -2074,6 +2074,9 @@ function openDashDetail(id) {
       }
 
       let ratingHtml = '';
+      const staff = !isAgencyShift(s) && s.user_id ? (p.staff_ratings || []).filter(r => r.user_id === s.user_id) : [];
+      if (staff.length) ratingHtml = staff.map(r => '<div style="font-size:11px; font-weight:600;" title="Nur intern sichtbar">' +
+        ({ star: '⭐ Senior-Hand-Potenzial', up: '👍 gut', down: '👎 schlecht' }[r.rating] || '') + (r.comment ? ': ' + escapeHtml(r.comment) : '') + '</div>').join('');
       if (isAgencyShift(s)) {
         const r = ratingForShift(p, s);
         ratingHtml = !r

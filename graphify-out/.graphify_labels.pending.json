@@ -10,7 +10,7 @@
   "45": "buildProtPdfDoc",
   "46": "planen.js",
   "52": "renderProtPersonnel",
-  "63": "loadProtDraft",
+  "63": "initProtokoll",
   "64": "plPlace",
   "65": "was drin ist",
   "67": "plRender",
@@ -30,5 +30,6 @@
   "100": "20261202_jenni_runde_3.sql",
   "101": "ref_npm_supabase",
   "102": "public.protocol_shift_replaces_own",
+  "103": "plOpenOther",
   "104": "20261030_ordner_auto_loeschen.sql"
 }

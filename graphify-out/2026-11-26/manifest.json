@@ -36,9 +36,9 @@
     "semantic_hash": ""
   },
   "js/dashboard.js": {
-    "mtime": 1795726441.1743193,
-    "seen": 1795726473.6802063,
-    "ast_hash": "30370af4ec63343076121c29d28b4b01",
+    "mtime": 1795727320.1417649,
+    "seen": 1795727360.1768649,
+    "ast_hash": "d8946a42f62e06a633c639ceb5a3da20",
     "semantic_hash": ""
   },
   "js/erinnerung.js": {
@@ -756,9 +756,9 @@
     "semantic_hash": ""
   },
   "sw.js": {
-    "mtime": 1795726923.3391938,
-    "seen": 1795726965.991444,
-    "ast_hash": "c96d3d49768f2c6ec7b54a2115361bc1",
+    "mtime": 1795727356.2845545,
+    "seen": 1795727360.1770306,
+    "ast_hash": "2935ec9d891713a0c36551877169837a",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
@@ -786,9 +786,9 @@
     "semantic_hash": ""
   },
   "index.html": {
-    "mtime": 1795726923.3374212,
-    "seen": 1795726965.991451,
-    "ast_hash": "98d2b25766c6430c48312e8a0c879ced",
+    "mtime": 1795727356.2815025,
+    "seen": 1795727360.1770382,
+    "ast_hash": "eeac81af12703eec9ab4a54b1135208c",
     "semantic_hash": ""
   },
   "supabase/migrations/20261209_nachgetragen_sperre.sql": {
@@ -813,6 +813,12 @@
     "mtime": 1795726587.5558774,
     "seen": 1795726965.991443,
     "ast_hash": "234271e99e10756ccd6a23d52fcf90de",
+    "semantic_hash": ""
+  },
+  "supabase/migrations/20261211_protokoll_verlauf.sql": {
+    "mtime": 1795727300.0290635,
+    "seen": 1795727360.177029,
+    "ast_hash": "acbfa65f9ab95045a420975301194cbb",
     "semantic_hash": ""
   }
 }

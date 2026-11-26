@@ -1267,3 +1267,26 @@ test('Anwesenheit: before migration 20261210 the protocol still saves; the serve
     protocol_attendance: [{ user_id: null, temp_worker_name: 'eva ', status: 'verspaetet' }, { user_id: null, temp_worker_name: 'Zed', status: 'nicht_erschienen' }] }));
   assert.deepEqual(e.personnel.map(p => [p.name, p.att, p.start]), [['Eva', 'verspaetet', '08:00'], ['Zed', 'nicht_erschienen', '']]);
 });
+
+test('Bewertung eigener Leute: only registered own people (not self, not agency, not absent); ⭐/👎 need a comment', async () => {
+  run('currentUser = { id: "u-al" }');
+  const pers = [
+    { pos: 'AL', name: 'Anna', userId: 'u-al', start: '08:00', end: '16:00', srating: 'up' },
+    { pos: 'MA', name: 'Max', userId: 'u-m', start: '08:00', end: '16:00', srating: 'star', scomment: ' ok' },
+    { pos: 'MA', name: 'Eva', userId: 'u-e', start: '08:00', end: '16:00', srating: 'down', scomment: 'kam zu spät und ging früh' },
+    { pos: 'Zenjob', isTemp: true, tempName: 'Zed', name: 'Zed', start: '08:00', end: '16:00', srating: 'up' },
+    { pos: 'MA', name: 'Kim', userId: 'u-k', att: 'krank', srating: 'up' },
+  ];
+  assert.deepEqual(plain(ctx.protMissingRatingComments(pers)), ['Max']);
+  pers[1].scomment = 'leitet die Neuen gut an';
+  assert.deepEqual(plain(ctx.protMissingRatingComments(pers)), []);
+  assert.deepEqual(plain(ctx.protStaffRatingRows(pers)), [
+    { user_id: 'u-m', rating: 'star', comment: 'leitet die Neuen gut an' }, { user_id: 'u-e', rating: 'down', comment: 'kam zu spät und ging früh' }]);
+  sb.rows.projects = { id: 'proj-1' };
+  ctx.__d = protData({ personnel: pers });
+  assert.ok(await run('syncProtokollToSupabase(__d, null)'));
+  assert.equal(sb.calls.find(c => c.rpc === 'set_staff_ratings').args.rows.length, 2);
+  const e = plain(ctx.protRowToEntry({ id: 'p1', shifts: [{ id: 's1', user_id: 'u-m', position_role: 'MA Minijob', start_time: '08:00:00', end_time: '16:00:00', app_users: { full_name: 'Max' } }],
+    staff_ratings: [{ user_id: 'u-m', rating: 'star', comment: 'gut', rated_by: 'u-al' }, { user_id: 'u-m', rating: 'down', comment: 'x y z', rated_by: 'other' }] }));
+  assert.deepEqual([e.personnel[0].srating, e.personnel[0].scomment], ['star', 'gut']);
+});
