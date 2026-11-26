@@ -247,6 +247,27 @@ async function renderHeuteOffice(seq) {
   function allowed(m) { return typeof moduleAllowedForRole === 'function' && moduleAllowedForRole(m, userRole); }
 }
 
+// Ausfälle (protocol_attendance, migration 20261210): kurzfristig abgesagt, krank, nicht erschienen of the last 3 days,
+// for the Personalteam (Admin, PL, „Sieht Bewerbungen“; the RPC checks it). Missing RPC or no rows → nothing shown.
+var HEUTE_ATT_LABELS = { abgesagt: 'kurzfristig abgesagt', krank: 'krank', nicht_erschienen: 'nicht erschienen' };
+function heuteAusfallHtml(rows) {
+  if (!rows || !rows.length) return '';
+  return '<div class="w-label">Ausfälle (3 Tage)</div>' + rows.slice(0, 6).map(function(a) {
+    var where = [a.project, a.job_no, a.date ? heuteDm(a.date) : ''].filter(Boolean).join(' · ');
+    return heuteRow("selectMode('dashboard', 'prot')", escapeHtml(a.name || 'Ohne Name') + ' · ' + escapeHtml(HEUTE_ATT_LABELS[a.status] || a.status), escapeHtml(where), '');
+  }).join('');
+}
+async function renderHeuteAusfall(seq) {
+  var box = document.getElementById('heute-ausfall');
+  if (!box) return;
+  box.innerHTML = '';
+  if (typeof supabaseClient === 'undefined' || !(userRole === 'Admin' || userRole === 'PL' || window.currentUserSeesInterest)) return;
+  var me = currentUser.id, r;
+  try { r = await supabaseClient.rpc('attendance_alerts', { p_days: 3 }); } catch (e) { return; }
+  if (seq !== _heuteSeq || !currentUser || currentUser.id !== me || !r || r.error) return;
+  box.innerHTML = heuteAusfallHtml(r.data);
+}
+
 async function renderHeute() {
   if (typeof currentUser === 'undefined' || !currentUser) return;
   var seq = ++_heuteSeq;
@@ -254,6 +275,7 @@ async function renderHeute() {
   if (office) office.innerHTML = '';
   if (userRole === 'Gast') return; // guests only see Produkte and Ordner, never plan or office figures
   renderHeuteMonth(seq);
+  renderHeuteAusfall(seq);
   if (userRole === 'MA' || userRole === 'AL') return renderHeuteCrew(seq);
   return renderHeuteOffice(seq); // PL, Admin, Buchhaltung
 }
@@ -261,5 +283,5 @@ async function renderHeute() {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { heuteWeekStrip: heuteWeekStrip, heuteMissingHourDays: heuteMissingHourDays, heuteOpenSlotCount: heuteOpenSlotCount,
     heuteAddDays: heuteAddDays, heuteMonday: heuteMonday, heuteTodaySummary: heuteTodaySummary, heuteUnbookedProtocols: heuteUnbookedProtocols,
-    heuteMonthModel: heuteMonthModel };
+    heuteMonthModel: heuteMonthModel, heuteAusfallHtml: heuteAusfallHtml };
 }

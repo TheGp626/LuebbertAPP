@@ -251,6 +251,15 @@ function protRowToEntry(r) {
       pause: s.pause_mins || 0
     };
   });
+  // Anwesenheit: status onto the person's row; people who did not work have no shift → a row without times
+  (r.protocol_attendance || []).forEach(function(a) {
+    var key = a.user_id || ('n:' + String(a.temp_worker_name || '').trim().toLowerCase());
+    var row = personnel.find(function(p) { return (p.userId || ('n:' + String(p.tempName || '').trim().toLowerCase())) === key; });
+    if (row) { row.att = a.status; return; }
+    var u = a.user_id && typeof appUsers !== 'undefined' ? appUsers.find(function(x) { return x.id === a.user_id; }) : null;
+    personnel.push({ att: a.status, shiftId: null, userId: a.user_id || null, isTemp: !a.user_id, tempName: a.user_id ? null : a.temp_worker_name,
+      name: (u && u.full_name) || a.temp_worker_name || '—', pos: a.user_id ? 'MA' : 'Zenjob', start: '', end: '', pause: 0, rating: null, isStar: false });
+  });
   return {
     id: r.id,
     supabaseId: r.id,
@@ -585,8 +594,26 @@ function protDriverHint(name, n) {
 }
 
 // "08:00–16:30 · 30 min"
+// ── Anwesenheit (Jenni, 26.11.2026): '' = erschienen (default). The last three mean the person did not work:
+// no times, no shift, no cost, and the Personalteam gets a push (notify-attendance). Stored in protocol_attendance.
+var PROT_ATTENDANCE = [['', 'erschienen'], ['verspaetet', 'verspätet'], ['abgesagt', 'kurzfristig abgesagt (< 24 h)'], ['krank', 'krank'], ['nicht_erschienen', 'nicht erschienen']];
+var PROT_ABSENT = ['abgesagt', 'krank', 'nicht_erschienen'];
+function protIsAbsent(p) { return !!p && PROT_ABSENT.indexOf(p.att) !== -1; }
+function protAttLabel(att) { var o = PROT_ATTENDANCE.find(function(a) { return a[0] === att; }); return o && att ? o[1].replace(/ \(.*\)$/, '') : ''; }
+
+// Rows for set_protocol_attendance: everyone with a status other than erschienen
+function protAttendanceRows(personnel) {
+  return (personnel || []).filter(function(p) { return p.att && (p.userId || p.tempName || p.name); }).map(function(p) {
+    var asUser = !p.isTemp && p.userId;
+    return { user_id: asUser ? p.userId : null, name: asUser ? null : (p.tempName || p.name || '').trim(), status: p.att };
+  });
+}
+
 function protPersonSummary(p) {
+  if (protIsAbsent(p)) return protAttLabel(p.att) + ' · keine Stunden';
+  var late = p.att === 'verspaetet' ? ' · verspätet' : '';
   var pause = parseInt(p.pause) || 0;
+  if (p.start && p.end) return p.start + '–' + p.end + (pause > 0 ? ' · ' + pause + ' min' : '') + late;
   if (p.start && p.end) return p.start + '–' + p.end + (pause > 0 ? ' · ' + pause + ' min' : '');
   if (p.start) return 'ab ' + p.start + ' · Ende fehlt';
   if (p.end) return 'bis ' + p.end + ' · Start fehlt';
@@ -921,7 +948,8 @@ function renderProtPersonnel() {
       : uiComboHtml('prot-pn-' + i, p.name || '', 'Name tippen…', 'onProtPersonnelName', i);
     return '<div class="ui-row ui-row-wrap' + (protOpenRows[key] ? ' ui-row-open' : '') + '">' +
       '<div class="ui-row-main" onclick="toggleProtRow(\'' + key + '\')">' +
-        '<div class="ui-row-title"><span id="prot-pname-' + i + '">' + escapeHtml(p.name || p.tempName || 'Ohne Name') + '</span> <span class="ui-pill ui-pill-info">' + escapeHtml(p.pos || '') + '</span></div>' +
+        '<div class="ui-row-title"><span id="prot-pname-' + i + '">' + escapeHtml(p.name || p.tempName || 'Ohne Name') + '</span> <span class="ui-pill ui-pill-info">' + escapeHtml(p.pos || '') + '</span>' +
+          (p.att ? ' <span class="ui-pill' + (protIsAbsent(p) ? ' ui-pill-danger' : ' ui-pill-warn') + '">' + escapeHtml(protAttLabel(p.att)) + '</span>' : '') + '</div>' +
         '<div class="ui-sub" id="prot-psum-' + i + '">' + escapeHtml(protPersonSummary(p)) + '</div>' +
         // Always present (hidden when registered) so onProtPersonnelName can toggle it without a re-render
         '<span id="prot-punreg-' + i + '" class="ui-pill ui-pill-warn" style="margin-top:4px;' + (unregistered ? '' : 'display:none;') + '" title="Kein registrierter Mitarbeiter – wird als Externe(r) gespeichert">nicht registriert</span>' +
@@ -933,11 +961,13 @@ function renderProtPersonnel() {
           '<div class="ui-field"><span>Name</span>' + nameField + '</div>' +
         '</div>' +
         '<label class="prot-switch-label" style="margin:-4px 2px 12px;"><input type="checkbox" class="ui-switch" onchange="updateProtPersonnel(' + i + ',\'isTemp\',this.checked)" ' + (p.isTemp ? 'checked' : '') + ' /> Externe(r) / Aushilfe</label>' +
-        '<div class="prot-time-grid">' +
+        '<label class="ui-field"><span>Anwesenheit</span><select onchange="updateProtPersonnel(' + i + ', \'att\', this.value)">' +
+          PROT_ATTENDANCE.map(function(a) { return '<option value="' + a[0] + '"' + ((p.att || '') === a[0] ? ' selected' : '') + '>' + a[1] + '</option>'; }).join('') + '</select></label>' +
+        (protIsAbsent(p) ? '' : '<div class="prot-time-grid">' +
           '<label class="ui-field"><span>Start</span><input type="time" value="' + (p.start || '') + '" oninput="updateProtPersonnel(' + i + ', \'start\', this.value)"/></label>' +
           '<label class="ui-field"><span>Ende</span><input type="time" value="' + (p.end || '') + '" oninput="updateProtPersonnel(' + i + ', \'end\', this.value)"/></label>' +
           '<label class="ui-field"><span>Pause</span><input type="number" placeholder="Min" min="' + protPauseMin(p) + '" value="' + (p.pause || '0') + '" oninput="updateProtPersonnel(' + i + ', \'pause\', this.value)" onchange="protClampPause(' + i + ', this)"/></label>' +
-        '</div>' +
+        '</div>') +
         // Always present (hidden when the break is enough), toggled by protPauseHint without a re-render
         '<div class="prot-pause-warn" id="prot-pwarn-' + i + '"' + (protShortBreaks([p]).length ? '' : ' hidden') + '>' + protPauseHintText(p) + '</div>' +
         // A plain link opens reliably in iOS/Android PWAs, a window.open after the save would be popup-blocked
@@ -1119,6 +1149,15 @@ function updateProtPersonnel(idx, field, val) {
   if (field === 'tempName') {
     protState.personnel[idx].name = val;
   }
+  // Did not work: no times (no shift, no cost). Back to erschienen: the AL's times as a start
+  if (field === 'att') {
+    var row = protState.personnel[idx];
+    if (protIsAbsent(row)) { row.start = ''; row.end = ''; row.pause = '0'; }
+    else if (!row.start && !row.end && idx > 0 && protState.personnel[0]) { row.start = protState.personnel[0].start || ''; row.end = protState.personnel[0].end || ''; }
+    if (!val) delete row.att;
+    renderProtPersonnel();
+    calcProtCosts();
+  }
   if (field === 'pos' || field === 'isTemp') renderProtPersonnel();
 
   // Auto-pause calculation (another person may be under 18 → other break)
@@ -1135,7 +1174,7 @@ function updateProtPersonnel(idx, field, val) {
     // Time sync: if AL (index 0) changes, update others if they are empty or matched old AL time
     if (idx === 0 && field !== 'userId') {
       protState.personnel.forEach(function(p, i) {
-        if (i === 0) return;
+        if (i === 0 || protIsAbsent(p)) return;
         if (!p.start || (field === 'start' && p.start === oldStart)) p.start = protState.personnel[0].start;
         if (!p.end || (field === 'end' && p.end === oldEnd)) p.end = protState.personnel[0].end;
         var pv = timeToMins(p.start), pb = timeToMins(p.end);
@@ -1221,6 +1260,7 @@ function protCostLines(state, date, holiday) {
     if (drv) lines.push({ label: 'Fahrer ' + ((t.driver || '').trim() || 'ohne Name'), amount: drv.amount });
   });
   (state.personnel || []).forEach(function(p) {
+    if (protIsAbsent(p)) return;
     var v = timeToMins(p.start), b = timeToMins(p.end), pa = parseInt(p.pause) || 0;
     var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
     if (v !== null && b !== null && effB > v) {
@@ -1572,7 +1612,7 @@ function clearProtForm(skipConfirm) {
 function protIncompleteNames(personnel) {
   return (personnel || []).filter(function(p) {
     var used = p.name || p.tempName || p.start || p.end;
-    return used && (!p.start || !p.end);
+    return used && !protIsAbsent(p) && (!p.start || !p.end);
   }).map(function(p) { return p.name || p.tempName || 'Ohne Name'; });
 }
 
@@ -1806,7 +1846,7 @@ async function saveProtokoll() {
 function protShiftChanges(oldShifts, personnel, users, shiftDate) {
   var old = oldShifts || [], used = {}, updates = [], inserts = [], deletes = [];
   var hhmm = function(t) { return (t || '').substring(0, 5); };
-  var rows = (personnel || []).filter(function(p) { return p.start && p.end; }).map(function(p) {
+  var rows = (personnel || []).filter(function(p) { return p.start && p.end && !protIsAbsent(p); }).map(function(p) {
     var asUser = !p.isTemp && p.userId;
     return { person: p, old: null, db: {
       user_id: asUser ? p.userId : null,
@@ -2035,6 +2075,15 @@ async function syncProtokollToSupabase(data, targetId, out) {
       if (shDelErr) { console.error('Shifts delete failed:', shDelErr); throw shDelErr; }
       var delMsg = protShiftDeleteError(ch.deletes.length, (shDel || []).length);
       if (delMsg) { var delErr = new Error(delMsg); delErr.userMessage = delMsg; throw delErr; }
+    }
+
+    // 5b. Anwesenheit: the whole list in one call (keeps the alert state of unchanged rows); then the push for Ausfälle.
+    // Before migration 20261210 the function is missing: the protocol is saved without it
+    var attRows = protAttendanceRows(data.personnel);
+    var attRes = await supabaseClient.rpc('set_protocol_attendance', { p_protocol: protId, rows: attRows });
+    if (attRes.error && !/PGRST202|42883|Could not find the function|does not exist/i.test((attRes.error.code || '') + ' ' + (attRes.error.message || ''))) throw attRes.error;
+    if (!attRes.error && attRows.some(function(r) { return PROT_ABSENT.indexOf(r.status) !== -1; })) {
+      supabaseClient.functions.invoke('notify-attendance', { body: { protocol_id: protId } }).catch(function(e) { console.warn('notify-attendance:', e); });
     }
 
     // 6. Save Ratings for Zenjob/Rockit workers
@@ -2282,11 +2331,17 @@ async function renderProtHistory() {
   // Fetch from Supabase and seed any missing entries into localStorage
   if (typeof supabaseClient !== 'undefined') {
     try {
-      var { data: rows } = await supabaseClient
-        .from('protocols')
-        .select('*, projects(name,location), al:app_users!protocols_al_id_fkey(full_name), pl:app_users!protocols_pl_id_fkey(full_name), shifts(*,app_users(full_name)), protocol_transports(*), protocol_equipments(*), worker_ratings(temp_worker_name, rating, is_star)')
-        .order('date', { ascending: false })
-        .limit(PROT_HIST_FETCH_LIMIT);
+      var histSel = function(withAtt) {
+        return supabaseClient.from('protocols')
+          .select('*, projects(name,location), al:app_users!protocols_al_id_fkey(full_name), pl:app_users!protocols_pl_id_fkey(full_name), shifts(*,app_users(full_name)), protocol_transports(*), protocol_equipments(*), worker_ratings(temp_worker_name, rating, is_star)' +
+            (withAtt ? ', protocol_attendance(user_id, temp_worker_name, status)' : ''))
+          .order('date', { ascending: false })
+          .limit(PROT_HIST_FETCH_LIMIT);
+      };
+      var hist = await histSel(true);
+      // protocol_attendance not migrated yet (20261210): load without it
+      if (hist.error && /protocol_attendance/.test(hist.error.message || '')) hist = await histSel(false);
+      var rows = hist.data;
 
       if (rows && rows.length) {
         var archive = JSON.parse(localStorage.getItem('luebbert_protokoll_history') || '[]');
@@ -2627,7 +2682,7 @@ function buildProtPdfDoc(entry, opts) {
       var netStr='—'; if(v!==null&&b!==null&&effB>v){var n=Math.max(p.pos==='Zenjob'||p.pos==='Rockit'?4:3,(effB-v-pa)/60);netStr=n.toFixed(2)+' h';}
       // Same fest/frei rule as the cost lines below
       var posLabel = pdfStr(protBasePos(p, appUsers), '—');
-      doc.text(truncatePdf(doc,posLabel,22),ml+2,y+5.5); doc.text(truncatePdf(doc,pdfStr(p.name,'—'),45),ml+25,y+5.5); doc.text(pdfStr(p.start,'—')+' - '+pdfStr(p.end,'—'),ml+72,y+5.5); doc.text(pa+' Min',ml+100,y+5.5); doc.text(netStr,ml+118,y+5.5);
+      doc.text(truncatePdf(doc,posLabel,22),ml+2,y+5.5); doc.text(truncatePdf(doc,pdfStr(p.name,'—') + (p.att === 'verspaetet' ? ' (verspätet)' : ''),45),ml+25,y+5.5); doc.text(protIsAbsent(p) ? truncatePdf(doc, protAttLabel(p.att), 26) : pdfStr(p.start,'—')+' - '+pdfStr(p.end,'—'),ml+72,y+5.5); doc.text(pa+' Min',ml+100,y+5.5); doc.text(netStr,ml+118,y+5.5);
       if (p.pos === 'Zenjob' || p.pos === 'Rockit') doc.text(ratingPdfLabel(p.rating, p.isStar),ml+138,y+5.5);
       y+=8; if(y>270){doc.addPage();y=20;}
     }); y += 4;
