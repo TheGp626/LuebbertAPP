@@ -251,6 +251,13 @@ function protRowToEntry(r) {
       pause: s.pause_mins || 0
     };
   });
+  // Own ratings of the people (others' ratings are not edited here: set_staff_ratings replaces only the caller's)
+  var meId = typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null;
+  (r.staff_ratings || []).forEach(function(sr) {
+    if (sr.rated_by !== meId) return;
+    var row = personnel.find(function(p) { return p.userId === sr.user_id; });
+    if (row) { row.srating = sr.rating; if (sr.comment) row.scomment = sr.comment; }
+  });
   // Anwesenheit: status onto the person's row; people who did not work have no shift → a row without times
   (r.protocol_attendance || []).forEach(function(a) {
     var key = a.user_id || ('n:' + String(a.temp_worker_name || '').trim().toLowerCase());
@@ -609,6 +616,32 @@ function protAttendanceRows(personnel) {
   });
 }
 
+// ── Bewertung eigener Leute (Jenni, 26.11.2026): ⭐ Senior-Hand-Potenzial · 👍 · okay (default) · 👎, ⭐/👎 with comment.
+// Internal only (staff_ratings, set_staff_ratings): never shown to the person, no push. Agencies keep 👍/👎/⭐ (worker_ratings).
+var PROT_STAFF_RATINGS = [['star', '⭐', 'Senior-Hand-Potenzial'], ['up', '👍', 'gut'], ['', 'okay', 'okay'], ['down', '👎', 'schlecht']];
+function protCanRateStaff(p) {
+  var me = typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null;
+  return !!p && !p.isTemp && !!p.userId && p.pos !== 'Zenjob' && p.pos !== 'Rockit' && !protIsAbsent(p) && p.userId !== me;
+}
+function protStaffRatingNeedsComment(p) { return (p.srating === 'star' || p.srating === 'down') && String(p.scomment || '').trim().length < 3; }
+// Names whose ⭐/👎 still lacks a comment (blocks sending)
+function protMissingRatingComments(personnel) {
+  return (personnel || []).filter(function(p) { return protCanRateStaff(p) && protStaffRatingNeedsComment(p); }).map(function(p) { return p.name || 'Ohne Name'; });
+}
+function protStaffRatingRows(personnel) {
+  return (personnel || []).filter(function(p) { return protCanRateStaff(p) && p.srating; })
+    .map(function(p) { return { user_id: p.userId, rating: p.srating, comment: String(p.scomment || '').trim() || null }; });
+}
+function protStaffRatingHtml(p, i) {
+  return '<div class="ui-field"><span>Bewertung (nur intern)</span><div class="prot-rating prot-staff-rating">' + PROT_STAFF_RATINGS.map(function(r) {
+    var on = (p.srating || '') === r[0];
+    return '<button type="button" class="prot-rate' + (on ? ' on' : '') + '" aria-pressed="' + on + '" title="' + r[2] + '" onclick="updateProtRating(' + i + ',\'srating\',\'' + r[0] + '\')">' + r[1] + '</button>';
+  }).join('') + '</div>' +
+  (p.srating === 'star' || p.srating === 'down'
+    ? '<input type="text" maxlength="500" placeholder="' + (p.srating === 'star' ? 'Warum Senior-Hand-Potenzial? (Pflicht)' : 'Was war nicht gut? (Pflicht)') + '" value="' + escapeHtml(p.scomment || '') + '" oninput="protState.personnel[' + i + '].scomment=this.value; saveProtDraft();" style="margin-top:6px;">'
+    : '') + '</div>';
+}
+
 function protPersonSummary(p) {
   if (protIsAbsent(p)) return protAttLabel(p.att) + ' · keine Stunden';
   var late = p.att === 'verspaetet' ? ' · verspätet' : '';
@@ -909,6 +942,7 @@ function protApplyPlanPersonnel(rows) {
 
 function updateProtRating(idx, field, val) {
   protState.personnel[idx][field] = val;
+  if (field === 'srating' && !val) { delete protState.personnel[idx].srating; delete protState.personnel[idx].scomment; }
   renderProtPersonnel();
   saveProtDraft();
 }
@@ -970,6 +1004,7 @@ function renderProtPersonnel() {
         '</div>') +
         // Always present (hidden when the break is enough), toggled by protPauseHint without a re-render
         '<div class="prot-pause-warn" id="prot-pwarn-' + i + '"' + (protShortBreaks([p]).length ? '' : ' hidden') + '>' + protPauseHintText(p) + '</div>' +
+        (protCanRateStaff(p) ? protStaffRatingHtml(p, i) : '') +
         // A plain link opens reliably in iOS/Android PWAs, a window.open after the save would be popup-blocked
         (p.pos === 'Zenjob' ? '<a class="ui-btn" href="' + PROT_ZENJOB_RATE_URL + '" target="_blank" rel="noopener" style="margin-bottom:8px;">Bei Zenjob bewerten ↗</a>' : '') +
         '<button type="button" class="ui-btn ui-btn-danger prot-remove" onclick="removeProtPersonnel(' + i + ')">Person entfernen</button>' +
@@ -1705,6 +1740,8 @@ async function saveProtokoll() {
     incEl.value = PROT_SHORT_BREAK + ' (' + short.join(', ') + '): ' + whyBreak.trim() +
       (incEl.value.trim() && incEl.value.trim() !== 'nein' ? '\n' + incEl.value.trim() : '');
   }
+  var noComment = side ? [] : protMissingRatingComments(protState.personnel);
+  if (noComment.length) { protGoStep('personal'); showToast('Bei ⭐ und 👎 bitte kurz begründen: ' + noComment.join(', '), 'danger'); return; }
   var minorWarn = protMinorWarnings(protState.personnel);
   if (minorWarn.length && !confirm('Unter 18:\n' + minorWarn.join('\n') + '\n\nErlaubt sind nur 6–20 Uhr und höchstens 8 Std am Tag. Trotzdem senden?')) return;
   var jobNo = protJobNo((document.getElementById('prot-job') || {}).value);
@@ -2086,6 +2123,10 @@ async function syncProtokollToSupabase(data, targetId, out) {
       supabaseClient.functions.invoke('notify-attendance', { body: { protocol_id: protId } }).catch(function(e) { console.warn('notify-attendance:', e); });
     }
 
+    // 5c. Bewertungen eigener Leute (only the caller's own ratings are replaced); missing before migration 20261212
+    var srRes = await supabaseClient.rpc('set_staff_ratings', { p_protocol: protId, rows: protStaffRatingRows(data.personnel) });
+    if (srRes.error && !/PGRST202|42883|Could not find the function|does not exist/i.test((srRes.error.code || '') + ' ' + (srRes.error.message || ''))) throw srRes.error;
+
     // 6. Save Ratings for Zenjob/Rockit workers
     var ratingInserts = [];
     data.personnel.forEach(function(p) {
@@ -2334,13 +2375,13 @@ async function renderProtHistory() {
       var histSel = function(withAtt) {
         return supabaseClient.from('protocols')
           .select('*, projects(name,location), al:app_users!protocols_al_id_fkey(full_name), pl:app_users!protocols_pl_id_fkey(full_name), shifts(*,app_users(full_name)), protocol_transports(*), protocol_equipments(*), worker_ratings(temp_worker_name, rating, is_star)' +
-            (withAtt ? ', protocol_attendance(user_id, temp_worker_name, status)' : ''))
+            (withAtt ? ', protocol_attendance(user_id, temp_worker_name, status), staff_ratings(user_id, rating, comment, rated_by)' : ''))
           .order('date', { ascending: false })
           .limit(PROT_HIST_FETCH_LIMIT);
       };
       var hist = await histSel(true);
       // protocol_attendance not migrated yet (20261210): load without it
-      if (hist.error && /protocol_attendance/.test(hist.error.message || '')) hist = await histSel(false);
+      if (hist.error && /protocol_attendance|staff_ratings/.test(hist.error.message || '')) hist = await histSel(false);
       var rows = hist.data;
 
       if (rows && rows.length) {
