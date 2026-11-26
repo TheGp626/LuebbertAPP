@@ -27,7 +27,7 @@ test('Zenjob on a holiday is billed with the Zenjob Feiertag rate', () => {
   const r = calc('Zenjob', '2026-10-28', true, 8 * 60, 16 * 60, 0);
   assert.equal(r.length, 1);
   assert.equal(r[0].desc, 'Zenjob Feiertag');
-  assert.equal(r[0].rate, ctx.PROT_PERSONNEL_RATES['Zenjob Feiertag']);
+  assert.equal(r[0].rate, 35.92);
   assert.equal(r[0].hrs, 8);
 });
 
@@ -49,7 +49,7 @@ test('Zenjob without holiday: day/night split, Sunday bucket', () => {
 test('customRate overrides template rates for internal positions only', () => {
   assert.equal(calc('MA frei', '2026-10-28', false, 480, 960, 0, 18)[0].rate, 18);
   assert.equal(calc('MA frei', '2026-10-28', false, 480, 960, 0)[0].rate, 21.5);
-  assert.equal(calc('Zenjob', '2026-10-28', false, 480, 960, 0, 99)[0].rate, 23.5);
+  assert.equal(calc('Zenjob', '2026-10-28', false, 480, 960, 0, 99)[0].rate, 24.17);
 });
 
 test('calcTransportCost: default rates by weekday (Mo–Fr / Sa / So), admin rates from app settings win', () => {
@@ -120,4 +120,18 @@ test('roleRateMatches: exact key, or legacy "frei" for paid types and "fest" for
   assert.equal(ctx.roleRateMatches('AL frei', 'MA Minijob'), false);
   assert.equal(ctx.roleRateMatches('Lager', 'Lager'), true);
   assert.equal(ctx.roleRateMatches('MA Minijob', 'MA frei'), false);
+});
+
+test('agency rates and employer charges come from app settings, defaults otherwise', () => {
+  assert.equal(ctx.agencyRate('Rockit Sonntag'), 45);
+  assert.equal(ctx.agencyRate('Zenjob Nacht'), 30.05);
+  assert.equal(ctx.agencyRate('Zenjob Quatsch'), 24.17);
+  assert.equal(ctx.agencyRate('MA frei'), null);
+  vm.runInContext("appSetting = function(k) { return k === 'agency_rates' ? { Zenjob: { Tag: 25, Nacht: 31, Sonntag: 36, Feiertag: 37 }, Rockit: { Tag: 30, Nacht: 45, Sonntag: 45, Feiertag: 60 } } : k === 'employer_charges' ? { Minijob: 30, Midijob: 20 } : undefined; }", ctx);
+  try {
+    assert.equal(calc('Zenjob', '2026-10-28', true, 480, 960, 0)[0].rate, 37);
+    assert.equal(ctx.personnelRate('Zenjob Tag'), 25);
+    assert.equal(ctx.autoInternalRate(17, 'Minijob'), 22.1);
+    assert.equal(ctx.autoInternalRate(20, 'Midijob'), 24);
+  } finally { vm.runInContext('delete appSetting', ctx); }
 });

@@ -111,7 +111,7 @@ test('saveSettingsTab: a network exception from the rpc shows an error instead o
     console: { log() {}, warn() {}, error() {} },
     localStorage: global.localStorage,
     document: { getElementById: id => id === 'set-error' ? err : id === 'set-save-btn' ? btn : id === 'set-evening_push_hour' ? { value: '18' } : id === 'set-billing_cutoff' ? { value: '21' } : { checked: false },
-      querySelectorAll: sel => /set-personnel|set-dep/.test(sel) ? [] : [{ querySelector: sel => ({ value: /name/.test(sel) ? 'PKW' : '20' }) }] },
+      querySelectorAll: sel => /set-personnel|set-dep|set-agency/.test(sel) ? [] : [{ querySelector: sel => ({ value: /name/.test(sel) ? 'PKW' : '20' }) }] },
     showToast() {},
     supabaseClient: { rpc: () => Promise.reject(new TypeError('Failed to fetch')) },
   });
@@ -130,7 +130,7 @@ function saveSandbox(rpc, promptAnswer) {
     console: { log() {}, warn() {}, error() {} },
     localStorage: global.localStorage,
     document: { getElementById: id => id === 'set-error' ? err : id === 'set-save-btn' ? btn : id === 'set-evening_push_hour' ? { value: '18' } : id === 'set-billing_cutoff' ? { value: '21' } : { checked: false },
-      querySelectorAll: sel => /set-personnel|set-dep/.test(sel) ? [] : [{ querySelector: sel => ({ value: /name/.test(sel) ? 'PKW' : '20' }) }] },
+      querySelectorAll: sel => /set-personnel|set-dep|set-agency/.test(sel) ? [] : [{ querySelector: sel => ({ value: /name/.test(sel) ? 'PKW' : '20' }) }] },
     showToast: m => toasts.push(m),
     prompt: () => { prompts++; return promptAnswer; },
     currentUser: { id: 'me' },

@@ -41,11 +41,11 @@ test('dashShiftCosts uses the employee rate (role_rates / hourly_rate_internal)'
 
 test('calcDashProtTotal matches the app formula (date-dependent transport, holiday, minimum hours)', () => {
   const f = run('calcDashProtTotal');
-  // Bischoff on a Sunday costs 837.50; Zenjob 2h on a holiday → 4h minimum × 35.25
+  // Bischoff on a Sunday costs 837.50; Zenjob 2h on a holiday → 4h minimum × 35.92
   const total = f('2026-11-01', true, [{ type: 'Bischoff' }], [
     { position_role: 'Zenjob', start_time: '10:00', end_time: '12:00', pause_mins: 0 },
   ]);
-  assert.equal(total, 837.5 + 4 * 35.25);
+  assert.equal(total.toFixed(2), '981.18');
 });
 
 test('calcDashProtTotal: driver hours count like in the form; old rows without hours do not', () => {
@@ -885,10 +885,10 @@ test('dashShiftNetMins: start equal to end is no shift (no 3 h floor), short shi
   assert.equal(ctx.dashShiftNetMins({ start_time: '22:00', end_time: '06:00', pause_mins: 30 }), 450);
 });
 
-test('autoInternalRate: Minijob/Midijob +25 %, others none', () => {
+test('autoInternalRate: Minijob +32,7 %, Midijob +22 % (defaults), others none', () => {
   const f = run('autoInternalRate');
-  assert.equal(f('20', 'Minijob'), 25);
-  assert.equal(f(17.5, 'Midijob'), 21.88);
+  assert.equal(f('20', 'Minijob'), 26.54);
+  assert.equal(f(17.5, 'Midijob'), 21.35);
   assert.equal(f('20', 'Fest'), null);
   assert.equal(f('20', 'Rechnung'), null);
   assert.equal(f('', 'Minijob'), null);

@@ -333,16 +333,16 @@ test('calcProtCosts total is pinned (characterization before extracting protCost
   dom['prot-isholiday'] = { checked: false };
   dom['prot-total-cost'] = { textContent: '' };
   run('protState = ' + JSON.stringify(COST_FIXTURE) + '; calcProtCosts();');
-  assert.equal(dom['prot-total-cost'].textContent, '529,52');
+  assert.equal(dom['prot-total-cost'].textContent, '532,20');
 });
 
 test('protCostLines: same total as calcProtCosts, one line per transport and person', () => {
   const r = plain(ctx.protCostLines(JSON.parse(JSON.stringify(COST_FIXTURE)), '2026-10-28', false));
-  assert.equal(r.total.toFixed(2), '529.52');
+  assert.equal(r.total.toFixed(2), '532.20');
   assert.equal(r.lines.length, 4);
   assert.equal(r.lines[0].label, 'Sprinter');
   assert.equal(r.lines[1].label, 'Anna (AL)');
-  assert.equal(r.lines.reduce((s, l) => s + l.amount, 0).toFixed(2), '529.52');
+  assert.equal(r.lines.reduce((s, l) => s + l.amount, 0).toFixed(2), '532.20');
   // a person without end time costs nothing and gets no line
   const r2 = plain(ctx.protCostLines({ transports: [], personnel: [{ pos: 'MA', isTemp: true, name: 'X', start: '08:00', end: '' }] }, '2026-10-28', false));
   assert.deepEqual(r2, { lines: [], total: 0 });
@@ -355,7 +355,7 @@ test('protCostLines: driver with hours adds a line, unregistered driver is bille
   const r = plain(ctx.protCostLines(withDriver({ hours: 5 }), '2026-10-28', false));
   assert.equal(r.lines.length, 5);
   assert.deepEqual(r.lines[1], { label: 'Fahrer Tom', amount: 150 });
-  assert.equal(r.total.toFixed(2), (529.52 + 150).toFixed(2));
+  assert.equal(r.total.toFixed(2), (532.20 + 150).toFixed(2));
   // hours typed into the field arrive as strings
   assert.equal(plain(ctx.protCostLines(withDriver({ hours: '2.5' }), '2026-10-28', false)).lines[1].amount, 75);
 });
@@ -364,7 +364,7 @@ test('protCostLines: no hours (old draft / row), zero hours or no driver → no 
   [{}, { hours: 0 }, { hours: null }, { hours: '' }, { hours: 5, driver: '' }].forEach(t => {
     const r = plain(ctx.protCostLines(withDriver(t), '2026-10-28', false));
     assert.equal(r.lines.length, 4);
-    assert.equal(r.total.toFixed(2), '529.52');
+    assert.equal(r.total.toFixed(2), '532.20');
   });
 });
 
