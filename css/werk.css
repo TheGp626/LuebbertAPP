@@ -1,58 +1,89 @@
-/* ══ Lübbert design layer (rework 2026-11-24, branch redesign) ══
-   Concept: the calm back-of-house of an event-interiors brand. Taken from the Lübbert mark:
-   the teal of the petals, thin geometric lettering (Jost) for titles and numbers, and the petal shape
-   (two round corners, two tight ones) as the one signature form — main button, hero card, active tab.
+/* ══ Lübbert design layer (rework 2026-11-24, branch redesign; CI 2026-11-26) ══
+   Concept: the calm back-of-house of an event-interiors brand, after the Lübbert brand guide (January 2026):
+   teal #56ADC2 and grey #7D7F80 from the logo, and the petal shape (two round corners, two tight ones) as the
+   one signature form: main button, hero card, active tab.
    Everything else stays quiet: no outlines around every box, flat list rows on hairlines, sentence case.
-   Body text is Atkinson Hyperlegible Next, made for reading on a phone in a bright hall.
+   Font: Poppins (SIL OFL, self-hosted), as on luebbert-eventinteriors.de. The brand font Gotham is licensed for
+   print only, so it must not be hosted here.
    Loaded last; remaps the old tokens of style.css/ui.css so every screen follows. w- classes come from JS. */
 
 @font-face {
-  font-family: 'Jost'; font-style: normal; font-display: swap; font-weight: 100 900;
-  src: url(../fonts/jost-latin-ext-wght-normal.woff2) format('woff2-variations');
+  font-family: 'Poppins'; font-style: normal; font-display: swap; font-weight: 300;
+  src: url(../fonts/poppins-latin-ext-300-normal.woff2) format('woff2');
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
     U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 @font-face {
-  font-family: 'Jost'; font-style: normal; font-display: swap; font-weight: 100 900;
-  src: url(../fonts/jost-latin-wght-normal.woff2) format('woff2-variations');
+  font-family: 'Poppins'; font-style: normal; font-display: swap; font-weight: 300;
+  src: url(../fonts/poppins-latin-300-normal.woff2) format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
     U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: 'Atkinson Next'; font-style: normal; font-display: swap; font-weight: 200 800;
-  src: url(../fonts/atkinson-hyperlegible-next-latin-ext-wght-normal.woff2) format('woff2-variations');
+  font-family: 'Poppins'; font-style: normal; font-display: swap; font-weight: 400;
+  src: url(../fonts/poppins-latin-ext-400-normal.woff2) format('woff2');
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
     U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 @font-face {
-  font-family: 'Atkinson Next'; font-style: normal; font-display: swap; font-weight: 200 800;
-  src: url(../fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2) format('woff2-variations');
+  font-family: 'Poppins'; font-style: normal; font-display: swap; font-weight: 400;
+  src: url(../fonts/poppins-latin-400-normal.woff2) format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
     U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
-
-/* Digits come from Jost everywhere: Atkinson's slashed zero reads badly in hours and totals */
 @font-face {
-  font-family: 'Luebbert Digits'; font-style: normal; font-display: swap; font-weight: 100 900;
-  src: url(../fonts/jost-latin-wght-normal.woff2) format('woff2-variations');
-  unicode-range: U+0030-0039;
+  font-family: 'Poppins'; font-style: normal; font-display: swap; font-weight: 500;
+  src: url(../fonts/poppins-latin-ext-500-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Poppins'; font-style: normal; font-display: swap; font-weight: 500;
+  src: url(../fonts/poppins-latin-500-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Poppins'; font-style: normal; font-display: swap; font-weight: 600;
+  src: url(../fonts/poppins-latin-ext-600-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Poppins'; font-style: normal; font-display: swap; font-weight: 600;
+  src: url(../fonts/poppins-latin-600-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Poppins'; font-style: normal; font-display: swap; font-weight: 700;
+  src: url(../fonts/poppins-latin-ext-700-normal.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Poppins'; font-style: normal; font-display: swap; font-weight: 700;
+  src: url(../fonts/poppins-latin-700-normal.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 /* ── Tokens (light) + remap of the old tokens ── */
 :root {
   --w-paper: #EDF1F1;      /* mist: page */
   --w-card: #FFFFFF;       /* surfaces */
-  --w-ink: #1D2426;        /* graphite */
-  --w-muted: #5B676A;
+  --w-ink: #1F2223;        /* graphite */
+  --w-muted: #5F6263;      /* brand grey #7D7F80, darkened for small text (6:1) */
   --w-soft: #D3DCDD;       /* hairlines */
   --w-field: #8C9C9F;      /* input outlines (3:1 on white) */
   --w-tint: #E2EAEA;       /* pressed, tracks */
-  --w-accent: #2B9BAA;     /* Lübbert teal: icons, bars, dots */
-  --w-accent-strong: #16707C; /* teal for fills with white text (5.6:1) */
+  --w-accent: #56ADC2;     /* Lübbert teal (brand guide): icons, bars, dots */
+  --w-brand-grey: #7D7F80; /* brand guide grey: logo wordmark, decoration */
+  --w-accent-strong: #337D8E; /* brand teal darkened for fills with white text (4.7:1) */
   --w-on-accent: #FFFFFF;
-  --w-accent-text: #12636E;
-  --w-accent-bg: #DBEFF1;
-  --w-hero: #16707C; --w-on-hero: #FFFFFF; --w-hero-muted: #BFE3E7;
+  --w-accent-text: #2F7383;
+  --w-accent-bg: #E3F2F6;
+  --w-hero: #337D8E; --w-on-hero: #FFFFFF; --w-hero-muted: #CBE8EF;
   --w-bar: #FFFFFF; --w-bar-muted: #6A7679;
   --w-ok: #2C7A4B; --w-ok-bg: #DFF0E5; --w-warn: #8F5400; --w-warn-bg: #FBEED6; --w-danger: #B3302A; --w-danger-bg: #FBE2DF;
   --w-line: var(--w-soft);
@@ -61,8 +92,8 @@
   --w-bw: 1px;
   --w-s1: 4px; --w-s2: 8px; --w-s3: 12px; --w-s4: 16px; --w-s5: 24px; --w-s6: 32px;
   --w-fast: 140ms; --w-slow: 240ms;
-  --w-font: 'Luebbert Digits', 'Atkinson Next', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --w-display: 'Jost', 'Atkinson Next', -apple-system, sans-serif;
+  --w-font: 'Poppins', 'Helvetica Neue', Arial, sans-serif;
+  --w-display: var(--w-font);
   --w-tabbar-h: 62px;
 
   --bg: var(--w-paper); --bg2: var(--w-card); --bg3: var(--w-tint);
@@ -77,7 +108,7 @@
 }
 [data-theme="dark"] {
   --w-paper: #0F1516; --w-card: #182123; --w-ink: #E5EDEE; --w-muted: #97A6A9; --w-soft: #273335; --w-field: #5E6F72; --w-tint: #212C2E;
-  --w-accent: #4CBFCD; --w-accent-strong: #4CBFCD; --w-on-accent: #0B1314; --w-accent-text: #72D2DD; --w-accent-bg: #12343A;
+  --w-accent: #56ADC2; --w-accent-strong: #56ADC2; --w-on-accent: #0B1314; --w-accent-text: #7CC3D4; --w-accent-bg: #13353D;
   --w-hero: #174E55; --w-on-hero: #EAF7F8; --w-hero-muted: #9ED3D9; --w-bar: #141C1E; --w-bar-muted: #8A9A9D;
   --w-ok: #8FD3A6; --w-ok-bg: #16301F; --w-warn: #F0BC66; --w-warn-bg: #352610; --w-danger: #F29A92; --w-danger-bg: #3A1816;
   --text3: #8A999C; --border2: #3A4749;
@@ -85,7 +116,7 @@
 @media (prefers-color-scheme: dark) {
   [data-theme="auto"] {
     --w-paper: #0F1516; --w-card: #182123; --w-ink: #E5EDEE; --w-muted: #97A6A9; --w-soft: #273335; --w-field: #5E6F72; --w-tint: #212C2E;
-    --w-accent: #4CBFCD; --w-accent-strong: #4CBFCD; --w-on-accent: #0B1314; --w-accent-text: #72D2DD; --w-accent-bg: #12343A;
+    --w-accent: #56ADC2; --w-accent-strong: #56ADC2; --w-on-accent: #0B1314; --w-accent-text: #7CC3D4; --w-accent-bg: #13353D;
     --w-hero: #174E55; --w-on-hero: #EAF7F8; --w-hero-muted: #9ED3D9; --w-bar: #141C1E; --w-bar-muted: #8A9A9D;
     --w-ok: #8FD3A6; --w-ok-bg: #16301F; --w-warn: #F0BC66; --w-warn-bg: #352610; --w-danger: #F29A92; --w-danger-bg: #3A1816;
     --text3: #8A999C; --border2: #3A4749;
@@ -96,11 +127,23 @@
 html, body { background: var(--w-paper); }
 body, button, input, select, textarea { font-family: var(--w-font); }
 body { color: var(--w-ink); -webkit-font-smoothing: antialiased; font-size: 15px; }
-:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--w-accent-strong); outline-offset: 2px; }
 ::selection { background: var(--w-accent-bg); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
 
-/* ── Type: Jost for titles and figures, light; labels in sentence case ── */
+/* ── Logo (brand guide: never altered, minimum 32 px; the white version on dark) ── */
+.w-logo { display: block; height: auto; }
+.w-logo-auth { width: 160px; margin: 0 auto 20px; }
+.w-logo-home { width: 140px; margin: 2px 0 18px; }
+.w-logo-dark { display: none; }
+[data-theme="dark"] .w-logo-light { display: none; }
+[data-theme="dark"] .w-logo-dark { display: block; }
+@media (prefers-color-scheme: dark) {
+  [data-theme="auto"] .w-logo-light { display: none; }
+  [data-theme="auto"] .w-logo-dark { display: block; }
+}
+
+/* ── Type: light Poppins for titles and figures; labels in sentence case ── */
 .w-date { font-size: 14px; font-weight: 500; color: var(--w-muted); }
 .w-title { font-family: var(--w-display); font-size: 40px; font-weight: 300; letter-spacing: -.01em; line-height: 1.05; margin: 2px 0 18px; color: var(--w-ink); }
 .w-label, .ui-label { font-size: 13px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--w-muted); margin: 22px 2px 8px; }
@@ -279,7 +322,7 @@ body.w-has-tabbar .ui-actionbar { padding-bottom: 10px; }
 .ui-row-me + .ui-row { border-top: 0; }
 .ui-tile-ico, .ordner-ico { background: var(--w-accent-bg) !important; color: var(--w-accent-text) !important; border-radius: var(--w-petal-sm) !important; box-shadow: none !important; }
 
-/* Key figures: thin Jost numbers */
+/* Key figures: light numbers */
 .ui-stat { background: var(--w-card); border: 0; border-radius: var(--w-r-card); }
 .ui-stat span { font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--w-muted); }
 .ui-stat b { font-family: var(--w-display); font-size: 32px; font-weight: 300; letter-spacing: 0; }

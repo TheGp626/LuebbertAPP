@@ -48,6 +48,6 @@ test('sw: answers GET_VERSION with its cache name (Fehlerberichte)', () => {
 test('every LAZY_ASSETS file exists in the repo (incl. the fonts)', () => {
   const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
   const list = eval(sw.match(/const LAZY_ASSETS = (\[[\s\S]*?\]);/)[1]);
-  for (const f of ['jost-latin-wght-normal', 'jost-latin-ext-wght-normal', 'atkinson-hyperlegible-next-latin-wght-normal', 'atkinson-hyperlegible-next-latin-ext-wght-normal']) assert.ok(list.includes('fonts/' + f + '.woff2'), f);
+  for (const f of [300, 400, 500, 600, 700].flatMap(w => ['poppins-latin-' + w + '-normal', 'poppins-latin-ext-' + w + '-normal'])) assert.ok(list.includes('fonts/' + f + '.woff2'), f);
   for (const f of list) assert.ok(fs.existsSync(path.join(root, f)), f);
 });
