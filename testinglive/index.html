@@ -15,18 +15,20 @@
 
   <link rel="stylesheet" href="css/style.css?v=46">
   <link rel="stylesheet" href="css/ui.css?v=55">
-  <link rel="stylesheet" href="css/werk.css?v=34">
+  <link rel="stylesheet" href="css/werk.css?v=36">
 </head>
 
 <body>
   <div style="position:fixed; left:0; right:0; top:0; padding-top:env(safe-area-inset-top); z-index:99999; background:#dc2626; color:#fff; font:600 11px/1.6 system-ui,sans-serif; text-align:center; pointer-events:none;">TESTING LIVE – echte Daten: alles, was du hier speicherst, ist echt</div>
   <style>body{box-sizing:border-box;padding-top:calc(18px + env(safe-area-inset-top))}</style>
   <!-- ── AUTH OVERLAY ── -->
-  <div id="auth-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg); z-index: 10000; flex-direction: column; align-items: center; justify-content: center; padding: 20px; overflow-y: auto;">
-    <div class="ui-card" style="width: 100%; max-width: 400px; padding: 24px 20px; margin: 0; cursor: default; text-align: center;">
-      <img src="icons/logo.png" alt="Lübbert" style="display: block; width: 120px; height: auto; margin: 0 auto 16px;">
-      <h2 id="auth-title" class="ui-title" style="margin-bottom: 6px;">Login</h2>
-      <p id="auth-sub" class="ui-sub" style="margin-bottom: 18px;">Wähle deinen Namen aus.</p>
+  <div id="auth-overlay" style="display: none;">
+    <div class="auth-hero">
+      <img src="icons/logo-vertical-white.png" class="auth-logo" alt="Lübbert Event Interiors" width="480" height="327">
+    </div>
+    <div class="ui-card auth-card">
+      <h2 id="auth-title" class="ui-title">Willkommen</h2>
+      <p id="auth-sub" class="ui-sub">Wähle deinen Namen aus.</p>
       <div id="auth-error" style="color: var(--danger); font-size: 13px; margin-bottom: 12px; display: none;"></div>
       <div class="ui-field" style="position: relative;">
         <input type="text" id="auth-name-input" placeholder="Name tippen oder auswählen…" autocomplete="off" autocapitalize="words" />
@@ -38,8 +40,7 @@
         <input type="password" id="auth-pin-repeat" inputmode="numeric" pattern="\d{4}" maxlength="4" autocomplete="new-password" style="display: none; margin-top: 8px;" placeholder="PIN wiederholen" />
         <input type="password" id="auth-admin-pin" autocomplete="off" style="display: none; margin-top: 8px;" placeholder="Admin-Passwort (nur beim ersten Mal)" />
       </div>
-      <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="ui-btn ui-btn-primary ui-btn-block" style="margin-bottom: 12px;">Anmelden</button>
-      <div class="ui-sub" style="font-size: 12px;">Powered by Supabase</div>
+      <button id="auth-submit-btn" onclick="handleAuthSubmit()" class="ui-btn ui-btn-primary ui-btn-block">Anmelden</button>
     </div>
     <button type="button" class="problem-link" onclick="openProblemForm()">Problem melden</button>
   </div>
@@ -80,6 +81,8 @@
     <!-- ══════════ STARTUP PAGE ══════════ -->
     <div class="page active" id="page-startup">
       <div class="ui-home w-heute" id="heute">
+        <img src="icons/logo-horizontal.png" class="w-logo w-logo-home w-logo-light" alt="Lübbert Event Interiors" width="420" height="113">
+        <img src="icons/logo-horizontal-white.png" class="w-logo w-logo-home w-logo-dark" alt="" width="420" height="113">
         <div class="w-date" id="home-date"></div>
         <h1 class="w-title" id="home-hello" onclick="titleTap()">Heute</h1>
         <div id="home-next"></div>
@@ -698,7 +701,7 @@
       <section class="ui-section">
         <div class="ui-section-head"><span class="ui-label">Basis</span></div>
         <div class="prot-date-row">
-          <label class="ui-field"><span>Datum</span><input type="date" id="pe-date"></label>
+          <label class="ui-field"><span>Datum</span><input type="date" id="pe-date" onchange="renderDashPeSide()"></label>
           <label class="prot-switch-label"><input type="checkbox" class="ui-switch" id="pe-holiday"> Feiertag</label>
         </div>
         <div class="ui-field"><span>Aktion</span>
@@ -711,17 +714,22 @@
         </div>
         <label class="ui-field"><span>Projektnummer (optional)</span>
           <input type="text" id="pe-job" placeholder="z. B. 26-0447" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="12"></label>
+        <div class="ui-field">
+          <label class="prot-switch-label"><input type="checkbox" class="ui-switch" id="pe-side-on" onchange="renderDashPeSide()"> Zusatzauftrag (lief im Zuge eines anderen Auf-/Abbaus mit)</label>
+          <select id="pe-side-of" hidden aria-label="Läuft mit bei"></select>
+          <small id="pe-side-hint" hidden></small>
+        </div>
       </section>
 
       <!-- Transporte -->
-      <section class="ui-section">
+      <section class="ui-section" id="pe-sec-transports">
         <div class="ui-section-head"><span class="ui-label">Transporte</span></div>
         <div id="pe-transports"></div>
         <button type="button" class="ui-add-row" onclick="addDashProtTransport()">+ Transport</button>
       </section>
 
       <!-- Personal -->
-      <section class="ui-section">
+      <section class="ui-section" id="pe-sec-shifts">
         <div class="ui-section-head"><span class="ui-label">Personal</span></div>
         <div id="pe-shifts"></div>
         <button type="button" class="ui-add-row" onclick="addDashPeShift()">+ Person</button>
@@ -981,7 +989,7 @@
   <script src="js/supabase-config.js?v=10"></script>
   <script src="js/auth.js?v=50"></script>
   <script src="js/viewas.js?v=1"></script>
-  <script src="js/logo.js?v=9"></script>
+  <script src="js/logo.js?v=10"></script>
   <script src="js/formulas.js?v=21"></script>
   <script src="js/utils.js?v=28"></script>
   <script src="js/ui.js?v=11"></script>
@@ -990,7 +998,7 @@
   <script src="js/settings.js?v=18"></script>
   <script src="js/mitarbeiter.js?v=4"></script>
   <script src="js/stundenzettel.js?v=38"></script>
-  <script src="js/protokoll.js?v=67"></script>
+  <script src="js/protokoll.js?v=68"></script>
   <script src="js/erinnerung.js?v=15"></script>
   <script src="js/plan-pdf.js?v=3"></script>
   <script src="js/plan-parser.js?v=27"></script>
@@ -1006,7 +1014,7 @@
   <script src="js/vorort.js?v=2"></script>
   <script src="js/meine.js?v=3"></script>
   <script src="js/heute.js?v=9"></script>
-  <script src="js/dashboard.js?v=69"></script>
+  <script src="js/dashboard.js?v=70"></script>
   <script src="js/fehler.js?v=3"></script>
   <script src="js/admin.js?v=3"></script>
   <script src="js/produkte.js?v=22"></script>

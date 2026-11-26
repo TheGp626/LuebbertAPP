@@ -685,7 +685,7 @@ async function refreshDashboardOnce() {
     await ensureRateUsers();
     // Explicit columns: '*' would also load every signature image (signature_text, ~11 KB each)
     const protSelect = (withEdited) => `
-        id, date, action, is_holiday, total_cost, al_id, pl_id, job_no, created_by,${withEdited ? ' edited_by, edited_at, photos,' : ''}
+        id, date, action, is_holiday, total_cost, al_id, pl_id, job_no, created_by,${withEdited ? ' edited_by, edited_at, photos, side_of,' : ''}
         notes_damages, notes_incidents, notes_feedback,
         al_name_fallback, pl_name_fallback, created_at, mailed_at,
         projects(name, location),
@@ -699,8 +699,8 @@ async function refreshDashboardOnce() {
       `;
     const load = (withEdited) => sbFetchAll(() => supabaseClient.from('protocols').select(protSelect(withEdited)).order('date', { ascending: false }).order('id'));
     let { data: protocols, error: protError } = await load(true);
-    // edited_by/edited_at/photos not migrated yet (jenni_runde_4): load without them
-    if (protError && /edited_|photos/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(false));
+    // edited_by/edited_at/photos/side_of not migrated yet: load without them
+    if (protError && /edited_|photos|side_of/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(false));
     if (protError) throw protError;
 
     dashboardProtocols = protocols;
@@ -2210,6 +2210,7 @@ function openDashProtEdit() {
   document.getElementById('pe-al-wrap').innerHTML = uiComboHtml('pe-al', p.al ? p.al.full_name : (p.al_name_fallback || ''), 'Name wählen oder eingeben', '', '');
   document.getElementById('pe-pl-wrap').innerHTML = uiComboHtml('pe-pl', p.pl ? p.pl.full_name : (p.pl_name_fallback || ''), 'Name wählen oder eingeben', '', '');
   if (document.getElementById('pe-job')) document.getElementById('pe-job').value = p.job_no || '';
+  document.getElementById('pe-side-on').checked = !!p.side_of;
   document.getElementById('pe-damages').value  = p.notes_damages || '';
   document.getElementById('pe-incidents').value = p.notes_incidents || '';
   document.getElementById('pe-feedback').value  = p.notes_feedback || '';
@@ -2230,8 +2231,35 @@ function openDashProtEdit() {
   renderDashProtTransports();
   renderDashProtEquipment(p.protocol_equipments || []);
   renderDashPeShifts();
+  renderDashPeSide();
 
   document.getElementById('dash-prot-edit-modal').classList.add('open');
+}
+
+// Zusatzauftrag switch in the edit sheet: main protocols are those of the same date that are no Zusatz themselves
+// (same rule as the protocol form); a protocol that already has Zusatz of its own cannot become one.
+function renderDashPeSide() {
+  const p = dashboardProtocols.find(x => x.id === _editProtId);
+  if (!p) return;
+  const sw = document.getElementById('pe-side-on'), sel = document.getElementById('pe-side-of'), hint = document.getElementById('pe-side-hint');
+  const date = document.getElementById('pe-date').value || p.date;
+  const hasOwnZusatz = dashboardProtocols.some(function(x) { return x.side_of === p.id; });
+  sw.disabled = hasOwnZusatz;
+  if (hasOwnZusatz) sw.checked = false;
+  const cands = dashboardProtocols.filter(function(x) { return x.id !== p.id && x.date === date && !x.side_of; });
+  const keep = sel.value || p.side_of || '';
+  sel.innerHTML = '<option value="">Hauptprotokoll wählen…</option>' + cands.map(function(x) {
+    const name = (x.projects && x.projects.name) || 'Protokoll';
+    return '<option value="' + x.id + '">' + escapeHtml(name + (x.job_no ? ' (' + x.job_no + ')' : '') + ' · ' + (x.action || '')) + '</option>';
+  }).join('');
+  sel.value = cands.some(function(x) { return x.id === keep; }) ? keep : '';
+  const on = sw.checked;
+  sel.hidden = !on;
+  hint.hidden = !(hasOwnZusatz || (on && !cands.length));
+  hint.textContent = hasOwnZusatz ? 'Zu diesem Protokoll gibt es selbst Zusatzaufträge, es kann keins werden.'
+    : 'Kein Hauptprotokoll an diesem Datum gefunden.';
+  document.getElementById('pe-sec-transports').hidden = on;
+  document.getElementById('pe-sec-shifts').hidden = on;
 }
 
 function closeDashProtEdit() {
@@ -2476,6 +2504,15 @@ async function saveDashProtEdit() {
   const saveBtn = document.getElementById('pe-save-btn');
   if (saveBtn && saveBtn.disabled) return;
 
+  // Zusatzauftrag: no crew, no vehicles, no cost (their hours count in the main protocol)
+  const sideOn = document.getElementById('pe-side-on').checked;
+  const sideOf = sideOn ? document.getElementById('pe-side-of').value : '';
+  if (sideOn && !sideOf) { showToast('Bitte das Hauptprotokoll auswählen, bei dem dieser Zusatzauftrag mitlief.', 'danger'); return; }
+  if (sideOn && !p.side_of && ((p.shifts || []).length || (p.protocol_transports || []).length)
+    && !confirm('Als Zusatzauftrag werden Personal (' + (p.shifts || []).length + ') und Transporte (' + (p.protocol_transports || []).length +
+      ') dieses Protokolls gelöscht und die Kosten auf 0 gesetzt. Sie zählen im Hauptprotokoll. Fortfahren?')) return;
+  if (sideOn) { _editProtShifts = []; _editProtTransports = []; }
+
   // A name typed but not yet committed (no blur before the tap) still counts
   _editProtShifts.forEach(function(r, i) { const el = document.getElementById('pe-sh-' + i); if (el) onDashShiftName(i, el.value); });
   _editProtTransports.forEach(function(t, i) { const el = document.getElementById('pe-drv-' + i); if (el) onDashDriverName(i, el.value); });
@@ -2526,6 +2563,7 @@ async function saveDashProtEdit() {
     notes_incidents: document.getElementById('pe-incidents').value.trim() || null,
     notes_feedback:  document.getElementById('pe-feedback').value.trim()  || null,
   };
+  if (sideOn || p.side_of) protPayload.side_of = sideOn ? sideOf : null;
   const jobEl = document.getElementById('pe-job');
   if (jobEl) {
     if (!protJobNoValid(jobEl.value)) { showToast('Die Projektnummer sieht so aus: 26-0447 (oder mit Auftrag: 26-0447.01). Bitte korrigieren oder leer lassen.', 'danger'); return; }
@@ -2534,6 +2572,7 @@ async function saveDashProtEdit() {
   // Same formula as the app, from the edited transports and the edited personnel (not the stored ones)
   if (costChanged) protPayload.total_cost = calcDashProtTotal(newDate, isHoliday, _editProtTransports,
     _editProtShifts.map(function(r) { return dashShiftRowToDb(r, rateUsers); }));
+  if (sideOn) protPayload.total_cost = 0;
 
   if (saveBtn) saveBtn.disabled = true;
   try {

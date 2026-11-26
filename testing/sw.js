@@ -1,9 +1,11 @@
-const CACHE = 'stundenzettel-exp-tst-8cf7624';
+const CACHE = 'stundenzettel-exp-tst-dbdced1';
 // Product media, shared by the live app and /experimental/ (same origin, same files)
 const MEDIA_CACHE = 'luebbert-media-v1';
 // Loaded by the app only when needed (utils.js loadLib), so index.html doesn't name them: precached here for offline use
 const LAZY_ASSETS = ['vendor/jspdf-2.5.1.umd.min.js', 'vendor/pdfjs-3.11.174/pdf.min.js', 'vendor/pdfjs-3.11.174/pdf.worker.min.js',
-  'vendor/chart-4.6.1.umd.min.js', 'fonts/jost-latin-wght-normal.woff2', 'fonts/jost-latin-ext-wght-normal.woff2', 'fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2', 'fonts/atkinson-hyperlegible-next-latin-ext-wght-normal.woff2'];
+  'vendor/chart-4.6.1.umd.min.js', 'fonts/poppins-latin-300-normal.woff2', 'fonts/poppins-latin-ext-300-normal.woff2', 'fonts/poppins-latin-400-normal.woff2', 'fonts/poppins-latin-ext-400-normal.woff2',
+  'fonts/poppins-latin-500-normal.woff2', 'fonts/poppins-latin-ext-500-normal.woff2', 'fonts/poppins-latin-600-normal.woff2', 'fonts/poppins-latin-ext-600-normal.woff2',
+  'fonts/poppins-latin-700-normal.woff2', 'fonts/poppins-latin-ext-700-normal.woff2'];
 
 // Offline start needs every script/stylesheet of index.html (own files + CDN libs): the install step reads
 // index.html and caches whatever it references, so this list never has to be kept in sync by hand.
