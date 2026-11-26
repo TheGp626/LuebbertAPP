@@ -32,7 +32,7 @@ create policy rls_protocol_changes_select on public.protocol_changes for select 
 
 -- Keys that are bookkeeping, not protocol content (status is content only for the Anwesenheit; the signature is too big)
 create or replace function public.protocol_change_noise(tbl text) returns text[]
-language sql immutable as $$
+language sql immutable set search_path = public as $$
   select array['id', 'created_at', 'created_by', 'edited_by', 'edited_at', 'mailed_at', 'first_mailed_at', 'changed_after_mail_at',
                'approved_at', 'approved_by', 'self_entered', 'alerted_at', 'protocol_id', 'signature_text']
          || case when tbl = 'protocol_attendance' then array[]::text[] else array['status'] end
