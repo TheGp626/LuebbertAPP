@@ -23,25 +23,37 @@ function ordVenueLabel(title) { return (String(title || '').split('_')[1] || '')
 function ordPhaseFits(phase, wann) {
   var first = String(wann || '').trim().split('\n')[0];
   if (!first) return true;
-  return phase === 'setup' ? /^(aufbau|anlieferung|umbau|schnellumbau)/i.test(first) : /^(abbau|abholung)/i.test(first);
+  return phase === 'setup' ? /^(aufbau|vorbau|anlieferung|umbau|schnellumbau)/i.test(first) : /^(abbau|abholung)/i.test(first);
 }
 
 function ordSlotDate(slot) { return String(slot.start_at || '').slice(0, 10); }
 
-// Best entry of the weekly plan for a slot, or null (equal best scores → null: a separate card beats a wrong link)
+// Best entry of the weekly plan for a slot, or null (equal best scores → null: a separate card beats a wrong link).
+// First by the words of the job (title, name); when no entry shares one, by the material: Daniel's plan often names the
+// articles ("1600 Estrelhusse weiß + Armlehne") where the Lieferschein only has the job title. Material needs 2+ shared words.
 function ordMatchSlot(slot, planShifts) {
   var venue = ordSlotVenue(slot.title), date = ordSlotDate(slot);
   if (!venue) return null;
-  var words = ordWords(String(slot.title || '').split('_').slice(2).join(' ') + ' ' + (slot.name || ''))
-    .filter(function(w) { return w !== venue; });
-  var best = null, bestScore = 0, tie = false;
-  (planShifts || []).forEach(function(p) {
-    if (p.date !== date || ordWords(p.venue).indexOf(venue) === -1 || !ordPhaseFits(slot.phase, p.wann)) return;
-    var theirs = ordWords((p.location || '') + ' ' + (p.title || ''));
-    var score = words.filter(function(w, i) { return words.indexOf(w) === i && theirs.indexOf(w) !== -1; }).length;
-    if (score > bestScore) { best = p; bestScore = score; tie = false; } else if (score && score === bestScore) tie = true;
+  var notVenue = function(w) { return w !== venue; };
+  var words = ordWords(String(slot.title || '').split('_').slice(2).join(' ') + ' ' + (slot.name || '')).filter(notVenue);
+  var mat = ordWords((slot.materials || []).map(function(g) {
+    return (g.group || '') + ' ' + (g.items || []).map(function(i) { return i.name; }).join(' ');
+  }).join(' ')).filter(notVenue);
+  var cands = (planShifts || []).filter(function(p) {
+    return p.date === date && ordWords(p.venue).indexOf(venue) !== -1 && ordPhaseFits(slot.phase, p.wann);
   });
-  return bestScore && !tie ? best : null;
+  var pick = function(mine, text, min) {
+    var best = null, bestScore = 0, tie = false;
+    cands.forEach(function(p) {
+      var theirs = ordWords(text(p));
+      var score = mine.filter(function(w, i) { return mine.indexOf(w) === i && theirs.indexOf(w) !== -1; }).length;
+      if (score > bestScore) { best = p; bestScore = score; tie = false; } else if (score && score === bestScore) tie = true;
+    });
+    return bestScore >= min && !tie ? best : (bestScore ? false : null); // false = words matched but not clearly
+  };
+  var byName = pick(words, function(p) { return (p.location || '') + ' ' + (p.title || ''); }, 1);
+  if (byName !== null) return byName || null;
+  return pick(mat, function(p) { return (p.location || '') + ' ' + (p.title || '') + ' ' + (p.details || ''); }, 2) || null;
 }
 
 // Slots on the plan entries (by plan shift id) and the rest; a manual link (order_plan_links) beats the automatic match

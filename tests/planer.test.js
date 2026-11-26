@@ -531,3 +531,40 @@ test('plManualAfter: fields saved with another value count as changed by hand, t
   assert.deepEqual(plain(ctx.plManualAfter(row({ wann: 'Aufbau: 7 Uhr', title: 'A', manual: ['venue'] }), { wann: 'Aufbau: 8 Uhr', title: 'A', notes: 'x' })), ['venue', 'wann']);
   assert.deepEqual(plain(ctx.plManualAfter(row({ title: 'A' }), { title: 'A' })), []);
 });
+
+test('plMergeSlots: a new Auftrag (here a Lieferschein) links to Daniel\'s hand-made row of that day instead of a row of its own', () => {
+  const week = { year: 2026, kw: 48, weekStart: '2026-11-23', weekEnd: '2026-11-29' };
+  const li = { job_no: '26-0361.01', phase: 'setup', name: '261127_Estrel_Championsgala', title: '261127_Estrel_Championsgala', room: '',
+    start_at: '2026-11-27T12:00', end_at: '2026-11-27T20:00', needed: 6, accepted_ids: [],
+    materials: [{ group: 'CH I', items: [{ name: 'Stuhlhusse Estrel, mit Armlehne, weiß' }, { name: 'Kerzenleuchter, silber' }, { name: 'Stumpenkerze' }] },
+      { group: 'Raum II/III', items: [{ name: 'Flatsofa, weiß' }] }] };
+  const daniel = { id: 'r1', date: '2026-11-27', job_no: null, phase: null, venue: 'Estrel', location: null, kind: 'angebot', manual: [],
+    title: '1600 Estrelhusse weiß + Armlehne', details: '160 Kerzenleuchter + Stumpenkerze, Raum II/III',
+    wann: 'Vorbau Leuchter unter Galerie: 12 Uhr\n@Fahrer: Hängerzug bleibt vor Ort!!', need: 5, people: [{ name: 'Kacper', role: 'Fahrer' }] };
+  const other = { id: 'r2', date: '2026-11-27', job_no: null, venue: 'Estrel', title: '4 STB weiß + Kufenfuß', details: null, wann: 'Abbau: ganztägig', kind: 'auftrag' };
+  const m = plain(ctx.plMergeSlots([daniel, other], [li], week, [], 'now'));
+  assert.deepEqual(m.add, []);
+  assert.deepEqual(m.patch, [{ id: 'r1', changes: { job_no: '26-0361.01', phase: 'setup', need: 6, manual: ['wann', 'location', 'title'], kind: 'auftrag' } }]);
+  // nothing alike that day → a row of its own, as before
+  const m2 = plain(ctx.plMergeSlots([other], [li], week, [], 'now'));
+  assert.equal(m2.add.length, 1);
+});
+
+test('plMergeSlots: an untouched Auftrag row the app added moves onto Daniel\'s matching row; a touched one stays', () => {
+  const week = { year: 2026, kw: 48, weekStart: '2026-11-23', weekEnd: '2026-11-29' };
+  const li = { job_no: '26-0361.01', phase: 'teardown', name: '261127_Estrel_Championsgala', title: '261127_Estrel_Championsgala', room: '',
+    start_at: '2026-11-29T02:30', end_at: '2026-11-29T12:00', needed: null, accepted_ids: [],
+    materials: [{ group: 'CH I', items: [{ name: 'Stuhlhusse Estrel, mit Armlehne, weiß' }, { name: 'Kerzenleuchter, silber' }, { name: 'Stumpenkerze' }] }] };
+  const auto = { id: 'a1', date: '2026-11-29', job_no: '26-0361.01', phase: 'teardown', venue: 'Estrel', title: '261127_Estrel_Championsgala', location: 'Championsgala',
+    wann: 'Abbau: 02:30 - 12:00 Uhr', people: [], manual: [], auftrag_changes: [], kind: 'auftrag' };
+  const daniel = { id: 'r3', date: '2026-11-29', job_no: null, venue: 'Estrel', title: '1600 Estrelhusse weiß + Armlehne',
+    details: '160 Kerzenleuchter + Stumpenkerze\nRaum II/III', wann: 'Abbau: 2.30 Uhr\n@Team: Hussen zählen', people: [{ name: 'Peer' }], manual: [], kind: 'angebot' };
+  const m = plain(ctx.plMergeSlots([auto, daniel], [li], week, [], 'now'));
+  assert.deepEqual(m.remove, ['a1']);
+  assert.deepEqual(m.add, []);
+  assert.deepEqual(m.patch.map(p => [p.id, p.changes.job_no]), [['r3', '26-0361.01']]);
+  const touched = Object.assign({}, auto, { people: [{ name: 'Edib' }] });
+  const m2 = plain(ctx.plMergeSlots([touched, daniel], [li], week, [], 'now'));
+  assert.deepEqual(m2.remove, []);
+  assert.deepEqual(m2.patch, []);
+});
