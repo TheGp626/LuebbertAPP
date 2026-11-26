@@ -568,3 +568,13 @@ test('plMergeSlots: an untouched Auftrag row the app added moves onto Daniel\'s 
   assert.deepEqual(m2.remove, []);
   assert.deepEqual(m2.patch, []);
 });
+
+test('plAttachPlan: Auftrag by hand onto a free row; an empty Auftrag row goes, one with people stays as a free row', () => {
+  const target = { id: 't', date: '2026-11-27', job_no: null, kind: 'angebot', manual: [], need: 5, people: [{ name: 'Peer' }] };
+  const empty = { id: 'e', date: '2026-11-27', job_no: '26-0361.01', phase: 'setup', need: 6, people: [], manual: [] };
+  assert.deepEqual(plain(ctx.plAttachPlan(target, empty)), { remove: 'e', detach: null,
+    patch: { job_no: '26-0361.01', phase: 'setup', date: '2026-11-27', manual: ['wann', 'location', 'title'], kind: 'auftrag' } });
+  const busy = Object.assign({}, empty, { people: [{ name: 'Edib' }] });
+  assert.deepEqual(plain(ctx.plAttachPlan(target, busy)).detach, { id: 'e', changes: { job_no: null, phase: null } });
+  assert.equal(ctx.plAttachPlan(Object.assign({}, target, { job_no: '26-0001.01' }), empty), null); // target already has one
+});
