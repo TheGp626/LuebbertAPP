@@ -699,12 +699,12 @@ async function refreshDashboardOnce() {
                app_users(full_name)),
         protocol_transports(*),
         protocol_equipments(*),
-        worker_ratings(temp_worker_name, rating, is_star)${withChanged ? ', staff_ratings(user_id, rating, comment, rated_by)' : ''}
+        worker_ratings(temp_worker_name, rating, is_star)${withChanged ? ', staff_ratings(user_id, rating, comment, rated_by), protocol_attendance(user_id, temp_worker_name, status)' : ''}
       `;
     const load = (withEdited, withChanged) => sbFetchAll(() => supabaseClient.from('protocols').select(protSelect(withEdited, withChanged)).order('date', { ascending: false }).order('id'));
     let { data: protocols, error: protError } = await load(true, true);
     // changed_after_mail_at not migrated yet (20261211): load without it
-    if (protError && /changed_after_mail_at|staff_ratings/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(true, false));
+    if (protError && /changed_after_mail_at|staff_ratings|protocol_attendance/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(true, false));
     // edited_by/edited_at/photos/side_of not migrated yet: load without them
     if (protError && /edited_|photos|side_of/.test(protError.message || '')) ({ data: protocols, error: protError } = await load(false));
     if (protError) throw protError;
@@ -2085,13 +2085,21 @@ function openDashDetail(id) {
             + (r.rating === 'up' ? '👍 gut' : '👎 schlecht') + (r.is_star ? ' ⭐' : '') + '</div>';
       }
 
+      const att = dashAttendanceOf(p, s);
+      if (att) ratingHtml = '<span class="ui-pill ui-pill-warn" style="margin-top:2px;">' + escapeHtml(DASH_ATT_LABELS[att] || att) + '</span>' + ratingHtml;
       shiftsHtml += `<tr>
         <td><div style="font-weight:600;">${escapeHtml(name)}</div><div style="font-size:10px; opacity:0.6;">${escapeHtml(role)}</div>${ratingHtml}</td>
         <td>${escapeHtml(von)} – ${escapeHtml(bis)}</td>
         <td style="font-weight:600; color:var(--accent);">${escapeHtml(netStr)}</td>
       </tr>`;
     });
-  } else {
+  }
+  // People who did not work have no shift: listed with their status, without hours
+  dashAbsentRows(p).forEach(function(a) {
+    shiftsHtml += '<tr><td><div style="font-weight:600;">' + escapeHtml(a.name) + '</div><span class="ui-pill ui-pill-danger" style="margin-top:2px;">' +
+      escapeHtml(DASH_ATT_LABELS[a.status] || a.status) + '</span></td><td>—</td><td>—</td></tr>';
+  });
+  if (!(p.shifts || []).length && !dashAbsentRows(p).length) {
     shiftsHtml += '<tr><td colspan="3">Keine Personal-Daten vorhanden</td></tr>';
   }
   shiftsHtml += '</tbody></table>';
@@ -2233,6 +2241,23 @@ function renderDashPeActionSeg() {
 function setDashPeAction(v) {
   document.getElementById('pe-action').value = v;
   renderDashPeActionSeg();
+}
+
+// Anwesenheit (protocol_attendance) of a shift's person: by user id, else by the free-text name
+function dashAttKey(userId, name) { return userId || ('n:' + String(name || '').trim().toLowerCase()); }
+function dashAttendanceOf(p, s) {
+  var k = dashAttKey(s.user_id, s.temp_worker_name);
+  var a = (p.protocol_attendance || []).find(function(x) { return dashAttKey(x.user_id, x.temp_worker_name) === k; });
+  return a ? a.status : null;
+}
+// Attendance rows without a shift (krank, abgesagt, nicht erschienen) → [{name, status}]
+function dashAbsentRows(p) {
+  var have = {};
+  (p.shifts || []).forEach(function(s) { have[dashAttKey(s.user_id, s.temp_worker_name)] = true; });
+  return (p.protocol_attendance || []).filter(function(a) { return !have[dashAttKey(a.user_id, a.temp_worker_name)]; }).map(function(a) {
+    var u = a.user_id && typeof appUsers !== 'undefined' ? (appUsers || []).find(function(x) { return x.id === a.user_id; }) : null;
+    return { name: (u && u.full_name) || a.temp_worker_name || 'Ohne Name', status: a.status };
+  });
 }
 
 // ── Verlauf (protocol_changes, migration 20261211): who changed what, when, old → new ──

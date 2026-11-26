@@ -1753,6 +1753,8 @@ async function saveProtokoll() {
     incEl.value = PROT_SHORT_BREAK + ' (' + short.join(', ') + '): ' + whyBreak.trim() +
       (incEl.value.trim() && incEl.value.trim() !== 'nein' ? '\n' + incEl.value.trim() : '');
   }
+  // A protocol without project ends up as "Unbekannt" in the dashboard and the PDF
+  if (!side && !((document.getElementById('prot-event') || {}).value || '').trim()) { protGoStep('basis'); showToast('Bitte den Namen des Projekts eintragen.', 'danger'); var evIn = document.getElementById('prot-event'); if (evIn && evIn.focus) evIn.focus(); return; }
   var noComment = side ? [] : protMissingRatingComments(protState.personnel);
   if (noComment.length) { protGoStep('personal'); showToast('Bei ⭐ und 👎 bitte kurz begründen: ' + noComment.join(', '), 'danger'); return; }
   var minorWarn = protMinorWarnings(protState.personnel);
