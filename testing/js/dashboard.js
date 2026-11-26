@@ -72,6 +72,10 @@ function switchDashTab(tab) {
 function dashMayManageStaff(role) { return ['PL', 'Buchhaltung', 'Admin'].indexOf(role) !== -1; }
 // Marking shifts as "eingetragen": Buchhaltung and Admin
 function dashMayBook(role) { return role === 'Buchhaltung' || role === 'Admin'; }
+// Freigabe of nachgetragene shifts (shifts.self_entered): Admin and PL, same as the server (shifts_self_entry_guard)
+function dashMayApprove(role) { return role === 'Admin' || role === 'PL'; }
+// Self-entered shift without Freigabe: cannot be booked yet
+function dashNeedsApproval(s) { return !!(s && s.self_entered && !s.approved_at); }
 
 // Opens/closes the "Mitarbeiter hinzufügen" sheet (name kept: addDashboardUser closes it after saving)
 function toggleAddUserForm() {
@@ -1274,15 +1278,20 @@ async function dashLoadMonthSummary() {
   var to = new Date(r.to + 'T12:00:00Z'); to.setUTCDate(to.getUTCDate() + 3);
   var f = from.toISOString().slice(0, 10), t = to.toISOString().slice(0, 10);
   // Everything the Stundenzettel pages need: times, place, AL and the signature of the protocol
-  var base = 'id, user_id, start_time, end_time, pause_mins, position_role, status, shift_date, created_at, ort, ';
   var prot = '(date, al_name_fallback, pl_name_fallback, signature_text, projects(name, location))';
-  var res = await Promise.all([
-    supabaseClient.from('shifts').select(base + 'protocols' + prot).not('user_id', 'is', null).gte('shift_date', f).lte('shift_date', t).range(0, 4999),
-    supabaseClient.from('shifts').select(base + 'protocols!inner' + prot)
-      .not('user_id', 'is', null).is('shift_date', null).gte('protocols.date', f).lte('protocols.date', t).range(0, 4999),
-    // Pay rate and earnings limit live in app_user_private; the old columns in app_users are empty
-    supabaseClient.from('app_users').select('id, full_name, role, employment_type, is_fest, role_rates, app_user_private(hourly_rate_conni, income_limit)')
-  ]);
+  var load = function(withApproval) {
+    var base = 'id, user_id, start_time, end_time, pause_mins, position_role, status, shift_date, created_at, ort, ' + (withApproval ? 'self_entered, approved_at, ' : '');
+    return Promise.all([
+      supabaseClient.from('shifts').select(base + 'protocols' + prot).not('user_id', 'is', null).gte('shift_date', f).lte('shift_date', t).range(0, 4999),
+      supabaseClient.from('shifts').select(base + 'protocols!inner' + prot)
+        .not('user_id', 'is', null).is('shift_date', null).gte('protocols.date', f).lte('protocols.date', t).range(0, 4999),
+      // Pay rate and earnings limit live in app_user_private; the old columns in app_users are empty
+      supabaseClient.from('app_users').select('id, full_name, role, employment_type, is_fest, role_rates, app_user_private(hourly_rate_conni, income_limit)')
+    ]);
+  };
+  var res = await load(true);
+  // self_entered/approved_at not migrated yet (20261209): load without them
+  if ([res[0], res[1]].some(function(x) { return x.error && /self_entered|approved_at/.test(x.error.message || ''); })) res = await load(false);
   var err = res[0].error || res[1].error || res[2].error;
   if (err) throw err;
   var seen = {}, shifts = [], users = (res[2].data || []).map(flattenPrivate), userById = {};
@@ -1300,7 +1309,7 @@ async function dashLoadMonthSummary() {
 
 // "Monat verbuchen": ids of the month's shifts (people with an account) that are not booked yet, and how many people they belong to
 function dashUnbookedInMonth(shifts, key, cutoff) {
-  var people = {}, ids = dashShiftsInMonth((shifts || []).filter(function(s) { return s.user_id && s.status !== 'eingetragen'; }), key, cutoff)
+  var people = {}, ids = dashShiftsInMonth((shifts || []).filter(function(s) { return s.user_id && s.status !== 'eingetragen' && !dashNeedsApproval(s); }), key, cutoff)
     .map(function(s) { people[s.user_id] = true; return s.id; });
   return { ids: ids, people: Object.keys(people).length };
 }
@@ -1312,9 +1321,11 @@ async function dashBookMonth() {
   try { data = await dashLoadMonthSummary(); } catch (err) { console.error('Monat verbuchen:', err); showToast('Daten konnten nicht geladen werden.', 'danger'); return; }
   if (!data) return;
   var open = dashUnbookedInMonth(data.shifts, data.key, dashBillingCutoff());
-  if (!open.ids.length) { showToast('In ' + data.label + ' ist schon alles verbucht.'); return; }
+  var pending = dashShiftsInMonth((data.shifts || []).filter(function(s) { return s.user_id && s.status !== 'eingetragen' && dashNeedsApproval(s); }), data.key, dashBillingCutoff()).length;
+  var waitNote = pending ? '\n\n' + pending + (pending === 1 ? ' nachgetragene Schicht wartet' : ' nachgetragene Schichten warten') + ' noch auf die Freigabe und bleiben offen.' : '';
+  if (!open.ids.length) { showToast(pending ? pending + ' nachgetragene Schicht(en) warten noch auf die Freigabe.' : 'In ' + data.label + ' ist schon alles verbucht.'); return; }
   if (!confirm(open.ids.length + (open.ids.length === 1 ? ' offene Schicht' : ' offene Schichten') + ' von ' + open.people + (open.people === 1 ? ' Person' : ' Personen') +
-    ' in ' + data.label + ' als „eingetragen“ verbuchen?')) return;
+    ' in ' + data.label + ' als „eingetragen“ verbuchen?' + waitNote)) return;
   var done = 0;
   for (var i = 0; i < open.ids.length; i += 200) {
     var r = await supabaseClient.from('shifts').update({ status: 'eingetragen' }).in('id', open.ids.slice(i, i + 200)).select('id');
@@ -1434,13 +1445,18 @@ function dashShiftRowHtml(s, canEdit) {
   const meta = [st ? st + '–' + (en || '?') : 'ohne Zeiten', s.pause_mins ? s.pause_mins + ' min Pause' : '',
     netMins > 0 ? (netMins / 60).toFixed(2).replace('.', ',') + ' h' : '', s.position_role || ''].filter(Boolean).join(' · ');
   const night = dashIsNightShift(s) ? ' <span class="ui-pill ui-pill-info" title="Mehr als 2 h zwischen 22 und 6 Uhr">Nacht</span>' : '';
+  const late = !s.self_entered ? '' : dashNeedsApproval(s)
+    ? ' <span class="ui-pill ui-pill-warn" title="Selbst nachgetragen, braucht eine Freigabe">nachgetragen</span>'
+    : ' <span class="ui-pill" title="Selbst nachgetragen und freigegeben">nachgetragen · frei</span>';
   const body = `<span class="dash-shift-top"><b>${escapeHtml(dashShortDay(dashShiftDate(s)))}</b> · ${escapeHtml(place)}</span>` +
-    `<span class="ui-sub">${escapeHtml(meta)}${night}</span>`;
+    `<span class="ui-sub">${escapeHtml(meta)}${night}${late}</span>`;
   const main = canEdit
     ? `<button type="button" class="dash-shift-main" onclick="openShiftEdit('${escapeHtml(s.id)}')" aria-label="Schicht ${escapeHtml(dashShortDay(dashShiftDate(s)))} bearbeiten">${body}</button>`
     : `<div class="dash-shift-main">${body}</div>`;
-  return `<div class="dash-shift${s.status === 'eingetragen' ? ' dash-shift-booked' : ''}">${main}` +
-    (canEdit
+  const approve = dashNeedsApproval(s) && dashMayApprove(typeof userRole !== 'undefined' ? userRole : null)
+    ? `<button type="button" class="ui-btn dash-small-btn" onclick="approveShifts(['${escapeHtml(s.id)}'])">Freigeben</button>` : '';
+  return `<div class="dash-shift${s.status === 'eingetragen' ? ' dash-shift-booked' : ''}">${main}${approve}` +
+    (canEdit && dashNeedsApproval(s) ? `<span class="ui-pill ui-pill-warn">erst freigeben</span>` : canEdit
       ? `<input type="checkbox" ${booked ? 'checked' : ''} data-shift-id="${escapeHtml(s.id)}" class="shift-booked-cb ui-switch" aria-label="Verbucht">`
       : `<span class="ui-pill${booked ? ' ui-pill-ok' : ''}">${booked ? 'verbucht' : 'offen'}</span>`) + '</div>';
 }
@@ -1456,7 +1472,8 @@ function dashRenderWorkerMonth() {
   const key = (sel && sel.value) || getBillingKeyForDate(new Date(), cutoff).key;
   const label = sel && sel.selectedIndex >= 0 && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
   const list = dashShiftsInMonth(dashboardCurrentShifts, key, cutoff);
-  const open = list.filter(s => s.status !== 'eingetragen').length;
+  const open = list.filter(s => s.status !== 'eingetragen' && !dashNeedsApproval(s)).length;
+  const pending = list.filter(dashNeedsApproval);
 
   const mins = list.reduce((n, s) => n + dashShiftNetMins(s), 0);
   const hrs = mins / 60;
@@ -1467,7 +1484,7 @@ function dashRenderWorkerMonth() {
   const share = incomeLimitShare(money.pay, worker.income_limit ? parseFloat(worker.income_limit) : null);
   let html = '<div class="ui-stats">' +
     `<div class="ui-stat"><span>Netto-Stunden</span><b>${mins > 0 ? hrs.toFixed(2).replace('.', ',') + ' h' : '—'}</b></div>` +
-    `<div class="ui-stat"><span>Schichten</span><b>${list.length}</b><div class="ui-sub">${open ? open + ' offen' : list.length ? 'alle verbucht' : ''}</div></div>` +
+    `<div class="ui-stat"><span>Schichten</span><b>${list.length}</b><div class="ui-sub">${[open ? open + ' offen' : '', pending.length ? pending.length + ' nachgetragen' : ''].filter(Boolean).join(' · ') || (list.length ? 'alle verbucht' : '')}</div></div>` +
     (money.pay !== null ? `<div class="ui-stat cost-only"><span>Lohn${rateLabel(money.payRates)}</span><b>${hrs > 0 ? eur(money.pay) : '—'}</b>${money.byPos ? '<div class="ui-sub">' + escapeHtml(money.byPos) + '</div>' : ''}${money.unpaid ? '<div class="ui-sub">' + money.unpaid + ' Schicht(en) ohne Lohnsatz</div>' : ''}</div>` : '') +
     (money.cost !== null ? `<div class="ui-stat cost-only"><span>Intern${rateLabel(money.costRates)}</span><b>${hrs > 0 ? eur(money.cost) : '—'}</b></div>` : '') +
     (share ? `<div class="ui-stat cost-only"><span>Grenze ${eur(parseFloat(worker.income_limit))}</span><b>${share.pct} %</b>` +
@@ -1475,6 +1492,8 @@ function dashRenderWorkerMonth() {
     '</div>';
 
   const actions = (canEdit ? `<button type="button" class="ui-btn dash-small-btn" onclick="openAddShift()">+ Schicht</button>` : '') +
+    (pending.length && dashMayApprove(typeof userRole !== 'undefined' ? userRole : null)
+      ? `<button type="button" class="ui-btn dash-small-btn" onclick="approveShifts(${escapeHtml(JSON.stringify(pending.map(s => s.id)))})">${pending.length} nachgetragene freigeben</button>` : '') +
     (open && canEdit ? `<button type="button" class="ui-btn ui-btn-primary dash-small-btn" onclick="markAllShiftsBooked('${escapeHtml(worker.id)}')">${open} offene verbuchen</button>` : '');
   if (actions) html += `<div class="dash-shift-actions">${actions}</div>`;
 
@@ -1518,7 +1537,7 @@ async function markAllShiftsBooked(userId) {
   const sel = document.getElementById('dash-month-filter');
   const key = (sel && sel.value) || getBillingKeyForDate(new Date(), dashBillingCutoff()).key;
   const ids = dashShiftsInMonth(dashboardCurrentShifts, key, dashBillingCutoff())
-    .filter(function(s) { return s.user_id === userId && s.status !== 'eingetragen'; }).map(function(s) { return s.id; });
+    .filter(function(s) { return s.user_id === userId && s.status !== 'eingetragen' && !dashNeedsApproval(s); }).map(function(s) { return s.id; });
   if (!ids.length) { if (typeof showToast === 'function') showToast('Keine offenen Schichten zum Verbuchen.', 'info'); return; }
   const label = sel && sel.selectedIndex >= 0 && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : 'diesem Monat';
   if (!confirm(ids.length + ' offene Schicht' + (ids.length === 1 ? '' : 'en') + ' im Abrechnungsmonat ' + label + ' als eingetragen markieren?')) return;
@@ -1540,6 +1559,21 @@ async function markAllShiftsBooked(userId) {
   } catch(e) {
     console.error("Update All Err:", e);
     if (typeof showToast === 'function') showToast("Fehler: " + (e.message || "Speichern fehlgeschlagen"), "danger");
+  }
+}
+
+// Freigabe of nachgetragene shifts (Admin/PL); the server stamps approved_by
+async function approveShifts(ids) {
+  if (!ids || !ids.length) return;
+  try {
+    const { data: rows, error } = await supabaseClient.from('shifts').update({ approved_at: new Date().toISOString() }).in('id', ids).select('id');
+    if (error) throw error;
+    if (!rows || rows.length === 0) throw new Error('Freigabe abgelehnt – keine Berechtigung');
+    showToast(rows.length === 1 ? 'Schicht freigegeben' : rows.length + ' Schichten freigegeben');
+    renderWorkerShifts();
+  } catch (e) {
+    console.error('Freigabe:', e);
+    showToast('Fehler: ' + (e.message || 'Freigabe fehlgeschlagen'), 'danger');
   }
 }
 

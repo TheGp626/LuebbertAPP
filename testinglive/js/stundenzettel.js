@@ -1286,14 +1286,16 @@ function collectData() {
   return { name: document.getElementById('inp-name').value || '', abt: used.length === 1 ? used[0] : selectedAbt, weekStart: v, weekLabel: weekLabelFromVal(v), days: days, total: document.getElementById('total-hours').textContent, saved: new Date().toISOString(), depts: used };
 }
 
-// Days (index 0 = Monday) with a filled shift dated after tomorrow. Hours are entered once worked: a shift typed into a
-// future week by mistake was never replaced by the AL's protocol (other day) and counted twice.
+// Days (index 0 = Monday) with a filled own shift dated today or later. Hours are entered only afterwards (Jenni,
+// 26.11.2026): for today and the future the AL's protocol is the source. The server enforces the same
+// (shifts_self_entry_guard); Admin, PL and Buchhaltung are exempt there and here. Protocol shifts are not own entries.
+var SZ_LOCK_FREE_ROLES = ['Admin', 'PL', 'Buchhaltung'];
 function szFutureDayIdx(mon, days, today) {
-  var limit = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).getTime();
+  var limit = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
   return (days || []).map(function(dd, i) {
     var day = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i).getTime();
-    var filled = (dd.shifts || []).some(function(sh) { return sh.von && sh.bis; });
-    return filled && day > limit ? i : -1;
+    var filled = (dd.shifts || []).some(function(sh) { return sh.von && sh.bis && !sh.isProtocol; });
+    return filled && day >= limit ? i : -1;
   }).filter(function(i) { return i >= 0; });
 }
 
@@ -1301,9 +1303,10 @@ async function saveWeek() {
   if (typeof breadcrumb === 'function') breadcrumb('save:stundenzettel');
   if (!szStoreKey()) { showToast('Bitte zuerst anmelden'); return; }
   var d = collectData(); if (!d.name) { showToast('Bitte Namen eingeben'); return; }
-  var future = szFutureDayIdx(getMondayFromWeekVal(d.weekStart), d.days, new Date());
+  var lockFree = typeof userRole !== 'undefined' && SZ_LOCK_FREE_ROLES.indexOf(userRole) !== -1;
+  var future = lockFree ? [] : szFutureDayIdx(getMondayFromWeekVal(d.weekStart), d.days, new Date());
   if (future.length) {
-    showToast('Schichten erst eintragen, wenn sie gearbeitet sind (' + future.map(function(i) { return d.days[i].day + ' ' + d.days[i].date; }).join(', ') + '). Falsche Woche?', 'danger');
+    showToast('Nur rückwirkend nachtragen: für heute und die Zukunft trägt die AL die Zeiten im Protokoll ein (' + future.map(function(i) { return d.days[i].day + ' ' + d.days[i].date; }).join(', ') + ').', 'danger');
     return;
   }
 
@@ -1468,7 +1471,8 @@ async function syncWeekNow(data, quiet) {
   } catch(e) {
     // The local week keeps its 'unsynced' flag → the history sync won't overwrite it; it is retried in the background
     console.error("Week Sync Error:", e);
-    if (!quiet) showToast('Server-Sync fehlgeschlagen – Woche ist nur lokal gespeichert und wird später erneut übertragen.');
+    // The server's lock (shifts_self_entry_guard) answers 23514 with a sentence meant for the person
+    if (!quiet) showToast(e && e.code === '23514' && e.message ? e.message : 'Server-Sync fehlgeschlagen – Woche ist nur lokal gespeichert und wird später erneut übertragen.', e && e.code === '23514' ? 'danger' : undefined);
   }
 }
 
