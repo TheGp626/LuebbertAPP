@@ -127,7 +127,7 @@ function plRowFromSlot(slot, week, users) {
 // Older rows without the column keep their texts (they may hold hand edits nobody recorded).
 // slots === null (not loaded) changes nothing. now = timestamp written into new change entries.
 function plMergeSlots(rows, slots, week, users, now) {
-  var out = { add: [], patch: [], stale: [] };
+  var out = { add: [], patch: [], stale: [], remove: [] };
   if (!slots) return out;
   var inWeek = {}, any = {};
   slots.forEach(function(s) {
@@ -155,7 +155,32 @@ function plMergeSlots(rows, slots, week, users, now) {
     if (log.length !== logged) ch.auftrag_changes = log;
     if (Object.keys(ch).length) out.patch.push({ id: r.id, changes: ch });
   });
-  Object.keys(inWeek).forEach(function(k) { if (!have[k]) out.add.push(plRowFromSlot(inWeek[k], week, users)); });
+  // A new phase first looks for a hand-made row of that day (Daniel entered the job before the Bestätigung or the
+  // Lieferschein came): same place, shared words or material (ordMatchSlot). That row gets the Auftrag and keeps its texts
+  // and people; only without a match a row of its own is added.
+  var free = (rows || []).filter(function(r) { return !r.job_no && r.id; }), taken = {};
+  // An Auftrag row the app added by itself and nobody touched yet (no people, no hand edits, no AP, no notes) may still
+  // move onto Daniel's row: it is removed once the job is linked there
+  var untouched = {};
+  (rows || []).forEach(function(r) {
+    if (r.job_no && r.id && inWeek[r.job_no + '|' + r.phase] && !(r.people || []).length && !(r.manual || []).length &&
+        !r.ap_user_id && !r.notes && !r.details && !(r.auftrag_changes || []).length) untouched[r.job_no + '|' + r.phase] = r.id;
+  });
+  Object.keys(inWeek).forEach(function(k) {
+    if (have[k] && !untouched[k]) return;
+    var s = inWeek[k], hit = ordMatchSlot(s, free.filter(function(r) { return !taken[r.id]; }));
+    if (!hit) { if (!have[k]) out.add.push(plRowFromSlot(s, week, users)); return; }
+    taken[hit.id] = true;
+    if (untouched[k]) {
+      out.remove.push(untouched[k]);
+      out.patch = out.patch.filter(function(pt) { return pt.id !== untouched[k]; });
+    }
+    var ch = { job_no: s.job_no, phase: s.phase };
+    if (s.needed != null && s.needed !== hit.need) ch.need = s.needed;
+    if ('manual' in hit) ch.manual = ['wann', 'location', 'title'];
+    if ('kind' in hit && plKind(hit) === 'angebot') ch.kind = 'auftrag'; // a Bestätigung or Lieferschein exists now
+    out.patch.push({ id: hit.id, changes: ch });
+  });
   out.add.sort(function(a, b) { return a.date.localeCompare(b.date) || String(a.job_no).localeCompare(String(b.job_no)) || (a.phase === 'setup' ? -1 : 1); });
   return out;
 }
@@ -628,6 +653,11 @@ async function plSyncSlots(seq) {
   if (m.add.length) {
     var ins = await supabaseClient.from('plan_draft_shifts').insert(plForInsert(m.add)).select('id');
     if (ins.error) console.error('Aufträge in den Entwurf:', ins.error); else wrote = true;
+  }
+  for (var j = 0; j < m.remove.length; j++) {
+    var del = await supabaseClient.from('plan_draft_shifts').delete().eq('id', m.remove[j]).select('id');
+    if (del.error) { console.error('Auftrag auf Daniels Zeile:', del.error); m.patch = m.patch.filter(function(pt) { return pt.changes.job_no === undefined; }); break; }
+    if (del.data && del.data.length) wrote = true;
   }
   for (var i = 0; i < m.patch.length; i++) {
     // A PL may not touch the row of another AP: 0 rows back is fine, the planner's next visit moves it
