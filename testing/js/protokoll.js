@@ -859,7 +859,19 @@ function protPhaseOfAction(action) {
 }
 
 // "BAR PL 550" / "LeihLkw" / "Sprinter 2" → one of the vehicle types of the form; no hit → Hängerzug (the form's default)
+// Lübbert's own plates in the Wochenplan (Pat, 26.11.2026): BAR PL 550 is the truck, with the trailer BAR PL 770 it is
+// the Hängerzug, alone the Solo; BAR PL 50 is the Sprinter. Only used when the type exists in the Fahrzeugsätze.
+function protPlateVehicleType(label) {
+  var t = String(label || '');
+  if (/\bPL\s*550\b/i.test(t)) return /\b770\b/.test(t) ? 'Hängerzug' : 'Solo';
+  if (/\bPL\s*770\b/i.test(t)) return 'Hängerzug';
+  if (/\bPL\s*50\b/i.test(t)) return 'Sprinter';
+  return '';
+}
+
 function protGuessVehicleType(label, types) {
+  var plate = protPlateVehicleType(label);
+  if (plate && (types || []).indexOf(plate) !== -1) return plate;
   var norm = function(t) { return String(t || '').toLowerCase().replace(/[^a-zäöüß]/g, ''); };
   var l = norm(label), best = '';
   (types || []).forEach(function(t) { var n = norm(t); if (n && l.indexOf(n) !== -1 && n.length > norm(best).length) best = t; });

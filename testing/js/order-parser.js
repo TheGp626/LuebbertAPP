@@ -23,7 +23,8 @@ function orderLines(pages) {
   return out;
 }
 
-function orderIsAb(name) { return /auftragsbest/i.test(name || ''); }
+// Auftragsbestätigung, or an easyjob Job Lieferschein ("LI26-0361.01 … Job Lieferschein.pdf", one job, no prices)
+function orderIsAb(name) { return /auftragsbest|lieferschein/i.test(name || ''); }
 
 // Stored parse results (table order_parsed) older than this are parsed again: bump on every parser change
 var ORDER_PARSER_VERSION = 7;
@@ -63,7 +64,65 @@ function orderRange(s) {
   return { start: iso(m[1], m[2]), end: m[3] ? iso(m[3], m[4]) : m[5] ? iso(m[1], m[5]) : null };
 }
 
+// easyjob Job Lieferschein → the same shape as orderParse, kind 'lieferschein'. One job: number from the header
+// ("Lieferschein 26-0361.01"), name from "Job:", Aufbau / Abbau with date and times, the Ablauf as notes,
+// article rows "1 1600 Stuhlhusse …" (no prices) under their group line ("CH I"). Pages repeat the header and the
+// Ablauf; the footer and the signature block are skipped. Customer contacts and phone numbers are never kept.
+function orderParseLieferschein(lines) {
+  var res = { kind: 'lieferschein', project: '', title: '', jobs: [], warnings: [] }, job = null, area = false, foot = false, end = false, group = null;
+  var seen = {};
+  var addNote = function(t) { t = orderStripPhones(t); if (t && !seen[t]) { seen[t] = true; job.notes += (job.notes ? '\n' : '') + t; } };
+  var when = function(l) {
+    var m = /^(\d{2}\.\d{2}\.\d{4}),?\s*(\d{2}:\d{2})?(?:\s*-\s*(?:(\d{2}\.\d{2}\.\d{4}),?\s*)?(\d{2}:\d{2})?)?/.exec(l);
+    if (!m) return null;
+    return orderRange(m[1] + (m[2] ? ' ' + m[2] : '') + (m[3] || m[4] ? ' - ' + (m[3] ? m[3] + (m[4] ? ' ' + m[4] : '') : m[4]) : ''));
+  };
+  // note: the bullet being read; cand: a plain line that is either the wrapped end of that bullet or the group name of
+  // the articles that follow — the next line decides
+  var note = null, cand = null;
+  var flush = function() { if (cand !== null) { if (note !== null) note += ' ' + cand; else note = cand; cand = null; } if (note !== null) { addNote(note); note = null; } };
+  (lines || []).forEach(function(raw) {
+    var l = raw.trim(), m;
+    if ((m = /^Lieferschein\s+(\d{2}-\d{4})(\.\d{2})?\b/.exec(l))) {
+      foot = false;
+      if (!job) { res.project = m[1]; job = { jobNo: m[1] + (m[2] || '.01'), name: '', address: '', room: '', setup: null, event: null, teardown: null, lead: '', notes: '', materials: [] }; }
+      return;
+    }
+    if (!job || end) return;
+    if (/^Geschäftsführung\b/.test(l)) { flush(); foot = true; return; }
+    if (foot) return;
+    if (/^Name in Druckschrift\b/.test(l)) { flush(); end = true; return; }
+    if ((m = /^Job:\s*(.+)$/.exec(l))) { if (!job.name) { job.name = orderStripPhones(m[1]); res.title = job.name; } return; }
+    if ((m = /^Aufbau:?\s+(.+)$/.exec(l)) && !area) { job.setup = job.setup || when(m[1]); return; }
+    if ((m = /^Abbau:?\s+(.+)$/.exec(l)) && !area) { job.teardown = job.teardown || when(m[1]); return; }
+    if (/^Pos\. Anzahl Bezeichnung/.test(l)) { flush(); area = true; return; }
+    if (!area || /^Seite: |^Gedruckt: /.test(l)) return;
+    if ((m = /^\d+ (\d+) (.+)$/.exec(l))) {
+      if (cand !== null) { group = { group: orderStripPhones(cand), items: [] }; job.materials.push(group); cand = null; }
+      flush();
+      if (!group) { group = { group: '', items: [] }; job.materials.push(group); }
+      group.items.push({ qty: +m[1], name: m[2].trim() });
+      return;
+    }
+    var lab = ORDER_LABEL_RE.exec(l);
+    if (lab) { flush(); if (!ORDER_CONTACT_RE.test(lab[1]) && lab[2].trim()) addNote(lab[1].trim() + ': ' + lab[2].trim()); return; }
+    if (/^[-–•]/.test(l)) { flush(); note = l; return; }
+    if (cand !== null) { if (note !== null) note += ' ' + cand; else addNote(cand); }
+    cand = l;
+  });
+  flush();
+  if (job) {
+    job.materials = job.materials.filter(function(g) { return g.items.length; });
+    if (job.setup || job.teardown) res.jobs.push(job);
+    else res.warnings.push(job.jobNo + ': kein Aufbau oder Abbau im Lieferschein');
+  }
+  if (!job) res.warnings.push('Kein Lieferschein erkannt.');
+  return res;
+}
+
 function orderParse(lines) {
+  if ((lines || []).some(function(l) { return /^Lieferschein\s+\d{2}-\d{4}/.test(String(l).trim()); }) &&
+      !(lines || []).some(function(l) { return /^Auftragsbest/.test(String(l).trim()); })) return orderParseLieferschein(lines);
   var res = { project: '', title: '', jobs: [], warnings: [] }, all = [], byNo = {}, job = null, prev = '', note = false, lead = false, foot = false;
   var items = false, group = null, plain = ''; // item section after the first "Job" row: groups and article rows
   var park = function() { if (job) { job._items = items; job._group = group; job._note = note || lead; } };

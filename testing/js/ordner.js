@@ -153,7 +153,7 @@ function filterOrdner() {
 // ── PLÄNE: all plans of all project folders in one list ──
 // A plan = a PDF or picture that is not an internal document (Auftragsbestätigung, Angebot, Rechnung …).
 // Plan files are named freely ("Setup", "TVA", "Overview"), so the rule excludes instead of looking for "Aufbau".
-var ORDNER_INTERNAL_RE = /(auftrags?best|angebot|rechnung|kalkulation|kostenvoranschlag)/i;
+var ORDNER_INTERNAL_RE = /(auftrags?best|angebot|rechnung|kalkulation|kostenvoranschlag|lieferschein)/i;
 
 function ordnerIsPlan(f) {
   if (!f || ORDNER_INTERNAL_RE.test(f.name || '')) return false;

@@ -49,7 +49,9 @@ function ordJobs(files, parsedByFileId) {
     var p = parsedByFileId[f.id];
     if (!p) return;
     (p.jobs || []).forEach(function(j) {
-      best[j.jobNo] = { job: j, file: f, folderName: (f.project_folders && f.project_folders.name) || '', project: p.project || '', title: p.title || '' };
+      // An Auftragsbestätigung knows more (AL, contacts): a Lieferschein of the same job never replaces it
+      if (p.kind === 'lieferschein' && best[j.jobNo] && best[j.jobNo].kind !== 'lieferschein') return;
+      best[j.jobNo] = { kind: p.kind || 'ab', job: j, file: f, folderName: (f.project_folders && f.project_folders.name) || '', project: p.project || '', title: p.title || '' };
     });
   });
   return Object.keys(best).map(function(k) { return best[k]; })
@@ -644,7 +646,7 @@ async function ordDecideShift(weekId, key, userId, status) {
 async function ordParseNew() {
   try {
     var res = await Promise.all([
-      supabaseClient.from('folder_files').select('id, folder_id, name, file_url, file_type, created_at, project_folders(name)').ilike('name', '%auftragsbest%'),
+      supabaseClient.from('folder_files').select('id, folder_id, name, file_url, file_type, created_at, project_folders(name)').or('name.ilike.%auftragsbest%,name.ilike.%lieferschein%'),
       supabaseClient.from('order_parsed').select('file_id, parser_version, result')
     ]);
     if (res[0].error || res[1].error) throw res[0].error || res[1].error;
@@ -663,7 +665,7 @@ async function initAuftraege() {
   if (!content) return;
   content.innerHTML = '<div class="wp-empty">Lädt…</div>';
   var res = await Promise.all([
-    supabaseClient.from('folder_files').select('id, folder_id, name, file_url, file_type, created_at, project_folders(name)').ilike('name', '%auftragsbest%'),
+    supabaseClient.from('folder_files').select('id, folder_id, name, file_url, file_type, created_at, project_folders(name)').or('name.ilike.%auftragsbest%,name.ilike.%lieferschein%'),
     supabaseClient.from('order_staffing').select('job_no, staff_setup, staff_teardown'),
     supabaseClient.from('order_parsed').select('file_id, parser_version, result'),
     // Einsätze tagged with an Auftrag override its day and AL (folder form)
