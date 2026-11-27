@@ -78,6 +78,8 @@ function isNoiseError(message, stack, origin) {
   if (/ResizeObserver loop/.test(message)) return true;
   // Connection dropped mid-request (Chrome / Firefox / Safari wording): the phone's network, not a bug in the app
   if (/^(\w*Error: )?(Failed to fetch|NetworkError when attempting to fetch resource\.?|Load failed|Network request failed|The network connection was lost\.?)$/i.test(message)) return true;
+  // Supabase wording for the same thing: edge function unreachable / database request timed out (callers retry later)
+  if (/^(Failed to send a request to the Edge Function|The connection to the database timed out)\.?$/i.test(message)) return true;
   if (/(chrome|moz|safari|safari-web)-extension:\/\//.test(stack)) return true;
   var urls = stack.match(/https?:\/\/[^\s)]+/g);
   if (urls && origin && !urls.some(function (u) { return u.indexOf(origin) === 0; })) return true;

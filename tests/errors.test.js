@@ -76,6 +76,8 @@ test('noise filter', () => {
   assert.equal(ctx.isNoiseError('x', 'at f (chrome-extension://abc/c.js:1:1)', 'https://a.b'), true);
   assert.equal(ctx.isNoiseError('TypeError: x is undefined', 'at f (https://a.b/js/p.js:1:1)', 'https://a.b'), false);
   assert.equal(ctx.isNoiseError('', '', 'https://a.b'), true);
+  assert.equal(ctx.isNoiseError('Failed to send a request to the Edge Function', '', 'https://a.b'), true);
+  assert.equal(ctx.isNoiseError('The connection to the database timed out', '', 'https://a.b'), true);
 });
 
 test('network drops are noise in every browser wording, real TypeErrors are not', () => {
