@@ -2311,8 +2311,21 @@ var _pdfFailTries = {};
 // Mails the protocol (summary + PDF) to its PL via the send-protocol-mail Edge Function.
 // Returns true when nothing is left to retry; never throws. `notify` = user just pressed Senden/Sync,
 // so failures get a toast; background retries stay quiet.
+// An update mail is only needed when the protocol changed after its last mail (edited_at is set by the database on every
+// change by a person, mailed_at by the mail function). Several retry paths (save, history, throttle timer) could otherwise
+// send the same version twice (Jenni got "Aktualisiert" two times, 27.11.2026).
+function protAlreadyMailed(row) {
+  return !!(row && row.mailed_at && row.edited_at && new Date(row.mailed_at) >= new Date(row.edited_at));
+}
+
 async function mailProtokoll(supabaseId, entry, isUpdate, notify) {
   if (!supabaseId || typeof supabaseClient === 'undefined') return false;
+  if (isUpdate) {
+    try {
+      var st = await supabaseClient.from('protocols').select('mailed_at, edited_at').eq('id', supabaseId).maybeSingle();
+      if (!st.error && protAlreadyMailed(st.data)) return true;
+    } catch (e) { /* offline: the normal send below decides */ }
+  }
   var pdfBase64 = null;
   try {
     await loadLib('jspdf');
