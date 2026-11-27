@@ -1,17 +1,17 @@
-# Graph Report - LuebbertAPP  (2026-11-26)
+# Graph Report - LuebbertAPP  (2026-11-27)
 
 ## Corpus Check
-- 138 files · ~204,962 words
+- 138 files · ~205,064 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 5 file(s) not represented in the graph (top: .css 3, (none) 2)
 
 ## Summary
-- 1967 nodes · 4351 edges · 111 communities (84 shown, 27 thin omitted)
+- 1968 nodes · 4353 edges · 112 communities (85 shown, 27 thin omitted)
 - Extraction: 93% EXTRACTED · 7% INFERRED · 0% AMBIGUOUS · INFERRED: 299 edges (avg confidence: 0.87)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `c3b6acd7`
+- Built from commit: `966e796c`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -107,6 +107,7 @@
 - ref_npm_supabase
 - wpCancelBlock
 - wpRenderImport
+- calcProtCosts
 
 ## God Nodes (most connected - your core abstractions)
 1. `saveProtDraft()` - 26 edges
@@ -127,15 +128,15 @@
   docs/superpowers/plans/2026-11-25-planen-flow.md → js/planer.js
 - `2. Auftrag sync with hand-edit protection` --references--> `plSaveSheet()`  [INFERRED]
   docs/superpowers/specs/2026-11-25-planen-flow-design.md → js/planer.js
-- `Task 2: Every Auftrag phase reaches PLANEN ("MA?")` --references--> `wpLoadSlots()`  [INFERRED]
-  docs/superpowers/plans/2026-11-25-planen-flow.md → js/wochenplan.js
-- `1. Every Auftrag phase reaches PLANEN` --references--> `wpLoadSlots()`  [INFERRED]
-  docs/superpowers/specs/2026-11-25-planen-flow-design.md → js/wochenplan.js
+- `Task 6: Publish inside PLANEN` --references--> `plAfterPublish()`  [INFERRED]
+  docs/superpowers/plans/2026-11-25-planen-flow.md → js/planer.js
+- `Task 3: Auftrag sync with hand-edit protection` --references--> `plDeleteRow()`  [INFERRED]
+  docs/superpowers/plans/2026-11-25-planen-flow.md → js/planer.js
 
 ## Import Cycles
 - None detected.
 
-## Communities (111 total, 27 thin omitted)
+## Communities (112 total, 27 thin omitted)
 
 ### Community 0 - "plSaveSheet"
 Cohesion: 0.15
@@ -199,7 +200,7 @@ Nodes (41): CORS, Db, Input, json(), runDaily(), runEvening(), runHoursCheck(), 
 
 ### Community 15 - "Protocol Form Helpers"
 Cohesion: 0.08
-Nodes (35): loadProtDraft(), protAddPhotos(), protDraftBelongsTo(), protDriverBusyCount(), protDriverSame(), protFilterScope(), protGuessVehicleType(), protIsMine() (+27 more)
+Nodes (33): fetchAppUsers(), populateAlPlSelects(), protAddPhotos(), protDriverBusyCount(), protDriverSame(), protFilterScope(), protGuessVehicleType(), protIsMine() (+25 more)
 
 ### Community 16 - "Push Subscriptions RLS"
 Cohesion: 0.10
@@ -226,8 +227,8 @@ Cohesion: 0.17
 Nodes (23): breadcrumb(), deviceString(), _errEnqueue(), _errInit(), errorContextSnapshot(), errorFingerprint(), errQueuePut(), _errQueueRead() (+15 more)
 
 ### Community 22 - "saveProtDraft"
-Cohesion: 0.10
-Nodes (38): addProtPersonnel(), addProtTransport(), calcProtCosts(), clearProtForm(), clearProtSig(), fetchAppUsers(), growProtText(), initProtokoll() (+30 more)
+Cohesion: 0.13
+Nodes (26): addProtPersonnel(), addProtTransport(), clearProtForm(), clearProtSig(), growProtText(), initProtokoll(), initProtSig(), loadProtDraft() (+18 more)
 
 ### Community 23 - "openDashDetail"
 Cohesion: 0.12
@@ -246,8 +247,8 @@ Cohesion: 0.18
 Nodes (25): addVehicleRateRow(), appSetting(), appSettingsFromCache(), changedSettings(), loadAppSettings(), _readSettingsForm(), readVehicleRates(), renderSettingsTab() (+17 more)
 
 ### Community 27 - "renderProtSectionNav"
-Cohesion: 0.14
-Nodes (19): protApplySide(), protApplyStep(), protBasisValues(), protCurrentStep(), protFindDuplicate(), protGoStep(), protIncompleteNames(), protLongerThanAl() (+11 more)
+Cohesion: 0.16
+Nodes (17): protApplySide(), protApplyStep(), protBasisValues(), protCurrentStep(), protFindDuplicate(), protGoStep(), protIncompleteNames(), protLongerThanAl() (+9 more)
 
 ### Community 28 - "20261211_protokoll_verlauf.sql"
 Cohesion: 0.09
@@ -310,16 +311,16 @@ Cohesion: 0.22
 Nodes (10): plan_shift_interest_user_id_idx, public.plan_shift_interest, plan_shift_interest_decided, public.order_applications_decided(), plan_cancellations_decided, plan_cancellations_decided_by_idx, plan_cancellations_replacement_user_id_idx, plan_cancellations_user_id_idx (+2 more)
 
 ### Community 43 - "Protocol History Sync"
-Cohesion: 0.24
-Nodes (13): deleteProtHistory(), mailProtokoll(), markProtMailed(), mergeProtHistory(), protArchiveShrink(), protRowToEntry(), protSaveArchive(), renderProtHistory() (+5 more)
+Cohesion: 0.22
+Nodes (14): deleteProtHistory(), mailProtokoll(), markProtMailed(), mergeProtHistory(), protAlreadyMailed(), protArchiveShrink(), protRowToEntry(), protSaveArchive() (+6 more)
 
 ### Community 44 - "ask-shift/index.ts"
 Cohesion: 0.36
 Nodes (6): askLabel(), askPush(), askRef(), MAX_ASKS_PER_HOUR, mayAsk(), CORS
 
 ### Community 45 - "buildProtPdfDoc"
-Cohesion: 0.22
-Nodes (14): buildProtPdfDoc(), getEffectivePersonnelRate(), pdfStr(), protAttendanceRows(), protBasePos(), protCostLines(), protDriverCost(), protJobNo() (+6 more)
+Cohesion: 0.21
+Nodes (16): buildProtPdfDoc(), getEffectivePersonnelRate(), pdfStr(), protAttendanceRows(), protBasePos(), protCanRateStaff(), protCostLines(), protDriverCost() (+8 more)
 
 ### Community 46 - "planen.js"
 Cohesion: 0.08
@@ -346,8 +347,8 @@ Cohesion: 0.27
 Nodes (6): public.fits_plan_slot(), order_checks_plan_date_idx, order_checks_stamp, order_checks_updated_by_idx, public.order_check_mine(), public.order_checks
 
 ### Community 52 - "renderProtPersonnel"
-Cohesion: 0.23
-Nodes (16): protAttLabel(), protCanRateStaff(), protClampPause(), protIsAbsent(), protMinor(), protMinorWarnings(), protPauseHint(), protPauseHintText() (+8 more)
+Cohesion: 0.21
+Nodes (15): protApplyPlanPersonnel(), protAttLabel(), protAutoNight(), protClampPause(), protPauseHint(), protPauseHintText(), protPauseMin(), protPersonSummary() (+7 more)
 
 ### Community 53 - "Auth Display Names"
 Cohesion: 0.27
@@ -473,6 +474,10 @@ Nodes (6): wpCanCancel(), wpCancelBlock(), wpCancelContact(), wpCancelShift(), w
 Cohesion: 0.40
 Nodes (5): planShiftFromDb(), wpChecksHtml(), wpLoadImportAvail(), wpPreviewShift(), wpRenderImport()
 
+### Community 111 - "calcProtCosts"
+Cohesion: 0.19
+Nodes (15): calcProtCosts(), onProtDriverName(), openProtCostSheet(), protApplyPlanTransports(), protDriverHint(), protRefreshDriverHints(), protRowChevron(), protShiftOpenRows() (+7 more)
+
 ## Knowledge Gaps
 - **2 isolated node(s):** `RFC-5545`, `RFC-5545`
   These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 259 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
@@ -481,17 +486,17 @@ Nodes (5): planShiftFromDb(), wpChecksHtml(), wpLoadImportAvail(), wpPreviewShif
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `planShiftFromDb()` connect `wpRenderImport` to `dashboard.js`, `Plan Parsing Helpers`, `planen.js`, `Task 6: Publish inside PLANEN`?**
-  _High betweenness centrality (0.038) - this node is a cross-community bridge._
+- **Why does `dashStartProtokollFromPlan()` connect `dashboard.js` to `wpRenderImport`?**
+  _High betweenness centrality (0.035) - this node is a cross-community bridge._
 - **What connects `RFC-5545`, `RFC-5545` to the rest of the system?**
   _2 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `plSaveSheet` be split into smaller, more focused modules?**
   _Cohesion score 0.14619883040935672 - nodes in this community are weakly interconnected._
-- **Why does `dashStartProtokollFromPlan()` connect `dashboard.js` to `wpRenderImport`?**
-  _High betweenness centrality (0.036) - this node is a cross-community bridge._
+- **Why does `planShiftFromDb()` connect `wpRenderImport` to `dashboard.js`, `Plan Parsing Helpers`, `planen.js`, `Task 6: Publish inside PLANEN`?**
+  _High betweenness centrality (0.035) - this node is a cross-community bridge._
 - **Should `wochenplan.js` be split into smaller, more focused modules?**
   _Cohesion score 0.10574712643678161 - nodes in this community are weakly interconnected._
 - **Why does `wpCommitPlan()` connect `Task 6: Publish inside PLANEN` to `wochenplan.js`, `wpRenderImport`, `wpMe`?**
-  _High betweenness centrality (0.019) - this node is a cross-community bridge._
+  _High betweenness centrality (0.018) - this node is a cross-community bridge._
 - **Should `Timesheet Shifts` be split into smaller, more focused modules?**
   _Cohesion score 0.059574468085106386 - nodes in this community are weakly interconnected._

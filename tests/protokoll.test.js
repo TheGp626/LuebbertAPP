@@ -1309,3 +1309,11 @@ test('saveProtokoll: without a project name nothing is sent (it would be "Unbeka
   await run('saveProtokoll()');
   assert.ok(!sb.calls.some(c => c.table === 'protocols'));
 });
+
+test('protAlreadyMailed: an update goes out only when the protocol changed after its last mail', () => {
+  const f = run('protAlreadyMailed');
+  assert.equal(f({ mailed_at: '2026-11-27T00:04:38Z', edited_at: '2026-11-27T00:02:54Z' }), true);  // this version is out
+  assert.equal(f({ mailed_at: '2026-11-27T00:03:04Z', edited_at: '2026-11-27T00:05:00Z' }), false); // changed again
+  assert.equal(f({ mailed_at: null, edited_at: '2026-11-27T00:02:54Z' }), false);
+  assert.equal(f({ mailed_at: '2026-11-27T00:03:04Z', edited_at: null }), false); // edited_at unknown: send as before
+});

@@ -39,5 +39,6 @@
   "107": "ref_npm_supabase",
   "108": "wpCancelBlock",
   "109": "wpRenderImport",
-  "110": "20261213_lieferschein_nachrang.sql"
+  "110": "20261213_lieferschein_nachrang.sql",
+  "111": "calcProtCosts"
 }
