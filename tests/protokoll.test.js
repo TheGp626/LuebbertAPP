@@ -1317,3 +1317,17 @@ test('protAlreadyMailed: an update goes out only when the protocol changed after
   assert.equal(f({ mailed_at: null, edited_at: '2026-11-27T00:02:54Z' }), false);
   assert.equal(f({ mailed_at: '2026-11-27T00:03:04Z', edited_at: null }), false); // edited_at unknown: send as before
 });
+
+test('AppDev: protIsAppDev matches only the action AppDev', () => {
+  assert.equal(run('protIsAppDev')('AppDev'), true);
+  assert.equal(run('protIsAppDev')('Aufbau'), false);
+  assert.equal(run('protIsAppDev')(undefined), false);
+});
+
+test('AppDev: only Patryk\'s live and testing accounts may choose it', () => {
+  const allowed = run('protAppDevAllowed');
+  assert.equal(allowed('4e71084c-4942-4565-ade5-974a0c3480f4'), true);
+  assert.equal(allowed('977135e4-9029-4efc-a778-33cae8f29237'), true);
+  assert.equal(allowed('someone-else'), false);
+  assert.equal(allowed(null), false);
+});

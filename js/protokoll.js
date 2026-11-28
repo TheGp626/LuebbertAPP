@@ -1368,6 +1368,18 @@ function openProtCostSheet() {
 // ── SECTIONS (redesign): navigation chips with check marks; hints only, Senden stays allowed ──
 var PROT_SECTIONS = [['basis', 'Basis'], ['transport', 'Transport'], ['equipment', 'Equipment'], ['personal', 'Personal'], ['vorkommnisse', 'Vorkommnisse'], ['unterschrift', 'Unterschrift']];
 var PROT_ACTIONS = ['Aufbau', 'Teilaufbau', 'Umbau', 'Teilabbau', 'Abbau'];
+// AppDev: a reduced protocol for work on the app itself; only Patryk's accounts (live, testing) see the option (UI-only gate)
+var PROT_APPDEV_USER_IDS = ['4e71084c-4942-4565-ade5-974a0c3480f4', '977135e4-9029-4efc-a778-33cae8f29237'];
+function protIsAppDev(action) { return action === 'AppDev'; }
+function protAppDevAllowed(userId) { return !!userId && PROT_APPDEV_USER_IDS.indexOf(userId) !== -1; }
+// Shows the AppDev button for allowed accounts; anyone else (e.g. a draft left on a shared phone) falls back to Aufbau
+function protApplyAppDevUi() {
+  var ok = protAppDevAllowed(typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null);
+  var btn = document.querySelector('#prot-action-seg button[data-value="AppDev"]');
+  if (btn) { btn.hidden = !ok; btn.style.display = ok ? '' : 'none'; } // inline style: a button rule could override [hidden]
+  var sel = document.getElementById('prot-action');
+  if (sel && !ok && protIsAppDev(sel.value)) sel.value = 'Aufbau';
+}
 var protTransportOpened = false;
 
 // state = protState; basis = {event, date, alId}; opened = {transport} (section looked at, "bewusst keiner")
@@ -1459,6 +1471,7 @@ function scrollProtSection(id) { protGoStep(id); }
 
 // Aktion as a segmented control; the hidden #prot-action select stays the data source
 function syncProtActionSeg() {
+  protApplyAppDevUi();
   var sel = document.getElementById('prot-action'), seg = document.getElementById('prot-action-seg');
   if (!sel || !seg) return;
   seg.querySelectorAll('button').forEach(function(b) { b.classList.toggle('active', b.dataset.value === sel.value); });
