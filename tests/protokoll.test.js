@@ -1374,3 +1374,19 @@ test('AppDev PDF: other actions keep the normal protocol PDF', () => {
   const t = appDevPdfTexts(Object.assign({}, appDevEntry, { action: 'Aufbau' }), { costs: true });
   assert.ok(t.includes('Einsatzprotokoll') && t.includes('Logistik & Transport') && !t.includes('Entwicklungsprotokoll'));
 });
+
+test('AppDev save drops leftover crew parts: transports, equipment statuses, Fehlmengen (default Hängerzug must not be charged)', () => {
+  const d = { action: 'AppDev', transports: [{ type: 'Hängerzug' }], categories: { mobiliar: { status: 'beschädigt' } }, shortages: [{ name: 'x' }], personnel: [{ name: 'P' }], totalCost: '90,00 €' };
+  const out = run('protApplySide')(d, null);
+  assert.deepEqual(JSON.parse(JSON.stringify([out.transports, out.categories, out.shortages])), [[], {}, []]);
+  assert.equal(out.personnel.length, 1);
+  const crew = run('protApplySide')(Object.assign({}, d, { action: 'Aufbau' }), null);
+  assert.equal(crew.transports.length, 1);
+  assert.equal(crew.categories.mobiliar.status, 'beschädigt');
+});
+
+test('AppDev cost calculation ignores transports', () => {
+  const st = { transports: [{ type: 'Hängerzug' }], personnel: [] };
+  assert.equal(run('protCostState')(st, 'AppDev').transports.length, 0);
+  assert.equal(run('protCostState')(st, 'Aufbau').transports.length, 1);
+});
