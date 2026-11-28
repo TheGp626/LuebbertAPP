@@ -1345,3 +1345,32 @@ test('AppDev: protVisibleSectionIds for a Zusatzauftrag is unchanged (no transpo
   const side = run('protVisibleSectionIds')('Aufbau', true);
   assert.ok(!side.includes('transport') && !side.includes('personal') && side.includes('equipment'));
 });
+
+function appDevPdfTexts(entry, opts) {
+  const fd = fakeDoc(); ctx.jspdf = { jsPDF: function() { return fd.doc; } }; ctx.__e = entry; ctx.__o = opts;
+  run('buildProtPdfDoc(__e, __o)'); return fd.texts.join('\n');
+}
+const appDevEntry = {
+  event: 'App-Entwicklung', location: 'Büro', jobNo: '26-0001', date: '2026-11-28', action: 'AppDev', al: 'Patryk', pl: 'Jenni',
+  transports: [], categories: {}, totalCost: '90,00 €',
+  personnel: [{ pos: 'AL', userId: 'u1', name: 'Patryk', start: '10:00', end: '11:30', pause: 0 }],
+  incidents: 'Fehlerlog filtert Netzwerkfehler', feedback: 'Fehlerberichte untersucht', damages: 'nein',
+};
+
+test('AppDev PDF: own layout with Netto and Abgerechnet (3 h minimum), notes, costs, no Ort/Projekt-Nr./Logistik', () => {
+  const t = appDevPdfTexts(appDevEntry, { costs: true });
+  for (const want of ['Entwicklungsprotokoll', 'Arbeitszeit', 'Was ist neu in der App', 'Woran ich gearbeitet habe', '1,5 h', '3,0 h', 'Gesamtkosten', 'Unterschrift'])
+    assert.ok(t.includes(want), want + ' missing in:\n' + t);
+  for (const no of ['Ort:', 'Projekt-Nr.', 'Logistik', 'Equipment', 'Einsatzprotokoll'])
+    assert.ok(!t.includes(no), no + ' must not appear');
+});
+
+test('AppDev PDF: no personnel and no notes still builds', () => {
+  const t = appDevPdfTexts(Object.assign({}, appDevEntry, { personnel: [], incidents: '', feedback: '' }), { costs: false });
+  assert.ok(t.includes('Entwicklungsprotokoll') && t.includes('Keine Personaldaten'));
+});
+
+test('AppDev PDF: other actions keep the normal protocol PDF', () => {
+  const t = appDevPdfTexts(Object.assign({}, appDevEntry, { action: 'Aufbau' }), { costs: true });
+  assert.ok(t.includes('Einsatzprotokoll') && t.includes('Logistik & Transport') && !t.includes('Entwicklungsprotokoll'));
+});

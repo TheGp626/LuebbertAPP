@@ -2674,6 +2674,71 @@ function protPdfFileName(entry) {
 
 // Builds the protocol PDF from an archived history entry (shared by download and mail)
 // opts.costs === false leaves out the cost block (AL/MA downloads); the mailed PDF for the PL keeps it
+// AppDev PDF (look agreed 28.11.): header band, Arbeitszeit table with Netto and Abgerechnet (3 h minimum via shiftNetHours),
+// the two notes as bullet lists, costs (when asked for) and the AL signature. No Ort, Projekt-Nr., transport or equipment.
+function protAppDevPdf(doc, data, entry, opts, ml, cw) {
+  var hrs = function(h) { return h.toFixed(1).replace('.', ',') + ' h'; };
+  doc.setFillColor(22, 41, 61); doc.rect(0, 0, 210, 36, 'F');
+  doc.setFillColor(47, 143, 131); doc.rect(0, 36, 210, 1.6, 'F');
+  if (typeof LOGO_BASE64 !== 'undefined') {
+    try { var lw = 26, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100; doc.setFillColor(255, 255, 255); doc.rect(162, 7, lw + 4, lh + 4, 'F'); doc.addImage(LOGO_BASE64, 'PNG', 164, 9, lw, lh); } catch(e) {}
+  }
+  doc.setTextColor(255); doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text('Entwicklungsprotokoll', ml, 18);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(169, 186, 203);
+  doc.text('Arbeit an der Lübbert App · Version ' + pdfStr(typeof getAppVersion === 'function' ? getAppVersion() : '', '?'), ml, 26); doc.setTextColor(0);
+  var y = 48, put = function(label, val, x, yy) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(110); doc.text(label, x, yy);
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(0); doc.text(val, x + 18, yy);
+  };
+  put('Datum', data.date, ml, y); put('Aktion', data.action, ml + 80, y);
+  put('AL', data.al, ml, y + 6); put('PL', data.pl, ml + 80, y + 6); y += 18;
+
+  var heading = function(t) { if (y > 262) { doc.addPage(); y = 20; } doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(47, 143, 131); doc.text(t, ml, y); doc.setTextColor(0); y += 6; };
+  heading('Arbeitszeit');
+  if (!data.personnel.length) {
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.text('Keine Personaldaten.', ml, y); y += 8;
+  } else {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(110);
+    [['Pos', 0], ['Name', 22], ['Zeit', 70], ['Pause', 105], ['Netto', 125], ['Abgerechnet', 145]].forEach(function(c) { doc.text(c[0], ml + c[1], y); });
+    doc.setTextColor(0); doc.setFont('helvetica', 'normal'); doc.setFontSize(9); y += 5;
+    data.personnel.forEach(function(p) {
+      var v = timeToMins(p.start), b = timeToMins(p.end), pa = parseInt(p.pause) || 0;
+      var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
+      var ok = v !== null && b !== null && effB > v;
+      var netto = ok ? Math.max(0, effB - v - pa) / 60 : 0, billed = ok ? shiftNetHours({ von: p.start, bis: p.end, pause: pa }) : 0;
+      doc.text(pdfStr(p.pos, 'AL'), ml, y); doc.text(truncatePdf(doc, pdfStr(p.name, '—'), 45), ml + 22, y);
+      doc.text(ok ? p.start + ' – ' + p.end : '—', ml + 70, y); doc.text(String(pa), ml + 105, y);
+      doc.text(ok ? hrs(netto) : '—', ml + 125, y);
+      doc.setFont('helvetica', 'bold'); doc.text(ok ? hrs(billed) : '—', ml + 145, y); doc.setFont('helvetica', 'normal');
+      y += 7;
+    });
+  }
+  y += 4;
+  var bullets = function(title, text) {
+    heading(title);
+    var lines = String(text || '').split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l && !/^(nein|—)$/i.test(l); });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    if (!lines.length) { doc.setTextColor(120); doc.text('—', ml, y); doc.setTextColor(0); y += 7; return; }
+    lines.forEach(function(l) {
+      doc.splitTextToSize(l, cw - 8).forEach(function(w, i) { if (y > 278) { doc.addPage(); y = 20; } if (i === 0) doc.text('•', ml, y); doc.text(w, ml + 5, y); y += 4.6; });
+    });
+    y += 5;
+  };
+  bullets('Was ist neu in der App', entry.incidents);
+  bullets('Woran ich gearbeitet habe', entry.feedback);
+
+  if (y > 240) { doc.addPage(); y = 20; }
+  doc.setDrawColor(200); doc.setLineWidth(0.3); doc.line(ml, y, ml + cw, y); y += 8;
+  if (!opts || opts.costs !== false) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.text('Gesamtkosten (geschätzt): ' + data.totalCost, ml, y); y += 10;
+  }
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.text('Unterschrift AL:', ml, y); y += 4;
+  if (entry.signature) { try { doc.addImage(entry.signature, 'JPEG', ml, y, 70, 22); } catch(e) {} }
+  y += 24; doc.setDrawColor(150); doc.line(ml, y, ml + 70, y);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(120); doc.text(data.al || 'AL', ml, y + 4); doc.setTextColor(0);
+  return doc;
+}
+
 function buildProtPdfDoc(entry, opts) {
   // Everything that reaches doc.text is a string (jsPDF throws on numbers/null)
   var data = {
@@ -2694,6 +2759,7 @@ function buildProtPdfDoc(entry, opts) {
   try {
 
   var doc = pdfPatch(new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })), ml = 20, cw = 170;
+  if (protIsAppDev(data.action)) return protAppDevPdf(doc, data, entry, opts, ml, cw);
   if (typeof LOGO_BASE64 !== 'undefined') {
     try { var lw = 30, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100; doc.addImage(LOGO_BASE64, 'PNG', 160, 10, lw, lh); } catch(e) {}
   }
