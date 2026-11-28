@@ -155,6 +155,8 @@ function protSideCandidates(list, date, editingId) {
 }
 // What a Zusatz saves: no crew, no vehicles, no cost
 function protApplySide(data, sideOf) {
+  // AppDev hides transport/equipment, so whatever the form still holds there (default Hängerzug, statuses, Fehlmengen) is not saved or charged
+  if (!sideOf && protIsAppDev(data.action)) return Object.assign({}, data, { sideOf: null, transports: [], categories: {}, shortages: [] });
   if (!sideOf) return Object.assign({}, data, { sideOf: null });
   return Object.assign({}, data, { sideOf: sideOf, personnel: [], transports: [], totalCost: '0,00 €' });
 }
@@ -1325,6 +1327,8 @@ function protCostLines(state, date, holiday) {
 }
 
 var protLastCost = { lines: [], total: 0 };
+// The state the cost lines are built from: AppDev never charges transports
+function protCostState(state, action) { return protIsAppDev(action) ? Object.assign({}, state, { transports: [] }) : state; }
 
 function calcProtCosts() {
   // Read date and holiday directly from the DOM so live edits are reflected
@@ -1333,7 +1337,7 @@ function calcProtCosts() {
   var currentDate    = (dateEl && dateEl.value)       ? dateEl.value    : (protState.date    || localDateStr());
   var currentHoliday = (holidayEl)                    ? holidayEl.checked : (protState.holiday || false);
 
-  protLastCost = protCostLines(protState, currentDate, currentHoliday);
+  protLastCost = protCostLines(protCostState(protState, protCurrentAction()), currentDate, currentHoliday);
   var el = document.getElementById('prot-total-cost');
   if (el) el.textContent = protLastCost.total.toFixed(2).replace('.', ',');
 }
@@ -1402,7 +1406,7 @@ function protApplyAppDevUi() {
   var btn = document.querySelector('#prot-action-seg button[data-value="AppDev"]');
   if (btn) { btn.hidden = !ok; btn.style.display = ok ? '' : 'none'; } // inline style: a button rule could override [hidden]
   var sel = document.getElementById('prot-action');
-  if (sel && !ok && protIsAppDev(sel.value)) { sel.value = 'Aufbau'; if (typeof renderProtSectionNav === 'function') renderProtSectionNav(); }
+  if (sel && !ok && protIsAppDev(sel.value) && !(protState && protState.editingId)) { sel.value = 'Aufbau'; if (typeof renderProtSectionNav === 'function') renderProtSectionNav(); }
 }
 var protTransportOpened = false;
 
@@ -1511,6 +1515,7 @@ function setProtAction(v) {
   syncProtActionSeg();
   protApplyAppDevLabels();
   renderProtSectionNav();
+  calcProtCosts();
   if (protState.shortages !== null && protState.shortages !== undefined) refreshProtShortages();
 }
 
@@ -2629,6 +2634,7 @@ function loadProtFromHistory(id) {
   
   protState.editingLocalId = id;
   protState.editingId = entry.supabaseId || null;
+  syncProtActionSeg(); // AppDev labels, hidden damages field and step bar follow the loaded action
   protState.sideOf = entry.sideOf || null;
   renderProtSide();
   if (document.getElementById('prot-job')) document.getElementById('prot-job').value = entry.jobNo || '';
