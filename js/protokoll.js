@@ -1372,6 +1372,30 @@ var PROT_ACTIONS = ['Aufbau', 'Teilaufbau', 'Umbau', 'Teilabbau', 'Abbau'];
 var PROT_APPDEV_USER_IDS = ['4e71084c-4942-4565-ade5-974a0c3480f4', '977135e4-9029-4efc-a778-33cae8f29237'];
 function protIsAppDev(action) { return action === 'AppDev'; }
 function protAppDevAllowed(userId) { return !!userId && PROT_APPDEV_USER_IDS.indexOf(userId) !== -1; }
+// Which of PROT_SECTIONS the form shows: a Zusatzauftrag has no transport/personal, AppDev no transport/equipment
+function protVisibleSectionIds(action, side) {
+  return PROT_SECTIONS.map(function(s) { return s[0]; }).filter(function(id) {
+    if (side && (id === 'transport' || id === 'personal')) return false;
+    return !(protIsAppDev(action) && (id === 'transport' || id === 'equipment'));
+  });
+}
+function protCurrentAction() { var el = document.getElementById('prot-action'); return el ? el.value : ''; }
+// AppDev renames the two notes (incidents = was ist neu, feedback = woran gearbeitet) and hides the damages field
+var PROT_NOTE_LABELS = {
+  damages: ['Beschädigungen / Mängel', null],
+  incidents: ['Besondere Vorkommnisse', 'Was ist neu in der App'],
+  feedback: ['Feedback zur Location / Sonstiges', 'Woran ich gearbeitet habe']
+};
+function protApplyAppDevLabels() {
+  var dev = protIsAppDev(protCurrentAction());
+  Object.keys(PROT_NOTE_LABELS).forEach(function(k) {
+    var ta = document.getElementById('prot-' + k), label = ta && ta.closest('label');
+    if (!label) return;
+    var span = label.querySelector('span'), names = PROT_NOTE_LABELS[k];
+    label.style.display = dev && !names[1] ? 'none' : '';
+    if (span) span.textContent = dev && names[1] ? names[1] : names[0];
+  });
+}
 // Shows the AppDev button for allowed accounts; anyone else (e.g. a draft left on a shared phone) falls back to Aufbau
 function protApplyAppDevUi() {
   var ok = protAppDevAllowed(typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null);
@@ -1406,7 +1430,8 @@ function renderProtSectionNav() {
   if (!nav) return;
   var st = protSectionStatus(protState, protBasisValues(), { transport: protTransportOpened });
   var side = !!protState.sideOf || protSideOn();
-  var vis = PROT_SECTIONS.filter(function(s) { return !side || (s[0] !== 'transport' && s[0] !== 'personal'); });
+  var visIds = protVisibleSectionIds(protCurrentAction(), side);
+  var vis = PROT_SECTIONS.filter(function(s) { return visIds.indexOf(s[0]) !== -1; });
   var step = protStepState(vis.map(function(s) { return s[0]; }), protStep);
   protStep = vis[step.index][0];
   nav.innerHTML = vis.map(function(s, i) {
@@ -1455,7 +1480,7 @@ function protGoStep(id) {
 }
 function protCurrentStep() {
   var side = !!protState.sideOf || protSideOn();
-  var ids = PROT_SECTIONS.map(function(s) { return s[0]; }).filter(function(id) { return !side || (id !== 'transport' && id !== 'personal'); });
+  var ids = protVisibleSectionIds(protCurrentAction(), side);
   return protStepState(ids, protStep);
 }
 function protStepBack() { var s = protCurrentStep(); if (s.prev) protGoStep(s.prev); }
@@ -1472,6 +1497,7 @@ function scrollProtSection(id) { protGoStep(id); }
 // Aktion as a segmented control; the hidden #prot-action select stays the data source
 function syncProtActionSeg() {
   protApplyAppDevUi();
+  protApplyAppDevLabels();
   var sel = document.getElementById('prot-action'), seg = document.getElementById('prot-action-seg');
   if (!sel || !seg) return;
   seg.querySelectorAll('button').forEach(function(b) { b.classList.toggle('active', b.dataset.value === sel.value); });
@@ -1483,6 +1509,8 @@ function setProtAction(v) {
   sel.value = v;
   sel.dispatchEvent(new Event('change'));
   syncProtActionSeg();
+  protApplyAppDevLabels();
+  renderProtSectionNav();
   if (protState.shortages !== null && protState.shortages !== undefined) refreshProtShortages();
 }
 

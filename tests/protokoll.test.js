@@ -1331,3 +1331,17 @@ test('AppDev: only Patryk\'s live and testing accounts may choose it', () => {
   assert.equal(allowed('someone-else'), false);
   assert.equal(allowed(null), false);
 });
+
+test('AppDev: protVisibleSectionIds hides transport and equipment only for AppDev', () => {
+  const ids = run('protVisibleSectionIds');
+  const all = ids('Aufbau', false);
+  assert.ok(all.includes('transport') && all.includes('equipment') && all.includes('personal'));
+  const dev = ids('AppDev', false);
+  assert.ok(!dev.includes('transport') && !dev.includes('equipment'));
+  assert.ok(['basis', 'personal', 'vorkommnisse', 'unterschrift'].every(x => dev.includes(x)), dev.join());
+});
+
+test('AppDev: protVisibleSectionIds for a Zusatzauftrag is unchanged (no transport, no personal)', () => {
+  const side = run('protVisibleSectionIds')('Aufbau', true);
+  assert.ok(!side.includes('transport') && !side.includes('personal') && side.includes('equipment'));
+});
