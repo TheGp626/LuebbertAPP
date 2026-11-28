@@ -64,3 +64,16 @@ test('buildBody: a Zusatzauftrag names its main protocol instead of "Personal: 0
   const plain = buildBody(Object.assign({}, p, { side_of: null, main: null, shifts: [{}, {}] })).text;
   assert.match(plain, /Personal: 2/);
 });
+
+test('AppDev body: own headings, no crew sections', () => {
+  const dev = { ...base, action: 'AppDev', notes_damages: 'x', notes_incidents: 'Fehlerlog gefiltert', notes_feedback: 'Fehler untersucht' };
+  const { text } = buildBody(dev);
+  assert.ok(text.includes('Was ist neu in der App:\n- Fehlerlog gefiltert'));
+  assert.ok(text.includes('Woran ich gearbeitet habe:\n- Fehler untersucht'));
+  for (const no of ['Besondere Vorkommnisse', 'Feedback Location', 'Mängel', 'Gewerke', 'Bewertung'])
+    assert.ok(!text.includes(no), no);
+});
+test('non-AppDev body keeps the crew headings', () => {
+  const { text } = buildBody({ ...base, notes_incidents: 'Stau' });
+  assert.ok(text.includes('Besondere Vorkommnisse') && !text.includes('Was ist neu in der App'));
+});

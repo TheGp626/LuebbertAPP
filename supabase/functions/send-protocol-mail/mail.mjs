@@ -67,6 +67,12 @@ function summaryRows(p) {
 
 function sections(p) {
   const out = [];
+  // AppDev (work on the app itself): only the two notes, under their own headings
+  if (actionText(p) === 'AppDev') {
+    if (!isEmptyNote(p.notes_incidents)) out.push(['Was ist neu in der App', [p.notes_incidents]]);
+    if (!isEmptyNote(p.notes_feedback)) out.push(['Woran ich gearbeitet habe', [p.notes_feedback]]);
+    return out;
+  }
   const issues = (p.protocol_equipments || [])
     .filter(eq => eq.status && eq.status !== 'okay')
     .map(eq => `${GEWERKE_LABELS[eq.category_id] || eq.category_id}: ${eq.status}` + (eq.note ? ` – ${eq.note}` : ''));
