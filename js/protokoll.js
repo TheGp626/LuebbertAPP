@@ -1402,7 +1402,7 @@ function protApplyAppDevUi() {
   var btn = document.querySelector('#prot-action-seg button[data-value="AppDev"]');
   if (btn) { btn.hidden = !ok; btn.style.display = ok ? '' : 'none'; } // inline style: a button rule could override [hidden]
   var sel = document.getElementById('prot-action');
-  if (sel && !ok && protIsAppDev(sel.value)) sel.value = 'Aufbau';
+  if (sel && !ok && protIsAppDev(sel.value)) { sel.value = 'Aufbau'; if (typeof renderProtSectionNav === 'function') renderProtSectionNav(); }
 }
 var protTransportOpened = false;
 
