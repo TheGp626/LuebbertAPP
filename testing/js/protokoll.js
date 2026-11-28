@@ -155,6 +155,8 @@ function protSideCandidates(list, date, editingId) {
 }
 // What a Zusatz saves: no crew, no vehicles, no cost
 function protApplySide(data, sideOf) {
+  // AppDev hides transport/equipment, so whatever the form still holds there (default Hängerzug, statuses, Fehlmengen) is not saved or charged
+  if (!sideOf && protIsAppDev(data.action)) return Object.assign({}, data, { sideOf: null, transports: [], categories: {}, shortages: [] });
   if (!sideOf) return Object.assign({}, data, { sideOf: null });
   return Object.assign({}, data, { sideOf: sideOf, personnel: [], transports: [], totalCost: '0,00 €' });
 }
@@ -1325,6 +1327,8 @@ function protCostLines(state, date, holiday) {
 }
 
 var protLastCost = { lines: [], total: 0 };
+// The state the cost lines are built from: AppDev never charges transports
+function protCostState(state, action) { return protIsAppDev(action) ? Object.assign({}, state, { transports: [] }) : state; }
 
 function calcProtCosts() {
   // Read date and holiday directly from the DOM so live edits are reflected
@@ -1333,7 +1337,7 @@ function calcProtCosts() {
   var currentDate    = (dateEl && dateEl.value)       ? dateEl.value    : (protState.date    || localDateStr());
   var currentHoliday = (holidayEl)                    ? holidayEl.checked : (protState.holiday || false);
 
-  protLastCost = protCostLines(protState, currentDate, currentHoliday);
+  protLastCost = protCostLines(protCostState(protState, protCurrentAction()), currentDate, currentHoliday);
   var el = document.getElementById('prot-total-cost');
   if (el) el.textContent = protLastCost.total.toFixed(2).replace('.', ',');
 }
@@ -1368,6 +1372,42 @@ function openProtCostSheet() {
 // ── SECTIONS (redesign): navigation chips with check marks; hints only, Senden stays allowed ──
 var PROT_SECTIONS = [['basis', 'Basis'], ['transport', 'Transport'], ['equipment', 'Equipment'], ['personal', 'Personal'], ['vorkommnisse', 'Vorkommnisse'], ['unterschrift', 'Unterschrift']];
 var PROT_ACTIONS = ['Aufbau', 'Teilaufbau', 'Umbau', 'Teilabbau', 'Abbau'];
+// AppDev: a reduced protocol for work on the app itself; only Patryk's accounts (live, testing) see the option (UI-only gate)
+var PROT_APPDEV_USER_IDS = ['4e71084c-4942-4565-ade5-974a0c3480f4', '977135e4-9029-4efc-a778-33cae8f29237'];
+function protIsAppDev(action) { return action === 'AppDev'; }
+function protAppDevAllowed(userId) { return !!userId && PROT_APPDEV_USER_IDS.indexOf(userId) !== -1; }
+// Which of PROT_SECTIONS the form shows: a Zusatzauftrag has no transport/personal, AppDev no transport/equipment
+function protVisibleSectionIds(action, side) {
+  return PROT_SECTIONS.map(function(s) { return s[0]; }).filter(function(id) {
+    if (side && (id === 'transport' || id === 'personal')) return false;
+    return !(protIsAppDev(action) && (id === 'transport' || id === 'equipment'));
+  });
+}
+function protCurrentAction() { var el = document.getElementById('prot-action'); return el ? el.value : ''; }
+// AppDev renames the two notes (incidents = was ist neu, feedback = woran gearbeitet) and hides the damages field
+var PROT_NOTE_LABELS = {
+  damages: ['Beschädigungen / Mängel', null],
+  incidents: ['Besondere Vorkommnisse', 'Was ist neu in der App'],
+  feedback: ['Feedback zur Location / Sonstiges', 'Woran ich gearbeitet habe']
+};
+function protApplyAppDevLabels() {
+  var dev = protIsAppDev(protCurrentAction());
+  Object.keys(PROT_NOTE_LABELS).forEach(function(k) {
+    var ta = document.getElementById('prot-' + k), label = ta && ta.closest('label');
+    if (!label) return;
+    var span = label.querySelector('span'), names = PROT_NOTE_LABELS[k];
+    label.style.display = dev && !names[1] ? 'none' : '';
+    if (span) span.textContent = dev && names[1] ? names[1] : names[0];
+  });
+}
+// Shows the AppDev button for allowed accounts; anyone else (e.g. a draft left on a shared phone) falls back to Aufbau
+function protApplyAppDevUi() {
+  var ok = protAppDevAllowed(typeof currentUser !== 'undefined' && currentUser ? currentUser.id : null);
+  var btn = document.querySelector('#prot-action-seg button[data-value="AppDev"]');
+  if (btn) { btn.hidden = !ok; btn.style.display = ok ? '' : 'none'; } // inline style: a button rule could override [hidden]
+  var sel = document.getElementById('prot-action');
+  if (sel && !ok && protIsAppDev(sel.value) && !(protState && protState.editingId)) { sel.value = 'Aufbau'; if (typeof renderProtSectionNav === 'function') renderProtSectionNav(); }
+}
 var protTransportOpened = false;
 
 // state = protState; basis = {event, date, alId}; opened = {transport} (section looked at, "bewusst keiner")
@@ -1394,7 +1434,8 @@ function renderProtSectionNav() {
   if (!nav) return;
   var st = protSectionStatus(protState, protBasisValues(), { transport: protTransportOpened });
   var side = !!protState.sideOf || protSideOn();
-  var vis = PROT_SECTIONS.filter(function(s) { return !side || (s[0] !== 'transport' && s[0] !== 'personal'); });
+  var visIds = protVisibleSectionIds(protCurrentAction(), side);
+  var vis = PROT_SECTIONS.filter(function(s) { return visIds.indexOf(s[0]) !== -1; });
   var step = protStepState(vis.map(function(s) { return s[0]; }), protStep);
   protStep = vis[step.index][0];
   nav.innerHTML = vis.map(function(s, i) {
@@ -1443,7 +1484,7 @@ function protGoStep(id) {
 }
 function protCurrentStep() {
   var side = !!protState.sideOf || protSideOn();
-  var ids = PROT_SECTIONS.map(function(s) { return s[0]; }).filter(function(id) { return !side || (id !== 'transport' && id !== 'personal'); });
+  var ids = protVisibleSectionIds(protCurrentAction(), side);
   return protStepState(ids, protStep);
 }
 function protStepBack() { var s = protCurrentStep(); if (s.prev) protGoStep(s.prev); }
@@ -1459,6 +1500,8 @@ function scrollProtSection(id) { protGoStep(id); }
 
 // Aktion as a segmented control; the hidden #prot-action select stays the data source
 function syncProtActionSeg() {
+  protApplyAppDevUi();
+  protApplyAppDevLabels();
   var sel = document.getElementById('prot-action'), seg = document.getElementById('prot-action-seg');
   if (!sel || !seg) return;
   seg.querySelectorAll('button').forEach(function(b) { b.classList.toggle('active', b.dataset.value === sel.value); });
@@ -1470,6 +1513,9 @@ function setProtAction(v) {
   sel.value = v;
   sel.dispatchEvent(new Event('change'));
   syncProtActionSeg();
+  protApplyAppDevLabels();
+  renderProtSectionNav();
+  calcProtCosts();
   if (protState.shortages !== null && protState.shortages !== undefined) refreshProtShortages();
 }
 
@@ -2588,6 +2634,7 @@ function loadProtFromHistory(id) {
   
   protState.editingLocalId = id;
   protState.editingId = entry.supabaseId || null;
+  syncProtActionSeg(); // AppDev labels, hidden damages field and step bar follow the loaded action
   protState.sideOf = entry.sideOf || null;
   renderProtSide();
   if (document.getElementById('prot-job')) document.getElementById('prot-job').value = entry.jobNo || '';
@@ -2633,6 +2680,71 @@ function protPdfFileName(entry) {
 
 // Builds the protocol PDF from an archived history entry (shared by download and mail)
 // opts.costs === false leaves out the cost block (AL/MA downloads); the mailed PDF for the PL keeps it
+// AppDev PDF (look agreed 28.11.): header band, Arbeitszeit table with Netto and Abgerechnet (3 h minimum via shiftNetHours),
+// the two notes as bullet lists, costs (when asked for) and the AL signature. No Ort, Projekt-Nr., transport or equipment.
+function protAppDevPdf(doc, data, entry, opts, ml, cw) {
+  var hrs = function(h) { return h.toFixed(1).replace('.', ',') + ' h'; };
+  doc.setFillColor(22, 41, 61); doc.rect(0, 0, 210, 36, 'F');
+  doc.setFillColor(47, 143, 131); doc.rect(0, 36, 210, 1.6, 'F');
+  if (typeof LOGO_BASE64 !== 'undefined') {
+    try { var lw = 26, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100; doc.setFillColor(255, 255, 255); doc.rect(162, 7, lw + 4, lh + 4, 'F'); doc.addImage(LOGO_BASE64, 'PNG', 164, 9, lw, lh); } catch(e) {}
+  }
+  doc.setTextColor(255); doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.text('Entwicklungsprotokoll', ml, 18);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(169, 186, 203);
+  doc.text('Arbeit an der Lübbert App · Version ' + pdfStr(typeof getAppVersion === 'function' ? getAppVersion() : '', '?'), ml, 26); doc.setTextColor(0);
+  var y = 48, put = function(label, val, x, yy) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(110); doc.text(label, x, yy);
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(0); doc.text(val, x + 18, yy);
+  };
+  put('Datum', data.date, ml, y); put('Aktion', data.action, ml + 80, y);
+  put('AL', data.al, ml, y + 6); put('PL', data.pl, ml + 80, y + 6); y += 18;
+
+  var heading = function(t) { if (y > 262) { doc.addPage(); y = 20; } doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(47, 143, 131); doc.text(t, ml, y); doc.setTextColor(0); y += 6; };
+  heading('Arbeitszeit');
+  if (!data.personnel.length) {
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.text('Keine Personaldaten.', ml, y); y += 8;
+  } else {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(110);
+    [['Pos', 0], ['Name', 22], ['Zeit', 70], ['Pause', 105], ['Netto', 125], ['Abgerechnet', 145]].forEach(function(c) { doc.text(c[0], ml + c[1], y); });
+    doc.setTextColor(0); doc.setFont('helvetica', 'normal'); doc.setFontSize(9); y += 5;
+    data.personnel.forEach(function(p) {
+      var v = timeToMins(p.start), b = timeToMins(p.end), pa = parseInt(p.pause) || 0;
+      var effB = (b !== null && v !== null && b < v) ? b + 1440 : b;
+      var ok = v !== null && b !== null && effB > v;
+      var netto = ok ? Math.max(0, effB - v - pa) / 60 : 0, billed = ok ? shiftNetHours({ von: p.start, bis: p.end, pause: pa }) : 0;
+      doc.text(pdfStr(p.pos, 'AL'), ml, y); doc.text(truncatePdf(doc, pdfStr(p.name, '—'), 45), ml + 22, y);
+      doc.text(ok ? p.start + ' – ' + p.end : '—', ml + 70, y); doc.text(String(pa), ml + 105, y);
+      doc.text(ok ? hrs(netto) : '—', ml + 125, y);
+      doc.setFont('helvetica', 'bold'); doc.text(ok ? hrs(billed) : '—', ml + 145, y); doc.setFont('helvetica', 'normal');
+      y += 7;
+    });
+  }
+  y += 4;
+  var bullets = function(title, text) {
+    heading(title);
+    var lines = String(text || '').split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l && !/^(nein|—)$/i.test(l); });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    if (!lines.length) { doc.setTextColor(120); doc.text('—', ml, y); doc.setTextColor(0); y += 7; return; }
+    lines.forEach(function(l) {
+      doc.splitTextToSize(l, cw - 8).forEach(function(w, i) { if (y > 278) { doc.addPage(); y = 20; } if (i === 0) doc.text('•', ml, y); doc.text(w, ml + 5, y); y += 4.6; });
+    });
+    y += 5;
+  };
+  bullets('Was ist neu in der App', entry.incidents);
+  bullets('Woran ich gearbeitet habe', entry.feedback);
+
+  if (y > 240) { doc.addPage(); y = 20; }
+  doc.setDrawColor(200); doc.setLineWidth(0.3); doc.line(ml, y, ml + cw, y); y += 8;
+  if (!opts || opts.costs !== false) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.text('Gesamtkosten (geschätzt): ' + data.totalCost, ml, y); y += 10;
+  }
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.text('Unterschrift AL:', ml, y); y += 4;
+  if (entry.signature) { try { doc.addImage(entry.signature, 'JPEG', ml, y, 70, 22); } catch(e) {} }
+  y += 24; doc.setDrawColor(150); doc.line(ml, y, ml + 70, y);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(120); doc.text(data.al || 'AL', ml, y + 4); doc.setTextColor(0);
+  return doc;
+}
+
 function buildProtPdfDoc(entry, opts) {
   // Everything that reaches doc.text is a string (jsPDF throws on numbers/null)
   var data = {
@@ -2653,6 +2765,7 @@ function buildProtPdfDoc(entry, opts) {
   try {
 
   var doc = pdfPatch(new jspdf.jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })), ml = 20, cw = 170;
+  if (protIsAppDev(data.action)) return protAppDevPdf(doc, data, entry, opts, ml, cw);
   if (typeof LOGO_BASE64 !== 'undefined') {
     try { var lw = 30, lh = Math.round(lw * (LOGO_H / LOGO_W) * 100) / 100; doc.addImage(LOGO_BASE64, 'PNG', 160, 10, lw, lh); } catch(e) {}
   }
