@@ -11,8 +11,12 @@ Patryk can choose, showing only what an app-work note needs. "Might change to so
 - With AppDev chosen the form hides Logistik & Transport, Equipment & Gewerke, Fehlmengen and the ratings/attendance
   parts; the notes are relabelled "Was ist neu" / "Woran gearbeitet"; Personal stays (his own row: start, end, pause).
 - Saving works as for every protocol: shift in his Stundenzettel (role AL), PL mail, change history, PDF.
-- PDF for AppDev: title "Entwicklungsprotokoll", no Transport/Equipment sections; Personal, notes, costs and signature stay
-  (Patryk's decision, 28.11.).
+- PDF for AppDev (look approved by Patryk via mockup, 28.11.): dark blue header band with teal stripe, logo, title
+  "Entwicklungsprotokoll", subline "Arbeit an der Lübbert App · Version <short build id>". Header fields: Datum, Aktion,
+  AL, PL only (no Ort, no Projekt-Nr.). Sections: "Arbeitszeit" table with columns Pos, Name, Zeit, Pause, Netto,
+  Abgerechnet (the existing 3 h minimum shows in "Abgerechnet", no explanatory line), "Was ist neu in der App",
+  "Woran ich gearbeitet habe" (plain bullet lists), then costs and the AL signature box. No Transport/Equipment sections.
+  Mockup: https://claude.ai/artifact/CUrV21U8EAEfBPU3w4RnpJ (the real PDF uses jsPDF's built-in fonts, same layout).
 
 ## Non-goals
 - No new table, no migration, no new edge function (`protocols.action` is free text).
